@@ -1,0 +1,26 @@
+---
+- name: Get PVE cluster status
+  ansible.builtin.command:
+    cmd: pvecm status
+  failed_when: false
+  changed_when: false
+  register: pvecm_status_result
+- name: Join cluster |
+  when: pvecm_status_result.rc == 2
+  block:
+    - name: Set pve_main_node_ip and host_node_ip
+      ansible.builtin.set_fact:
+        pve_main_node_ip: "{{ lookup('community.general.dig', hostvars[pve_cluster_main_node].ansible_host) }}"
+        host_node_ip: "{{ lookup('community.general.dig', ansible_host) }}"
+    # - name: Get host IP
+    #   ansible.builtin.command:
+    #     cmd: hostname -i
+    #   changed_when: false
+    #   register:
+    #     host_ip_result
+    - name: Join cluster
+      vars:
+        node_cluster_network_ip: "{{ host_node_ip }}"
+      ansible.builtin.command:
+        cmd: pvesh create /cluster/config/join -fingerprint {{ pve_cluster_fingerprint }} -hostname {{ pve_main_node_ip }} -password {{ pve_cluster_main_node_root_password }} # noqa yaml[line-length]
+      changed_when: true

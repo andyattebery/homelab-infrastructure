@@ -1,0 +1,15 @@
+---
+- name: Create config directory
+  ansible.builtin.file:
+    path: "{{ docker_compose_copy_config_dst_directory_path }}"
+    state: directory
+    owner: "{{ ansible_non_become_user_id }}"
+    group: "{{ ansible_non_become_user_gid }}"
+    mode: "0755"
+- name: Copy config file
+  ansible.builtin.copy:
+    src: "{{ docker_compose_copy_config_src_directory_path }}"
+    dest: "{{ docker_compose_copy_config_dst_directory_path }}"
+    owner: "{{ ansible_non_become_user_id }}"
+    group: "{{ ansible_non_become_user_gid }}"
+    mode: "0644"

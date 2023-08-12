@@ -1,0 +1,7 @@
+---
+- name: Run docker compose pull
+  become: false
+  ansible.builtin.command:
+    cmd: "docker compose --file {{ docker_compose_dst_file_path }} --env-file {{ docker_compose_dst_env_path }} pull"
+  register: docker_compose_pull_result
+  changed_when: docker_compose_pull_result.stderr_lines | reject('match', '.*(Pulling|Pulled|Skipped).*') is any

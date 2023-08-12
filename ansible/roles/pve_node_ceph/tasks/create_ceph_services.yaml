@@ -1,0 +1,72 @@
+---
+- name: Get ceph.conf stat
+  ansible.builtin.stat:
+    path: /etc/ceph/ceph.conf
+  register:
+    ceph_conf_stat_result
+- name: Set ceph_conf fact
+  when: ceph_conf_stat_result.stat.exists is true
+  block:
+    - name: Get ceph.conf base64 encoded contents
+      ansible.builtin.slurp:
+        src: /etc/ceph/ceph.conf
+      register: ceph_conf_slurp_result
+    - name: Set ceph_conf fact
+      ansible.builtin.set_fact:
+        ceph_conf: "{{ ceph_conf_slurp_result.content | b64decode }}"
+- name: Set empty ceph_conf fact
+  when: ceph_conf_stat_result.stat.exists is false
+  ansible.builtin.set_fact:
+    ceph_conf: ""
+- name: Get ceph status
+  ansible.builtin.command:
+    cmd: pveceph status
+  register: pveceph_status_result
+  changed_when: false
+- name: Set ceph_monitors, ceph_managers
+  vars:
+    mon_regex: '^\s*(mon:.*$)'
+    mgr_regex: '^\s*(mgr:.*$)'
+  ansible.builtin.set_fact:
+    ceph_monitors: "{{ pveceph_status_result.stdout | regex_search(mon_regex, multiline=True) }}"
+    ceph_managers: "{{ pveceph_status_result.stdout | regex_search(mgr_regex, multiline=True) }}"
+- name: Create ceph monitor
+  # vars:
+  #   monitor_name: "mon.{{ ansible_hostname }}"
+  when: "ansible_hostname not in ceph_monitors"
+  ansible.builtin.command:
+    cmd: pveceph mon create
+  register: pveceph_mon_create_result
+  changed_when: true
+  # changed_when: pveceph_mon_create_result.rc == 0
+  # failed_when: pveceph_mon_create_result.rc != 0 and pveceph_mon_create_result.rc != 255
+- name: Create ceph manager
+  when: "ansible_hostname not in ceph_managers"
+  ansible.builtin.command:
+    cmd: pveceph mgr create
+  register: pveceph_mgr_create_result
+  changed_when: true
+  # changed_when: pveceph_mgr_create_result.rc == 0
+  # failed_when: pveceph_mgr_create_result.rc != 0 and pveceph_mgr_create_result.rc != 255
+- name: Create ceph Metadata Server
+  vars:
+    mds_name: "mds.{{ ansible_hostname }}"
+  when: "mds_name not in ceph_conf"
+  ansible.builtin.command:
+    cmd: pveceph mds create
+  register: pveceph_mds_create_result
+  changed_when: true
+  # changed_when: pveceph_mds_create_result == 0
+  # failed_when: pveceph_mds_create_result.rc != 0 and pveceph_mds_create_result.rc != 255
+- name: Get CRUSH map
+  ansible.builtin.shell:
+    cmd: ceph osd getcrushmap | crushtool -d -
+  register: ceph_crush_map_result
+  changed_when: false
+- name: Create ceph OSD
+  when: "ansible_hostname not in ceph_crush_map_result.stdout"
+  ansible.builtin.command:
+    cmd: pveceph osd create {{ pve_ceph_osd_device }}
+  register: pveceph_osd_create_result
+  changed_when: pveceph_osd_create_result == 0
+  failed_when: pveceph_osd_create_result.rc != 0 # and pveceph_osd_create_result.rc != 25

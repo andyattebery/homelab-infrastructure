@@ -1,0 +1,25 @@
+---
+- name: Get non-become user info
+  ansible.builtin.command:
+    cmd: "id --user {{ ansible_user }}"
+  register: id_user_result
+  changed_when: false
+- name: Set ansible_non_become_user_id
+  ansible.builtin.set_fact:
+    ansible_non_become_user_id: "{{ id_user_result.stdout }}"
+- name: Get non-become user group info
+  ansible.builtin.command:
+    cmd: "id --group {{ ansible_user }}"
+  register: id_group_result
+  changed_when: false
+- name: Set ansible_non_become_user_gid
+  ansible.builtin.set_fact:
+    ansible_non_become_user_gid: "{{ id_group_result.stdout }}"
+- name: Get non-become user home directory
+  ansible.builtin.command:
+    cmd: "echo ~{{ ansible_user }}"
+  register: user_home_dir_result
+  changed_when: false
+- name: Set ansible_non_become_user_home_dir
+  ansible.builtin.set_fact:
+    ansible_non_become_user_home_dir: "{{ user_home_dir_result.stdout }}"

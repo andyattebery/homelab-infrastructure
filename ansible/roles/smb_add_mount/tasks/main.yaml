@@ -1,0 +1,33 @@
+---
+- name: Install cifs-utils
+  ansible.builtin.package:
+    name: cifs-utils
+    state: present
+- name: Create mount directory
+  ansible.builtin.file:
+    path: "{{ smb_share_mount_dir }}"
+    state: directory
+    mode: "0700"
+- name: Create smb credentials directory
+  ansible.builtin.file:
+    path: "{{ smb_credentials_dir }}"
+    state: directory
+    mode: "0700"
+- name: Set smb_credentials_file_path
+  vars:
+    smb_share_name: "{{ smb_share_uri | regex_replace('^//(.*)', '\\1') | replace('/', '_') }}"
+    smb_credentials_filename: "smb_credentials_{{ smb_share_name }}"
+  ansible.builtin.set_fact:
+    smb_credentials_file_path: "{{ (smb_credentials_dir, smb_credentials_filename) | path_join }}"
+- name: Copy smb_credentials file
+  ansible.builtin.template:
+    src: "templates/smb_credentials.j2"
+    dest: "{{ smb_credentials_file_path }}"
+    mode: "0600"
+- name: Add share to fstab
+  ansible.posix.mount:
+    path: "{{ smb_share_mount_dir }}"
+    fstype: cifs
+    src: "{{ smb_share_uri }}"
+    opts: "noserverino,uid={{ smb_share_uid }},gid={{ smb_share_gid }},credentials={{ smb_credentials_file_path }}"
+    state: mounted

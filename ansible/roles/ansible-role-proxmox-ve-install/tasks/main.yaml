@@ -1,0 +1,56 @@
+---
+- name: Add apt key
+  ansible.builtin.get_url:
+    url: "https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_distribution_release }}.gpg"
+    dest: "/etc/apt/trusted.gpg.d/proxmox-release-{{ ansible_distribution_release }}.gpg"
+    owner: root
+    group: root
+    mode: '0644'
+- name: Configure repos
+  ansible.builtin.include_role:
+    name: pve_config
+    tasks_from: configure_repos
+- name: Configure /etc/hosts
+  block:
+    - name: Remove default 127.0.1.1 entry
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        state: absent
+        owner: root
+        group: root
+        mode: '0644'
+    # - name: Get host IP # noqa no-changed-when
+    #   ansible.builtin.command:
+    #     cmd: hostname -i
+    #   changed_when: false
+    #   register:
+    #     host_ip_result
+    - name: Set proxmox_host_ip
+      ansible.builtin.set_fact:
+        proxmox_host_ip: "{{ lookup('community.general.dig', ansible_host) }}"
+    - name: Add "static" IP entry
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        insertafter: '^127\.0\.0\.1'
+        regex: "^{{ proxmox_host_ip }}"
+        line: "{{ proxmox_host_ip }}    {{ ansible_hostname }}  {{ ansible_hostname }}.{{ domain_name }}"
+        owner: root
+        group: root
+        mode: '0644'
+- name: Install Proxmox VE
+  ansible.builtin.package:
+    name: proxmox-ve
+    update_cache: true
+    state: present
+  register:
+    install_proxmoxve_result
+- name: Remove debian kernel
+  ansible.builtin.package:
+    name: "{{ item }}"
+    state: absent
+  loop:
+    - linux-image-amd64
+- name: Reboot into proxmox # noqa no-handler
+  when: install_proxmoxve_result.changed
+  ansible.builtin.reboot:

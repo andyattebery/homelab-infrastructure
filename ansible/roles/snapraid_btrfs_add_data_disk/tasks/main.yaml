@@ -1,0 +1,12 @@
+---
+
+- name: Confirm wiping disk
+  ansible.builtin.pause:
+    prompt: "Are you sure you want to wipe {{ snapraid_btrfs_add_data_disk_dev }}?"
+  register: confirm_wiping_disk_result
+- name: Add new data disk
+  when: (confirm_wiping_disk_result.user_input | bool) or (confirm_wiping_disk_result.user_input | lower == 'y')
+  block:
+    - name: Debug
+      ansible.builtin.debug:
+        msg: "Add new data disk"

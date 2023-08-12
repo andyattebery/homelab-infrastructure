@@ -1,0 +1,7 @@
+---
+- name: Set package facts
+  ansible.builtin.package_facts:
+- name: Install ceph
+  ansible.builtin.shell:
+    cmd: yes | sudo pveceph install -repository no-subscription
+  when: "'ceph' not in ansible_facts.packages"

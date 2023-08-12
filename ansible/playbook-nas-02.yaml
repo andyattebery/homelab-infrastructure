@@ -1,0 +1,17 @@
+---
+- name: Configure nas
+  hosts: nas-02
+  become: true
+
+  vars:
+    syncoid_destination_username: "{{ nas_02_syncoid_username }}"
+    syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+    syncoid_destination_dataset: backups
+
+  tasks:
+    - name: Configure server
+      ansible.builtin.include_role:
+        name: configure_server
+    - name: Configure backup destination
+      ansible.builtin.include_role:
+        name: backup_destination

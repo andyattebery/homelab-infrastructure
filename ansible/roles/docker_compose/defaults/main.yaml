@@ -1,0 +1,5 @@
+---
+docker_compose_should_run_up: true
+docker_compose_should_prune: false
+docker_compose_dst_base_directory_path: /opt/docker-compose
+docker_compose_data_directory: "{{ docker_compose_dst_directory_path }}"

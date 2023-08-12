@@ -1,0 +1,40 @@
+---
+version: "3.9"
+services:
+  adguardhome:
+    image: adguard/adguardhome
+    container_name: adguardhome
+    restart: unless-stopped
+    volumes:
+      - ${ADGUARDHOME_CONFIG_DIRECTORY}:/opt/adguardhome/conf
+      - ${DOCKER_DATA_DIRECTORY}/adguardhome/work:/opt/adguardhome/work
+      - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot
+    ports:
+      - 53:53/tcp
+      - 53:53/udp
+      - 80:80/tcp
+      - 3000:3000/tcp
+      - 443:443/tcp
+      - 853:853/tcp
+#      - 67:67/udp
+#      - 68:68/tcp
+#      - 68:68/udp
+    labels:
+      - dsm.url=https://${ADGUARDHOME_HOSTNAME}
+  certbot:
+    image: certbot/dns-cloudflare:${CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG}
+    container_name: certbot
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot
+    entrypoint: [ "/certbot/certbot_renew_entrypoint.sh" ]
+  adguardhome-sync:
+    image: ghcr.io/bakito/adguardhome-sync
+    container_name: adguardhome-sync
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/adguardhome-sync/adguardhome-sync.yaml:/config/adguardhome-sync.yaml
+    ports:
+      - 8080:8080
+    restart: unless-stopped
+    labels:
+      - dsm.url=http://${ADGUARDHOME_HOSTNAME}:8080

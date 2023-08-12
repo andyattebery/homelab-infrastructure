@@ -1,0 +1,7 @@
+---
+- name: Configure servers
+  hosts: homeassistant
+  become: true
+
+  roles:
+    - system_upgrade

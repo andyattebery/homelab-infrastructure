@@ -1,0 +1,24 @@
+auto lo
+iface lo inet loopback
+
+iface enp4s0 inet manual
+iface enp5s0 inet manual
+iface enp6s0 inet manual
+
+auto enp7s0
+iface enp7s0 inet static
+    address 192.168.1.240/24
+    gateway 192.168.1.1
+    ethernet-wol g
+
+auto bond0
+iface bond0 inet manual
+    bond-slaves enp4s0 enp5s0
+    bond-mode 802.3ad
+    bond-miimon 100
+
+auto vmbr0
+iface vmbr0 inet dhcp
+    bridge-ports bond0
+    bridge-stp off
+    bridge-fd 0

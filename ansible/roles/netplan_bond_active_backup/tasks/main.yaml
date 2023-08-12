@@ -1,0 +1,8 @@
+---
+- name: Configure bond interface
+  ansible.builtin.template:
+    src: files/99-bond-active-backup.yaml.j2
+    dest: /etc/netplan/99-bond-active-backup.yaml
+    owner: root
+    group: root
+    mode: "0644"

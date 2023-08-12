@@ -1,0 +1,44 @@
+---
+- name: Create /etc/systemd/resolved.conf.d
+  ansible.builtin.file:
+    path: /etc/systemd/resolved.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+- name: Create resolved config to disable DNSStubListener
+  ansible.builtin.copy:
+    content: |
+      [Resolve]
+      DNS=127.0.0.1
+      DNSStubListener=no
+    dest: /etc/systemd/resolved.conf.d/disable_dns_stub_listener.conf
+    owner: root
+    group: root
+    mode: "0644"
+- name: Get /etc/resolv.conf stat
+  ansible.builtin.stat:
+    path: /etc/resolv.conf
+  register: etc_resolv_conf_stat_result
+- name: Debug
+  ansible.builtin.debug:
+    var: etc_resolv_conf_stat_result
+- name: Symlink systemd resolv.conf to /etc/resolv.conf
+  when: etc_resolv_conf_stat_result.stat.islnk is false or etc_resolv_conf_stat_result.stat.lnk_source != '/run/systemd/resolve/resolv.conf'
+  block:
+    - name: Delete existing /etc/resolv.conf
+      ansible.builtin.file:
+        path: /etc/resolv.conf
+        state: absent
+    - name: Create symlink
+      ansible.builtin.file:
+        src: /run/systemd/resolve/resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        owner: root
+        group: root
+        mode: "0644"
+    - name: Restart systemd-resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted

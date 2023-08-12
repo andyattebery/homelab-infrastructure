@@ -1,0 +1,17 @@
+---
+- name: Configure nas-03 host
+  hosts: nas-03
+  become: true
+
+  roles:
+  #   - configure_server
+  #   - ansible-role-realtek-r8125-dkms
+    - zfs_install
+
+  # tasks:
+
+  #   - name: Enable wake-on-LAN
+  #     vars:
+  #       wakeonlan_interface_name: eth0
+  #     ansible.builtin.include_role:
+  #       name: wakeonlan_interface

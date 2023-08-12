@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+
+: "${DOCKER_COMPOSE_DIR:=/opt/docker_compose}"
+
+docker_compose_files_parameter=""
+
+# If set, Bash allows filename patterns which match no files to expand to a null string, rather than themselves.
+shopt -s nullglob
+
+# Look for docker-compose files in current directory
+for f in docker-compose*.y*ml; do
+    docker_compose_files_parameter+=" --file ${f}"
+done
+
+if [ "$docker_compose_files_parameter" == "" ]; then
+    # Look for docker-compose files in DOCKER_COMPOSE_DIR
+    for f in "$DOCKER_COMPOSE_DIR"/docker-compose*.y*ml; do
+        docker_compose_files_parameter+=" --file ${f}"
+    done
+fi
+
+docker compose $docker_compose_files_parameter $@

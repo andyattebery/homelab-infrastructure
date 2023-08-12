@@ -1,0 +1,37 @@
+---
+- name: Update role README
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    # - name: debug
+    #   ansible.builtin.debug:
+    #     var: "{{ item }}"
+    #   loop:
+    #     - script_directory_path
+    #     - role_directory_path
+    #     - role_name
+    - name: Get variables # noqa risky-shell-pipe
+      ansible.builtin.shell:
+        cmd: |
+          grep --only-matching --no-filename --extended-regexp '\{\{[[:space:]]*([_[:alpha:][:digit:]]*)[[:space:]]*\}\}' --recursive {{ role_directory_path }} | sed -E 's/[{}[:space:]]//g' | sort | uniq
+      register: variables_result
+      changed_when: false
+    - name: Set variables
+      ansible.builtin.set_fact:
+        variables: "{{ variables | default([{}]) + [{'name': item, 'default_value': '', 'notes': ''}] }}"
+      loop: "{{ variables_result.stdout_lines }}"
+    - name: Set variable_max_length
+      ansible.builtin.set_fact:
+        variable_name_max_length: "{{ variables_result.stdout_lines | map('length') | max | int }}"
+        variable_default_max_length: "{{ 'Default' | length }}"
+        variable_notes_max_length: "{{ 'Notes' | length }}"
+    - name: Create README.md
+      vars:
+        name_format_string: "{:<{{ variable_name_max_length }}}"
+        default_format_string: "{:<{{ variable_default_max_length }}}"
+        notes_format_string: "{:<{{ variable_notes_max_length }}}"
+      ansible.builtin.template:
+        src: readme.md.j2
+        dest: "{{ (role_directory_path, 'README.md') | path_join }}"
+        mode: "0644"

@@ -1,0 +1,115 @@
+---
+# ansible
+ansible_user: "{{ vault_ansible_user }}"
+ansible_host: "{{ inventory_hostname }}.{{ domain_name }}"
+
+lang_two_letter: en
+timezone: "{{ vault_timezone }}"
+
+# user
+smb_nas_01_username: "{{ vault_smb_nas_01_username }}"
+smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
+smb_nas_01_uid: "{{ vault_smb_nas_01_uid }}"
+smb_nas_01_gid: "{{ vault_smb_nas_01_gid }}"
+
+nas_01_syncoid_ssh_private_key: "{{ vault_nas_01_syncoid_ssh_private_key }}"
+nas_01_syncoid_ssh_public_key: "{{ vault_nas_01_syncoid_ssh_public_key }}"
+
+nas_02_syncoid_username: "{{ vault_nas_02_syncoid_username }}"
+nas_02_syncoid_password: "{{ vault_nas_02_syncoid_password }}"
+
+# nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
+# nas_02_ssh_public_key: "{{ vault_nas_02_ssh_public_key }}"
+
+filebot_pushover_token: "{{ vault_filebot_pushover_token }}"
+
+freshrss_email: "{{ vault_freshrss_email }}"
+freshrss_username: "{{ vault_freshrss_username }}"
+freshrss_password: "{{ vault_freshrss_password }}"
+freshrss_api_password: "{{ vault_freshrss_api_password }}"
+
+healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
+
+homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
+
+minio_username: "{{ vault_minio_username }}"
+minio_password: "{{ vault_minio_password }}"
+
+myjdownloader_username: "{{ vault_myjdownloader_username }}"
+myjdownloader_password: "{{ vault_myjdownloader_password }}"
+
+nextcloud_admin_user: "{{ vault_nextcloud_admin_user }}"
+nextcloud_admin_password: "{{ vault_nextcloud_admin_password }}"
+nextcloud_mysql_root_password: "{{ vault_nextcloud_mysql_root_password }}"
+nextcloud_mysql_user: "{{ vault_nextcloud_mysql_user }}"
+nextcloud_mysql_password: "{{ vault_nextcloud_mysql_password }}"
+nextcloud_mysql_database: "{{ vault_nextcloud_mysql_database }}"
+
+plex_token: "{{ vault_plex_token }}"
+plex_claim_token: "{{ vault_plex_claim_token }}"
+
+pushover_user_key: "{{ vault_pushover_user_key }}"
+
+smtp_host: "{{ vault_smtp_host }}"
+smtp_username: "{{ vault_smtp_username }}"
+smtp_password: "{{ vault_smtp_password }}"
+
+scrutiny_api_url: "https://scrutiny.{{ domain_name }}"
+
+snapraid_btrfs_runner_user: "services"
+snapraid_btrfs_runner_from_email: "{{ vault_snapraid_btrfs_runner_from_email }}"
+snapraid_btrfs_runner_to_email: "{{ vault_snapraid_btrfs_runner_to_email }}"
+
+zed_pushover_token: "{{ vault_zed_pushover_token }}"
+
+# artis3n.tailscale
+# pikvm_tailscale
+tailscale_authkey: "{{ vault_tailscale_authkey }}"
+
+# geerlingguy.docker
+docker_install_compose: false
+docker_install_compose_plugin: true
+docker_users:
+  - "{{ ansible_user }}"
+
+# geerlingguy.ntp
+ntp_timezone: "{{ timezone }}"
+ntp_manage_config: true
+
+# geerlingguy.security
+security_sudoers_passwordless:
+  - "{{ ansible_user }}"
+
+# pve_cluster_acme
+# adguardhome_docker_compose
+cloudflare_account_id: "{{ vault_cloudflare_account_id }}"
+cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
+certbot_email: "{{ vault_certbot_email }}"
+
+# pve_cluster_acme
+pve_acme_contact_email: "{{ certbot_email }}"
+
+# adguardhome_docker_compose
+network_01_adguardhome_hostname: adguardhome.{{ domain_name }}
+network_01_adguardhome_username: "{{ vault_network_01_adguardhome_username }}"
+network_01_adguardhome_password: "{{ vault_network_01_adguardhome_password }}"
+
+network_02_adguardhome_hostname: adguardhome-02.{{ domain_name }}
+network_02_adguardhome_username: "{{ vault_network_02_adguardhome_username }}"
+network_02_adguardhome_password: "{{ vault_network_02_adguardhome_password }}"
+
+network_03_adguardhome_hostname: adguardhome-03.{{ domain_name }}
+network_03_adguardhome_username: "{{ vault_network_03_adguardhome_username }}"
+network_03_adguardhome_password: "{{ vault_network_03_adguardhome_password }}"
+
+# adguardhome_docker_compose sync
+adguardhome_origin_domain_name: "{{ network_01_adguardhome_hostname }}"
+adguardhome_origin_username: "{{ network_01_adguardhome_username }}"
+adguardhome_origin_password: "{{ network_01_adguardhome_password }}"
+adguardhome_replicas:
+  - domain_name: "{{ network_02_adguardhome_hostname }}"
+    username: "{{ network_02_adguardhome_username }}"
+    password: "{{ network_02_adguardhome_password }}"
+  # - domain_name: "{{ network_03_adguardhome_hostname }}"
+  #   username: "{{ network_03_adguardhome_username }}"
+  #   password: "{{ network_03_adguardhome_password }}"

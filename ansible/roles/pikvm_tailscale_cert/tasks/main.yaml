@@ -1,0 +1,32 @@
+---
+- name: Get tailscale domain
+  ansible.builtin.command:
+    cmd: tailscale cert
+  register: tailscale_cert_domain_result
+  changed_when: false
+  failed_when: false
+- name: Set tailscale certs directories facts
+  ansible.builtin.set_fact:
+    tailscale_cert_dir: /var/lib/kvmd/pst/data/tailscale/cert
+    kvmd_ssl_dir: /etc/kvmd/nginx/ssl/
+- name: Create tailscale certs directory
+  ansible.builtin.command:
+    cmd: kvmd-pstrun -- mkdir -p {{ tailscale_cert_dir }}
+  changed_when: false
+- name: Create tailscale cert
+  vars:
+    tailscale_domain_regex: For domain, use \"(.+)\"
+    tailscale_domain: "{{ tailscale_cert_domain_result.stderr | regex_search(tailscale_domain_regex, '\\1', multiline=true) | first }}"
+  ansible.builtin.command:
+    cmd: kvmd-pstrun -- tailscale cert --cert-file {{ (tailscale_cert_dir, 'server.crt') | path_join }} --key-file {{ (tailscale_cert_dir, 'server.key') | path_join }} {{ tailscale_domain }} # noqa yaml[line-length]
+  changed_when: false
+- name: Link SSL cert and key
+  ansible.builtin.include_tasks:
+    file: link_ssl_file.yaml
+  loop:
+    - server.crt
+    - server.key
+- name: Restart kvmd-nginx
+  ansible.builtin.systemd:
+    name: kvmd-nginx
+    state: restarted

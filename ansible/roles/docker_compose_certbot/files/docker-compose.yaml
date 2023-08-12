@@ -1,0 +1,10 @@
+---
+version: "3.9"
+services:
+  certbot:
+    image: certbot/dns-cloudflare:${CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG}
+    container_name: certbot
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot
+    entrypoint: [ "/certbot/certbot_renew_entrypoint.sh" ]

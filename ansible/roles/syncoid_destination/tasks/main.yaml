@@ -1,0 +1,21 @@
+---
+- name: Install packages
+  ansible.builtin.apt:
+    name:
+      - sanoid
+      - lzop
+      - mbuffer
+- name: Set zfs permissions for non-root syncoid destinations
+  ansible.builtin.command:
+    cmd: "zfs allow -u {{ syncoid_destination_username }} compression,mountpoint,create,mount,receive,rollback,destroy -ld {{ syncoid_destination_dataset }}"
+  changed_when: false
+- name: Create /etc/sanoid
+  ansible.builtin.file:
+    path: /etc/sanoid
+    state: directory
+    mode: "0755"
+- name: Copy sanoid.conf
+  ansible.builtin.template:
+    src: sanoid-destination.conf.j2
+    dest: /etc/sanoid/sanoid.conf
+    mode: "0644"

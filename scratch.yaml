@@ -1,0 +1,13 @@
+    # - name: Comment out manual 2.5GbE network interface
+    #   ansible.builtin.replace:
+    #     path: /etc/network/interfaces
+    #     regexp: '(^iface {{ network_interface_2_5_gbe }}.*manual$)'
+    #     replace: '#\1'
+    # - name: Configure 2.5GbE network interface
+    #   ansible.builtin.blockinfile:
+    #     marker_begin: BEGIN 2.5GbE INTERFACE
+    #     marker_end: END 2.5GbE INTERFACE
+    #     path: /etc/network/interfaces
+    #     block: |
+    #       auto {{ network_interface_2_5_gbe }}
+    #       iface {{ network_interface_2_5_gbe }} inet dhcp

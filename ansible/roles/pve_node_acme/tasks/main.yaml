@@ -1,0 +1,23 @@
+---
+- name: Get node config
+  ansible.builtin.command:
+    cmd: pvesh get /nodes/{{ ansible_hostname }}/config -property acmedomain0 --noborder 1 --noheader 1
+  register: pvesh_get_node_config_acmedomain0
+  changed_when: false
+- name: Add ACME domain to node
+  when: 'pvesh_get_node_config_acmedomain0.stdout == ""'
+  vars:
+    node_fqdn: "{{ ansible_hostname }}.{{ domain_name }}"
+  ansible.builtin.command:
+    cmd: pvesh set /nodes/{{ ansible_hostname }}/config -acmedomain0 domain={{ node_fqdn }},plugin=cloudflare
+- name: Get certificates info for node
+  ansible.builtin.command:
+    cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
+  register: pvesh_get_node_certificates_info
+  changed_when: false
+- name: Order ACME certificate for node
+  vars:
+    lets_encrypt_search_string: "\"issuer\": \"/C=US/O=Let's Encrypt/CN=R3\""
+  when: '"pveproxy-ssl.pem" not in pvesh_get_node_certificates_info.stdout'
+  ansible.builtin.command:
+    cmd: pvesh create /nodes/{{ ansible_hostname }}/certificates/acme/certificate

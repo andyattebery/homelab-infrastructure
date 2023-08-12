@@ -1,0 +1,11 @@
+---
+- name: Configure ZED_PUSHOVER_USER
+  ansible.builtin.lineinfile:
+    path: /etc/zfs/zed.d/zed.rc
+    search_string: ZED_PUSHOVER_USER=
+    line: "ZED_PUSHOVER_USER=\"{{ pushover_user_key }}\""
+- name: Configure ZED_PUSHOVER_TOKEN
+  ansible.builtin.lineinfile:
+    path: /etc/zfs/zed.d/zed.rc
+    search_string: ZED_PUSHOVER_TOKEN=
+    line: "ZED_PUSHOVER_TOKEN=\"{{ zed_pushover_token }}\""

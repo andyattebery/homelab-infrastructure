@@ -1,0 +1,14 @@
+---
+network:
+  version: 2
+  renderer: networkd
+  bonds:
+    bond0:
+      dhcp4: yes
+      interfaces:
+        {% for interface in bond_interfaces %}
+        {{ - interface }}
+        {% endfor %}
+      parameters:
+        mode: active-backup
+        primary: {{ bond_primary_interface }}

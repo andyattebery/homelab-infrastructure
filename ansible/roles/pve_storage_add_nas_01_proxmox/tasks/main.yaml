@@ -1,0 +1,12 @@
+---
+- name: Get storage
+  ansible.builtin.command:
+    cmd: pvesm status
+  register:
+    pvesm_status_result
+  changed_when: false
+- name: Add nas_01_proxmox storage
+  when: "not 'nas_01_proxmox' in pvesm_status_result.stdout"
+  ansible.builtin.command:
+    cmd: "pvesm add cifs nas_01_proxmox --server nas-01.{{ domain_name }} --share proxmox --username {{ smb_nas_01_username }} --password {{ smb_nas_01_password }} --content images,rootdir,vztmpl,backup,iso,snippets"
+  changed_when: false

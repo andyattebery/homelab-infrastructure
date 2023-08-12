@@ -1,0 +1,17 @@
+---
+- name: Configure debian hosts
+  hosts: pi-proxmox
+  become: true
+
+  roles:
+    - ansible-role-proxmox-ve-install-arm
+    - geerlingguy.ntp
+    - configure_server
+
+  tasks:
+    - name: Configure bridge network interface
+      vars:
+        network_bridge_interfaces:
+          - eth0
+      ansible.builtin.include_role:
+        name: network_bridge

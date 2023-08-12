@@ -1,0 +1,6 @@
+---
+scrutiny_collector_name: "{{ ansible_hostname }}"
+scrutiny_dir: /opt/scrutiny
+scrutiny_bin_name: scrutiny-collector-metrics-linux-amd64
+scrutiny_bin_dir: "{{ (scrutiny_dir, 'bin') | path_join }}"
+scrutiny_config_dir: "{{ (scrutiny_dir, 'config') | path_join }}"

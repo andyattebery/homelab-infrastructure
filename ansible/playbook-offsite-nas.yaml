@@ -1,0 +1,18 @@
+---
+- name: Configure offsite-nas
+  hosts: offsite-nas
+  become: true
+
+  vars:
+    syncoid_destination_username: "{{ nas_02_syncoid_username }}"
+    syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+    syncoid_destination_dataset: backups
+
+  roles:
+    - artis3n.tailscale
+    - configure_server
+
+  tasks:
+    - name: Configure backup destination
+      ansible.builtin.include_role:
+        name: backup_destination

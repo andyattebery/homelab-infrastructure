@@ -1,0 +1,124 @@
+---
+- name: Configure all nodes
+  hosts: swarm
+  become: true
+  strategy: linear
+
+  # roles:
+  #   - configure_server
+  #   - geerlingguy.docker
+
+  vars:
+    gluster_mount_dir: /mnt/gluster/swarm
+    gluster_brick_dir: /data/gluster/swarm
+    gluster_brick_name: swarm
+
+  tasks:
+    - name: Set ansible_non_become_user facts
+      ansible.builtin.include_role:
+        name: ansible_non_become_user_facts
+    - name: Install packages
+      ansible.builtin.package:
+        name:
+          - nfs-common
+          - python3-pip
+    - name: Install docker python package
+      ansible.builtin.pip:
+        name: docker
+    - name: Add gluster PPA
+      ansible.builtin.apt_repository:
+        repo: ppa:gluster/glusterfs-11
+    - name: Install glusterfs
+      ansible.builtin.package:
+        name: glusterfs-server
+        state: present
+    - name: Start service gluster, if not started
+      ansible.builtin.service:
+        name: glusterd
+        enabled: true
+        state: started
+    - name: Fetch gstatus
+      ansible.builtin.uri:
+        url: https://github.com/gluster/gstatus/releases/latest/download/install.sh
+        return_content: true
+      register: gstatus_install_sh_result
+    - name: Run gstatus installer # noqa: command-instead-of-shell
+      ansible.builtin.shell:
+        cmd: sh -s -- -y
+        stdin: "{{ gstatus_install_sh_result.content }}"
+      changed_when: true
+    - name: Create XFS brick device partition
+      community.general.parted:
+        device: "{{ gluster_brick_device }}"
+        number: 1
+        state: present
+        fs_type: xfs
+    - name: Format brick partition
+      community.general.filesystem:
+        dev: "{{ gluster_brick_device }}-part1"
+        fstype: "xfs"
+    - name: Ensure Gluster brick directory exists
+      ansible.builtin.file:
+        path: "{{ gluster_brick_dir }}"
+        state: directory
+        mode: "0775"
+      with_items:
+        - "{{ gluster_brick_dir }}"
+        - "{{ gluster_mount_dir }}"
+    - name: Ensure Gluster brick and mount directories exist.
+      ansible.builtin.file:
+        path: "{{ gluster_mount_dir }}"
+        state: directory
+        mode: "0775"
+        owner: "{{ ansible_non_become_user_id }}"
+        group: "{{ ansible_non_become_user_gid }}"
+    - name: Ensure Gluster brick is mounted.
+      ansible.posix.mount:
+        name: "{{ gluster_brick_dir }}"
+        src: "{{ gluster_brick_device }}-part1"
+        fstype: xfs
+        opts: "defaults"
+        state: mounted
+    - name: Configure Gluster volume. # noqa run-once[task]
+      gluster.gluster.gluster_volume:
+        state: present
+        name: "{{ gluster_brick_name }}"
+        brick: "{{ gluster_brick_dir }}"
+        replicas: "{{ groups.swarm | length }}"
+        cluster: "{{ groups.swarm | join(',') }}"
+        host: "{{ inventory_hostname }}"
+        force: true
+      run_once: true
+    - name: Ensure Gluster volume is mounted.
+      ansible.posix.mount:
+        name: "{{ gluster_mount_dir }}"
+        src: "{{ inventory_hostname }}:/{{ gluster_brick_name }}"
+        fstype: glusterfs
+        opts: "defaults,_netdev,noauto,x-systemd.automount"
+        state: mounted
+
+- name: Configure manager node
+  hosts: swarm[0]
+  tasks:
+    - name: Initiate manager
+      community.docker.docker_swarm:
+        state: present
+      register:
+        docker_swarm_manager_result
+    - name: Set worker join token
+      ansible.builtin.set_fact:
+        docker_swarm_worker_join_token: "{{ docker_swarm_manager_result.swarm_facts.JoinTokens.Worker }}"
+
+- name: Configure worker nodes
+  hosts: swarm[1:]
+
+  vars:
+    swarm_manager: swarm-01
+
+  tasks:
+    - name: Join swarm
+      community.docker.docker_swarm:
+        state: join
+        join_token: "{{ hostvars[swarm_manager].docker_swarm_worker_join_token }}"
+        remote_addrs:
+          - "{{ swarm_manager }}.{{ domain_name }}:2377"

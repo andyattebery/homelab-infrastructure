@@ -1,0 +1,7 @@
+---
+# docker_compose
+docker_compose_src_file_path: docker-compose.yaml
+docker_compose_dst_directory_name: traefik
+docker_compose_envs:
+  - CERTBOT_EMAIL="{{ certbot_email }}"
+  - CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"

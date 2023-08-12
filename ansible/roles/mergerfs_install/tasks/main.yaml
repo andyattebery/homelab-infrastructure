@@ -1,0 +1,40 @@
+---
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/trapexit/mergerfs/releases/latest
+    return_content: true
+  register:
+    mergerfs_latest_release_json_response
+- name: Set x86_64 facts
+  when: ansible_architecture == 'x86_64'
+  ansible.builtin.set_fact:
+    mergerfs_asset_arch: amd64
+- name: Set aarch64 facts
+  when: ansible_architecture == 'aarch64'
+  ansible.builtin.set_fact:
+    mergerfs_asset_arch: arm64
+- name: Install deb
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: Create temp dir
+      ansible.builtin.tempfile:
+        state: directory
+      register: mergerfs_deb_directory
+    - name: Download deb # noqa jinja[invalid]
+      vars:
+        mergerfs_asset_regex: ".*mergerfs_.*{{ ansible_distribution | lower }}-{{ ansible_distribution_release }}_{{ mergerfs_asset_arch }}.deb"
+        browser_download_urls: "{{ mergerfs_latest_release_json_response.json | json_query('assets[].browser_download_url') }}"
+        mergerfs_deb_url: "{{ browser_download_urls | select('search', mergerfs_asset_regex) | first }}"
+      ansible.builtin.get_url:
+        url: "{{ mergerfs_deb_url }}"
+        dest: "{{ mergerfs_deb_directory.path }}"
+        mode: 644
+      register: mergerfs_deb_download_result
+    - name: Install deb
+      ansible.builtin.apt:
+        deb: "{{ mergerfs_deb_download_result.dest }}"
+        state: present
+    - name: Remove deb directory
+      ansible.builtin.file:
+        path: mergerfs_deb_directory.path
+        state: absent

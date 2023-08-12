@@ -1,0 +1,11 @@
+[Unit]
+Description=Wake-on-LAN for %i
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart={{ ethtool_path }} -s %i wol g
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target

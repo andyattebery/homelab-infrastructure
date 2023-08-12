@@ -1,0 +1,19 @@
+---
+- name: Configure Windows Workstation
+  hosts: local
+  tasks:
+    - name: Install docker python package
+      ansible.builtin.pip:
+        name: jmespath
+    - name: Get winget latest release
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/microsoft/winget-cli/releases/latest
+        return_content: true
+      register:
+        winget_latest_release_json_result
+    - name: Set latest version
+      vars:
+        msixbundle_asset_json: "{{ winget_latest_release_json_result.json | community.general.json_query('assets[?contains(name,`.msixbundle`)]') | first }}"
+        msixbundle_browser_download_url: "{{ msixbundle_asset_json.browser_download_url }}"
+      ansible.builtin.debug:
+        var: msixbundle_browser_download_url

@@ -1,0 +1,16 @@
+---
+cron: "*/30 * * * *" # every 30 minutes
+
+runOnStart: true
+
+origin:
+  url: https://{{ adguardhome_origin_domain_name }}
+  username: {{ adguardhome_origin_username }}
+  password: {{ adguardhome_origin_password }}
+
+replicas:
+{% for replica in adguardhome_replicas %}
+  - url: https://{{ replica.domain_name }}
+    username: {{ replica.username }}
+    password: {{ replica.password }}
+{% endfor %}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run scrutiny collecctor
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart={{ collector_run_command }}
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+---
+- name: Configure pikvm
+  hosts: offsite-pikvm
+  gather_facts: false
+
+  pre_tasks:
+    - name: Enable read/write on filesystem
+      ansible.builtin.raw: rw
+      changed_when: false
+  post_tasks:
+    - name: Disable read/write on filesystem
+      ansible.builtin.raw: ro
+      changed_when: false
+
+  roles:
+    # - pikvm
+    - pikvm_tailscale
+    - role: pikvm_tailscale_cert
+      when: inventory_hostname == 'offsite-pikvm'
+
+  tasks:
+    - name: Install packages
+      ansible.builtin.package:
+        name:
+          - wol

@@ -1,0 +1,8 @@
+---
+- name: Run docker_compose
+  vars:
+    docker_compose_src_file_path: docker-compose.yaml
+    docker_compose_dst_directory_name: dsm-provider
+    docker_compose_should_run_up: true
+  ansible.builtin.include_role:
+    name: docker_compose

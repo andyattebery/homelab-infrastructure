@@ -1,0 +1,36 @@
+---
+- name: Configure nas
+  hosts: media-01
+  become: true
+
+  # roles:
+  #   - configure_server
+  #   - geerlingguy.docker
+
+  tasks:
+    - name: Install nvidia driver
+      vars:
+        nvidia_driver_skip_reboot: true
+        nvidia_driver_branch: "525"
+        nvidia_driver_ubuntu_install_from_cuda_repo: true
+      ansible.builtin.include_role:
+        name: nvidia.nvidia_driver
+    - name: Install nvidia docker
+      ansible.builtin.include_role:
+        name: nvidia.nvidia_docker
+    - name: Configure docker compose
+      vars:
+        docker_compose_src_file_path: files/media-01/docker-compose.yml
+        docker_compose_dst_directory_name: host
+        docker_compose_should_run_up: true
+        docker_compose_data_directory: /mnt/data
+        docker_compose_envs:
+          - CERTBOT_EMAIL="{{ certbot_email }}"
+          - CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
+          - PLEX_CLAIM_TOKEN="{{ plex_claim_token }}"
+          - SMB_STORAGE_USERNAME="{{ smb_nas_01_username }}"
+          - SMB_STORAGE_PASSWORD="{{ smb_nas_01_password }}"
+          - SMB_STORAGE_UID=1000
+          - SMB_STORAGE_GID=1000
+      ansible.builtin.include_role:
+        name: docker_compose

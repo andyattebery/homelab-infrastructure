@@ -1,0 +1,70 @@
+---
+- name: Install packages
+  ansible.builtin.apt:
+    name:
+      - sanoid
+- name: Install wakeonlan
+  when: syncoid_destination_mac_address is defined
+  ansible.builtin.apt:
+    name:
+      - wakeonlan
+# - name: "Allow syncoid_source_username to manage systemd services"
+#   ansible.builtin.template:
+#     src: templates/polkit-rule-user-systemd-manage-units.pkla.j2
+#     dest: "/etc/polkit-1/localauthority/50-local.d/10-user-systemd-manage-units.pkla"
+#     mode: "0644"
+# - name: Get syncoid_source_username home directory # noqa risky-shell-pipe
+#   ansible.builtin.shell:
+#     cmd: "getent passwd {{ syncoid_source_username }} | cut -d: -f6"
+#   register: syncoid_source_user_home_directory_result
+#   changed_when: false
+# - name: Set syncoid_source_user_systemd_directory
+#   ansible.builtin.set_fact:
+#     syncoid_source_user_systemd_directory: "{{ (syncoid_source_user_home_directory_result.stdout, '.config', 'systemd', 'user') | path_join }}"
+# - name: Create syncoid_source_user_systemd_directory
+#   ansible.builtin.file:
+#     path: "{{ syncoid_source_user_systemd_directory }}"
+#     state: directory
+#     mode: "0755"
+#     owner: "{{ syncoid_source_username }}"
+- name: Set empty syncoid_dataset_services
+  ansible.builtin.set_fact:
+    syncoid_dataset_services: []
+- name: Configure dataset service
+  ansible.builtin.include_tasks:
+    file: source_dataset.yaml
+  vars:
+    syncoid_source_dataset: "{{ item.syncoid_source_dataset }}"
+    syncoid_destination_dataset: "{{ item.syncoid_destination_dataset }}"
+    syncoid_healthchecks_uuid: "{{ item.syncoid_healthchecks_uuid }}"
+  loop: "{{ syncoid_datasets }}"
+- name: Set syncoid_service_name
+  vars:
+    syncoid_service_name: "syncoid-{{ syncoid_destination_host }}-all"
+  ansible.builtin.set_fact:
+    syncoid_service: "{{ syncoid_service_name }}.service"
+    syncoid_timer: "{{ syncoid_service_name }}.timer"
+- name: "Copy {{ syncoid_service }}"
+  ansible.builtin.template:
+    src: templates/syncoid-all.service.j2
+    dest: "/etc/systemd/system/{{ syncoid_service }}"
+    mode: "0644"
+- name: "Copy {{ syncoid_timer }}"
+  ansible.builtin.template:
+    src: templates/syncoid-all.timer.j2
+    dest: "/etc/systemd/system/{{ syncoid_timer }}"
+    mode: "0644"
+# - name: "Enable loginctl enable-linger for {{ syncoid_source_username }}"
+#   ansible.builtin.command:
+#     cmd: "loginctl enable-linger {{ syncoid_source_username }}"
+#   changed_when: false
+- name: "Enable {{ syncoid_timer }}"
+  # become_user: "{{ syncoid_source_username }}"
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "{{ syncoid_timer }}"
+    state: started
+    enabled: true
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

@@ -1,0 +1,62 @@
+---
+- name: Create tdarr directory
+  ansible.builtin.file:
+    path: "{{ tdarr_directory }}"
+    state: directory
+    mode: "0755"
+- name: Download Tdarr_Updater
+  ansible.builtin.unarchive:
+    src: "{{ tdarr_updater_zip_url }}"
+    dest: "{{ tdarr_directory }}"
+    remote_src: true
+- name: Run Tdarr_Updater
+  ansible.builtin.command:
+    cmd: "./Tdarr_Updater"
+    chdir: "{{ tdarr_directory }}"
+  changed_when: true
+- name: Copy tdarr-node service
+  ansible.builtin.template:
+    src: "templates/tdarr-node.service.j2"
+    dest: "/etc/systemd/system/tdarr-node.service"
+    mode: "0644"
+- name: Enable tdarr-node service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: tdarr-node.service
+    state: started
+    enabled: true
+- name: Set tdarr_node_config_path
+  ansible.builtin.set_fact:
+    tdarr_node_config_path: "{{ (tdarr_directory, 'configs', 'Tdarr_Node_Config.json') | path_join }}"
+- name: Wait until Tdarr_Node_Config.json is present before continuing
+  ansible.builtin.wait_for:
+    path: "{{ tdarr_node_config_path }}"
+- name: Get Tdarr_Node_Config.json contents
+  ansible.builtin.slurp:
+    src: "{{ tdarr_node_config_path }}"
+  register: tdarr_node_config_slurp_result
+- name: Set tdarr_node_config_dictionary
+  ansible.builtin.set_fact:
+    tdarr_node_config_dictionary: "{{ tdarr_node_config_slurp_result.content | b64decode | from_json }}"
+- name: Set tdarr node config
+  when: "tdarr_node_config_dictionary.nodeName != tdarr_node_name or
+    tdarr_node_config_dictionary.serverIP != tdarr_server_ip or
+    tdarr_node_config_dictionary.serverPort != tdarr_server_port"
+  block:
+    - name: Set updated_tdarr_node_config_dictionary
+      vars:
+        new_config_dictionary:
+          nodeName: "{{ tdarr_node_name }}"
+          serverIP: "{{ tdarr_server_ip }}"
+          serverPort: "{{ tdarr_server_port }}"
+      ansible.builtin.set_fact:
+        updated_tdarr_node_config_dictionary: "{{ tdarr_node_config_dictionary | combine(new_config_dictionary) }}"
+    - name: Copy updated Tdarr_Node_Config.json
+      ansible.builtin.copy:
+        content: "{{ updated_tdarr_node_config_dictionary | to_json }}"
+        dest: "{{ tdarr_node_config_path }}"
+        mode: "0644"
+    - name: Restart tdarr-node service
+      ansible.builtin.systemd:
+        name: tdarr-node.service
+        state: restarted

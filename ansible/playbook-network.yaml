@@ -1,0 +1,28 @@
+---
+- name: Configure network hosts
+  hosts: network
+  become: true
+  roles:
+  #   - configure_server
+  #   - geerlingguy.docker
+  #   - tailscale_exit_node
+  #   # - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
+  #   - docker_compose_wireguard
+    - docker_compose_dashboard_services_manager_provider
+
+- name: Configure replica adguardhome hosts
+  hosts: network[1:]
+  become: true
+  roles:
+    - docker_compose_adguardhome
+
+- name: Configure origin adguardhome host
+  hosts: network[0]
+  become: true
+  tasks:
+    - name: Configure adguardhome
+      vars:
+        adguardhome_should_configure_sync: true
+        adguardhome_config_directory: /home/services/settings/applications/adguardhome/config/conf/
+      ansible.builtin.include_role:
+        name: docker_compose_adguardhome

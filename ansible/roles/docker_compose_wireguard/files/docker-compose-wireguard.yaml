@@ -1,0 +1,26 @@
+---
+version: "3.8"
+
+services:
+  wireguard:
+    image: ghcr.io/linuxserver/wireguard
+    container_name: wireguard
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SERVERURL=${WIREGUARD_EXTERNAL_DOMAIN}
+      - SERVERPORT=${WIREGUARD_PORT}
+      - PEERS=${WIREGUARD_PEERS}
+      - INTERNAL_SUBNET=${WIREGUARD_INTERNAL_SUBNET}
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/wireguard:/config
+      - /lib/modules:/lib/modules
+    ports:
+      - ${WIREGUARD_PORT}:51820/udp
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1

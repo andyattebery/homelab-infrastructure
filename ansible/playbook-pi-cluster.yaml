@@ -1,0 +1,40 @@
+---
+- name: Configure all nodes
+  hosts: pi_cluster
+  become: true
+  roles:
+    - geerlingguy.docker
+    - configure_server
+    - system_upgrade
+
+# - name: Configure main node
+#   hosts: pi_cluster_main
+#   tasks:
+#     - name: Configure Ceph community repository
+#       ansible.builtin.apt_repository:
+#         repo: "deb https://download.ceph.com/debian-{{ ceph_release }}/ {{ ansible_facts['distribution_release'] }} main"
+#         state: present
+#         filename: ceph
+#         update_cache: false
+#     - name: Install cephadm
+#       ansible.builtin.package:
+#         name:
+#           - ca-certificates
+#           - cephadm
+
+      # - name: Create the ceph cluster (TODO).
+      #   meta: noop
+
+      # - name: Retrieve the ceph pubkey.
+      #   ansible.builtin.fetch:
+      #     src: /etc/ceph/ceph.pub
+      #     dest: files/ceph.pub
+      #     flat: yes
+
+      # - name: Ensure NFS dependencies are installed.
+      #   ansible.builtin.package:
+      #     name:
+      #       - libcephfs2
+      #       - nfs-ganesha
+      #       - nfs-ganesha-ceph
+      #     state: present

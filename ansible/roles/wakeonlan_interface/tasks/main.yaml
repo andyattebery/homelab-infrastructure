@@ -1,0 +1,25 @@
+---
+- name: Install ethtool
+  ansible.builtin.package:
+    name: ethtool
+    state: present
+- name: Get ethtool path
+  ansible.builtin.command:
+    cmd: which ethtool
+  register: which_ethtool_result
+  changed_when: false
+- name: Set ethtool_path
+  ansible.builtin.set_fact:
+    ethtool_path: "{{ which_ethtool_result.stdout }}"
+- name: Copy wakeonlan@.service
+  ansible.builtin.template:
+    src: wakeonlan@.service.j2
+    dest: /etc/systemd/system/wakeonlan@.service
+    mode: "0644"
+    owner: root
+- name: Start service for wakeonlan_interface_name
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "wakeonlan@{{ wakeonlan_interface_name }}.service"
+    state: started
+    enabled: true

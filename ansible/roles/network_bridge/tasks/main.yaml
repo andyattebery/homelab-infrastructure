@@ -1,0 +1,24 @@
+---
+- name: Comment out bridged interfaces auto
+  ansible.builtin.replace:
+    path: /etc/network/interfaces
+    regexp: '(^auto {{ item }}.*$)'
+    replace: '#\1'
+  loop: "{{ network_bridge_interfaces }}"
+- name: Comment out bridged interfaces iface
+  ansible.builtin.replace:
+    path: /etc/network/interfaces
+    regexp: '(^iface {{ item }}.*$)'
+    replace: '#\1'
+  loop: "{{ network_bridge_interfaces }}"
+- name: Configure bridge network interface
+  ansible.builtin.blockinfile:
+    marker_begin: BEGIN BRIDGE INTERFACE
+    marker_end: END BRIDGE INTERFACE
+    path: /etc/network/interfaces
+    block: |
+      auto vmbr0
+      iface vmbr0 inet dhcp
+          bridge-ports {{ network_bridge_interfaces | join(' ') }}
+          bridge-stp off
+          bridge-fd 0

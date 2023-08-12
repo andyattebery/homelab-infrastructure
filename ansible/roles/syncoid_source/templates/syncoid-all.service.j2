@@ -1,0 +1,16 @@
+[Unit]
+Description=Run all syncoid dataset services to {{ syncoid_destination_host}}
+After=network.target
+
+[Service]
+Type=oneshot
+{% if syncoid_destination_mac_address is defined %}
+ExecStartPre=/usr/bin/wakeonlan {{ syncoid_destination_mac_address }}
+ExecStartPre=/usr/bin/sleep 5m
+{% endif %}
+{% for syncoid_dataset_service in syncoid_dataset_services | default([]) %}
+ExecStart=/usr/bin/systemctl start {{ syncoid_dataset_service }}
+{% endfor %}
+{% if syncoid_post_sync_command is defined %}
+ExecStartPost={{ syncoid_post_sync_command }}
+{% endif %}

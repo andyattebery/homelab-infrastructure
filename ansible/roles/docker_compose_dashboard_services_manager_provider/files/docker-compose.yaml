@@ -1,0 +1,14 @@
+---
+version: "3.9"
+services:
+  dashboard_services_manager_provider:
+    container_name: dashboard-services-manager-provider
+    image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
+    environment:
+      - DSM_PROVIDEROPTIONS__HOSTNAME=${HOSTNAME}
+      - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
+      - DSM_PROVIDEROPTIONS__DOCKERLABELPREFIX=dsm
+      - DSM_PROVIDEROPTIONS__ARESERVICEHOSTSHTTPS=true
+      - DSM_PROVIDEROPTIONS__PROVIDERTYPE=docker
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"

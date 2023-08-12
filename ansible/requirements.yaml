@@ -1,0 +1,22 @@
+---
+collections:
+  - name: community.general
+  - name: community.docker
+  - name: gluster.gluster
+  - name: prometheus.prometheus
+  - name: vladgh.samba
+
+roles:
+  - role: artis3n.tailscale
+  - role: geerlingguy.docker
+  - role: geerlingguy.glusterfs
+  - role: geerlingguy.nfs
+  - role: geerlingguy.node_exporter
+  - role: geerlingguy.ntp
+  - role: geerlingguy.security
+  - role: ironicbadger.proxmox_nag_removal
+  - role: ironicbadger.snapraid
+  - role: nvidia.nvidia_docker
+  - role: nvidia.nvidia_driver
+  - role: samdoran.fish
+  - role: simoncaron.pve_addons

@@ -1,0 +1,5 @@
+---
+- name: Install on 'Debian'
+  ansible.builtin.include_tasks: install-debian.yaml
+  when:
+    - ansible_os_family == 'Debian'

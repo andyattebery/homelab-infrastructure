@@ -1,0 +1,7 @@
+---
+- name: Run docker compose up
+  become: false
+  ansible.builtin.command:
+    cmd: "docker compose --file {{ docker_compose_dst_file_path }} --env-file {{ docker_compose_dst_env_path }} up --detach"
+  register: docker_compose_up_result
+  changed_when: docker_compose_up_result.stderr_lines | reject('match', '.*(Running).*') is any

@@ -1,0 +1,33 @@
+---
+- name: List ACME accounts
+  ansible.builtin.command:
+    cmd: pvenode acme account list
+  register: pvenode_acme_account_list
+  changed_when: false
+- name: Register default ACME account if needed
+  when: '"default" not in pvenode_acme_account_list.stdout'
+  block:
+    - name: Get ACME TOS
+      ansible.builtin.command:
+        cmd: pvesh get /cluster/acme/tos
+      register: pvesh_get_acme_tos
+      changed_when: false
+    - name: Register ACME account
+      ansible.builtin.command:
+        cmd: pvesh create /cluster/acme/account -contact {{ pve_acme_contact_email }} -directory https://acme-v02.api.letsencrypt.org/directory -name default -tos_url {{ pvesh_get_acme_tos.stdout }} # noqa yaml[line-length]
+      register: pvesh_create_acme_account
+      changed_when: pvesh_create_acme_account.rc == 0
+- name: List ACME plugins
+  ansible.builtin.command:
+    cmd: pvesh get /cluster/acme/plugins -type dns --output-format json
+  register: pvesh_get_acme_plugins
+  changed_when: false
+- name: Add CloudFlare ACME DNS plugin
+  when: '"\"api\":\"cf\"" not in pvesh_get_acme_plugins.stdout'
+  vars:
+    acme_plugin_cloudflare_config: |-
+      CF_Account_ID={{ cloudflare_account_id }}
+      CF_Token={{ cloudflare_api_token }}
+    acme_plugin_cloudflare_data: "{{ acme_plugin_cloudflare_config | b64encode }}"
+  ansible.builtin.command:
+    cmd: pvesh create /cluster/acme/plugins -id cloudflare -type dns -api cf -data {{ acme_plugin_cloudflare_data }}

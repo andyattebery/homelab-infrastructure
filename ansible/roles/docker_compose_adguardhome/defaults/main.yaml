@@ -1,0 +1,12 @@
+---
+# adguardhome_docker_compose
+adguardhome_should_configure_sync: false
+adguardhome_config_directory: "{{ (docker_compose_dst_directory_path, 'adguardhome', 'conf') | path_join }}"
+adguardhome_config_file_path: "{{ (adguardhome_config_directory, 'AdGuardHome.yaml') | path_join }}"
+
+# docker_compose
+docker_compose_dst_directory_name: adguardhome
+docker_compose_envs:
+  - ADGUARDHOME_HOSTNAME={{ adguardhome_hostname }}
+  - ADGUARDHOME_CONFIG_DIRECTORY={{ adguardhome_config_directory }}
+  - CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG={{ certbot_dns_cloudflare_image_tag }}

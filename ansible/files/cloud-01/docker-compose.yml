@@ -1,0 +1,45 @@
+---
+services:
+  freshrss:
+    image: freshrss/freshrss
+    container_name: freshrss
+    # hostname: freshrss
+    restart: unless-stopped
+    networks:
+      - traefik
+    logging:
+      options:
+        max-size: 10m
+    environment:
+      CRON_MIN: ${CRON_MIN}
+      FRESHRSS_INSTALL: |-
+        --api_enabled
+        --base_url https://${FRESHRSS_DOMAIN_NAME}
+        --default_user ${FRESHRSS_USERNAME}
+        --language ${LANG_TWO_LETTER}
+      FRESHRSS_USER: |-
+        --api_password ${FRESHRSS_API_PASSWORD}
+        --email ${FRESHRSS_EMAIL}
+        --language ${LANG_TWO_LETTER}
+        --password ${FRESHRSS_PASSWORD}
+        --user ${FRESHRSS_USERNAME}
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/freshrss/data:/var/www/FreshRSS/data
+      - ${DOCKER_DATA_DIRECTORY}/freshrss/extensions:/var/www/FreshRSS/extensions
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.freshrss-mw1.compress=true
+      - traefik.http.middlewares.freshrss-mw2.headers.browserXssFilter=true
+      - traefik.http.middlewares.freshrss-mw2.headers.forceSTSHeader=true
+      - traefik.http.middlewares.freshrss-mw2.headers.frameDeny=true
+      - traefik.http.middlewares.freshrss-mw2.headers.referrerPolicy=no-referrer-when-downgrade
+      - traefik.http.middlewares.freshrss-mw2.headers.stsSeconds=31536000
+      - traefik.http.routers.freshrss.entryPoints=websecure
+      - traefik.http.routers.freshrss.middlewares=freshrss-mw1,freshrss-mw2
+      - traefik.http.routers.freshrss.rule=Host(`${FRESHRSS_DOMAIN_NAME}`)
+      - traefik.http.routers.freshrss.tls.certResolver=cloudflare
+      - traefik.http.services.freshrss.loadbalancer.server.port=80
+networks:
+  traefik:
+    name: traefik
+    external: true

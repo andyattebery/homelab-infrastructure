@@ -1,0 +1,4 @@
+[Allow {{ syncoid_source_username }} to start/stop/restart services]
+Identity=unix-user:{{ syncoid_source_username }}
+Action=org.freedesktop.systemd1.manage-units
+ResultActive=yes

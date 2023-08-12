@@ -1,0 +1,8 @@
+[Unit]
+Description=Run all syncoid dataset services to {{ syncoid_destination_host}} on {{ syncoid_timer_on_calendar }}
+
+[Timer]
+OnCalendar={{ syncoid_timer_on_calendar }}
+
+[Install]
+WantedBy=timers.target

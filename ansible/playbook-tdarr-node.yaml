@@ -1,0 +1,24 @@
+---
+- name: Configure tdarr nodes
+  hosts: tdarr_nodes
+  become: true
+
+  tasks:
+    - name: Configure smb  mount
+      vars:
+        smb_share_mount_dir: "/mnt/storage"
+        smb_share_uri: "//nas-01.{{ domain_name }}/storage"
+        smb_share_uid: "{{ smb_nas_01_uid }}"
+        smb_share_gid: "{{ smb_nas_01_gid }}"
+        smb_share_username: "{{ smb_nas_01_username }}"
+        smb_share_password: "{{ smb_nas_01_password }}"
+      ansible.builtin.include_role:
+        name: smb_add_mount
+    - name: Create tdarr transcode cache directory
+      ansible.builtin.file:
+        path: /transcode_cache
+        state: directory
+        mode: "0755"
+    - name: Configure tdarr node
+      ansible.builtin.include_role:
+        name: tdarr_node

@@ -1,0 +1,7 @@
+---
+- name: Run docker system prune
+  become: false
+  ansible.builtin.command:
+    cmd: docker system prune --all --force
+  register: docker_compose_prune_result
+  changed_when: "not 'Total reclaimed space: 0B' in docker_compose_prune_result.stdout"

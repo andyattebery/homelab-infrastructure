@@ -1,0 +1,12 @@
+[{{ syncoid_destination_dataset }}]
+    ### remove outdated snapshots
+    autoprune = yes
+    ### don't have sanoid take snapshots as they are coming from syncoid
+    autosnap = no
+    recursive = yes
+    ### define what to keep
+    frequently = 0
+    hourly = 0
+    daily = 30
+    monthly = 6
+    yearly = 0

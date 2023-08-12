@@ -1,0 +1,15 @@
+---
+- name: Add snapper repo
+  ansible.builtin.apt_repository:
+    repo: "deb http://download.opensuse.org/repositories/filesystems:/snapper/xUbuntu_{{ ansible_distribution_version }}/ /"
+    filename: "filesystems.snapper"
+    state: present
+    update_cache: false
+- name: Add snapper key
+  ansible.builtin.apt_key:
+    url: "https://download.opensuse.org/repositories/filesystems:snapper/xUbuntu_{{ ansible_distribution_version }}/Release.key"
+- name: Install snapper
+  ansible.builtin.apt:
+    name: snapper
+    state: present
+    update_cache: true

@@ -1,0 +1,64 @@
+---
+- name: Configure Proxmox vm-host-01
+  hosts: vm-host-01
+  become: true
+
+  vars:
+    network_interface_2_5_gbe: enp2s0
+    interface_mac_address: 1c:fd:08:75:10:24
+
+  roles:
+  #   - pve_config
+  #   - pve_cluster_acme
+  #   - pve_node_acme
+  #   - configure_server
+  #   - pve_storage_add_nas_01_proxmox
+    - scrutiny_collector
+
+  tasks:
+    - name: Update grub parameters
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
+        line: GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on intel_pstate=active cpufreq.default_governor=powersave"
+      register: update_grub_parameters_result
+    - name: Update grub # noqa no-handler
+      when: update_grub_parameters_result.changed
+      ansible.builtin.command:
+        cmd: update-grub
+      changed_when: true
+    - name: Add contrib, non-free, and non-free-firmware repository
+      ansible.builtin.replace:
+        dest: /etc/apt/sources.list
+        regexp: '^(deb.+main).*$'
+        replace: '\1 contrib non-free non-free-firmware'
+    - name: Install NIC DKMS modules
+      ansible.builtin.apt:
+        name:
+          - r8168-dkms
+          - r8125-dkms
+        update_cache: true
+    - name: Add udev rule for r8125
+      ansible.builtin.include_role:
+        name: ansible-role-realtek-r8125-dkms
+        tasks_from: add_udev_rule
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/vm-host-01/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+    # - name: Comment out manual 2.5GbE network interface
+    #   ansible.builtin.replace:
+    #     path: /etc/network/interfaces
+    #     regexp: '(^iface {{ network_interface_2_5_gbe }}.*manual$)'
+    #     replace: '#\1'
+    # - name: Configure 2.5GbE network interface
+    #   ansible.builtin.blockinfile:
+    #     marker_begin: BEGIN 2.5GbE INTERFACE
+    #     marker_end: END 2.5GbE INTERFACE
+    #     path: /etc/network/interfaces
+    #     block: |
+    #       auto {{ network_interface_2_5_gbe }}
+    #       iface {{ network_interface_2_5_gbe }} inet dhcp

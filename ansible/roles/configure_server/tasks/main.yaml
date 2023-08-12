@@ -1,0 +1,34 @@
+---
+- name: Copy SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: https://github.com/andyattebery.keys
+    state: present
+    exclusive: true
+- name: Install packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - gpg
+      - mosh
+      - tmux
+      - vim
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ timezone }}"
+
+- name: Run roles
+  ansible.builtin.include_role:
+    name: "{{ role_item }}"
+  loop:
+    - geerlingguy.security
+    - install_fish
+    - settings_repo
+  loop_control:
+    loop_var: role_item
+  vars:
+    settings_repo_application_dotfiles:
+      - fish
+      - git
+      - ssh
+      - tmux

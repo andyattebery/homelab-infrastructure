@@ -1,0 +1,33 @@
+---
+- name: Get host IP
+  ansible.builtin.command:
+    cmd: hostname -i
+  changed_when: false
+  register:
+    host_ip_result
+- name: Register main node IP
+  ansible.builtin.set_fact:
+    pve_main_node_ip: "{{ host_ip_result.stdout }}"
+- name: Get PVE cluster status
+  ansible.builtin.command:
+    cmd: pvecm status
+  changed_when: false
+  failed_when: false
+  register: pvecm_status_result
+- name: Get cluster fingerprint
+  when: pvecm_status_result.rc == 0
+  block:
+    - name: Get cluster join info
+      ansible.builtin.command:
+        cmd: pvesh get /cluster/config/join --output-format json
+      changed_when: false
+      register: pve_cluster_join_info_json_result
+    - name: Register main node fingerprint
+      vars:
+        pve_cluster_join_info_json: "{{ pve_cluster_join_info_json_result.stdout }}"
+      ansible.builtin.set_fact:
+        pve_cluster_fingerprint: "{{ pve_cluster_join_info_json.nodelist[0].pve_fp }}"
+- name: Create PVE cluster # noqa no-changed-when
+  when: pvecm_status_result.rc == 2
+  ansible.builtin.command:
+    cmd: pvecm create {{ pve_cluster_name }} --link0 {{ pve_main_node_ip }}

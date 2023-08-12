@@ -1,0 +1,13 @@
+{% macro create_value_header(value_max_length) -%}
+{% for i in range((value_max_length | int) + 2) -%}-{%- endfor %}
+{%- endmacro %}
+
+# {{ role_name }} README
+
+## Variables
+
+| {{ name_format_string.format("Name") }} | {{ default_format_string.format("Default") }} | {{ notes_format_string.format("Notes") }} |
+|{{ create_value_header(variable_name_max_length) }}|{{ create_value_header(variable_default_max_length) }}|{{ create_value_header(variable_notes_max_length) }}|
+{% for variable in variables_result.stdout_lines  %}
+| {{ name_format_string.format(variable) }} | {{ default_format_string.format("") }} | {{ notes_format_string.format("") }} |
+{% endfor %}

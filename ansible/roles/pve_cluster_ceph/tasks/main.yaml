@@ -1,0 +1,32 @@
+---
+- name: Install ceph
+  ansible.builtin.include_role:
+    name: pve_node_ceph
+    tasks_from: install_ceph
+- name: Get ceph status
+  ansible.builtin.command:
+    cmd: pveceph status
+  register: pveceph_status_result
+  changed_when: false
+  ignore_errors: true
+- name: Initialize ceph
+  when: pveceph_status_result.rc != 0
+  ansible.builtin.command:
+    cmd: pveceph init --network {{ pve_ceph_network }}
+  register: pveceph_init_result
+  changed_when: pveceph_init_result.rc == 0
+- name: Create ceph manager, monitor, metadata server, and OSD
+  ansible.builtin.include_role:
+    name: pve_node_ceph
+    tasks_from: create_ceph_services
+- name: Create ceph pool
+  ansible.builtin.command:
+    cmd: pveceph pool create pve_pool --pg_num 32 --add_storages
+  register: pveceph_pool_create_pve_pool_result
+  changed_when: "'already defined' not in pveceph_pool_create_pve_pool_result.stdout"
+- name: Create cephfs
+  ansible.builtin.command:
+    cmd: pveceph fs create --add-storage
+  register: pveceph_fs_create_result
+  changed_when: pveceph_fs_create_result.rc == 0
+  failed_when: pveceph_fs_create_result.rc != 0 and "already exist" not in pveceph_fs_create_result.stderr

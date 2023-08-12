@@ -1,0 +1,45 @@
+---
+- name: Configure Proxmox nas-host-02
+  hosts: nas-host-02
+  become: true
+
+  # roles:
+  #   - pve_cluster_acme
+  #   - pve_node_acme
+  #   - pve_config
+  #   - configure_server
+  #   - pve_storage_add_nas_01_proxmox
+  #   - scrutiny_collector
+
+  tasks:
+    - name: Update grub parameters
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
+        line: GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on intel_pstate=active cpufreq.default_governor=powersave"
+      register: update_grub_parameters_result
+    - name: Update grub # noqa no-handler
+      when: update_grub_parameters_result.changed
+      ansible.builtin.command:
+        cmd: update-grub
+      changed_when: true
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/nas-host-02/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+    - name: Add syncoid user
+      ansible.builtin.user:
+        name: "{{ nas_02_syncoid_username }}"
+        password: '!'
+    - name: Authorize nas-01 syncoid key for syncoid user
+      ansible.posix.authorized_key:
+        user: "{{ nas_02_syncoid_username }}"
+        state: present
+        key: "{{ nas_01_syncoid_ssh_public_key }}"
+    - name: Allow syncoid user to shutdown
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        line: "{{ nas_02_syncoid_username }} ALL=NOPASSWD: /usr/sbin/shutdown"

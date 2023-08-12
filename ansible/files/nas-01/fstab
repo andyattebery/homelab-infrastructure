@@ -1,0 +1,50 @@
+# Parity Drives
+/dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3LGHSB2U-part1    /mnt/parity01    ext4    defaults    0   0
+/dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3GKK6M2K-part1    /mnt/parity02    ext4    defaults    0   0
+
+# Data Drives
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG-part1  /mnt/data01    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT-part1  /mnt/data02    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1  /mnt/data03    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL-part1  /mnt/data03    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEH7YU1N-part1  /mnt/data04    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEGVXGEN-part1  /mnt/data05    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C-part1  /mnt/data06    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T-part1  /mnt/data07    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_9LGA6YWA-part1  /mnt/data08    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D3HY7-part1  /mnt/data09    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D12AX-part1  /mnt/data10    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_ST14000NM000J-2T_ZR516PR9-part1  /mnt/data11    btrfs   defaults    0    0
+#/dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5-part1  /mnt/data12    btrfs   defaults    0    0
+
+# Data Subvolumes
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG-part1    /mnt/data/data01    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT-part1    /mnt/data/data02    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL-part1    /mnt/data/data03    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEH7YU1N-part1    /mnt/data/data04    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEGVXGEN-part1    /mnt/data/data05    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C-part1    /mnt/data/data06    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T-part1    /mnt/data/data07    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_9LGA6YWA-part1    /mnt/data/data08    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D3HY7-part1    /mnt/data/data09    btrfs    subvol=/data    0    0
+/dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D12AX-part1    /mnt/data/data10    btrfs    subvol=/data    0   0
+/dev/disk/by-id/scsi-SATA_ST14000NM000J-2T_ZR516PR9-part1    /mnt/data/data11    btrfs    subvol=/data    0   0
+/dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5-part1    /mnt/data/data12    btrfs    subvol=/data    0   0
+
+# Content Subvolumes
+/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi1-part1    /mnt/content/snapraid    btrfs    defaults    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG-part1    /mnt/content/data01     btrfs   subvol=/content    0    0
+#/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT-part1    /mnt/content/data02     btrfs    subvol=/content    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL-part1    /mnt/content/data03     btrfs    subvol=/content    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_9LGA6YWA-part1    /mnt/content/data08     btrfs    subvol=/content    0    0
+#/dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5-part1    /mnt/content/data11     btrfs    subvol=/content    0    0
+
+# mergerfs
+/mnt/data/data*    /mnt/storage    fuse.mergerfs    defaults,nonempty,allow_other,use_ino,noforget,inodecalc=path-hash,cache.files=partial,category.create=mspmfs,moveonenospc=mfs,dropcacheonclose=true,func.getattr=newest,minfreespace=1000G,fsname=mergerfs    0    0
+
+# depot
+#UUID=2a688cbd-8bba-4c8a-90b8-61a420da1159    /mnt/depot    ext4    defaults    0    0
+/dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1   /mnt/depot  xfs defaults    0   0
+
+# depot-cache
+/dev/disk/by-id/nvme-VK003840KWWFP_KIB4T0001I0204T31-part1  /mnt/depot-cache    xfs    defaults    0   0

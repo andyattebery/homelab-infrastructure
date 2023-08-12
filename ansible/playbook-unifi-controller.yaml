@@ -1,0 +1,9 @@
+---
+- name: Configure UniFi controller
+  hosts: unifi-controller
+  become: true
+  roles:
+    - configure_server
+    - geerlingguy.docker
+    - docker_compose_unifi_controller
+    - system_upgrade

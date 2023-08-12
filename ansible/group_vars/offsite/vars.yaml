@@ -1,0 +1,3 @@
+---
+domain_name: "{{ vault_domain_name }}"
+public_domain_name: "{{ vault_public_domain_name }}"

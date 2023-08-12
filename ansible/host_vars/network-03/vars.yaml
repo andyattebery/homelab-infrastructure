@@ -1,0 +1,11 @@
+---
+# docker_compose_adguardhome
+adguardhome_hostname: "{{ network_03_adguardhome_hostname }}"
+adguardhome_username: "{{ network_03_adguardhome_username }}"
+adguardhome_password: "{{ network_03_adguardhome_password }}"
+
+# docker_compose_wireguard
+wireguard_external_domain: "{{ vault_wireguard_external_domain }}"
+wireguard_port: "{{ vault_wireguard_port }}"
+wireguard_peers: "{{ vault_wireguard_peers }}"
+wireguard_internal_subnet: "{{ vault_wireguard_internal_subnet }}"

@@ -1,0 +1,26 @@
+---
+- name: Set a hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+    use: systemd
+- name: Copy SSH keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: https://github.com/andyattebery.keys
+    state: present
+    exclusive: true
+- name: Set root password
+  ansible.builtin.user:
+    user: "{{ ansible_user }}"
+    password: "{{ pikvm_root_password | password_hash('sha512') }}"
+- name: Check if web password is set
+  ansible.builtin.command:
+    cmd: python -c "import passlib.apache; print(passlib.apache.HtpasswdFile('/etc/kvmd/htpasswd').check_password('admin', 'admin'));"
+  register: web_password_default_result
+  changed_when: false
+- name: Set web admin password
+  when: web_password_default_result.stdout is truthy(convert_bool=True)
+  ansible.builtin.shell:
+    cmd: echo "{{ pikvm_web_admin_password }}" | kvmd-htpasswd set --read-stdin admin
+  no_log: true
+  changed_when: false

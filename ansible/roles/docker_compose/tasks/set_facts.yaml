@@ -1,0 +1,12 @@
+---
+- name: Set docker_compose_dst_directory_path fact
+  vars:
+    docker_compose_file_name: "{{ docker_compose_src_file_path | basename }}"
+  ansible.builtin.set_fact:
+    docker_compose_dst_directory_path: "{{ (docker_compose_dst_base_directory_path, docker_compose_dst_directory_name) | path_join }}"
+- name: Set docker compose file facts
+  vars:
+    docker_compose_file_name: "{{ docker_compose_src_file_path | basename }}"
+  ansible.builtin.set_fact:
+    docker_compose_dst_file_path: "{{ (docker_compose_dst_directory_path, 'docker-compose.yml') | path_join }}"
+    docker_compose_dst_env_path: "{{ (docker_compose_dst_directory_path, '.env') | path_join }}"

@@ -1,0 +1,40 @@
+---
+- name: Set ansible_non_become_user facts
+  ansible.builtin.include_role:
+    name: ansible_non_become_user_facts
+- name: Set facts
+  ansible.builtin.include_tasks:
+    file: "set_facts.yaml"
+- name: Create docker compose directory
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_directory_path }}"
+    state: directory
+    owner: "{{ ansible_non_become_user_id }}"
+    group: "{{ ansible_non_become_user_gid }}"
+    mode: "0755"
+- name: Copy docker compose file
+  ansible.builtin.copy:
+    remote_src: false
+    src: "{{ docker_compose_src_file_path }}"
+    dest: "{{ docker_compose_dst_file_path }}"
+    owner: "{{ ansible_non_become_user_id }}"
+    group: "{{ ansible_non_become_user_gid }}"
+    mode: "0644"
+- name: Copy env file
+  ansible.builtin.template:
+    src: templates/env.j2
+    dest: "{{ docker_compose_dst_env_path }}"
+    owner: "{{ ansible_non_become_user_id }}"
+    group: "{{ ansible_non_become_user_gid }}"
+    mode: "0644"
+- name: Run docker compose pull
+  ansible.builtin.include_tasks:
+    file: "docker_compose_pull.yaml"
+- name: Run docker compose up
+  when: docker_compose_should_run_up
+  ansible.builtin.include_tasks:
+    file: "docker_compose_up.yaml"
+- name: Run docker system prune
+  when: docker_compose_should_prune
+  ansible.builtin.include_tasks:
+    file: "docker_system_prune.yaml"

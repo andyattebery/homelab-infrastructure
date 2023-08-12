@@ -1,0 +1,7 @@
+---
+- name: Install ceph
+  ansible.builtin.include_tasks:
+    file: install_ceph.yaml
+- name: Create ceph services (manager, monitor, metadata server)
+  ansible.builtin.include_tasks:
+    file: create_ceph_services.yaml
