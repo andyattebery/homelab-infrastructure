@@ -1,8 +1,10 @@
 ---
-- name: Run docker_compose
+- name: Initial dashboard services manager provider docker compose config
   vars:
-    docker_compose_src_file_path: docker-compose.yaml
-    docker_compose_dst_directory_name: dsm-provider
-    docker_compose_should_run_up: true
+    docker_compose_src_file_path: files/docker-compose-dsm-provider.yaml
+    docker_compose_service_name: dashboard_services_manager_provider
+    # docker_compose_src_config_files:
+    #   - src_file_path: files/config.yaml
+    #     dst_relative_file_path: config.yaml
   ansible.builtin.include_role:
     name: docker_compose

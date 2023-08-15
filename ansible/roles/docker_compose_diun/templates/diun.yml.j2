@@ -1,0 +1,17 @@
+watch:
+  workers: 20
+  schedule: "0 2 * * *"
+  firstCheckNotif: false
+providers:
+  docker:
+    watchByDefault: true
+  swarm:
+    watchByDefault: true
+notif:
+  pushover:
+    token: {{ docker_compose_diun_pushover_token }}
+    recipient: {{ docker_compose_diun_pushover_recipient }}
+    {% raw %}
+    templateTitle: '{{ .Meta.Hostname }}: {{ .Entry.Image.Path }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}'
+    templateBody: 'Image {{ if .Entry.Image.HubLink }}[**{{ .Entry.Image }}**]({{ .Entry.Image.HubLink }}){{ else }}**{{ .Entry.Image }}**{{ end }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}.'
+    {% endraw %}

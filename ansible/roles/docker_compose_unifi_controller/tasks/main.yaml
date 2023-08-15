@@ -1,6 +1,7 @@
 ---
 - name: Initial docker compose setup
   vars:
+    docker_compose_src_file_path: docker-compose-unifi-controller.yaml
     docker_compose_should_run_up: true
   ansible.builtin.include_role:
     name: docker_compose

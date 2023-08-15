@@ -20,9 +20,9 @@
   ansible.builtin.stat:
     path: /etc/resolv.conf
   register: etc_resolv_conf_stat_result
-- name: Debug
-  ansible.builtin.debug:
-    var: etc_resolv_conf_stat_result
+# - name: Debug
+#   ansible.builtin.debug:
+#     var: etc_resolv_conf_stat_result
 - name: Symlink systemd resolv.conf to /etc/resolv.conf
   when: etc_resolv_conf_stat_result.stat.islnk is false or etc_resolv_conf_stat_result.stat.lnk_source != '/run/systemd/resolve/resolv.conf'
   block:

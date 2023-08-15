@@ -1,0 +1,46 @@
+---
+- name: Get env stat
+  ansible.builtin.stat:
+    path: "{{ docker_compose_dst_env_path }}"
+  register: env_stat
+- name: Existing env
+  when: env_stat.stat.exists
+  block:
+    - name: Read env
+      ansible.builtin.slurp:
+        src: "{{ docker_compose_dst_env_path }}"
+      register: env_slurp_result
+    - name: Set docker_compose_existing_envs
+      ansible.builtin.set_fact:
+        docker_compose_existing_envs: "{{ env_slurp_result.content | b64decode | community.general.jc('env', raw=true) }}"
+# - name: Set docker_compose_new_envs
+#   ansible.builtin.set_fact:
+#     docker_compose_new_envs: "{{ docker_compose_default_envs | combine(docker_compose_envs | default({})) }}"
+# - name: Set docker_compose_combined_envs
+#   ansible.builtin.set_fact:
+#     docker_compose_combined_envs: "{{ docker_compose_existing_envs | default({}) | combine(docker_compose_new_envs) }}"
+# - name: debug
+#   ansible.builtin.debug:
+#     var: docker_compose_existing_envs
+# - name: debug
+#   ansible.builtin.debug:
+#     var: docker_compose_default_envs
+# - name: debug
+#   ansible.builtin.debug:
+#     var: docker_compose_envs
+# - name: debug
+#   ansible.builtin.debug:
+#     var: docker_compose_new_envs
+# - name: debug
+#   ansible.builtin.debug:
+#     var: docker_compose_combined_envs
+- name: Copy env file
+  vars:
+    docker_compose_new_envs: "{{ docker_compose_default_envs | combine(docker_compose_envs | default({})) }}"
+    docker_compose_combined_envs: "{{ docker_compose_existing_envs | default({}) | combine(docker_compose_new_envs) }}"
+  ansible.builtin.template:
+    src: templates/env.j2
+    dest: "{{ docker_compose_dst_env_path }}"
+    owner: "{{ docker_compose_uid }}"
+    group: "{{ docker_compose_gid }}"
+    mode: "0644"

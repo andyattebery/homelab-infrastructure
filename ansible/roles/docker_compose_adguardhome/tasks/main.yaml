@@ -1,108 +1,70 @@
 ---
-- name: Set without sync facts
-  when: not adguardhome_should_configure_sync
-  ansible.builtin.set_fact:
-    docker_compose_src_file_path: docker-compose-adguardhome.yaml
-- name: Set with sync facts
-  when: adguardhome_should_configure_sync
-  ansible.builtin.set_fact:
-    docker_compose_src_file_path: docker-compose-adguardhome-with-sync.yaml
-- name: Set x86_64 facts
-  when: ansible_architecture == 'x86_64'
-  ansible.builtin.set_fact:
-    certbot_dns_cloudflare_image_tag: amd64-latest
-- name: Set aarch64 facts
-  when: ansible_architecture == 'aarch64'
-  ansible.builtin.set_fact:
-    certbot_dns_cloudflare_image_tag: arm64v8-latest
-- name: Initial docker compose setup
+- name: Configure certbot docker compose
   vars:
-    docker_compose_should_run_up: false
-    docker_compose_should_prune: false
+    docker_compose_certbot_domain_name: "{{ adguardhome_hostname }}"
+  ansible.builtin.include_role:
+    name: docker_compose_certbot
+- name: Configure adguardhome docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-adguardhome.yaml
+    docker_compose_service_name: adguardhome
+    docker_compose_envs:
+      ADGUARDHOME_HOSTNAME: "{{ adguardhome_hostname }}"
+      ADGUARDHOME_CONFIG_DIRECTORY: "{{ adguardhome_config_directory }}"
   ansible.builtin.include_role:
     name: docker_compose
-- name: Create adguardhome conf directory
-  ansible.builtin.file:
-    path: "{{ adguardhome_config_directory }}"
-    state: directory
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Set adguardhome_config_file_path fact
-  ansible.builtin.set_fact:
-    adguardhome_config_file_path: "{{ (adguardhome_config_directory, 'AdGuardHome.yaml') | path_join }}"
-- name: Get adguardhome config file stat
-  ansible.builtin.stat:
-    path: "{{ adguardhome_config_file_path }}"
-  register: adguardhome_config_file_stat_result
-- name: Copy initial adguardhome config file
-  when: adguardhome_config_file_stat_result.stat.exists is false
-  ansible.builtin.template:
-    src: templates/AdGuardHome.yaml.j2
-    dest: "{{ adguardhome_config_file_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0644"
-- name: Set certbot_directory_path fact
-  ansible.builtin.set_fact:
-    certbot_directory_path: "{{ (docker_compose_dst_directory_path, 'certbot') | path_join }}"
-- name: Create certbot config directory
-  ansible.builtin.file:
-    path: "{{ certbot_directory_path }}"
-    state: directory
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Copy certbot cloudflare credentials
-  ansible.builtin.template:
-    src: templates/cloudflare_credentials.ini.j2
-    dest: "{{ (certbot_directory_path, 'cloudflare_credentials.ini') | path_join }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0600"
-- name: Copy certbot_create_cert.sh
-  ansible.builtin.copy:
-    src: files/certbot_create_cert.sh
-    dest: "{{ certbot_directory_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Copy certbot_renew_entrypoint.sh
-  ansible.builtin.copy:
-    src: files/certbot_renew_entrypoint.sh
-    dest: "{{ certbot_directory_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Create LetsEncrypt cert
-  ansible.builtin.command:
-    cmd: "{{ (certbot_directory_path, 'certbot_create_cert.sh') | path_join }} {{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ adguardhome_hostname }}" # noqa yaml[line-length]
-  register: certbot_create_cert_result
-  changed_when: "'Certificate not yet due for renewal' not in certbot_create_cert_result.stdout"
-- name: Configure adguardhome-sync
-  when: adguardhome_should_configure_sync
-  vars:
-    adguardhome_sync_directory_path: "{{ (docker_compose_dst_directory_path, 'adguardhome-sync') | path_join }}"
+- name: Try to access web interface
+  ansible.builtin.uri:
+    url: "http://{{ adguardhome_hostname }}"
+  ignore_errors: true
+  register: adguardhome_web_interface_result
+- name: Initial config
+  when: adguardhome_web_interface_result.status == -1
   block:
-    - name: Create adguardhome-sync config directory
-      ansible.builtin.file:
-        path: "{{ adguardhome_sync_directory_path }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: "0755"
-    - name: Copy adguardhome-sync config file
-      ansible.builtin.template:
-        src: templates/adguardhome-sync.yaml.j2
-        dest: "{{ (adguardhome_sync_directory_path, 'adguardhome-sync.yaml') | path_join }}"
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
+    - name: AdGuardHome initial setup
+      vars:
+        setup_request:
+          dns:
+            can_autofix: false
+            ip: "0.0.0.0"
+            port: 53
+            status: ""
+          web:
+            can_autofix: false
+            ip: "0.0.0.0"
+            port: 80
+            status: ""
+          set_static_ip: false
+          username: "{{ adguardhome_username }}"
+          password: "{{ adguardhome_password }}"
+      ansible.builtin.uri:
+        url: "http://{{ adguardhome_hostname }}:3000/control/install/configure"
+        method: POST
+        body: "{{ setup_request | to_json }}"
+        body_format: json
+    - name: Get AdGuardHome.yaml
+      ansible.builtin.slurp:
+        src: "{{ adguardhome_config_path }}"
+      register: adguardhome_config_slurp_result
+    - name: Configure SSL
+      vars:
+        adguardhome_config: "{{ adguardhome_config_slurp_result.content | b64decode | from_yaml }}"
+        ssl_config:
+          tls:
+            enabled: true
+            server_name: "{{ adguardhome_hostname }}"
+            force_https: false
+            port_https: 443
+            port_dns_over_tls: 853
+            port_dns_over_quic: 784
+            certificate_path: "/certbot/config/live/{{ adguardhome_hostname }}/fullchain.pem"
+            private_key_path: "/certbot/config/live/{{ adguardhome_hostname }}/privkey.pem"
+        updated_adguardhome_config: "{{ adguardhome_config | combine(ssl_config) }}"
+      ansible.builtin.copy:
+        dest: "{{ adguardhome_config_path }}"
+        content: "{{ updated_adguardhome_config | to_yaml }}"
         mode: "0644"
-- name: Run docker compose up
-  ansible.builtin.include_role:
-    name: docker_compose
-    tasks_from: docker_compose_up
-- name: Run docker system prune
-  ansible.builtin.include_role:
-    name: docker_compose
-    tasks_from: docker_system_prune
+    - name: Restart adguardhome
+      ansible.builtin.command:
+        cmd: docker restart adguardhome
+      changed_when: false

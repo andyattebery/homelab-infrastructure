@@ -1,0 +1,13 @@
+ansible_non_become_user_facts:
+    - [x] only run when ansible_non_become_user_gathered_facts is false
+docker_compose:
+    - [x] redo facts/variables
+    - [x] add support for copying config files
+    - [x] add support for running config file
+    - [] fixed copy_config_files run command changed when
+
+docker_compose_traefik:
+    - [] get it working
+
+snapraid-btrfs-runner:
+    - [] move conf, service, and timer to role

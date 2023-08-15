@@ -11,3 +11,8 @@
 | timezone                               | yes       |                     |                         |
 | domain_name                            | yes       |                     |                         |
 | docker_compose_envs (array)            | no        |                     |                         |
+
+## Sets facts
+- docker_compose_gid
+- docker_compose_uid
+- docker_compose_dst_directory_path

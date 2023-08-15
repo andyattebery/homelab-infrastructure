@@ -1,0 +1,12 @@
+---
+services:
+  adguardhome-sync:
+    image: ghcr.io/bakito/adguardhome-sync
+    container_name: adguardhome-sync
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/adguardhome-sync/adguardhome-sync.yaml:/config/adguardhome-sync.yaml
+    ports:
+      - 8080:8080
+    restart: unless-stopped
+    labels:
+      - dsm.url=http://${ADGUARDHOME_HOSTNAME}:8080

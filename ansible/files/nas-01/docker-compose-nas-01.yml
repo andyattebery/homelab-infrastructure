@@ -1,30 +1,6 @@
 ---
 version: "3.9"
 services:
-  dashboard_services_manager_provider:
-    container_name: dashboard-services-manager-provider
-    image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
-    environment:
-      - DSM_PROVIDEROPTIONS__HOSTNAME=${HOSTNAME}
-      - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
-      - DSM_PROVIDEROPTIONS__DOCKERLABELPREFIX=dsm
-      - DSM_PROVIDEROPTIONS__ARESERVICEHOSTSHTTPS=true
-      - DSM_PROVIDEROPTIONS__SERVICESPROVIDERTYPE=docker
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock"
-  diun:
-    image: crazymax/diun:latest
-    container_name: diun
-    restart: unless-stopped
-    hostname: ${HOSTNAME}
-    volumes:
-      - "${DOCKER_DATA_DIRECTORY}/diun/data:/data"
-      - "${APPLICATION_SETTINGS_DIR}/diun/config/diun.yml:/diun.yml"
-      - "/var/run/docker.sock:/var/run/docker.sock"
-    environment:
-      - "TZ=${TZ}"
-      - "LOG_LEVEL=info"
-      - "LOG_JSON=false"
   gitea:
     image: gitea/gitea:latest
     container_name: gitea

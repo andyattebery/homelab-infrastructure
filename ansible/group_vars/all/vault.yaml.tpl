@@ -2,6 +2,7 @@ vault_ansible_user: {{ op://Personal/ansible all group vars/variables/ansibile_u
 vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
 vault_cloudflare_api_token: {{ op://Personal/Cloudflare API Token - Ansible Vault DNS Edit/credential }}
+vault_diun_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
 vault_filebot_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/filebot }}
 vault_freshrss_api_password: {{ op://Personal/adguardhome-02/password }}0
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}

@@ -1,13 +1,12 @@
 ---
-- name: Initial docker compose setup
+- name: Configure wireguard with docker_compose
   vars:
-    docker_compose_envs:
-      - WIREGUARD_EXTERNAL_DOMAIN={{ wireguard_external_domain }}
-      - WIREGUARD_PORT={{ wireguard_port }}
-      - WIREGUARD_PEERS={{ wireguard_peers }}
-      - WIREGUARD_INTERNAL_SUBNET={{ wireguard_internal_subnet }}
     docker_compose_src_file_path: files/docker-compose-wireguard.yaml
-    docker_compose_dst_directory_name: wireguard
-    docker_compose_should_run_up: true
+    docker_compose_service_name: wireguard
+    docker_compose_envs:
+      WIREGUARD_EXTERNAL_DOMAIN: "{{ wireguard_external_domain }}"
+      WIREGUARD_PORT: "{{ wireguard_port }}"
+      WIREGUARD_PEERS: "{{ wireguard_peers }}"
+      WIREGUARD_INTERNAL_SUBNET: "{{ wireguard_internal_subnet }}"
   ansible.builtin.include_role:
     name: docker_compose

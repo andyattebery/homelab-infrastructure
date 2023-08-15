@@ -1,4 +1,0 @@
-# docker_compose
-docker_compose_dst_directory_name: certbot
-docker_compose_envs:
-  - CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG={{ certbot_dns_cloudflare_image_tag }}

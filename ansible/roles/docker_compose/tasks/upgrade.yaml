@@ -1,7 +1,4 @@
 ---
-- name: Set facts
-  ansible.builtin.include_tasks:
-    file: "set_facts.yaml"
 - name: Run docker compose pull
   ansible.builtin.include_tasks:
     file: "docker_compose_pull.yaml"

@@ -21,6 +21,8 @@ nas_02_syncoid_password: "{{ vault_nas_02_syncoid_password }}"
 # nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
 # nas_02_ssh_public_key: "{{ vault_nas_02_ssh_public_key }}"
 
+diun_pushover_token: "{{ vault_diun_pushover_token }}"
+
 filebot_pushover_token: "{{ vault_filebot_pushover_token }}"
 
 freshrss_email: "{{ vault_freshrss_email }}"
@@ -110,6 +112,6 @@ adguardhome_replicas:
   - domain_name: "{{ network_02_adguardhome_hostname }}"
     username: "{{ network_02_adguardhome_username }}"
     password: "{{ network_02_adguardhome_password }}"
-  # - domain_name: "{{ network_03_adguardhome_hostname }}"
-  #   username: "{{ network_03_adguardhome_username }}"
-  #   password: "{{ network_03_adguardhome_password }}"
+  - domain_name: "{{ network_03_adguardhome_hostname }}"
+    username: "{{ network_03_adguardhome_username }}"
+    password: "{{ network_03_adguardhome_password }}"

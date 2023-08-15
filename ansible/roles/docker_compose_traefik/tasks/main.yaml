@@ -1,6 +1,10 @@
 ---
 - name: Initial docker compose setup
   vars:
+    docker_compose_src_file_path: files/docker-compose-traefik.yaml
+    docker_compose_envs:
+      CERTBOT_EMAIL: "{{ certbot_email }}"
+      CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
     docker_compose_should_run_up: true
   ansible.builtin.include_role:
     name: docker_compose

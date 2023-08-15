@@ -9,43 +9,62 @@
     certbot_dns_cloudflare_image_tag: arm64v8-latest
 - name: Initial docker compose setup
   vars:
-    docker_compose_should_run_up: false
-    docker_compose_should_prune: false
+    docker_compose_src_file_path: files/docker-compose-certbot.yaml
+    docker_compose_service_name: certbot
+    docker_compose_envs:
+      CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG: "{{ certbot_dns_cloudflare_image_tag }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/cloudflare_credentials.ini.j2
+        dst_relative_file_path: cloudflare_credentials.ini
+      - src_file_path: files/certbot_create_cert.sh
+        dst_relative_file_path: certbot_create_cert.sh
+        mode: "0755"
+        run_command: true
+        command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_domain_name }}"
+        changed_when: false # "'Certificate not yet due for renewal' not in run_config_file_result.stdout"
+      - src_file_path: files/certbot_renew_entrypoint.sh
+        dst_relative_file_path: certbot_renew_entrypoint.sh
+        mode: "0755"
   ansible.builtin.include_role:
     name: docker_compose
-- name: Set certbot_directory_path fact
-  ansible.builtin.set_fact:
-    certbot_directory_path: "{{ (docker_compose_dst_directory_path, 'certbot') | path_join }}"
-- name: Create certbot config directory
-  ansible.builtin.file:
-    path: "{{ certbot_directory_path }}"
-    state: directory
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Copy certbot cloudflare credentials
-  ansible.builtin.template:
-    src: templates/cloudflare_credentials.ini.j2
-    dest: "{{ (certbot_directory_path, 'cloudflare_credentials.ini') | path_join }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0600"
-- name: Copy certbot_create_cert.sh
-  ansible.builtin.copy:
-    src: files/certbot_create_cert.sh
-    dest: "{{ certbot_directory_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Copy certbot_renew_entrypoint.sh
-  ansible.builtin.copy:
-    src: files/certbot_renew_entrypoint.sh
-    dest: "{{ certbot_directory_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0755"
-- name: Create LetsEncrypt cert
-  ansible.builtin.command:
-    cmd: "{{ (certbot_directory_path, 'certbot_create_cert.sh') | path_join }} {{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ adguardhome_hostname }}" # noqa yaml[line-length]
-  register: certbot_create_cert_result
-  changed_when: "'Certificate not yet due for renewal' not in certbot_create_cert_result.stdout"
+# - name: Set certbot_directory_path fact
+#   ansible.builtin.set_fact:
+#     certbot_directory_path: "{{ (docker_compose_dst_directory_path, 'certbot') | path_join }}"
+# - name: Create certbot config directory
+#   ansible.builtin.file:
+#     path: "{{ certbot_directory_path }}"
+#     state: directory
+#     owner: "{{ docker_compose_uid }}"
+#     group: "{{ docker_compose_gid }}"
+#     mode: "0755"
+# - name: Copy certbot cloudflare credentials
+#   ansible.builtin.template:
+#     src: templates/cloudflare_credentials.ini.j2
+#     dest: "{{ (certbot_directory_path, 'cloudflare_credentials.ini') | path_join }}"
+#     owner: "{{ docker_compose_uid }}"
+#     group: "{{ docker_compose_gid }}"
+#     mode: "0600"
+# - name: Copy certbot_create_cert.sh
+#   ansible.builtin.copy:
+#     src: files/certbot_create_cert.sh
+#     dest: "{{ certbot_directory_path }}"
+#     owner: "{{ docker_compose_uid }}"
+#     group: "{{ docker_compose_gid }}"
+#     mode: "0755"
+# - name: Copy certbot_renew_entrypoint.sh
+#   ansible.builtin.copy:
+#     src: files/certbot_renew_entrypoint.sh
+#     dest: "{{ certbot_directory_path }}"
+#     owner: "{{ docker_compose_uid }}"
+#     group: "{{ docker_compose_gid }}"
+#     mode: "0755"
+# - name: Create LetsEncrypt cert
+#   ansible.builtin.command:
+#     cmd: "{{ (certbot_directory_path, 'certbot_create_cert.sh') | path_join }} {{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_domain_name }}" # noqa yaml[line-length]
+#   register: certbot_create_cert_result
+#   changed_when: "'Certificate not yet due for renewal' not in certbot_create_cert_result.stdout"
+# - name: Bring up certbot container
+#   vars:
+#     docker_compose_should_run_up: true
+#   ansible.builtin.include_role:
+#     name: docker_compose

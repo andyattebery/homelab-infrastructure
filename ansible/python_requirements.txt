@@ -1,3 +1,4 @@
 dnspython
 passlib
 bcrypt
+pip

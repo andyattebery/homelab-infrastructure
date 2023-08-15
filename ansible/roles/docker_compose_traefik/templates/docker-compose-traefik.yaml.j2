@@ -1,12 +1,11 @@
 ---
-version: "3.8"
 services:
   traefik:
     image: "traefik:latest"
     container_name: "traefik"
     restart: always
     command:
-      # - --api.dashboard=true
+      - --api.dashboard={{ docker_compose_traefik_enable_dashboard }}
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --metrics.prometheus=true
@@ -27,8 +26,10 @@ services:
       - --certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json
     networks:
       traefik:
-    # extra_hosts: 
-    #   - host.docker.internal:172.17.0.1 # This is to make host network_mode containers work
+    {% if docker_compose_traefik_enable_host_network %}
+    extra_hosts:
+      - host.docker.internal:172.17.0.1
+    {% endif %}
     ports:
       - "80:80"
       - "443:443"
@@ -38,12 +39,14 @@ services:
       - "${DOCKER_DATA_DIRECTORY}/traefik/letsencrypt:/letsencrypt"
       - "${DOCKER_DATA_DIRECTORY}/traefik/logs:/logs"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
-    # labels:
-    #   - traefik.enable=true
-    #   - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
-    #   - traefik.http.routers.dashboard-https.entrypoints=websecure
-    #   - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
-    #   - traefik.http.routers.dashboard-https.service=api@internal
+    {% if docker_compose_traefik_enable_dashboard %}
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
+      - traefik.http.routers.dashboard-https.entrypoints=websecure
+      - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
+      - traefik.http.routers.dashboard-https.service=api@internal
+    {% endif %}
 networks:
   traefik:
     name: traefik

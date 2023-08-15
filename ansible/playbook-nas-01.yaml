@@ -163,7 +163,14 @@
           # - syncoid_source_dataset: basin
           #   syncoid_destination_dataset: backups/basin
           #   syncoid_healthchecks_uuid: f39dd0fa-6758-4ee1-aca8-aa09e3b7d0b8
-    - name: Configure docker compose
+    - name: Configure docker compose roles
+      ansible.builtin.include_role:
+        name: "{{ item }}"
+      loop:
+        - docker_compose_dashboard_services_manager_provider
+        - docker_compose_diun
+        - docker_compose_traefik
+    - name: Configure nas-01 docker compose
       vars:
         docker_compose_src_file_path: files/nas-01/docker-compose.yml
         docker_compose_dst_directory_name: host
@@ -171,14 +178,9 @@
         docker_compose_envs:
           - CERTBOT_EMAIL="{{ certbot_email }}"
           - CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
-          - TORRENTS_DIR=/mnt/depot/bt/torrents
-          - INCOMPLETE_DOWNLOADS_DIR=/mnt/depot-cache/bt/downloads
-          - COMPLETE_DOWNLOADS_DIR=/mnt/depot/bt/downloads
           - STORAGE_DIR=/mnt/storage
           - MINIO_USERNAME="{{ minio_username }}"
           - MINIO_PASSWORD="{{ minio_password }}"
-          - MYJDOWNLOADER_USERNAME="{{ myjdownloader_username }}"
-          - MYJDOWNLOADER_PASSWORD="{{ myjdownloader_password }}"
           - NEXTCLOUD_TRUSTED_PROXIES=172.18.0.0/16
           - NEXTCLOUD_ADMIN_USER="{{ nextcloud_admin_user }}"
           - NEXTCLOUD_ADMIN_PASSWORD="{{ nextcloud_admin_password }}"
@@ -186,25 +188,14 @@
           - NEXTCLOUD_MYSQL_PASSWORD="{{ nextcloud_mysql_password }}"
           - NEXTCLOUD_MYSQL_DATABASE="{{ nextcloud_mysql_database }}"
           - NEXTCLOUD_MYSQL_USER="{{ nextcloud_mysql_user }}"
-          - PLEX_HOST=192.168.1.233
-          - PLEX_TOKEN="{{ plex_token }}"
-          - PUSHOVER_FILEBOT_TOKEN="{{ filebot_pushover_token }}"
-          - RTORRENT_PORT=53245
-          - RTORRENT_DHT_PORT=53250
-          - RTORRENT_SCGI_PORT=5000
-          - RTORRENT_SESSION_DIR=/mnt/depot/bt/_rtorrent_session
-          - RTORRENT_PUBLIC_PORT=53246
-          - RTORRENT_PUBLIC_DHT_PORT=53251
-          - RTORRENT_PUBLIC_SCGI_PORT=5001
-          - RTORRENT_PUBLIC_SESSION_DIR=/mnt/depot/bt/_rtorrent_public_session
       ansible.builtin.include_role:
         name: docker_compose
-    - name: Copy dashboard-services-manager config
-      vars:
-        docker_compose_copy_config_src_directory_path: "roles/docker_compose_dashboard_services_manager_provider/files/config.yaml"
-        docker_compose_copy_config_dst_directory_path: "{{ (docker_compose_data_directory, 'dashboard-services-manager', 'config') | path_join }}"
-      ansible.builtin.include_role:
-        name: docker_compose_copy_config
+    # - name: Copy dashboard-services-manager config
+    #   vars:
+    #     docker_compose_copy_config_src_directory_path: "roles/docker_compose_dashboard_services_manager_provider/files/config.yaml"
+    #     docker_compose_copy_config_dst_directory_path: "{{ (docker_compose_data_directory, 'dashboard-services-manager', 'config') | path_join }}"
+    #   ansible.builtin.include_role:
+    #     name: docker_compose_copy_config
     - name: Configure samba
       ansible.builtin.copy:
         src: "files/nas-01/smb.conf"

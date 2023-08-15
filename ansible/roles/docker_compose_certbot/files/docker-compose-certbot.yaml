@@ -1,5 +1,4 @@
 ---
-version: "3.9"
 services:
   certbot:
     image: certbot/dns-cloudflare:${CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG}

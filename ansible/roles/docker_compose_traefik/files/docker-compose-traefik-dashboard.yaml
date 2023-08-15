@@ -1,0 +1,13 @@
+services:
+  traefik:
+    extends:
+      file: docker-compose-traefik.yml
+      service: traefik
+    command:
+      - --api.dashboard=true
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
+      - traefik.http.routers.dashboard-https.entrypoints=websecure
+      - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
+      - traefik.http.routers.dashboard-https.service=api@internal

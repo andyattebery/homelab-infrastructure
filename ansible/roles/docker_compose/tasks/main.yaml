@@ -1,32 +1,55 @@
 ---
 - name: Set ansible_non_become_user facts
+  when: docker_compose_uid is not defined and docker_compose_gid is not defined
   ansible.builtin.include_role:
     name: ansible_non_become_user_facts
-- name: Set facts
-  ansible.builtin.include_tasks:
-    file: "set_facts.yaml"
+# - name: Set facts to return
+#   ansible.builtin.set_fact:
+#     docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}"
+#     docker_compose_uid: "{{ docker_compose_uid | default(ansible_non_become_user_id) }}"
+#     docker_compose_gid: "{{ docker_compose_gid | default(ansible_non_become_user_gid) }}"
+# - name: Set dest path facts for role use
+#   vars:
+#     docker_compose_src_file_name: "{{ docker_compose_src_file_path | basename }}"
+#   ansible.builtin.set_fact:
+#     docker_compose_dst_file_path: "{{ (docker_compose_dst_directory_path, docker_compose_src_file_name) | path_join }}"
+#     docker_compose_dst_env_path: "{{ (docker_compose_dst_directory_path, '.env') | path_join }}"
+# - name: Set docker_compose_base_command fact # This is a separate task because it references facts set in the previous task
+#   ansible.builtin.set_fact:
+#     docker_compose_base_command: "docker compose --file {{ docker_compose_dst_file_path }} --env-file {{ docker_compose_dst_env_path }}"
 - name: Create docker compose directory
   ansible.builtin.file:
     path: "{{ docker_compose_dst_directory_path }}"
     state: directory
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
+    owner: "{{ docker_compose_uid }}"
+    group: "{{ docker_compose_gid }}"
     mode: "0755"
-- name: Copy docker compose file
-  ansible.builtin.copy:
-    remote_src: false
+- name: "Copy {{ docker_compose_src_file_path }}"
+  ansible.builtin.template:
     src: "{{ docker_compose_src_file_path }}"
     dest: "{{ docker_compose_dst_file_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
+    owner: "{{ docker_compose_uid }}"
+    group: "{{ docker_compose_gid }}"
     mode: "0644"
 - name: Copy env file
-  ansible.builtin.template:
-    src: templates/env.j2
-    dest: "{{ docker_compose_dst_env_path }}"
-    owner: "{{ ansible_non_become_user_id }}"
-    group: "{{ ansible_non_become_user_gid }}"
-    mode: "0644"
+  ansible.builtin.include_tasks:
+    file: copy_env.yaml
+- name: Copy main docker compose file
+  ansible.builtin.include_tasks:
+    file: copy_main_docker_compose.yaml
+- name: Copy config files
+  when: docker_compose_src_config_files | default([]) | length > 0
+  ansible.builtin.include_tasks:
+    file: copy_config_files.yaml
+- name: Copy scripts
+  when: docker_compose_copy_scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/bin"
+    mode: "0755"
+  loop:
+    - files/dc
+    - files/dcup
 - name: Run docker compose pull
   ansible.builtin.include_tasks:
     file: "docker_compose_pull.yaml"
