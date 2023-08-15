@@ -10,25 +10,3 @@
         dst_relative_file_path: adguardhome-sync.yaml
   ansible.builtin.include_role:
     name: docker_compose
-# - name: Set adguardhome_sync_directory_path fact
-#   ansible.builtin.set_fact:
-#     adguardhome_sync_directory_path: "{{ (docker_compose_dst_directory_path, 'adguardhome-sync') | path_join }}"
-# - name: Create adguardhome-sync config directory
-#   ansible.builtin.file:
-#     path: "{{ adguardhome_sync_directory_path }}"
-#     state: directory
-#     owner: "{{ ansible_non_become_user_id }}"
-#     group: "{{ ansible_non_become_user_gid }}"
-#     mode: "0755"
-# - name: Copy adguardhome-sync config file
-#   ansible.builtin.template:
-#     src: templates/adguardhome-sync.yaml.j2
-#     dest: "{{ (adguardhome_sync_directory_path, 'adguardhome-sync.yaml') | path_join }}"
-#     owner: "{{ ansible_non_become_user_id }}"
-#     group: "{{ ansible_non_become_user_gid }}"
-#     mode: "0644"
-# - name: Bring up adguardhome-sync container
-#   vars:
-#     docker_compose_should_run_up: true
-#   ansible.builtin.include_role:
-#     name: docker_compose

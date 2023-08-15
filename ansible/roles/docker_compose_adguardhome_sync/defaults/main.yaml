@@ -1,4 +1,0 @@
-# ---
-# docker_compose_src_file_path: docker-compose-adguardhome-sync.yaml
-# docker_compose_envs:
-#   ADGUARDHOME_SYNC_HOSTNAME: "{{ adguardhome_sync_hostname }}"

@@ -6,11 +6,6 @@
     patterns:
       - "docker-compose-*.y*ml"
   register: find_docker_compose_files_result
-# - name: Set docker_compose_file_paths
-#   vars:
-#     existing_docker_compose_file_paths: "{{ find_docker_compose_files_result.files | map(attribute='path') | list }}"
-#   ansible.builtin.set_fact:
-#     docker_compose_file_paths: "{{ existing_docker_compose_file_paths | union([docker_compose_dst_file_path]) }}"
 - name: Copy main docker compose file
   vars:
     existing_docker_compose_file_paths: "{{ find_docker_compose_files_result.files | map(attribute='path') | list }}"

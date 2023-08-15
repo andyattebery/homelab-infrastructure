@@ -3,20 +3,6 @@
   when: docker_compose_uid is not defined and docker_compose_gid is not defined
   ansible.builtin.include_role:
     name: ansible_non_become_user_facts
-# - name: Set facts to return
-#   ansible.builtin.set_fact:
-#     docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}"
-#     docker_compose_uid: "{{ docker_compose_uid | default(ansible_non_become_user_id) }}"
-#     docker_compose_gid: "{{ docker_compose_gid | default(ansible_non_become_user_gid) }}"
-# - name: Set dest path facts for role use
-#   vars:
-#     docker_compose_src_file_name: "{{ docker_compose_src_file_path | basename }}"
-#   ansible.builtin.set_fact:
-#     docker_compose_dst_file_path: "{{ (docker_compose_dst_directory_path, docker_compose_src_file_name) | path_join }}"
-#     docker_compose_dst_env_path: "{{ (docker_compose_dst_directory_path, '.env') | path_join }}"
-# - name: Set docker_compose_base_command fact # This is a separate task because it references facts set in the previous task
-#   ansible.builtin.set_fact:
-#     docker_compose_base_command: "docker compose --file {{ docker_compose_dst_file_path }} --env-file {{ docker_compose_dst_env_path }}"
 - name: Create docker compose directory
   ansible.builtin.file:
     path: "{{ docker_compose_dst_directory_path }}"

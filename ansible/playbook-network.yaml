@@ -4,11 +4,11 @@
   become: true
 
   roles:
-    # - configure_server
-    # - geerlingguy.docker
-    # - tailscale_exit_node
-    # - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
-    # - docker_compose_adguardhome
+    - configure_server
+    - geerlingguy.docker
+    - tailscale_exit_node
+    - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
+    - docker_compose_adguardhome
     - docker_compose_dashboard_services_manager_provider
     - docker_compose_diun
     - role: docker_compose_wireguard
