@@ -10,20 +10,19 @@
 - name: Initial docker compose setup
   vars:
     docker_compose_src_file_path: files/docker-compose-certbot.yaml
-    docker_compose_service_name: certbot
     docker_compose_envs:
       CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG: "{{ certbot_dns_cloudflare_image_tag }}"
     docker_compose_src_config_files:
       - src_file_path: templates/cloudflare_credentials.ini.j2
-        dst_relative_file_path: cloudflare_credentials.ini
+        dst_relative_file_path: certbot/cloudflare_credentials.ini
       - src_file_path: files/certbot_create_cert.sh
-        dst_relative_file_path: certbot_create_cert.sh
+        dst_relative_file_path: certbot/certbot_create_cert.sh
         mode: "0755"
         run_command: true
         command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_domain_name }}"
         changed_when: false # "'Certificate not yet due for renewal' not in run_config_file_result.stdout"
       - src_file_path: files/certbot_renew_entrypoint.sh
-        dst_relative_file_path: certbot_renew_entrypoint.sh
+        dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
         mode: "0755"
   ansible.builtin.include_role:
     name: docker_compose

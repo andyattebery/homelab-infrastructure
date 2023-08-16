@@ -2,11 +2,11 @@
 - name: Initial adguardhome-sync docker compose setup
   vars:
     docker_compose_src_file_path: files/docker-compose-adguardhome-sync.yaml
-    docker_compose_service_name: adguardhome-sync
     docker_compose_envs:
       ADGUARDHOME_SYNC_HOSTNAME: "{{ adguardhome_sync_hostname }}"
     docker_compose_src_config_files:
       - src_file_path: adguardhome-sync.yaml.j2
-        dst_relative_file_path: adguardhome-sync.yaml
+        dst_relative_file_path: adguardhome-sync/adguardhome-sync.yaml
+        service_name_to_restart: adguardhome-sync
   ansible.builtin.include_role:
     name: docker_compose

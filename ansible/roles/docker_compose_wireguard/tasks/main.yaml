@@ -2,7 +2,6 @@
 - name: Configure wireguard with docker_compose
   vars:
     docker_compose_src_file_path: files/docker-compose-wireguard.yaml
-    docker_compose_service_name: wireguard
     docker_compose_envs:
       WIREGUARD_EXTERNAL_DOMAIN: "{{ wireguard_external_domain }}"
       WIREGUARD_PORT: "{{ wireguard_port }}"

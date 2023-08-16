@@ -1,7 +1,7 @@
 ---
-- name: "Run {{ docker_compose_base_command }} up" # noqa name[template]
+- name: "Run {{ docker_compose_base_command }} up --detach" # noqa name[template]
   become: false
   ansible.builtin.command:
-    cmd: "{{ docker_compose_base_command }}"
+    cmd: "{{ docker_compose_base_command }} up --detach"
   register: docker_compose_up_result
-  changed_when: docker_compose_up_result.stderr_lines | reject('match', '.*(Running).*') is any
+  changed_when: docker_compose_up_result.stderr_lines | select('match', ' Container.*') | reject('match', '.*(Running).*') is any

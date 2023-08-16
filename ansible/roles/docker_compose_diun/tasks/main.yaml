@@ -2,10 +2,10 @@
 - name: Configure diun with docker_compose
   vars:
     docker_compose_src_file_path: files/docker-compose-diun.yaml
-    docker_compose_service_name: diun
     docker_compose_src_config_files:
       - src_file_path: diun.yml.j2
-        dst_relative_file_path: config/diun.yml
+        dst_relative_file_path: diun/config/diun.yml
+        service_name_to_restart: diun
     docker_compose_diun_pushover_token: "{{ diun_pushover_token }}"
     docker_compose_diun_pushover_recipient: "{{ pushover_user_key }}"
   ansible.builtin.include_role:

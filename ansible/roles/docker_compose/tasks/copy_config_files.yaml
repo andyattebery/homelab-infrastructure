@@ -1,14 +1,7 @@
 ---
-- name: "Create {{ docker_compose_config_directory_path }}"
+- name: Create config file directories
   ansible.builtin.file:
-    path: "{{ docker_compose_config_directory_path }}"
-    state: directory
-    owner: "{{ docker_compose_uid }}"
-    group: "{{ docker_compose_gid }}"
-    mode: "0755"
-- name: Create config file sub-directories
-  ansible.builtin.file:
-    dest: "{{ (docker_compose_config_directory_path, item.dst_relative_file_path | dirname) | path_join }}"
+    dest: "{{ (docker_compose_dst_data_directory_path, item.dst_relative_file_path | dirname) | path_join }}"
     state: directory
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
@@ -17,16 +10,22 @@
 - name: Copy config files
   ansible.builtin.template:
     src: "{{ item.src_file_path }}"
-    dest: "{{ (docker_compose_config_directory_path, item.dst_relative_file_path) | path_join }}"
+    dest: "{{ (docker_compose_dst_data_directory_path, item.dst_relative_file_path) | path_join }}"
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
     mode: "{{ item.mode | default('0644') }}"
   loop: "{{ docker_compose_src_config_files }}"
-  notify: docker_compose_restart_service
+  register: copy_config_files_result
 - name: Run config files
   when: item.run_command | default(false)
   ansible.builtin.command:
-    cmd: "{{ (docker_compose_config_directory_path, item.dst_relative_file_path) | path_join }} {{ item.command_arguments | default('') }}"
+    cmd: "{{ (docker_compose_dst_data_directory_path, item.dst_relative_file_path) | path_join }} {{ item.command_arguments | default('') }}"
   register: run_config_file_result
   changed_when: item.changed_when | default(false)
   loop: "{{ docker_compose_src_config_files }}"
+- name: Restart services
+  vars:
+    service_name_to_restart: "{{ item }}"
+  ansible.builtin.include_tasks:
+    file: restart_container.yaml
+  loop: "{{ copy_config_files_result.results | selectattr('changed') | map(attribute='item.service_name_to_restart', default='') | select('!=', '') | unique | list }}"

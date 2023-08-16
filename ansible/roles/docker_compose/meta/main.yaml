@@ -1,3 +1,0 @@
----
-dependencies:
-  - role: ansible_non_become_user_facts

@@ -1,12 +1,11 @@
 ---
-- name: "Check if {{ docker_compose_service_name }} is running" # noqa name[template]
+- name: "Check if {{ service_name_to_restart }} is running" # noqa name[template]
   ansible.builtin.command:
-    cmd: "docker ps --filter 'name={{ docker_compose_service_name }}' {% raw %}--format='{{json .}}'{% endraw %}"
+    cmd: "docker ps --filter 'name={{ service_name_to_restart }}' {% raw %}--format='{{json .}}'{% endraw %}"
   register: docker_service_running_result
   changed_when: false
-- name: "Restart {{ docker_compose_service_name }}"
+- name: "Restart {{ service_name_to_restart }}"
   when: docker_service_running_result.stdout | length > 0
   ansible.builtin.command:
-    cmd: "docker restart {{ docker_compose_service_name }}"
+    cmd: "docker restart {{ service_name_to_restart }}"
   changed_when: false
-  listen: docker_compose_restart_service

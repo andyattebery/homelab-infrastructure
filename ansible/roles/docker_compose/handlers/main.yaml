@@ -1,5 +1,0 @@
----
-- name: "Restart {{ docker_compose_service_name }}"
-  ansible.builtin.include_tasks:
-    file: restart_container.yaml
-  listen: docker_compose_restart_service

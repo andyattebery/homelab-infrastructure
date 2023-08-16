@@ -7,7 +7,6 @@
 - name: Configure adguardhome docker compose
   vars:
     docker_compose_src_file_path: files/docker-compose-adguardhome.yaml
-    docker_compose_service_name: adguardhome
     docker_compose_envs:
       ADGUARDHOME_HOSTNAME: "{{ adguardhome_hostname }}"
       ADGUARDHOME_CONFIG_DIRECTORY: "{{ adguardhome_config_directory }}"
