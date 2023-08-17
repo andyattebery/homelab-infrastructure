@@ -12,7 +12,7 @@
     mode: "0755"
 - name: "Copy {{ docker_compose_src_file_path }}"
   ansible.builtin.template:
-    src: "{{ docker_compose_src_file_path }}"
+    src: "templates/docker-compose-role.yaml.j2"
     dest: "{{ docker_compose_dst_file_path }}"
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
@@ -21,6 +21,7 @@
   ansible.builtin.include_tasks:
     file: copy_env.yaml
 - name: Copy main docker compose file
+  when: docker_compose_should_include_in_main_compose_file
   ansible.builtin.include_tasks:
     file: copy_main_docker_compose.yaml
 - name: Copy config files
@@ -30,12 +31,14 @@
 - name: Copy scripts
   when: docker_compose_copy_scripts
   ansible.builtin.copy:
-    src: "{{ item }}"
+    src: "{{ script }}"
     dest: "/usr/local/bin"
     mode: "0755"
   loop:
     - files/dc
     - files/dcup
+  loop_control:
+    loop_var: script
 - name: Run docker compose pull
   ansible.builtin.include_tasks:
     file: "docker_compose_pull.yaml"

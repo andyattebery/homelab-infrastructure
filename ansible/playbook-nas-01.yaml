@@ -4,7 +4,7 @@
   become: true
 
   vars:
-    docker_compose_data_directory: "/mnt/docker"
+    docker_compose_dst_data_directory_path: "/mnt/docker"
     # syncoid_destination_mac_address: e4:5f:01:bb:d7:fe # nas-03
 
   roles:
@@ -14,188 +14,186 @@
     # - mergerfs_install
     # - snapper_install
     # - snapraid_btrfs_install
-    - artis3n.tailscale
+    # - artis3n.tailscale
 
   tasks:
-    - name: Install packages
-      ansible.builtin.apt:
-        name:
-          - ruby
-          - zfsutils-linux
-        state: present
-    - name: Copy syncoid ssh key
-      ansible.builtin.copy:
-        content: "{{ nas_01_syncoid_ssh_private_key }}"
-        dest: "{{ ansible_non_become_user_home_dir }}/.ssh/id_ed25519"
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0600'
-    # - name: Add nas-02 to known_hosts for syncoid ssh key
-    #   ansible.builtin.known_hosts:
-    #     path: "{{ ansible_non_become_user_home_dir }}/.ssh/known_hosts"
-    #     name: "{{ syncoid_destination_host }}"
-    #     key: "{{ syncoid_destination_host }} {{ nas_01_syncoid_ssh_public_key }}"
-    - name: Create mount points
-      ansible.builtin.file:
-        path: "/mnt/{{ item }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0755'
-      loop:
-        - "storage"
-        - "depot"
-        - "depot-cache"
-        - "data"
-        - "content"
-        - "docker"
-    - name: Set data_disks fact
-      ansible.builtin.set_fact:
-        data_disks: "{{ data_disks | default([]) | union(['data%02d' | format(item)]) }}"
-      loop: "{{ range(1, 12 + 1) }}"
-    - name: Create root data mount points
-      ansible.builtin.file:
-        path: "/mnt/{{ item }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0755'
-      loop: "{{ data_disks }}"
-    - name: Create parity mount points
-      ansible.builtin.file:
-        path: "{{ '/mnt/parity%02x' | format(item) }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0755'
-      loop: "{{ range(1, 2 + 1) }}"
-    - name: Create subvolume data mount points
-      ansible.builtin.file:
-        path: "/mnt/data/{{ item }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0755'
-      loop: "{{ data_disks }}"
-    - name: Create subvolume content mount points
-      ansible.builtin.file:
-        path: "/mnt/content/{{ item }}"
-        state: directory
-        owner: "{{ ansible_non_become_user_id }}"
-        group: "{{ ansible_non_become_user_gid }}"
-        mode: '0755'
-      loop:
-        - "data03"
-        - "data08"
-        - "snapraid"
-    - name: Add fstab entries
-      ansible.builtin.blockinfile:
-        block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
-        path: "/etc/fstab"
-    - name: Install snapraid
-      ansible.builtin.include_role:
-        name: ironicbadger.snapraid
-        tasks_from: install-debian
-    - name: Copy snapraid.conf
-      ansible.builtin.copy:
-        src: "files/nas-01/snapraid.conf"
-        dest: "/etc/snapraid.conf"
-        owner: root
-        group: root
-        mode: '0644'
-    - name: Create snapper config-templates directory
-      ansible.builtin.file:
-        path: "/etc/snapper/config-templates"
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
-    - name: Copy snapper data subvolume template
-      ansible.builtin.copy:
-        src: "files/nas-01/snapper_snapraid_data_template"
-        dest: "/etc/snapper/config-templates/snapraid_data"
-        owner: root
-        group: root
-        mode: '0644'
-    # - name: Set snapper_config_data_disks_stat_loop_result
-    #   ansible.builtin.stat:
-    #     path: "{{ ('/', 'etc', 'snapper', 'configs', item) | path_join }}"
+    # - name: Install packages
+    #   ansible.builtin.apt:
+    #     name:
+    #       - ruby
+    #       - zfsutils-linux
+    #     state: present
+    # - name: Copy syncoid ssh key
+    #   ansible.builtin.copy:
+    #     content: "{{ nas_01_syncoid_ssh_private_key }}"
+    #     dest: "{{ ansible_non_become_user_home_dir }}/.ssh/id_ed25519"
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0600'
+    # # - name: Add nas-02 to known_hosts for syncoid ssh key
+    # #   ansible.builtin.known_hosts:
+    # #     path: "{{ ansible_non_become_user_home_dir }}/.ssh/known_hosts"
+    # #     name: "{{ syncoid_destination_host }}"
+    # #     key: "{{ syncoid_destination_host }} {{ nas_01_syncoid_ssh_public_key }}"
+    # - name: Create mount points
+    #   ansible.builtin.file:
+    #     path: "/mnt/{{ item }}"
+    #     state: directory
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0755'
+    #   loop:
+    #     - "storage"
+    #     - "depot"
+    #     - "depot-cache"
+    #     - "data"
+    #     - "content"
+    #     - "docker"
+    # - name: Set data_disks fact
+    #   ansible.builtin.set_fact:
+    #     data_disks: "{{ data_disks | default([]) | union(['data%02d' | format(item)]) }}"
+    #   loop: "{{ range(1, 12 + 1) }}"
+    # - name: Create root data mount points
+    #   ansible.builtin.file:
+    #     path: "/mnt/{{ item }}"
+    #     state: directory
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0755'
     #   loop: "{{ data_disks }}"
-    #   register: snapper_config_data_disks_stat_loop_result
-    # - name: Create snapper configs for data subvolumes
+    # - name: Create parity mount points
+    #   ansible.builtin.file:
+    #     path: "{{ '/mnt/parity%02x' | format(item) }}"
+    #     state: directory
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0755'
+    #   loop: "{{ range(1, 2 + 1) }}"
+    # - name: Create subvolume data mount points
+    #   ansible.builtin.file:
+    #     path: "/mnt/data/{{ item }}"
+    #     state: directory
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0755'
+    #   loop: "{{ data_disks }}"
+    # - name: Create subvolume content mount points
+    #   ansible.builtin.file:
+    #     path: "/mnt/content/{{ item }}"
+    #     state: directory
+    #     owner: "{{ ansible_non_become_user_id }}"
+    #     group: "{{ ansible_non_become_user_gid }}"
+    #     mode: '0755'
+    #   loop:
+    #     - "data03"
+    #     - "data08"
+    #     - "snapraid"
+    # - name: Add fstab entries
+    #   ansible.builtin.blockinfile:
+    #     block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
+    #     path: "/etc/fstab"
+    # - name: Install snapraid
+    #   ansible.builtin.include_role:
+    #     name: ironicbadger.snapraid
+    #     tasks_from: install-debian
+    # - name: Copy snapraid.conf
+    #   ansible.builtin.copy:
+    #     src: "files/nas-01/snapraid.conf"
+    #     dest: "/etc/snapraid.conf"
+    #     owner: root
+    #     group: root
+    #     mode: '0644'
+    # - name: Create snapper config-templates directory
+    #   ansible.builtin.file:
+    #     path: "/etc/snapper/config-templates"
+    #     state: directory
+    #     owner: root
+    #     group: root
+    #     mode: '0755'
+    # - name: Copy snapper data subvolume template
+    #   ansible.builtin.copy:
+    #     src: "files/nas-01/snapper_snapraid_data_template"
+    #     dest: "/etc/snapper/config-templates/snapraid_data"
+    #     owner: root
+    #     group: root
+    #     mode: '0644'
+    # # - name: Set snapper_config_data_disks_stat_loop_result
+    # #   ansible.builtin.stat:
+    # #     path: "{{ ('/', 'etc', 'snapper', 'configs', item) | path_join }}"
+    # #   loop: "{{ data_disks }}"
+    # #   register: snapper_config_data_disks_stat_loop_result
+    # # - name: Create snapper configs for data subvolumes
+    # #   vars:
+    # #     snapper_data_disks_to_create: "{{ snapper_config_data_disks_stat_loop_result.results | community.general.json_query('[?stat.exists==`false`].item') }}"
+    # #   ansible.builtin.command:
+    # #     cmd: "snapper --config {{ item }} create-config --template snapraid_data /mnt/data/{{ item }}"
+    # #   loop: "{{ snapper_data_disks_to_create }}"
+    # #   changed_when: true
+    # - name: Configure zed notifications
+    #   ansible.builtin.include_role:
+    #     name: zed_notifications
+    # - name: Add healthchecks.service
+    #   ansible.builtin.include_role:
+    #     name: healthchecks_service
+    # - name: Install snapraid-btrfs-runner
     #   vars:
-    #     snapper_data_disks_to_create: "{{ snapper_config_data_disks_stat_loop_result.results | community.general.json_query('[?stat.exists==`false`].item') }}"
-    #   ansible.builtin.command:
-    #     cmd: "snapper --config {{ item }} create-config --template snapraid_data /mnt/data/{{ item }}"
-    #   loop: "{{ snapper_data_disks_to_create }}"
-    #   changed_when: true
-    - name: Configure zed notifications
-      ansible.builtin.include_role:
-        name: zed_notifications
-    - name: Add healthchecks.service
-      ansible.builtin.include_role:
-        name: healthchecks_service
-    - name: Install snapraid-btrfs-runner
-      vars:
-        snapraid_btrfs_runner_install_conf_template_path: "files/nas-01/snapraid-btrfs-runner.conf.j2"
-        snapraid_btrfs_runner_install_service_template_path: "files/nas-01/snapraid-btrfs-runner.service.j2"
-        snapraid_btrfs_runner_install_timer_template_path: "files/nas-01/snapraid-btrfs-runner.timer"
-      ansible.builtin.include_role:
-        name: snapraid_btrfs_runner_install
-    - name: Configure syncoid source services
-      ansible.builtin.include_role:
-        name: syncoid_source
-      vars:
-        syncoid_source_username: "{{ ansible_user }}"
-        syncoid_destination_username: "{{ nas_02_syncoid_username }}"
-        syncoid_destination_host: "nas-02.{{ domain_name }}"
-        syncoid_destination_mac_address: 60:be:b4:0d:58:bf # nas-host-02
-        syncoid_shutdown_host: "nas-host-02.{{ domain_name }}"
-        syncoid_post_sync_command: "/usr/bin/ssh -i /home/services/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@{{ syncoid_shutdown_host }} 'sudo shutdown now'"
-        syncoid_timer_on_calendar: "*-*-* 01:00:00"
-        syncoid_datasets:
-          - syncoid_source_dataset: tank
-            syncoid_destination_dataset: backups/tank
-            syncoid_healthchecks_uuid: 432b13d3-f601-4d61-8f55-e77f26101d5b
-          - syncoid_source_dataset: sink
-            syncoid_destination_dataset: backups/sink
-            syncoid_healthchecks_uuid: 762e5887-0bdb-496e-bc8d-fccdf2179573
-          # - syncoid_source_dataset: basin
-          #   syncoid_destination_dataset: backups/basin
-          #   syncoid_healthchecks_uuid: f39dd0fa-6758-4ee1-aca8-aa09e3b7d0b8
+    #     snapraid_btrfs_runner_install_conf_template_path: "files/nas-01/snapraid-btrfs-runner.conf.j2"
+    #     snapraid_btrfs_runner_install_service_template_path: "files/nas-01/snapraid-btrfs-runner.service.j2"
+    #     snapraid_btrfs_runner_install_timer_template_path: "files/nas-01/snapraid-btrfs-runner.timer"
+    #   ansible.builtin.include_role:
+    #     name: snapraid_btrfs_runner_install
+    # - name: Configure syncoid source services
+    #   ansible.builtin.include_role:
+    #     name: syncoid_source
+    #   vars:
+    #     syncoid_source_username: "{{ ansible_user }}"
+    #     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
+    #     syncoid_destination_host: "nas-02.{{ domain_name }}"
+    #     syncoid_destination_mac_address: 60:be:b4:0d:58:bf # nas-host-02
+    #     syncoid_shutdown_host: "nas-host-02.{{ domain_name }}"
+    #     syncoid_post_sync_command: "/usr/bin/ssh -i /home/services/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@{{ syncoid_shutdown_host }} 'sudo shutdown now'"
+    #     syncoid_timer_on_calendar: "*-*-* 01:00:00"
+    #     syncoid_datasets:
+    #       - syncoid_source_dataset: tank
+    #         syncoid_destination_dataset: backups/tank
+    #         syncoid_healthchecks_uuid: 432b13d3-f601-4d61-8f55-e77f26101d5b
+    #       - syncoid_source_dataset: sink
+    #         syncoid_destination_dataset: backups/sink
+    #         syncoid_healthchecks_uuid: 762e5887-0bdb-496e-bc8d-fccdf2179573
+    #       # - syncoid_source_dataset: basin
+    #       #   syncoid_destination_dataset: backups/basin
+    #       #   syncoid_healthchecks_uuid: f39dd0fa-6758-4ee1-aca8-aa09e3b7d0b8
     - name: Configure docker compose roles
       ansible.builtin.include_role:
         name: "{{ item }}"
       loop:
         - docker_compose_dashboard_services_manager_provider
         - docker_compose_diun
-        - docker_compose_traefik
+    - name: Run docker_compose_traefik # Needs to be before docker-compose-nas-01 for the traefik network to be created
+      vars:
+        docker_compose_traefik_enable_dashboard: true
+      ansible.builtin.include_role:
+        name: docker_compose_traefik
     - name: Configure nas-01 docker compose
       vars:
-        docker_compose_src_file_path: files/nas-01/docker-compose.yml
+        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yml
         docker_compose_dst_directory_name: host
-        docker_compose_should_run_up: false
+        docker_compose_copy_scripts: true
         docker_compose_envs:
-          - CERTBOT_EMAIL="{{ certbot_email }}"
-          - CLOUDFLARE_API_TOKEN="{{ cloudflare_api_token }}"
-          - STORAGE_DIR=/mnt/storage
-          - MINIO_USERNAME="{{ minio_username }}"
-          - MINIO_PASSWORD="{{ minio_password }}"
-          - NEXTCLOUD_TRUSTED_PROXIES=172.18.0.0/16
-          - NEXTCLOUD_ADMIN_USER="{{ nextcloud_admin_user }}"
-          - NEXTCLOUD_ADMIN_PASSWORD="{{ nextcloud_admin_password }}"
-          - NEXTCLOUD_MYSQL_ROOT_PASSWORD="{{ nextcloud_mysql_root_password }}"
-          - NEXTCLOUD_MYSQL_PASSWORD="{{ nextcloud_mysql_password }}"
-          - NEXTCLOUD_MYSQL_DATABASE="{{ nextcloud_mysql_database }}"
-          - NEXTCLOUD_MYSQL_USER="{{ nextcloud_mysql_user }}"
+          CERTBOT_EMAIL: "{{ certbot_email }}"
+          CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
+          STORAGE_DIR: /mnt/storage
+          MINIO_USERNAME: "{{ minio_username }}"
+          MINIO_PASSWORD: "{{ minio_password }}"
+          NEXTCLOUD_TRUSTED_PROXIES: 172.18.0.0/16
+          NEXTCLOUD_ADMIN_USER: "{{ nextcloud_admin_user }}"
+          NEXTCLOUD_ADMIN_PASSWORD: "{{ nextcloud_admin_password }}"
+          NEXTCLOUD_MYSQL_ROOT_PASSWORD: "{{ nextcloud_mysql_root_password }}"
+          NEXTCLOUD_MYSQL_PASSWORD: "{{ nextcloud_mysql_password }}"
+          NEXTCLOUD_MYSQL_DATABASE: "{{ nextcloud_mysql_database }}"
+          NEXTCLOUD_MYSQL_USER: "{{ nextcloud_mysql_user }}"
       ansible.builtin.include_role:
         name: docker_compose
-    # - name: Copy dashboard-services-manager config
-    #   vars:
-    #     docker_compose_copy_config_src_directory_path: "roles/docker_compose_dashboard_services_manager_provider/files/config.yaml"
-    #     docker_compose_copy_config_dst_directory_path: "{{ (docker_compose_data_directory, 'dashboard-services-manager', 'config') | path_join }}"
-    #   ansible.builtin.include_role:
-    #     name: docker_compose_copy_config
     - name: Configure samba
       ansible.builtin.copy:
         src: "files/nas-01/smb.conf"

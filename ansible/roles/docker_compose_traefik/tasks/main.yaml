@@ -1,7 +1,9 @@
 ---
 - name: Initial docker compose setup
   vars:
-    docker_compose_src_file_path: files/docker-compose-traefik.yaml
+    docker_compose_src_file_path: templates/docker-compose-traefik.yaml.j2
+    docker_compose_dst_file_name: docker-compose-traefik.yaml
+    docker_compose_should_include_in_main_compose_file: false
     docker_compose_envs:
       CERTBOT_EMAIL: "{{ certbot_email }}"
       CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"

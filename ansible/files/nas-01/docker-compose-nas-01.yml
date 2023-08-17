@@ -1,5 +1,7 @@
 ---
-version: "3.9"
+include:
+  - ./docker-compose-traefik.yaml
+
 services:
   gitea:
     image: gitea/gitea:latest
@@ -12,6 +14,8 @@ services:
       - /mnt/tank/data/gitea:/data
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
+    networks:
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.gitea.rule=Host(`gitea.$DOMAIN_NAME`)
@@ -46,6 +50,8 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
     volumes:
       - /mnt/tank/minio:/data
+    networks:
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.minio.rule=Host(`s3.$DOMAIN_NAME`)
@@ -75,6 +81,9 @@ services:
       - MYSQL_DATABASE=${NEXTCLOUD_MYSQL_DATABASE}
       - MYSQL_USER=${NEXTCLOUD_MYSQL_USER}
       - MYSQL_HOST=nextcloud_mariadb
+    networks:
+      - traefik
+      - nextcloud
     labels:
       - traefik.enable=true
       - traefik.http.routers.nextcloud.rule=Host(`nextcloud.$DOMAIN_NAME`)
@@ -100,6 +109,8 @@ services:
       - MYSQL_PASSWORD=${NEXTCLOUD_MYSQL_PASSWORD}
       - MYSQL_DATABASE=${NEXTCLOUD_MYSQL_DATABASE}
       - MYSQL_USER=${NEXTCLOUD_MYSQL_USER}
+    networks:
+      - nextcloud
   resilio_sync:
     image: lscr.io/linuxserver/resilio-sync:latest
     container_name: resilio-sync
@@ -115,6 +126,8 @@ services:
     ports:
       - 53255:55555
     restart: unless-stopped
+    networks:
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.resilio-sync.rule=Host(`resilio-sync.$DOMAIN_NAME`)
@@ -143,6 +156,8 @@ services:
       - /run/udev:/run/udev:ro
     devices:
       - /dev:/dev
+    networks:
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
@@ -172,52 +187,15 @@ services:
       - 22000:22000/udp
       - 21027:21027/udp
     restart: unless-stopped
+    networks:
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.syncthing.rule=Host(`syncthing.$DOMAIN_NAME`)
       - traefik.http.routers.syncthing.entrypoints=websecure
       - traefik.http.routers.syncthing.tls.certresolver=cloudflare
       - traefik.http.services.syncthing.loadbalancer.server.port=8384
-  traefik:
-    image: "traefik:latest"
-    container_name: "traefik"
-    restart: always
-    command:
-      - --api.dashboard=true
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --metrics.prometheus=true
-      - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entryPoint.to=websecure
-      - --entrypoints.web.http.redirections.entryPoint.scheme=https
-      - --entrypoints.web.http.redirections.entrypoint.permanent=true
-      - --entrypoints.websecure.address=:443
-      - --log=true
-      - --log.level=ERROR
-      - --log.filePath=/logs/traefik.log
-      # - --accessLog=true
-      # - --accessLog.filePath=/logs/access.log
-      # - --accessLog.bufferingSize=100
-      - --certificatesresolvers.cloudflare.acme.dnschallenge=true
-      - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
-      - --certificatesresolvers.cloudflare.acme.email=${CERTBOT_EMAIL}
-      - --certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json
-    networks:
-      default:
-    extra_hosts: 
-      - host.docker.internal:172.17.0.1 # This is to make host network_mode containers work
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - "CF_DNS_API_TOKEN=${CLOUDFLARE_API_TOKEN}"
-    volumes:
-      - "${DOCKER_DATA_DIRECTORY}/traefik/letsencrypt:/letsencrypt"
-      - "${DOCKER_DATA_DIRECTORY}/traefik/logs:/logs"
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-    labels:
-      - traefik.enable=true
-      - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
-      - traefik.http.routers.dashboard-https.entrypoints=websecure
-      - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
-      - traefik.http.routers.dashboard-https.service=api@internal
+
+networks:
+  nextcloud:
+    name: nextcloud

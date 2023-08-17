@@ -1,0 +1,4 @@
+{% if not docker_compose_should_include_in_main_compose_file %}
+{{ docker_compose_do_not_include_comment }}
+{% endif %}
+{{ lookup('ansible.builtin.template', docker_compose_src_file_path) }}

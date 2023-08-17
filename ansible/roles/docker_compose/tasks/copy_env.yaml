@@ -22,4 +22,4 @@
     dest: "{{ docker_compose_dst_env_path }}"
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
-    mode: "0644"
+    mode: "0600"

@@ -8,6 +8,7 @@ services:
       - --api.dashboard={{ docker_compose_traefik_enable_dashboard }}
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik
       - --metrics.prometheus=true
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entryPoint.to=websecure
@@ -27,9 +28,11 @@ services:
     networks:
       traefik:
     {% if docker_compose_traefik_enable_host_network %}
+
     extra_hosts:
-      - host.docker.internal:172.17.0.1
+      - host.docker.internal:host-gateway
     {% endif %}
+
     ports:
       - "80:80"
       - "443:443"
@@ -40,6 +43,7 @@ services:
       - "${DOCKER_DATA_DIRECTORY}/traefik/logs:/logs"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     {% if docker_compose_traefik_enable_dashboard %}
+
     labels:
       - traefik.enable=true
       - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
@@ -47,6 +51,7 @@ services:
       - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
       - traefik.http.routers.dashboard-https.service=api@internal
     {% endif %}
+
 networks:
   traefik:
     name: traefik

@@ -1,9 +1,11 @@
 ---
 docker_compose_dst_directory_path: "/opt/docker-compose"
 docker_compose_dst_data_directory_path: "{{ docker_compose_dst_directory_path }}"
+docker_compose_dst_file_name: "{{ docker_compose_src_file_name }}"
 docker_compose_uid: "{{ ansible_non_become_user_id }}"
 docker_compose_gid: "{{ ansible_non_become_user_gid }}"
 
+docker_compose_should_include_in_main_compose_file: true
 docker_compose_should_run_up: true
 docker_compose_should_prune: false
 docker_compose_copy_scripts: false

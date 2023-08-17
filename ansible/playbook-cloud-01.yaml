@@ -8,20 +8,26 @@
   # - geerlingguy.docker
 
   tasks:
-    - name: Configure traefik
+    - name: Configure docker compose roles
       ansible.builtin.include_role:
-        name: docker_compose_traefik
-    - name: Configure host docker compose
+        name: "{{ role }}"
+      loop:
+        - docker_compose_diun
+        - docker_compose_wireguard
+        - docker_compose_traefik # Needs to be before docker-compose-cloud-01 for the traefik network to be created
+      loop_control:
+        loop_var: role
+    - name: Configure cloud-01 docker compose
       vars:
-        docker_compose_src_file_path: files/cloud-01/docker-compose.yml
-        docker_compose_dst_directory_name: host
+        docker_compose_copy_scripts: true
+        docker_compose_src_file_path: files/cloud-01/docker-compose-cloud-01.yml
         docker_compose_envs:
-          - LANG_TWO_LETTER="{{ lang_two_letter }}"
-          - FRESHRSS_DOMAIN_NAME="freshrss.{{ domain_name }}"
-          - FRESHRSS_USERNAME="{{ freshrss_username }}"
-          - FRESHRSS_PASSWORD="{{ freshrss_password }}"
-          - FRESHRSS_EMAIL="{{ freshrss_email }}"
-          - FRESHRSS_API_PASSWORD="{{ freshrss_api_password }}"
-          - CRON_MIN=9,39
+          LANG_TWO_LETTER: "{{ lang_two_letter }}"
+          FRESHRSS_DOMAIN_NAME: "freshrss.{{ domain_name }}"
+          FRESHRSS_USERNAME: "{{ freshrss_username }}"
+          FRESHRSS_PASSWORD: "{{ freshrss_password }}"
+          FRESHRSS_EMAIL: "{{ freshrss_email }}"
+          FRESHRSS_API_PASSWORD: "{{ freshrss_api_password }}"
+          CRON_MIN: 9,39
       ansible.builtin.include_role:
         name: docker_compose

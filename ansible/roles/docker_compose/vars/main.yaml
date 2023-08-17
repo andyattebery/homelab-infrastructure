@@ -1,7 +1,9 @@
 ---
 docker_compose_src_file_name: "{{ docker_compose_src_file_path | basename }}"
 
-docker_compose_dst_file_path: "{{ (docker_compose_dst_directory_path, docker_compose_src_file_name) | path_join }}"
+docker_compose_dst_file_path: "{{ (docker_compose_dst_directory_path, docker_compose_dst_file_name) | path_join }}"
 docker_compose_dst_env_path: "{{ (docker_compose_dst_directory_path, '.env') | path_join }}"
+
+docker_compose_do_not_include_comment: "# DO NOT INCLUDE IN docker-compose.yaml"
 
 docker_compose_base_command: "docker compose --file {{ docker_compose_dst_file_path }} --env-file {{ docker_compose_dst_env_path }}"
