@@ -51,6 +51,11 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/plex/transcode:/transcode
       - smb_storage:/data
     labels:
+      - traefik.enable=true
+      - traefik.http.routers.plex.rule=Host(`plex.$DOMAIN_NAME`)
+      - traefik.http.routers.plex.entrypoints=websecure
+      - traefik.http.routers.plex.tls.certresolver=cloudflare
+      - traefik.http.services.plex.loadbalancer.server.port=32400
       - dsm.url=https://app.plex.tv
   tdarr:
     container_name: tdarr

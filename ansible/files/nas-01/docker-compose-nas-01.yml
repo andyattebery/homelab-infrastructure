@@ -10,6 +10,8 @@ services:
       - USER_UID=${PUID}
       - USER_GID=${PGID}
     restart: unless-stopped
+    ports:
+      - "222:22"
     volumes:
       - /mnt/tank/data/gitea:/data
       - /etc/timezone:/etc/timezone:ro
@@ -23,11 +25,11 @@ services:
       - traefik.http.routers.gitea.tls.certresolver=cloudflare
       - traefik.http.routers.gitea.service=gitea
       - traefik.http.services.gitea.loadbalancer.server.port=3000
-      - traefik.http.routers.gitea-ssh.rule=Host(`gitea-ssh.$DOMAIN_NAME`)
-      - traefik.http.routers.gitea-ssh.entrypoints=websecure
-      - traefik.http.routers.gitea-ssh.tls.certresolver=cloudflare
-      - traefik.http.routers.gitea-ssh.service=gitea-ssh
-      - traefik.http.services.gitea-ssh.loadbalancer.server.port=22
+      # - traefik.http.routers.gitea-ssh.rule=Host(`gitea-ssh.$DOMAIN_NAME`)
+      # - traefik.http.routers.gitea-ssh.entrypoints=websecure
+      # - traefik.http.routers.gitea-ssh.tls.certresolver=cloudflare
+      # - traefik.http.routers.gitea-ssh.service=gitea-ssh
+      # - traefik.http.services.gitea-ssh.loadbalancer.server.port=22
       - dsm.traefik.router=gitea
   iperf:
     container_name: iperf
@@ -72,7 +74,7 @@ services:
     links:
       - nextcloud_mariadb
     volumes:
-      - /mnt/tank/nextcloud/app:/var/www/html
+      - ${NEXTCLOUD_DATA_DIRECTORY}:/var/www/html
     environment:
       - TRUSTED_PROXIES=${NEXTCLOUD_TRUSTED_PROXIES}
       - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
@@ -81,6 +83,7 @@ services:
       - MYSQL_DATABASE=${NEXTCLOUD_MYSQL_DATABASE}
       - MYSQL_USER=${NEXTCLOUD_MYSQL_USER}
       - MYSQL_HOST=nextcloud_mariadb
+      - REDIS_HOST=nextcloud-redis
     networks:
       - traefik
       - nextcloud
@@ -109,6 +112,14 @@ services:
       - MYSQL_PASSWORD=${NEXTCLOUD_MYSQL_PASSWORD}
       - MYSQL_DATABASE=${NEXTCLOUD_MYSQL_DATABASE}
       - MYSQL_USER=${NEXTCLOUD_MYSQL_USER}
+    networks:
+      - nextcloud
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    volumes:
+      - /mnt/tank/nextcloud/redis:/data
     networks:
       - nextcloud
   resilio_sync:
@@ -174,14 +185,14 @@ services:
   syncthing:
     image: lscr.io/linuxserver/syncthing:latest
     container_name: syncthing
-    hostname: syncthing.nas-01 #optional
+    hostname: ${HOSTNAME}
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/syncthing/config:/config
-      - /mnt/tank/data/syncthing:/data
+      # - /mnt/tank/data/syncthing:/data
     ports:
       - 22000:22000/tcp
       - 22000:22000/udp
