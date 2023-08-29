@@ -1,0 +1,4 @@
+---
+networks:
+  traefik:
+    name: traefik

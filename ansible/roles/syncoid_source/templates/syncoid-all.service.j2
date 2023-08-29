@@ -4,13 +4,16 @@ After=network.target
 
 [Service]
 Type=oneshot
-{% if syncoid_destination_mac_address is defined %}
-ExecStartPre=/usr/bin/wakeonlan {{ syncoid_destination_mac_address }}
-ExecStartPre=/usr/bin/sleep 5m
+{% if syncoid_pre_sync_commands is defined %}
+{% for syncoid_pre_sync_command in syncoid_pre_sync_commands %}
+ExecStartPre={{ syncoid_pre_sync_command }}
+{% endfor %}
 {% endif %}
 {% for syncoid_dataset_service in syncoid_dataset_services | default([]) %}
 ExecStart=/usr/bin/systemctl start {{ syncoid_dataset_service }}
 {% endfor %}
-{% if syncoid_post_sync_command is defined %}
+{% if syncoid_post_sync_commands is defined %}
+{% for syncoid_post_sync_command in syncoid_post_sync_commands %}
 ExecStartPost={{ syncoid_post_sync_command }}
+{% endfor %}
 {% endif %}

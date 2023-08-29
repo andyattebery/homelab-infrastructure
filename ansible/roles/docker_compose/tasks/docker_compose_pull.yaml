@@ -1,5 +1,5 @@
 ---
-- name: "Run {{ docker_compose_base_command }} up" # noqa name[template]
+- name: "Run {{ docker_compose_base_command }} pull" # noqa name[template]
   become: false
   ansible.builtin.command:
     cmd: "{{ docker_compose_base_command }} pull"

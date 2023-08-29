@@ -14,7 +14,7 @@ services:
       options:
         max-size: 10m
     environment:
-      CRON_MIN: ${CRON_MIN}
+      CRON_MIN: ${FRESHRSS_UPDATE_FEEDS_CRON}
       FRESHRSS_INSTALL: |-
         --api_enabled
         --base_url https://${FRESHRSS_DOMAIN_NAME}

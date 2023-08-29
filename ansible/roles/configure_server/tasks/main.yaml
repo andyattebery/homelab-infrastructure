@@ -4,7 +4,6 @@
     user: "{{ ansible_user }}"
     key: https://github.com/andyattebery.keys
     state: present
-    exclusive: true
 - name: Install packages
   ansible.builtin.apt:
     name:
@@ -22,7 +21,7 @@
     name: "{{ role_item }}"
   loop:
     - geerlingguy.security
-    - install_fish
+    - fish_install
     - settings_repo
   loop_control:
     loop_var: role_item

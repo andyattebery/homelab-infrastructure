@@ -18,6 +18,9 @@ vault_nas_01_syncoid_ssh_private_key: |
 vault_nas_01_syncoid_ssh_public_key: {{ op://Personal/ptxqxllkmedp37r3kf6j723sv4/public key }} nas-01_syncoid
 vault_nas_02_syncoid_password: {{ op://Personal/nas-02/syncoid/password }}
 vault_nas_02_syncoid_username: {{ op://Personal/nas-02/syncoid/username }}
+vault_nas_03_syncoid_password: {{ op://Personal/nas-03/syncoid/password }}
+vault_nas_03_syncoid_username: {{ op://Personal/nas-03/syncoid/username }}
+vault_nas_host_02_mac_address: {{ op://Personal/nas-host-02/hardware/mac address }}
 vault_network_01_adguardhome_password: {{ op://Personal/adguardhome/password }}
 vault_network_01_adguardhome_username: {{ op://Personal/adguardhome/username }}
 vault_network_02_adguardhome_password: {{ op://Personal/adguardhome-02/password }}
@@ -44,4 +47,5 @@ vault_snapraid_btrfs_runner_from_email: {{ op://Personal/snapraid-btrfs-runner/a
 vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add more/to email }}
 vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
+vault_work_laptop_01_ssh_public_key: {{ op://Work/uqd5fx77qsbcrgh3gtwb4ctv4u/public key }}
 vault_zed_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/zed }}

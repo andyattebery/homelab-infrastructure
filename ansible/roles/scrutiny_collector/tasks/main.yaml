@@ -3,6 +3,14 @@
   ansible.builtin.apt:
     name:
       - smartmontools
+- name: Set scrutiny_bin_name - x86_64
+  when: ansible_architecture == 'x86_64'
+  ansible.builtin.set_fact:
+    scrutiny_bin_name: scrutiny-collector-metrics-linux-amd64
+- name: Set scrutiny_bin_name - aarch64
+  when: ansible_architecture == 'aarch64'
+  ansible.builtin.set_fact:
+    scrutiny_bin_name: scrutiny-collector-metrics-linux-arm64
 - name: Get latest release from GitHub
   ansible.builtin.uri:
     url: https://api.github.com/repos/AnalogJ/scrutiny/releases/latest

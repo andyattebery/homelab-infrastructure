@@ -12,11 +12,21 @@
     mode: "0755"
 - name: "Copy {{ docker_compose_src_file_path }}"
   ansible.builtin.template:
-    src: "templates/docker-compose-role.yaml.j2"
+    src: "{{ docker_compose_src_file_path }}"
     dest: "{{ docker_compose_dst_file_path }}"
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
     mode: "0644"
+- name: Copy docker_compose_directory_files
+  ansible.builtin.template:
+    src: "{{ docker_compose_directory_file }}"
+    dest: "{{ (docker_compose_dst_directory_path, docker_compose_directory_file | basename) | path_join }}"
+    owner: "{{ docker_compose_uid }}"
+    group: "{{ docker_compose_gid }}"
+    mode: "0644"
+  loop: "{{ docker_compose_directory_files | default([]) }}"
+  loop_control:
+    loop_var: docker_compose_directory_file
 - name: Copy env file
   ansible.builtin.include_tasks:
     file: copy_env.yaml

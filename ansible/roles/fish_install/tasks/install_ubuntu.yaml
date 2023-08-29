@@ -1,0 +1,13 @@
+---
+- name: Remove repo key from deprecated /etc/apt/trusted.gpg
+  ansible.builtin.command:
+    cmd: "apt-key --keyring /etc/apt/trusted.gpg del '59FD A1CE 1B84 B3FA D893  66C0 2755 7F05 6DC3 3CA5'"
+  changed_when: false
+- name: Add fish ppa
+  ansible.builtin.command:
+    cmd: add-apt-repository --yes ppa:fish-shell/release-3
+  changed_when: false
+- name: Install fish
+  ansible.builtin.apt:
+    name: fish
+    update_cache: true

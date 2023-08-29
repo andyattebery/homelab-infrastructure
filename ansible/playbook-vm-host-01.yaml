@@ -11,7 +11,7 @@
   #   - pve_config
   #   - pve_cluster_acme
   #   - pve_node_acme
-  #   - configure_server
+    - configure_server
   #   - pve_storage_add_nas_01_proxmox
     - scrutiny_collector
 

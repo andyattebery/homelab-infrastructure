@@ -4,9 +4,7 @@
   become: true
 
   vars:
-    nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
     docker_compose_dst_data_directory_path: "/mnt/docker"
-    # syncoid_destination_mac_address: e4:5f:01:bb:d7:fe # nas-03
 
   roles:
     - ansible_non_become_user_facts
@@ -143,42 +141,68 @@
     #     snapraid_btrfs_runner_install_timer_template_path: "files/nas-01/snapraid-btrfs-runner.timer"
     #   ansible.builtin.include_role:
     #     name: snapraid_btrfs_runner_install
-    # - name: Configure syncoid source services
+    # # - name: Configure syncoid to nas-02
+    # #   ansible.builtin.include_role:
+    # #     name: syncoid_source
+    # #   vars:
+    # #     syncoid_source_username: "{{ ansible_user }}"
+    # #     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
+    # #     syncoid_destination_host: "nas-02.{{ domain_name }}"
+    # #     syncoid_pre_sync_command: "/usr/bin/wakeonlan {{ nas_host_02_mac_address }} && /usr/bin/sleep 5m"
+    # #     syncoid_post_sync_command: "/usr/bin/ssh -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@nas-host-02.{{ domain_name }} 'sudo shutdown now'"
+    # #     syncoid_timer_on_calendar: "*-*-* 01:00:00"
+    # #     syncoid_datasets:
+    # #       - syncoid_source_dataset: tank
+    # #         syncoid_destination_dataset: backups/tank
+    # #         syncoid_healthchecks_uuid: 432b13d3-f601-4d61-8f55-e77f26101d5b
+    # #       - syncoid_source_dataset: sink
+    # #         syncoid_destination_dataset: backups/sink
+    # #         syncoid_healthchecks_uuid: 762e5887-0bdb-496e-bc8d-fccdf2179573
+    # - name: Configure syncoid to nas-03
     #   ansible.builtin.include_role:
     #     name: syncoid_source
     #   vars:
     #     syncoid_source_username: "{{ ansible_user }}"
-    #     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
-    #     syncoid_destination_host: "nas-02.{{ domain_name }}"
-    #     syncoid_destination_mac_address: 60:be:b4:0d:58:bf # nas-host-02
-    #     syncoid_shutdown_host: "nas-host-02.{{ domain_name }}"
-    #     syncoid_post_sync_command: "/usr/bin/ssh -i /home/services/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@{{ syncoid_shutdown_host }} 'sudo shutdown now'"
+    #     syncoid_destination_username: "{{ nas_03_syncoid_username }}"
+    #     syncoid_destination_host: "nas-03.{{ domain_name }}"
+    #     homeassistant_post_data:
+    #       entity_id: switch.nas_03_outlet_switch
+    #     homeassistant_switch_command: "curl -H 'Authorization: Bearer {{ homeassistant_access_token }}' -H 'Content-Type application/json' -d '{{ homeassistant_post_data | to_json }}' -X POST https://homeassistant.{{ domain_name }}:8123/api/services/switch/"
+    #     syncoid_pre_sync_commands:
+    #       - "{{ homeassistant_switch_command }}turn_on"
+    #       - "/usr/bin/sleep 3m"
+    #     syncoid_post_sync_commands:
+    #       - "/usr/bin/ssh -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_03_syncoid_username }}@{{ syncoid_destination_host }} 'sudo shutdown now'"
+    #       - "sleep 2m"
+    #       - "{{ homeassistant_switch_command }}turn_off"
     #     syncoid_timer_on_calendar: "*-*-* 01:00:00"
     #     syncoid_datasets:
     #       - syncoid_source_dataset: tank
     #         syncoid_destination_dataset: backups/tank
-    #         syncoid_healthchecks_uuid: 432b13d3-f601-4d61-8f55-e77f26101d5b
+    #         syncoid_healthchecks_uuid: 507372f3-dc44-4d68-867e-8283eefc9bf5
     #       - syncoid_source_dataset: sink
     #         syncoid_destination_dataset: backups/sink
-    #         syncoid_healthchecks_uuid: 762e5887-0bdb-496e-bc8d-fccdf2179573
-    #       # - syncoid_source_dataset: basin
-    #       #   syncoid_destination_dataset: backups/basin
-    #       #   syncoid_healthchecks_uuid: f39dd0fa-6758-4ee1-aca8-aa09e3b7d0b8
-    # - name: Configure docker compose roles
-    #   ansible.builtin.include_role:
-    #     name: "{{ item }}"
-    #   loop:
-    #     - docker_compose_dashboard_services_manager_provider
-    #     - docker_compose_diun
-    # - name: Run docker_compose_traefik # Needs to be before docker-compose-nas-01 for the traefik network to be created
-    #   vars:
-    #     docker_compose_traefik_enable_dashboard: true
-    #   ansible.builtin.include_role:
-    #     name: docker_compose_traefik
+    #         syncoid_healthchecks_uuid: 379c392b-04f5-42ef-bbc7-1afdd850d863
+    - name: Run docker_compose_traefik # Needs to be before docker-compose-nas-01 for the traefik network to be created
+      vars:
+        docker_compose_traefik_enable_dashboard: true
+      ansible.builtin.include_role:
+        name: docker_compose_traefik
+    - name: Configure docker compose roles
+      vars:
+        docker_compose_nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
+      ansible.builtin.include_role:
+        name: "{{ role }}"
+      loop:
+        - docker_compose_dashboard_services_manager_provider
+        - docker_compose_diun
+        - docker_compose_nextcloud
+        - docker_compose_scrutiny_web
+      loop_control:
+        loop_var: role
     - name: Configure nas-01 docker compose
       vars:
-        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yml
-        docker_compose_dst_directory_name: host
+        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
         docker_compose_copy_scripts: true
         docker_compose_envs:
           CERTBOT_EMAIL: "{{ certbot_email }}"
@@ -186,49 +210,16 @@
           STORAGE_DIR: /mnt/storage
           MINIO_USERNAME: "{{ minio_username }}"
           MINIO_PASSWORD: "{{ minio_password }}"
-          NEXTCLOUD_DATA_DIRECTORY: "{{ nextcloud_data_directory }}"
-          NEXTCLOUD_TRUSTED_PROXIES: 172.18.0.0/16
-          NEXTCLOUD_ADMIN_USER: "{{ nextcloud_admin_user }}"
-          NEXTCLOUD_ADMIN_PASSWORD: "{{ nextcloud_admin_password }}"
-          NEXTCLOUD_MYSQL_ROOT_PASSWORD: "{{ nextcloud_mysql_root_password }}"
-          NEXTCLOUD_MYSQL_PASSWORD: "{{ nextcloud_mysql_password }}"
-          NEXTCLOUD_MYSQL_DATABASE: "{{ nextcloud_mysql_database }}"
-          NEXTCLOUD_MYSQL_USER: "{{ nextcloud_mysql_user }}"
       ansible.builtin.include_role:
         name: docker_compose
-    - name: Nextcloud cron job
-      ansible.builtin.cron:
-        name: "Run nextcloud cron.php"
-        minute: "*/15"
-        job: "docker exec -u www-data nextcloud php /var/www/html/cron.php"
-    - name: Nextcloud config
-      ansible.builtin.blockinfile:
-        path: "{{ (nextcloud_data_directory, 'config', 'config.php') | path_join }}"
-        insertbefore: '^\);'
-        block: |2
-            'overwriteprotocol' => 'https',
-            'default_phone_region' => 'us',
-            'enabledPreviewProviders' => [
-              'OC\Preview\BMP',
-              'OC\Preview\GIF',
-              'OC\Preview\HEIC',
-              'OC\Preview\JPEG',
-              'OC\Preview\Krita',
-              'OC\Preview\MarkDown',
-              'OC\Preview\MP3',
-              'OC\Preview\OpenDocument',
-              'OC\Preview\PNG',
-              'OC\Preview\TXT',
-              'OC\Preview\XBitmap',
-            ],
-      register: nextcloud_config_result
-    - name: Nextcloud restart # noqa no-handler
-      when: nextcloud_config_result.changed
+    - name: Configure scrutiny collector
       vars:
-        service_name_to_restart: nextcloud
+        scrutiny_ignored_devices:
+          - /dev/sda
+          - /dev/sdb
+          - /dev/sdc
       ansible.builtin.include_role:
-        name: docker_compose
-        tasks_from: restart_container
+        name: scrutiny_collector
     - name: Configure samba
       ansible.builtin.copy:
         src: "files/nas-01/smb.conf"
@@ -245,9 +236,9 @@
     - name: Configure nfs
       vars:
         nfs_exports:
-          - /mnt/basin *(rw,sync,insecure,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
-          - /mnt/depot/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
-          - /mnt/sink/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
-          - /mnt/storage *(rw,sync,insecure,fsid=999,no_subtree_check,all_squash,anonuid=1000,anongid=1000)
+          - "/mnt/basin *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          - "/mnt/depot/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          - "/mnt/sink/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          - "/mnt/storage *(rw,sync,insecure,fsid=999,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
       ansible.builtin.include_role:
         name: geerlingguy.nfs

@@ -10,7 +10,7 @@
     - "deb-src http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main contrib"
 - name: Make backports repo higher priority
   ansible.builtin.template:
-    src: files/nas-03/apt_preferences_zfs.j2
+    src: apt_preferences_zfs.j2
     dest: /etc/apt/preferences.d/90_zfs
     mode: "0644"
     owner: root

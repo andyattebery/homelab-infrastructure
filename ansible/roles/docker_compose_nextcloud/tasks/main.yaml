@@ -1,0 +1,47 @@
+- name: Configure nas-01 docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-nextcloud.yaml
+    docker_compose_envs:
+      NEXTCLOUD_DATA_DIRECTORY: "{{ docker_compose_nextcloud_data_directory }}"
+      NEXTCLOUD_TRUSTED_PROXIES: 172.18.0.0/16
+      NEXTCLOUD_ADMIN_USER: "{{ nextcloud_admin_user }}"
+      NEXTCLOUD_ADMIN_PASSWORD: "{{ nextcloud_admin_password }}"
+      NEXTCLOUD_MYSQL_ROOT_PASSWORD: "{{ nextcloud_mysql_root_password }}"
+      NEXTCLOUD_MYSQL_PASSWORD: "{{ nextcloud_mysql_password }}"
+      NEXTCLOUD_MYSQL_DATABASE: "{{ nextcloud_mysql_database }}"
+      NEXTCLOUD_MYSQL_USER: "{{ nextcloud_mysql_user }}"
+  ansible.builtin.include_role:
+    name: docker_compose
+- name: Nextcloud cron job
+  ansible.builtin.cron:
+    name: "Run nextcloud cron.php"
+    minute: "*/15"
+    job: "docker exec -u www-data nextcloud php /var/www/html/cron.php"
+- name: Nextcloud config
+  ansible.builtin.blockinfile:
+    path: "{{ (docker_compose_nextcloud_data_directory, 'config', 'config.php') | path_join }}"
+    insertbefore: '^\);'
+    block: |2
+        'overwriteprotocol' => 'https',
+        'default_phone_region' => 'us',
+        'enabledPreviewProviders' => [
+          'OC\Preview\BMP',
+          'OC\Preview\GIF',
+          'OC\Preview\HEIC',
+          'OC\Preview\JPEG',
+          'OC\Preview\Krita',
+          'OC\Preview\MarkDown',
+          'OC\Preview\MP3',
+          'OC\Preview\OpenDocument',
+          'OC\Preview\PNG',
+          'OC\Preview\TXT',
+          'OC\Preview\XBitmap',
+        ],
+  register: nextcloud_config_result
+- name: Nextcloud restart # noqa no-handler
+  when: nextcloud_config_result.changed
+  vars:
+    service_name_to_restart: nextcloud
+  ansible.builtin.include_role:
+    name: docker_compose
+    tasks_from: restart_container

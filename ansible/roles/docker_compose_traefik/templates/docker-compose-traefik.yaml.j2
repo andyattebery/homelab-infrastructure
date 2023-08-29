@@ -1,11 +1,14 @@
 ---
+include:
+  - ./docker-compose-traefik-network.yaml
+
 services:
   traefik:
-    image: "traefik:latest"
+    image: "traefik:${TRAEFIK_VERSION}"
     container_name: "traefik"
     restart: always
     command:
-      - --api.dashboard={{ docker_compose_traefik_enable_dashboard }}
+      - --api.dashboard={{ 'true' if docker_compose_traefik_enable_dashboard else 'false' }}
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=traefik
@@ -18,13 +21,16 @@ services:
       - --log=true
       - --log.level=ERROR
       - --log.filePath=/logs/traefik.log
-      # - --accessLog=true
-      # - --accessLog.filePath=/logs/access.log
-      # - --accessLog.bufferingSize=100
       - --certificatesresolvers.cloudflare.acme.dnschallenge=true
       - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
       - --certificatesresolvers.cloudflare.acme.email=${CERTBOT_EMAIL}
       - --certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json
+      {% if docker_compose_traefik_enable_access_log %}
+      - --accessLog=true
+      - --accessLog.filePath=/logs/access.log
+      - --accessLog.bufferingSize=100
+      {% endif %}
+
     networks:
       traefik:
     {% if docker_compose_traefik_enable_host_network %}
@@ -51,7 +57,3 @@ services:
       - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
       - traefik.http.routers.dashboard-https.service=api@internal
     {% endif %}
-
-networks:
-  traefik:
-    name: traefik

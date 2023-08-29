@@ -7,3 +7,12 @@
   when: ansible_distribution == 'Ubuntu'
   ansible.builtin.include_tasks:
     file: install_ubuntu.yaml
+- name: Get shell path
+  ansible.builtin.command:
+    cmd: which fish
+  register: which_fish
+  changed_when: false
+- name: Change shell to fish
+  ansible.builtin.user:
+    user: "{{ ansible_user }}"
+    shell: "{{ which_fish.stdout }}"

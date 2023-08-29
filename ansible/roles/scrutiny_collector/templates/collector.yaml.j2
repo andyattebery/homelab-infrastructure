@@ -27,6 +27,11 @@ host:
 # See the "--device=TYPE" section of https://linux.die.net/man/8/smartctl
 # type can be a 'string' or a 'list'
 devices:
+{% for device in scrutiny_ignored_devices | default([]) %}
+  - device: {{ device }}
+    ignore: true
+{% endfor %}
+
 #  # example for forcing device type detection for a single disk
 #  - device: /dev/sda
 #    type: 'sat'

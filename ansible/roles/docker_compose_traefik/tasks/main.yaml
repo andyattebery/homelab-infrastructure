@@ -5,8 +5,10 @@
     docker_compose_dst_file_name: docker-compose-traefik.yaml
     docker_compose_should_include_in_main_compose_file: false
     docker_compose_envs:
+      TRAEFIK_VERSION: "{{ docker_compose_traefik_version }}"
       CERTBOT_EMAIL: "{{ certbot_email }}"
       CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
-    docker_compose_should_run_up: true
+    docker_compose_directory_files:
+      - templates/docker-compose-traefik-network.yaml
   ansible.builtin.include_role:
     name: docker_compose

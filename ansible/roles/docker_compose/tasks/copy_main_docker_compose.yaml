@@ -1,25 +1,25 @@
 ---
-- name: List current docker-compose files
-  # ansible.builtin.find:
-  #   paths:
-  #     - "{{ docker_compose_dst_directory_path }}"
-  #   patterns:
-  #     - "docker-compose-*.y*ml"
-  #   contains: "^(?!{{ docker_compose_do_not_include_comment }}).*$"
-  #   read_whole_file: true
-  # register: find_docker_compose_files_result
-  ansible.builtin.command:
-    cmd: "find {{ docker_compose_dst_directory_path }} -maxdepth 1 -type f -name 'docker-compose-*y*ml' -exec grep -L '{{ docker_compose_do_not_include_comment }}' {} \\;"
-  register: find_docker_compose_files_result
-  changed_when: false
+- name: Get docker-compose.yaml stat
+  ansible.builtin.stat:
+    path: "{{ docker_compose_dst_main_docker_compose_path }}"
+  register: main_docker_compose_stat_result
+- name: Existing docker-compose.yaml
+  when: main_docker_compose_stat_result.stat.exists
+  block:
+    - name: Read docker-compose.yaml
+      ansible.builtin.slurp:
+        src: "{{ docker_compose_dst_main_docker_compose_path }}"
+      register: docker_compose_slurp_result
+    - name: Set docker_compose_existing_docker_compose_yaml
+      ansible.builtin.set_fact:
+        docker_compose_existing_docker_compose_yaml: "{{ docker_compose_slurp_result.content | b64decode | from_yaml }}"
 - name: Copy main docker compose file
   vars:
-    # existing_docker_compose_file_paths: "{{ find_docker_compose_files_result.files | map(attribute='path') | list }}"
-    existing_docker_compose_file_paths: "{{ find_docker_compose_files_result.stdout_lines }}"
-    docker_compose_file_paths: "{{ existing_docker_compose_file_paths | union([docker_compose_dst_file_path]) | sort }}"
+    existing_included_docker_compose_file_paths: "{{ docker_compose_existing_docker_compose_yaml.include if docker_compose_existing_docker_compose_yaml is defined else [] }}"
+    docker_compose_file_paths: "{{ existing_included_docker_compose_file_paths | union([docker_compose_dst_file_path]) | sort }}"
   ansible.builtin.template:
     src: templates/docker-compose-main.yaml.j2
-    dest: "{{ (docker_compose_dst_directory_path, 'docker-compose.yaml') | path_join }}"
+    dest: "{{ docker_compose_dst_main_docker_compose_path }}"
     owner: "{{ docker_compose_uid }}"
     group: "{{ docker_compose_gid }}"
     mode: "0644"

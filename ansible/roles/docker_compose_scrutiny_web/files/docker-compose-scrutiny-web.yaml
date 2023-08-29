@@ -1,0 +1,54 @@
+---
+# include:
+#   - ./docker-compose-traefik-network.yaml
+
+services:
+  scrutiny-influxdb:
+    image: influxdb:2.2
+    container_name: scrutiny-influxdb
+    networks:
+      - scrutiny
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/scrutiny-influxdb:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086/health"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+  scrutiny-web:
+    image: ghcr.io/analogj/scrutiny:master-web
+    container_name: scrutiny-web
+    restart: unless-stopped
+    environment:
+      SCRUTINY_WEB_INFLUXDB_HOST: 'scrutiny-influxdb'
+    depends_on:
+      scrutiny-influxdb:
+        condition: service_healthy
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/scrutiny/log:/opt/scrutiny/log
+      - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.db:/opt/scrutiny/config/scrutiny.db
+      - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.yaml:/scrutiny/config/scrutiny.yaml
+    networks:
+      - scrutiny
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
+      - traefik.http.routers.scrutiny.entrypoints=websecure
+      - traefik.http.routers.scrutiny.tls.certresolver=cloudflare
+      - traefik.http.routers.scrutiny.service=scrutiny
+      - traefik.http.services.scrutiny.loadbalancer.server.port=8080
+      - dsm.traefik.router=scrutiny
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+networks:
+  scrutiny:
+    name: scrutiny
+  traefik:
+    name: traefik
+    external: true

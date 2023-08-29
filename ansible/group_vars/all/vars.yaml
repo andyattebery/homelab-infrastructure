@@ -18,6 +18,13 @@ nas_01_syncoid_ssh_public_key: "{{ vault_nas_01_syncoid_ssh_public_key }}"
 nas_02_syncoid_username: "{{ vault_nas_02_syncoid_username }}"
 nas_02_syncoid_password: "{{ vault_nas_02_syncoid_password }}"
 
+nas_03_syncoid_username: "{{ vault_nas_03_syncoid_username }}"
+nas_03_syncoid_password: "{{ vault_nas_03_syncoid_password }}"
+
+nas_host_02_mac_address: "{{ vault_nas_host_02_mac_address }}"
+
+work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
+
 # nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
 # nas_02_ssh_public_key: "{{ vault_nas_02_ssh_public_key }}"
 

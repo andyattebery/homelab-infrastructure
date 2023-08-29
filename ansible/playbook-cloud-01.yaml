@@ -3,11 +3,19 @@
   hosts: cloud-01
   become: true
 
-  # roles:
-  # - configure_server
-  # - geerlingguy.docker
+  vars:
+    security_ssh_port: "{{ sshd_port }}"
+
+  roles:
+    - configure_server
+    - geerlingguy.docker
 
   tasks:
+    - name: Add ssh authorized keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ work_laptop_01_ssh_public_key }}"
+        state: present
     - name: Configure docker compose roles
       ansible.builtin.include_role:
         name: "{{ role }}"
@@ -28,6 +36,6 @@
           FRESHRSS_PASSWORD: "{{ freshrss_password }}"
           FRESHRSS_EMAIL: "{{ freshrss_email }}"
           FRESHRSS_API_PASSWORD: "{{ freshrss_api_password }}"
-          CRON_MIN: 9,39
+          FRESHRSS_UPDATE_FEEDS_CRON: 9,39
       ansible.builtin.include_role:
         name: docker_compose

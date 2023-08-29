@@ -3,10 +3,10 @@
   hosts: nas-host-01
   become: true
 
-  # roles:
+  roles:
     # - pve_cluster_acme
     # - pve_node_acme
-    # - configure_server
+    - configure_server
     # - pve_storage_add_nas_01_proxmox
     # - scrutiny_collector
 

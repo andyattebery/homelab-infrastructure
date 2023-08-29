@@ -1,0 +1,10 @@
+---
+- name: Add fish repository
+  ansible.builtin.command:
+    cmd: "dnf config-manager --add-repo https://download.opensuse.org/repositories/shells:fish:release:3/Fedora_38/shells:fish:release:3.repo"
+  changed_when: false
+- name: Install fish
+  ansible.builtin.dnf:
+    name: fish
+    state: present
+    update_cache: true

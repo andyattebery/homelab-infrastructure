@@ -1,0 +1,22 @@
+---
+- name: Remove repo key from deprecated /etc/apt/trusted.gpg
+  ansible.builtin.command:
+    cmd: "apt-key --keyring /etc/apt/trusted.gpg del '2A65 8CFA 6380 FA92 EAE4  A854 248B F908 2524 EEFD'"
+  changed_when: false
+- name: Add snapper apt repository key
+  ansible.builtin.get_url:
+    url: "https://download.opensuse.org/repositories/filesystems:snapper/xUbuntu_{{ ansible_distribution_version }}/Release.key"
+    dest: /etc/apt/trusted.gpg.d/filesystems_snapper.asc
+    mode: '0644'
+    force: true
+- name: Add snapper apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb http://download.opensuse.org/repositories/filesystems:/snapper/xUbuntu_{{ ansible_distribution_version }}/ /"
+    filename: "filesystems_snapper"
+    state: present
+    update_cache: false
+- name: Install snapper
+  ansible.builtin.apt:
+    name: snapper
+    state: present
+    update_cache: true

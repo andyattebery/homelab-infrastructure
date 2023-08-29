@@ -3,15 +3,13 @@
   hosts: nas-03
   become: true
 
+  vars:
+    syncoid_destination_username: "{{ nas_03_syncoid_username }}"
+    syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+    syncoid_destination_dataset: backups
+
   roles:
-  #   - configure_server
+    # - configure_server
   #   - ansible-role-realtek-r8125-dkms
     - zfs_install
-
-  # tasks:
-
-  #   - name: Enable wake-on-LAN
-  #     vars:
-  #       wakeonlan_interface_name: eth0
-  #     ansible.builtin.include_role:
-  #       name: wakeonlan_interface
+    - backup_destination
