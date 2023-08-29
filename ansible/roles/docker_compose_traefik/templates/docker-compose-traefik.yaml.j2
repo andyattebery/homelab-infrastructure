@@ -1,7 +1,4 @@
 ---
-include:
-  - ./docker-compose-traefik-network.yaml
-
 services:
   traefik:
     image: "traefik:${TRAEFIK_VERSION}"
@@ -57,3 +54,7 @@ services:
       - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
       - traefik.http.routers.dashboard-https.service=api@internal
     {% endif %}
+
+networks:
+  traefik:
+    name: traefik

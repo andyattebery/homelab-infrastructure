@@ -1,7 +1,4 @@
 ---
-# include:
-#   - ./docker-compose-traefik-network.yaml
-
 services:
   nextcloud:
     image: nextcloud:27

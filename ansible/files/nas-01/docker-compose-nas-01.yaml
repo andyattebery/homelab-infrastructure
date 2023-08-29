@@ -1,7 +1,4 @@
 ---
-# include:
-#   - ./docker-compose-traefik.yaml
-
 services:
   gitea:
     image: gitea/gitea:latest
@@ -25,11 +22,6 @@ services:
       - traefik.http.routers.gitea.tls.certresolver=cloudflare
       - traefik.http.routers.gitea.service=gitea
       - traefik.http.services.gitea.loadbalancer.server.port=3000
-      # - traefik.http.routers.gitea-ssh.rule=Host(`gitea-ssh.$DOMAIN_NAME`)
-      # - traefik.http.routers.gitea-ssh.entrypoints=websecure
-      # - traefik.http.routers.gitea-ssh.tls.certresolver=cloudflare
-      # - traefik.http.routers.gitea-ssh.service=gitea-ssh
-      # - traefik.http.services.gitea-ssh.loadbalancer.server.port=22
       - dsm.traefik.router=gitea
   iperf:
     container_name: iperf
@@ -90,29 +82,6 @@ services:
       - traefik.http.routers.resilio-sync.entrypoints=websecure
       - traefik.http.routers.resilio-sync.tls.certresolver=cloudflare
       - traefik.http.services.reslio-sync.loadbalancer.server.port=8888
-  # scrutiny:
-  #   image: ghcr.io/analogj/scrutiny:master-omnibus
-  #   container_name: scrutiny
-  #   restart: unless-stopped
-  #   environment:
-  #     - PUID=${PUID}
-  #     - PGID=${PGID}
-  #     - TZ=${TZ}
-  #   volumes:
-  #     - ${DOCKER_DATA_DIRECTORY}/scrutiny/log:/opt/scrutiny/log
-  #     - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.db:/opt/scrutiny/config/scrutiny.db
-  #     - ${DOCKER_DATA_DIRECTORY}/scrutiny/data/influxdb:/opt/scrutiny/influxdb
-  #     - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.yaml:/scrutiny/config/scrutiny.yaml
-  #   networks:
-  #     - traefik
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
-  #     - traefik.http.routers.scrutiny.entrypoints=websecure
-  #     - traefik.http.routers.scrutiny.tls.certresolver=cloudflare
-  #     - traefik.http.routers.scrutiny.service=scrutiny
-  #     - traefik.http.services.scrutiny.loadbalancer.server.port=8080
-  #     - dsm.traefik.router=scrutiny
   syncthing:
     image: lscr.io/linuxserver/syncthing:latest
     container_name: syncthing

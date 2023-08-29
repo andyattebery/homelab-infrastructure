@@ -8,7 +8,5 @@
       TRAEFIK_VERSION: "{{ docker_compose_traefik_version }}"
       CERTBOT_EMAIL: "{{ certbot_email }}"
       CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
-    docker_compose_directory_files:
-      - templates/docker-compose-traefik-network.yaml
   ansible.builtin.include_role:
     name: docker_compose

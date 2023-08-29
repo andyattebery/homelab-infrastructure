@@ -1,7 +1,4 @@
 ---
-# include:
-#   - ./docker-compose-traefik-network.yaml
-
 services:
   scrutiny-influxdb:
     image: influxdb:2.2
