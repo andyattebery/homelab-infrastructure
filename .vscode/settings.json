@@ -1,8 +1,8 @@
 // Place your settings in this file to overwrite the default settings
 {
-    "files.associations": {
-      "**/ansible/**/*.yaml": "ansible",
-      "**/docker-compose*.yaml": "dockercompose"
-    },
-    "ansible.python.interpreterPath": "/opt/homebrew/bin/python3.11"
-  }
+  "files.associations": {
+    "**/ansible/**/*.yaml": "ansible",
+    "**/docker-compose*.yaml": "dockercompose"
+  },
+  "ansible.python.interpreterPath": "/opt/homebrew/bin/python3"
+}

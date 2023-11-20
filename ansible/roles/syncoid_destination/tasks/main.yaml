@@ -5,10 +5,29 @@
       - sanoid
       - lzop
       - mbuffer
+      - acl
+- name: Allow syncoid user to run mount.zfs
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: "{{ syncoid_destination_username }} ALL=NOPASSWD: /usr/sbin/mount.zfs"
 - name: Set zfs permissions for non-root syncoid destinations
   ansible.builtin.command:
-    cmd: "zfs allow -u {{ syncoid_destination_username }} compression,mountpoint,create,mount,receive,rollback,destroy -ld {{ syncoid_destination_dataset }}"
+    cmd: "zfs allow -u {{ syncoid_destination_username }}  compression,create,destroy,hold,mount,mountpoint,receive,refreservation,release,rollback,snapshot {{ syncoid_destination_dataset }}"
   changed_when: false
+# - name: Enable ACLs on syncoid_destination_dataset
+#   ansible.builtin.command:
+#     cmd: "zfs set acltype=off {{ syncoid_destination_dataset }}"
+#   changed_when: false
+# - name: Get syncoid_destination_dataset mountpoint
+#   ansible.builtin.command:
+#     cmd: "zfs get -H -o value mountpoint {{ syncoid_destination_dataset }}"
+#   register: syncoid_destination_dataset_mountpoint_result
+#   changed_when: false
+# - name: Set permission to add subdirectories in syncoid_destination_dataset mountpoint
+#   ansible.builtin.command:
+#     cmd: "chmod g+s {{ syncoid_destination_dataset_mountpoint_result.stdout }}"
+    # cmd: "setfacl A+user:{{ syncoid_destination_username }}:add_subdirectory:allow {{ syncoid_destination_dataset_mountpoint_result.stdout }}"
+  # changed_when: false
 - name: Create /etc/sanoid
   ansible.builtin.file:
     path: /etc/sanoid

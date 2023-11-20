@@ -11,14 +11,20 @@ iface enp7s0 inet static
     gateway 192.168.1.1
     ethernet-wol g
 
-auto bond0
-iface bond0 inet manual
-    bond-slaves enp4s0 enp5s0
-    bond-mode 802.3ad
-    bond-miimon 100
-
 auto vmbr0
 iface vmbr0 inet dhcp
-    bridge-ports bond0
+    bridge-ports enp4s0
     bridge-stp off
     bridge-fd 0
+
+#auto bond0
+#iface bond0 inet manual
+#    bond-slaves enp4s0 enp5s0
+#    bond-mode 802.3ad
+#    bond-miimon 100
+
+#auto vmbr0
+#iface vmbr0 inet dhcp
+#    bridge-ports bond0
+#    bridge-stp off
+#    bridge-fd 0

@@ -36,6 +36,11 @@
           FRESHRSS_PASSWORD: "{{ freshrss_password }}"
           FRESHRSS_EMAIL: "{{ freshrss_email }}"
           FRESHRSS_API_PASSWORD: "{{ freshrss_api_password }}"
-          FRESHRSS_UPDATE_FEEDS_CRON: 9,39
+          FRESHRSS_UPDATE_FEEDS_CRON_MIN: 9,39
       ansible.builtin.include_role:
         name: docker_compose
+    - name: FreshRSS update feeds cron job
+      ansible.builtin.cron:
+        name: "Run FreshRSS feed updater"
+        minute: "*/15"
+        job: "/usr/bin/docker exec --user www-data freshrss php ./app/actualize_script.php > /tmp/FreshRSS.log 2>&1"

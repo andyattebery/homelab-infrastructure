@@ -4,9 +4,9 @@
   become: true
   strategy: linear
 
-  # roles:
-  #   - configure_server
-  #   - geerlingguy.docker
+  roles:
+    - configure_server
+    - geerlingguy.docker
 
   vars:
     gluster_mount_dir: /mnt/gluster/swarm

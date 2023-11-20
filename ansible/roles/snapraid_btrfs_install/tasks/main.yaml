@@ -1,6 +1,0 @@
----
-- name: Download snapraid-btrfs
-  ansible.builtin.get_url:
-    url: "https://github.com/automorphism88/snapraid-btrfs/raw/master/snapraid-btrfs"
-    dest: "/usr/local/bin/snapraid-btrfs"
-    mode: "0755"

@@ -10,4 +10,4 @@ After=network.target
 [Service]
 User={{ syncoid_source_username }}
 Type=oneshot
-ExecStart=/usr/sbin/syncoid --no-privilege-elevation --recursive {{ syncoid_source_dataset }} {{ syncoid_destination_username }}@{{ syncoid_destination_host }}:{{ syncoid_destination_dataset }}
+ExecStart=/usr/sbin/syncoid --no-privilege-elevation --recursive --identifier={{ syncoid_destination_hostname }} {{ syncoid_source_dataset }} {{ syncoid_destination_username }}@{{ syncoid_destination_host }}:{{ syncoid_destination_dataset }}

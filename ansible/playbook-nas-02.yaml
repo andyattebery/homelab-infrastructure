@@ -6,12 +6,17 @@
   vars:
     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
     syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
-    syncoid_destination_dataset: backups
+    syncoid_destination_dataset: basin
 
   tasks:
     - name: Configure server
       ansible.builtin.include_role:
         name: configure_server
+    - name: Enable wakeonlan
+      ansible.builtin.include_role:
+        name: wakeonlan_enable_interface
+      vars:
+        wakeonlan_interface_name: enp4s0
     - name: Configure backup destination
       ansible.builtin.include_role:
         name: backup_destination

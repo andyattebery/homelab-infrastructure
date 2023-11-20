@@ -54,7 +54,7 @@ web:
     #   insecure_skip_verify: false
 
 log:
-  file: /opt/scrutiny/log # absolute or relative paths allowed, eg. web.log
+  file: /opt/scrutiny/log/web.log # absolute or relative paths allowed, eg. web.log
   level: INFO
 
 # Notification "urls" look like the following. For more information about service specific configuration see
@@ -63,9 +63,9 @@ log:
 {% if scrutiny_shoutrrr_notify_urls is defined %}
 notify:
   urls:
-    {% for scrutiny_shoutrrr_notify_url in scrutiny_shoutrrr_notify_urls %}
-    - {{ scrutiny_shoutrrr_notify_url }}
-    {% endfor %}
+  {% for scrutiny_shoutrrr_notify_url in scrutiny_shoutrrr_notify_urls %}
+  - {{ scrutiny_shoutrrr_notify_url }}
+  {% endfor %}
 {% endif %}
 
 #notify:

@@ -6,9 +6,10 @@ vault_diun_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/di
 vault_filebot_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/filebot }}
 vault_freshrss_api_password: {{ op://Personal/adguardhome-02/password }}0
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
-vault_freshrss_password: {{ op://Personal/adguardhome-02/username }}9
+vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}
 vault_homeassistant_access_token: {{ op://Personal/ydvsd4qzib2ixsyuoqk5h3j3ky/credential }}
+vault_homelab_domain_name: {{ op://Personal/Home Lab Domain Name/notesPlain }}
 vault_minio_password: {{ op://Personal/minio/password }}
 vault_minio_username: {{ op://Personal/minio/username }}
 vault_myjdownloader_password: {{ op://Personal/MyJDownloader/password }}
@@ -16,6 +17,7 @@ vault_myjdownloader_username: {{ op://Personal/MyJDownloader/validationKey }}
 vault_nas_01_syncoid_ssh_private_key: |
 {{ op://Personal/ptxqxllkmedp37r3kf6j723sv4/indented private key }}
 vault_nas_01_syncoid_ssh_public_key: {{ op://Personal/ptxqxllkmedp37r3kf6j723sv4/public key }} nas-01_syncoid
+vault_nas_01_tailscale_ip: {{ op://Personal/nas-01/tailscale/ip }}
 vault_nas_02_syncoid_password: {{ op://Personal/nas-02/syncoid/password }}
 vault_nas_02_syncoid_username: {{ op://Personal/nas-02/syncoid/username }}
 vault_nas_03_syncoid_password: {{ op://Personal/nas-03/syncoid/password }}
@@ -33,9 +35,15 @@ vault_nextcloud_mysql_database: {{ op://Personal/Nextcloud/database/name }}
 vault_nextcloud_mysql_password: {{ op://Personal/Nextcloud/database/password }}
 vault_nextcloud_mysql_root_password: {{ op://Personal/Nextcloud/database/root password }}
 vault_nextcloud_mysql_user: {{ op://Personal/Nextcloud/database/username }}
+vault_offsite_nas_mac_address: {{ op://Personal/offsite-nas/hardware/mac address }}
+vault_offsite_nas_syncoid_username: {{ op://Personal/offsite-nas/syncoid/username }}
+vault_offsite_pikvm_auth_token: {{ op://Personal/offsite-pikvm/api/auth token }}
+vault_offsite_pikvm_web_username: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/username }}
+vault_offsite_pikvm_web_password: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/password }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
+vault_scrutiny_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/scrutiny }}
 vault_smb_nas_01_gid: {{ op://Personal/nas-01/smb/gid }}
 vault_smb_nas_01_password: {{ op://Personal/nas-01/smb/password }}
 vault_smb_nas_01_uid: {{ op://Personal/nas-01/smb/uid }}
@@ -46,6 +54,7 @@ vault_smtp_username: {{ op://Personal/ansible SMTP/username }}
 vault_snapraid_btrfs_runner_from_email: {{ op://Personal/snapraid-btrfs-runner/add more/from email}}
 vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add more/to email }}
 vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
+vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
 vault_work_laptop_01_ssh_public_key: {{ op://Work/uqd5fx77qsbcrgh3gtwb4ctv4u/public key }}
 vault_zed_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/zed }}

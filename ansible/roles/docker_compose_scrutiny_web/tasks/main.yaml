@@ -6,5 +6,7 @@
       - src_file_path: templates/scrutiny.yaml.j2
         dst_relative_file_path: scrutiny/config/scrutiny.yaml
         service_name_to_restart: scrutiny-web
+    docker_compose_envs:
+      - TAILSCALE_TAILNET: "{{ tailscale_tailnet }}"
   ansible.builtin.include_role:
     name: docker_compose

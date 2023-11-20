@@ -16,7 +16,7 @@ services:
       - --entrypoints.web.http.redirections.entrypoint.permanent=true
       - --entrypoints.websecure.address=:443
       - --log=true
-      - --log.level=ERROR
+      - --log.level=${TRAEFIK_LOG_LEVEL}
       - --log.filePath=/logs/traefik.log
       - --certificatesresolvers.cloudflare.acme.dnschallenge=true
       - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
@@ -27,7 +27,9 @@ services:
       - --accessLog.filePath=/logs/access.log
       - --accessLog.bufferingSize=100
       {% endif %}
-
+      {% if docker_compose_traefik_enable_tailscale +%}
+      - --certificatesresolvers.tailscale_resolver.tailscale=true
+      {% endif +%}
     networks:
       traefik:
     {% if docker_compose_traefik_enable_host_network %}
@@ -45,6 +47,7 @@ services:
       - "${DOCKER_DATA_DIRECTORY}/traefik/letsencrypt:/letsencrypt"
       - "${DOCKER_DATA_DIRECTORY}/traefik/logs:/logs"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock"
     {% if docker_compose_traefik_enable_dashboard %}
 
     labels:

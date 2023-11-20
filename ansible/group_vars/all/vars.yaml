@@ -6,7 +6,7 @@ ansible_host: "{{ inventory_hostname }}.{{ domain_name }}"
 lang_two_letter: en
 timezone: "{{ vault_timezone }}"
 
-# user
+# hosts
 smb_nas_01_username: "{{ vault_smb_nas_01_username }}"
 smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
 smb_nas_01_uid: "{{ vault_smb_nas_01_uid }}"
@@ -14,7 +14,10 @@ smb_nas_01_gid: "{{ vault_smb_nas_01_gid }}"
 
 nas_01_syncoid_ssh_private_key: "{{ vault_nas_01_syncoid_ssh_private_key }}"
 nas_01_syncoid_ssh_public_key: "{{ vault_nas_01_syncoid_ssh_public_key }}"
+nas_01_tailscale_ip: "{{ vault_nas_01_tailscale_ip }}"
 
+# nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
+# nas_02_ssh_public_key: "{{ vault_nas_02_ssh_public_key }}"
 nas_02_syncoid_username: "{{ vault_nas_02_syncoid_username }}"
 nas_02_syncoid_password: "{{ vault_nas_02_syncoid_password }}"
 
@@ -23,11 +26,17 @@ nas_03_syncoid_password: "{{ vault_nas_03_syncoid_password }}"
 
 nas_host_02_mac_address: "{{ vault_nas_host_02_mac_address }}"
 
+offsite_nas_mac_address: "{{ vault_offsite_nas_mac_address }}"
+offsite_nas_syncoid_username: "{{ vault_offsite_nas_syncoid_username }}"
+offsite_pikvm_auth_token: "{{ vault_offsite_pikvm_auth_token }}"
+offsite_pikvm_web_username: "{{ vault_offsite_pikvm_web_username }}"
+offsite_pikvm_web_password: "{{ vault_offsite_pikvm_web_password }}"
 work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
 
-# nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
-# nas_02_ssh_public_key: "{{ vault_nas_02_ssh_public_key }}"
+# groups
+homelab_domain_name: "{{ vault_homelab_domain_name }}"
 
+# applications
 diun_pushover_token: "{{ vault_diun_pushover_token }}"
 
 filebot_pushover_token: "{{ vault_filebot_pushover_token }}"
@@ -64,10 +73,13 @@ smtp_username: "{{ vault_smtp_username }}"
 smtp_password: "{{ vault_smtp_password }}"
 
 scrutiny_api_url: "https://scrutiny.{{ domain_name }}"
+scrutiny_pushover_token: "{{ vault_scrutiny_pushover_token }}"
 
-snapraid_btrfs_runner_user: "services"
+snapraid_btrfs_runner_user: "{{ ansible_user }}"
 snapraid_btrfs_runner_from_email: "{{ vault_snapraid_btrfs_runner_from_email }}"
 snapraid_btrfs_runner_to_email: "{{ vault_snapraid_btrfs_runner_to_email }}"
+
+tailscale_tailnet: "{{ vault_tailscale_tailnet }}"
 
 zed_pushover_token: "{{ vault_zed_pushover_token }}"
 

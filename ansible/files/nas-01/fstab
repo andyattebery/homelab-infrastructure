@@ -7,7 +7,7 @@
 #/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT-part1  /mnt/data02    btrfs   defaults    0    0
 #/dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1  /mnt/data03    btrfs   defaults    0    0
 #/dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL-part1  /mnt/data03    btrfs   defaults    0    0
-#/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEH7YU1N-part1  /mnt/data04    btrfs   defaults    0    0
+# /dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4SA5-part1     /mnt/data04    btrfs   defaults    0    0
 #/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEGVXGEN-part1  /mnt/data05    btrfs   defaults    0    0
 #/dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C-part1  /mnt/data06    btrfs   defaults    0    0
 #/dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T-part1  /mnt/data07    btrfs   defaults    0    0
@@ -33,7 +33,8 @@
 /dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG-part1    /mnt/data/data01    btrfs    subvol=/data    0    0
 /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT-part1    /mnt/data/data02    btrfs    subvol=/data    0    0
 /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL-part1    /mnt/data/data03    btrfs    subvol=/data_restore    0    0
-/dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEH7YU1N-part1    /mnt/data/data04    btrfs    subvol=/data_restore    0    0
+# /dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEH7YU1N-part1    /mnt/data/data04    btrfs    subvol=/data_restore    0    0
+/dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4SA5-part1   /mnt/data/data04     btrfs    subvol=/data    0    0
 /dev/disk/by-id/scsi-SATA_WDC_WD100EMAZ-00_JEGVXGEN-part1    /mnt/data/data05    btrfs    subvol=/data_restore    0    0
 /dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C-part1    /mnt/data/data06    btrfs    subvol=/data_restore    0    0
 /dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T-part1    /mnt/data/data07    btrfs    subvol=/data_restore    0    0
@@ -55,7 +56,7 @@
 /mnt/data/data*    /mnt/storage    fuse.mergerfs    defaults,nonempty,allow_other,use_ino,noforget,inodecalc=path-hash,cache.files=partial,category.create=mspmfs,moveonenospc=mfs,dropcacheonclose=true,func.getattr=newest,minfreespace=1000G,fsname=mergerfs    0    0
 
 # depot
-/dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1   /mnt/depot  xfs defaults    0   0
+# /dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1   /mnt/depot  xfs defaults    0   0
 
 # depot-cache
 /dev/disk/by-id/nvme-VK003840KWWFP_KIB4T0001I0204T31-part1  /mnt/depot-cache    xfs    defaults    0   0

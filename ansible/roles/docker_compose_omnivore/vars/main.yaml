@@ -1,0 +1,2 @@
+---
+docker_compose_omnivore_repo_path: "{{ (docker_compose_dst_directory_path, 'omnivore') | path_join }}"

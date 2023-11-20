@@ -42,6 +42,7 @@ services:
       - TZ=${TZ}
       - VERSION=latest
       - NVIDIA_VISIBLE_DEVICES=all
+      - DOCKER_MODS=linuxserver/mods:plex-absolute-hama
       # - PLEX_CLAIM=${PLEX_CLAIM_TOKEN}
     network_mode: host
     # devices:

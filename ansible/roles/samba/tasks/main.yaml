@@ -1,0 +1,25 @@
+---
+- name: Install samba
+  ansible.builtin.package:
+    name: samba
+- name: Set samba users passwords
+  ansible.builtin.shell:
+    cmd: "echo -e '{{ samba_user.password }}\n{{ samba_user.password }}' | smbpasswd -U {{ samba_user.username }}"
+    register: smbpasswd_result
+  loop: samba_users
+  loop_control:
+    loop_var: samba_user
+  changed_when: false
+- name: Configure samba
+  ansible.builtin.template:
+    src: "templates/smb.conf.j2"
+    dest: "/etc/samba/smb.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  register: copy_smb_conf_result
+- name: Restart smbd # noqa no-handler
+  when: copy_smb_conf_result.changed
+  ansible.builtin.systemd:
+    name: smbd
+    state: restarted

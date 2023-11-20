@@ -1,0 +1,35 @@
+{
+  "python.interpreter" : "\/opt\/homebrew\/bin\/python3",
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/playbook": [
+      "ansible/**/playbook*.yaml"
+    ],
+    "https://raw.githubusercontent.com/ansible/ansible-lint/main/src/ansiblelint/schemas/ansible.json#/$defs/tasks": [
+      "ansible/**/tasks/*.yaml"
+    ],
+    "kubernetes": [
+      "*deployment.yaml",
+      "*deploy.yaml",
+      "*configmap.yaml",
+      "*cm.yaml",
+      "*namespace.yaml",
+      "*ns.yaml",
+      "*persistentvolumeclaim.yaml",
+      "*pvc.yaml",
+      "*pod.yaml",
+      "*po.yaml",
+      "*secret.yaml",
+      "*service.yaml",
+      "*svc.yaml",
+      "*serviceaccount.yaml",
+      "*sa.yaml",
+      "*daemonset.yaml",
+      "*ds.yaml",
+      "*cronjob.yaml",
+      "*cj.yaml",
+      "*job.yaml",
+      "*ingress.yaml",
+      "*ing.yaml"
+    ]
+  }
+}

@@ -4,15 +4,27 @@
   become: true
 
   vars:
-    syncoid_destination_username: "{{ nas_02_syncoid_username }}"
+    syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
     syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
     syncoid_destination_dataset: backups
+    scrutiny_nas_01_tailnet_url: "scrutiny.{{ homelab_domain_name }}"
+    scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
+    scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+    scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
 
   roles:
-    - artis3n.tailscale
     - configure_server
+    - artis3n.tailscale
 
   tasks:
+    - name: Add to hosts file
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "{{ scrutiny_nas_01_tailnet_url }}$"
+        line: "{{ nas_01_tailscale_ip }} {{ scrutiny_nas_01_tailnet_url }}"
+        owner: root
+        group: root
+        mode: '0644'
     - name: Configure backup destination
       ansible.builtin.include_role:
         name: backup_destination

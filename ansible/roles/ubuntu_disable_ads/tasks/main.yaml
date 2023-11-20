@@ -1,0 +1,43 @@
+---
+- name: Disable motd-news
+  ansible.builtin.lineinfile:
+    path: /etc/default/motd-news
+    regexp: "^ENABLED="
+    line: "ENABLED=0"
+- name: Get apt_news config value # noqa risky-shell-pipe
+  ansible.builtin.shell:
+    cmd: pro config show apt_news | cut -d' ' -f2
+  register: pro_config_apt_news_result
+  changed_when: false
+- name: Disable apt_news
+  when: pro_config_apt_news_result.stdout | bool
+  ansible.builtin.command:
+    cmd: pro config set apt_news=false
+  changed_when: true
+- name: Disable help-text MOTD
+  ansible.builtin.file:
+    path: /etc/update-motd.d/10-help-text
+    mode: "0644"
+- name: Remove apt-esm-hook
+  ansible.builtin.replace:
+    path: /etc/apt/apt.conf.d/20apt-esm-hook.conf
+    regexp: '^([^#\n].+)$'
+    replace: '# \1'
+- name: Remove ESM messages from updates-available MOTD
+  ansible.builtin.blockinfile:
+    path: /usr/lib/update-notifier/apt_check.py
+    insertafter: "{{ insertafter_regex }}"
+    block: "    return"
+    marker: "# {mark} {{ match_index }} ANSIBLE MANAGED BLOCK"
+  loop:
+    - "(?m)def _output_esm_service_status.*?:"
+    - "(?m)def _output_esm_package_alert[\\w\\W\\n]*?:"
+  loop_control:
+    loop_var: insertafter_regex
+    index_var: match_index
+  register: apt_check_results
+- name: Update updates-available MOTD # noqa no-handler
+  when: apt_check_results.changed
+  ansible.builtin.command:
+    cmd: /usr/lib/update-notifier/update-motd-updates-available --force
+  changed_when: true

@@ -1,0 +1,122 @@
+version: '3'
+services:
+  omnivore-postgres:
+    image: "postgres:12.8"
+    container_name: "omnivore-postgres"
+    networks:
+      - omnivore
+    environment:
+      - POSTGRES_USER=${OMNIVORE_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${OMNIVORE_POSTGRES_PASSWORD}
+      - POSTGRES_DB=${OMNIVORE_POSTGRES_DB}
+      - PG_POOL_MAX=20
+    volumes:
+      - ${DOCKER_DATA_DIR}/omnivore-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: "exit 0"
+      interval: 2s
+      timeout: 12s
+      retries: 3
+    # expose:
+    #   - 5432
+  omnivore-migrate:
+    build:
+      context: ./omnivore
+      dockerfile: ./omnivore/packages/db/Dockerfile
+    container_name: "omnivore-migrate"
+    command: '/bin/sh ./omnivore/packages/db/setup.sh' # Also create a demo user with email: demo@omnivore.app, password: demo
+    networks:
+      - omnivore
+    environment:
+      - PGPASSWORD=${OMNIVORE_POSTGRES_PASSWORD}
+      - PG_HOST=omnivore-postgres
+      - PG_USER=${OMNIVORE_POSTGRES_USER}
+      - PG_PASSWORD=${OMNIVORE_POSTGRES_PASSWORD}
+      - PG_DB=${OMNIVORE_POSTGRES_DB}
+    depends_on:
+      omnivore-postgres:
+        condition: service_healthy
+  omnivore-api:
+    build:
+      context: ./omnivore
+      dockerfile: ./omnivore/packages/api/Dockerfile
+    container_name: "omnivore-api"
+    networks:
+      - omnivore
+    # ports:
+    #   - "4000:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 0.0.0.0 8080 || exit 1"]
+      interval: 15s
+      timeout: 90s
+    environment:
+      - API_ENV=local
+      - PG_HOST=omnivore-postgres
+      - PG_USER=${OMNIVORE_POSTGRES_USER}
+      - PG_PASSWORD=${OMNIVORE_POSTGRES_PASSWORD}
+      - PG_DB=${OMNIVORE_POSTGRES_DB}
+      - PG_PORT=5432
+      - PG_POOL_MAX=20
+      # - JAEGER_HOST=jaeger
+      - IMAGE_PROXY_SECRET=some-secret
+      - JWT_SECRET=${OMNIVORE_JWT_SECRET}
+      - SSO_JWT_SECRET=some_sso_secret
+      - CLIENT_URL=${OMNIVORE_DOMAIN_NAME}
+      - GATEWAY_URL=${OMNIVORE_API_DOMAIN_NAME}/api
+      - CONTENT_FETCH_URL=http://omnivore-content-fetch:8080/?token=some_token
+    depends_on:
+      omnivore-migrate:
+        condition: service_completed_successfully
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.omnivore-api.rule=Host(`omnivore-api.$DOMAIN_NAME`)
+      - traefik.http.routers.omnivore-api.entrypoints=websecure
+      - traefik.http.routers.omnivore-api.tls.certresolver=cloudflare
+      - traefik.http.services.omnivore-api.loadbalancer.server.port=8080
+  omnivore-web:
+    build:
+      context: ./omnivore
+      dockerfile: ./omnivore/packages/web/Dockerfile
+      args:
+        - APP_ENV=prod
+        - BASE_URL=${OMNIVORE_DOMAIN_NAME}
+        - SERVER_BASE_URL=${OMNIVORE_API_DOMAIN_NAME}
+        - HIGHLIGHTS_BASE_URL=${OMNIVORE_DOMAIN_NAME}
+    container_name: "omnivore-web"
+    networks:
+      - omnivore
+      - traefik
+    # ports:
+    #   - "3000:8080"
+    environment:
+      - NEXT_PUBLIC_APP_ENV=prod
+      - NEXT_PUBLIC_BASE_URL=${OMNIVORE_DOMAIN_NAME}
+      - NEXT_PUBLIC_SERVER_BASE_URL=${OMNIVORE_API_DOMAIN_NAME}
+      - NEXT_PUBLIC_HIGHLIGHTS_BASE_URL=${OMNIVORE_DOMAIN_NAME}
+    depends_on:
+      omnivore-api:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.omnivore.rule=Host(`$OMNIVORE_DOMAIN_NAME`)
+      - traefik.http.routers.omnivore.entrypoints=websecure
+      - traefik.http.routers.omnivore.tls.certresolver=cloudflare
+      - traefik.http.services.omnivore.loadbalancer.server.port=8080
+  omnivore-content-fetch:
+    build:
+      context: ./omnivore
+      dockerfile: ./omnivore/packages/content-fetch/Dockerfile
+    container_name: "omnivore-content-fetch"
+    networks:
+      - omnivore
+    # ports:
+    #   - "9090:8080"
+    environment:
+      - JWT_SECRET=${OMNIVORE_JWT_SECRET}
+      - VERIFICATION_TOKEN=some_token
+      - REST_BACKEND_ENDPOINT=http://omnivore-api:8080/api
+    depends_on:
+      omnivore-api:
+        condition: service_healthy
+  networks:
+    omnivore:

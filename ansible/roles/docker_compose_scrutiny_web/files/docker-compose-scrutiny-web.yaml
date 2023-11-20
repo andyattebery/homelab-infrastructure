@@ -24,7 +24,7 @@ services:
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/scrutiny/log:/opt/scrutiny/log
       - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.db:/opt/scrutiny/config/scrutiny.db
-      - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.yaml:/scrutiny/config/scrutiny.yaml
+      - ${DOCKER_DATA_DIRECTORY}/scrutiny/config/scrutiny.yaml:/opt/scrutiny/config/scrutiny.yaml
     networks:
       - scrutiny
       - traefik
@@ -34,8 +34,13 @@ services:
       - traefik.http.routers.scrutiny.entrypoints=websecure
       - traefik.http.routers.scrutiny.tls.certresolver=cloudflare
       - traefik.http.routers.scrutiny.service=scrutiny
+      - traefik.http.routers.scrutiny-tailscale.rule=Host(`scrutiny.ts.$DOMAIN_NAME`)
+      - traefik.http.routers.scrutiny-tailscale.entrypoints=websecure
+      - traefik.http.routers.scrutiny-tailscale.tls.certresolver=cloudflare
+      - traefik.http.routers.scrutiny-tailscale.service=scrutiny
       - traefik.http.services.scrutiny.loadbalancer.server.port=8080
       - dsm.traefik.router=scrutiny
+      - dsm.name=Scrutiny
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 5s

@@ -27,6 +27,11 @@
 #     state: directory
 #     mode: "0755"
 #     owner: "{{ syncoid_source_username }}"
+# - name: Add {{ syncoid_destination_host }} to known_hosts for syncoid ssh key # noqa name[template]
+#   ansible.builtin.known_hosts:
+#     path: "/home/{{ syncoid_source_username }}/.ssh/known_hosts"
+#     name: "{{ syncoid_destination_host }}"
+#     key: "{{ syncoid_destination_host }} {{ syncoid_source_ssh_public_key }}"
 - name: Set empty syncoid_dataset_services
   ansible.builtin.set_fact:
     syncoid_dataset_services: []
@@ -36,33 +41,28 @@
   vars:
     syncoid_source_dataset: "{{ item.syncoid_source_dataset }}"
     syncoid_destination_dataset: "{{ item.syncoid_destination_dataset }}"
+    syncoid_destination_dataset_mountpoint: "{{ item.syncoid_destination_dataset_mountpoint }}"
     syncoid_healthchecks_uuid: "{{ item.syncoid_healthchecks_uuid }}"
   loop: "{{ syncoid_datasets }}"
-- name: Set syncoid_service_name
-  vars:
-    syncoid_service_name: "syncoid-{{ syncoid_destination_host }}-all"
-  ansible.builtin.set_fact:
-    syncoid_service: "{{ syncoid_service_name }}.service"
-    syncoid_timer: "{{ syncoid_service_name }}.timer"
-- name: "Copy {{ syncoid_service }}"
+- name: "Copy {{ syncoid_all_service }}"
   ansible.builtin.template:
     src: templates/syncoid-all.service.j2
-    dest: "/etc/systemd/system/{{ syncoid_service }}"
+    dest: "/etc/systemd/system/{{ syncoid_all_service }}"
     mode: "0644"
-- name: "Copy {{ syncoid_timer }}"
+- name: "Copy {{ syncoid_all_timer }}"
   ansible.builtin.template:
     src: templates/syncoid-all.timer.j2
-    dest: "/etc/systemd/system/{{ syncoid_timer }}"
+    dest: "/etc/systemd/system/{{ syncoid_all_timer }}"
     mode: "0644"
 # - name: "Enable loginctl enable-linger for {{ syncoid_source_username }}"
 #   ansible.builtin.command:
 #     cmd: "loginctl enable-linger {{ syncoid_source_username }}"
 #   changed_when: false
-- name: "Enable {{ syncoid_timer }}"
+- name: "Enable {{ syncoid_all_timer }}"
   # become_user: "{{ syncoid_source_username }}"
   ansible.builtin.systemd_service:
     daemon_reload: true
-    name: "{{ syncoid_timer }}"
+    name: "{{ syncoid_all_timer }}"
     state: started
     enabled: true
 - name: Reload systemd

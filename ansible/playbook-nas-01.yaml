@@ -14,6 +14,7 @@
     # - snapper_install
     # - snapraid_btrfs_install
     # - artis3n.tailscale
+    - geerlingguy.postfix
 
   tasks:
     # - name: Install packages
@@ -29,11 +30,7 @@
     #     owner: "{{ ansible_non_become_user_id }}"
     #     group: "{{ ansible_non_become_user_gid }}"
     #     mode: '0600'
-    # # - name: Add nas-02 to known_hosts for syncoid ssh key
-    # #   ansible.builtin.known_hosts:
-    # #     path: "{{ ansible_non_become_user_home_dir }}/.ssh/known_hosts"
-    # #     name: "{{ syncoid_destination_host }}"
-    # #     key: "{{ syncoid_destination_host }} {{ nas_01_syncoid_ssh_public_key }}"
+
     # - name: Create mount points
     #   ansible.builtin.file:
     #     path: "/mnt/{{ item }}"
@@ -87,10 +84,10 @@
     #     - "data03"
     #     - "data08"
     #     - "snapraid"
-    # - name: Add fstab entries
-    #   ansible.builtin.blockinfile:
-    #     block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
-    #     path: "/etc/fstab"
+    - name: Add fstab entries
+      ansible.builtin.blockinfile:
+        block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
+        path: "/etc/fstab"
     # - name: Install snapraid
     #   ansible.builtin.include_role:
     #     name: ironicbadger.snapraid
@@ -149,7 +146,7 @@
     # #     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
     # #     syncoid_destination_host: "nas-02.{{ domain_name }}"
     # #     syncoid_pre_sync_command: "/usr/bin/wakeonlan {{ nas_host_02_mac_address }} && /usr/bin/sleep 5m"
-    # #     syncoid_post_sync_command: "/usr/bin/ssh -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@nas-host-02.{{ domain_name }} 'sudo shutdown now'"
+    # #     syncoid_post_sync_command: "-/usr/bin/ssh -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_02_syncoid_username }}@nas-host-02.{{ domain_name }} 'sudo shutdown now'"
     # #     syncoid_timer_on_calendar: "*-*-* 01:00:00"
     # #     syncoid_datasets:
     # #       - syncoid_source_dataset: tank
@@ -158,48 +155,79 @@
     # #       - syncoid_source_dataset: sink
     # #         syncoid_destination_dataset: backups/sink
     # #         syncoid_healthchecks_uuid: 762e5887-0bdb-496e-bc8d-fccdf2179573
-    # - name: Configure syncoid to nas-03
-    #   ansible.builtin.include_role:
-    #     name: syncoid_source
-    #   vars:
-    #     syncoid_source_username: "{{ ansible_user }}"
-    #     syncoid_destination_username: "{{ nas_03_syncoid_username }}"
-    #     syncoid_destination_host: "nas-03.{{ domain_name }}"
-    #     homeassistant_post_data:
-    #       entity_id: switch.nas_03_outlet_switch
-    #     homeassistant_switch_command: "curl -H 'Authorization: Bearer {{ homeassistant_access_token }}' -H 'Content-Type application/json' -d '{{ homeassistant_post_data | to_json }}' -X POST https://homeassistant.{{ domain_name }}:8123/api/services/switch/"
-    #     syncoid_pre_sync_commands:
-    #       - "{{ homeassistant_switch_command }}turn_on"
-    #       - "/usr/bin/sleep 3m"
-    #     syncoid_post_sync_commands:
-    #       - "/usr/bin/ssh -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_03_syncoid_username }}@{{ syncoid_destination_host }} 'sudo shutdown now'"
-    #       - "sleep 2m"
-    #       - "{{ homeassistant_switch_command }}turn_off"
-    #     syncoid_timer_on_calendar: "*-*-* 01:00:00"
-    #     syncoid_datasets:
-    #       - syncoid_source_dataset: tank
-    #         syncoid_destination_dataset: backups/tank
-    #         syncoid_healthchecks_uuid: 507372f3-dc44-4d68-867e-8283eefc9bf5
-    #       - syncoid_source_dataset: sink
-    #         syncoid_destination_dataset: backups/sink
-    #         syncoid_healthchecks_uuid: 379c392b-04f5-42ef-bbc7-1afdd850d863
+    - name: Configure syncoid to nas-03
+      ansible.builtin.include_role:
+        name: syncoid_source
+      vars:
+        syncoid_source_username: "{{ ansible_user }}"
+        syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+        syncoid_destination_username: "{{ nas_03_syncoid_username }}"
+        syncoid_destination_host: "nas-03.{{ domain_name }}"
+        homeassistant_post_data:
+          entity_id: switch.nas_03_outlet_switch
+        homeassistant_switch_command: "/usr/bin/curl --no-progress-meter --header 'Authorization: Bearer {{ homeassistant_access_token }}' --header 'Content-Type application/json' -d '{{ homeassistant_post_data | to_json }}' --request POST https://homeassistant.{{ domain_name }}:8123/api/services/switch/"
+        syncoid_pre_sync_commands:
+          - "/usr/bin/echo 'Powering on via Home Assistant' ; {{ homeassistant_switch_command }}turn_on"
+          - "/usr/bin/echo 'Sleeping for 3m...' ; /usr/bin/sleep 3m"
+        syncoid_post_sync_commands:
+          - "-/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ nas_03_syncoid_username }}@{{ syncoid_destination_host }} 'sudo shutdown now' ; echo 'Shutdown complete'"
+          - "/usr/bin/echo 'Sleeping for 3m...' ; sleep 3m"
+          - "/usr/bin/echo 'Powering off via Home Assistant' ; {{ homeassistant_switch_command }}turn_off"
+        syncoid_timer_on_calendar: "*-*-* 01:00:00"
+        syncoid_datasets:
+          - syncoid_source_dataset: tank
+            syncoid_destination_dataset: backups/tank
+            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+            syncoid_healthchecks_uuid: 507372f3-dc44-4d68-867e-8283eefc9bf5
+          - syncoid_source_dataset: sink
+            syncoid_destination_dataset: backups/sink
+            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+            syncoid_healthchecks_uuid: 379c392b-04f5-42ef-bbc7-1afdd850d863
+    - name: Configure syncoid to offsite-nas
+      ansible.builtin.include_role:
+        name: syncoid_source
+      vars:
+        syncoid_source_username: "{{ ansible_user }}"
+        syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+        syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
+        syncoid_pre_sync_commands:
+          - "/usr/bin/echo 'Powering on via PiKVM' ; -/usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
+          - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
+        syncoid_post_sync_commands:
+          - "-/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"
+        syncoid_timer_on_calendar: "*-*-* 02:00:00"
+        syncoid_datasets:
+          - syncoid_source_dataset: tank
+            syncoid_destination_dataset: backups/tank
+            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+            syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
+          - syncoid_source_dataset: sink
+            syncoid_destination_dataset: backups/sink
+            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+            syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
     - name: Run docker_compose_traefik # Needs to be before docker-compose-nas-01 for the traefik network to be created
       vars:
+        docker_compose_traefik_version: "3.0"
         docker_compose_traefik_enable_dashboard: true
+        docker_compose_traefik_enable_tailscale: true
+        docker_compose_traefik_log_level: ERROR
       ansible.builtin.include_role:
         name: docker_compose_traefik
     - name: Configure docker compose roles
       vars:
         docker_compose_nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
+        scrutiny_shoutrrr_notify_urls:
+          - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
       ansible.builtin.include_role:
-        name: "{{ role }}"
+        name: "{{ nas_01_docker_compose_role }}"
       loop:
         - docker_compose_dashboard_services_manager_provider
         - docker_compose_diun
         - docker_compose_nextcloud
         - docker_compose_scrutiny_web
       loop_control:
-        loop_var: role
+        loop_var: nas_01_docker_compose_role
     - name: Configure nas-01 docker compose
       vars:
         docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
@@ -236,9 +264,9 @@
     - name: Configure nfs
       vars:
         nfs_exports:
-          - "/mnt/basin *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
-          - "/mnt/depot/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
-          - "/mnt/sink/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          # - "/mnt/basin *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          # - "/mnt/depot/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
+          # - "/mnt/sink/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
           - "/mnt/storage *(rw,sync,insecure,fsid=999,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
       ansible.builtin.include_role:
         name: geerlingguy.nfs

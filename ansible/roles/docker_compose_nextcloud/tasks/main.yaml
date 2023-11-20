@@ -16,7 +16,7 @@
   ansible.builtin.cron:
     name: "Run nextcloud cron.php"
     minute: "*/15"
-    job: "docker exec -u www-data nextcloud php /var/www/html/cron.php"
+    job: "/usr/bin/docker exec -u www-data nextcloud php /var/www/html/cron.php"
 - name: Nextcloud config
   ansible.builtin.blockinfile:
     path: "{{ (docker_compose_nextcloud_data_directory, 'config', 'config.php') | path_join }}"

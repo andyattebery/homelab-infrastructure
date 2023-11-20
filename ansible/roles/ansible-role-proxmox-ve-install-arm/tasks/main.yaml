@@ -2,12 +2,22 @@
 - name: Configure Proxmox repo
   block:
     - name: Add apt key
-      ansible.builtin.apt_key:
-        url: https://mirrors.apqa.cn/proxmox/gpg.key
+      ansible.builtin.get_url:
+        url: "https://global.mirrors.apqa.cn/proxmox/debian/pveport.gpg"
+        dest: "/etc/apt/trusted.gpg.d/pveport.gpg"
+        owner: root
+        group: root
+        mode: '0644'
     - name: Add no subscription repository
       ansible.builtin.apt_repository:
-        repo: deb https://mirrors.apqa.cn/proxmox/ pvearm main
+        repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_distribution_release }} port"
         filename: pve-arm
+        update_cache: false
+        state: present
+    - name: Add kernel repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://mirrors.apqa.cn/proxmox/debian/kernel sid port"
+        filename: pve-arm64-kernel
         update_cache: false
         state: present
 - name: Configure /etc/hosts
@@ -37,6 +47,10 @@
         owner: root
         group: root
         mode: '0644'
+- name: Run dist-upgrade
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
 - name: Install Proxmox VE
   ansible.builtin.package:
     name:
@@ -44,7 +58,7 @@
       - proxmox-ve
       - postfix
       - open-iscsi
-    update_cache: true
+    update_cache: false
     state: present
   register:
     install_proxmoxve_result

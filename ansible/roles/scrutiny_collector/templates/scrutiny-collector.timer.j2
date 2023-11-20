@@ -1,0 +1,10 @@
+[Unit]
+Description=Run scrutiny-collector.service
+Requires={{ scrutiny_collector_systemd_requires }}
+After={{ scrutiny_collector_systemd_after }}
+
+[Timer]
+OnCalendar={{ scrutiny_collector_timer_on_calendar }}
+
+[Install]
+WantedBy=timers.target

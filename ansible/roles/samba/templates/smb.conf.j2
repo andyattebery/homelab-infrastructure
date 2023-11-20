@@ -12,7 +12,7 @@
   fruit:delete_empty_adfiles = yes
 
   workgroup = WORKGROUP
-  server string = nas-01
+  server string = {{ samba_server_name }}
   security = user
   guest ok = yes
   map to guest = Bad Password
@@ -31,55 +31,12 @@
   include = registry
 
 # Samba Shares
-; [depot]
-;   comment = mdadm RAID0 HDDs
-;   path = /mnt/depot
-;   browseable = yes
-;   read only = no
-;   guest ok = yes
-;   create mask = 0775
-;   directory mask = 0775
-
-[depot-cache]
-  comment = NVMe SSD
-  path = /mnt/depot-cache
+{% for samba_share in samba_shares %}
+[{{ samba_share.name }}]
+  path = {{ samba_share.path }}
   browseable = yes
   read only = no
   guest ok = yes
   create mask = 0775
   directory mask = 0775
-
-[proxmox]
-  comment = ZFS tank/proxmox
-  path = /mnt/tank/proxmox
-  browseable = yes
-  read only = no
-  guest ok = yes
-
-[services]
-  comment = home dir
-  path = /home/services
-  browseable = yes
-  read only = no
-  guest ok = yes
-
-# [sink]
-#   comment = ZFS NVMe SSDs
-#   path = /mnt/sink
-#   browseable = yes
-#   read only = no
-#   guest ok = yes
-
-[storage]
-  comment = Snapraid Pool
-  path = /mnt/storage
-  browseable = yes
-  read only = no
-  guest ok = yes
-
-[tank]
-  comment = ZFS HDDs
-  path = /mnt/tank
-  browseable = yes
-  read only = no
-  guest ok = yes
+{% endfor %}

@@ -1,10 +1,10 @@
 [Unit]
 Description=Run scrutiny collecctor
-Requires=network-online.target
-After=network-online.target
+Requires={{ scrutiny_collector_systemd_requires }}
+After={{ scrutiny_collector_systemd_after }}
 
 [Service]
-ExecStart={{ collector_run_command }}
+ExecStart={{ scrutiny_collector_run_command }}
 Type=oneshot
 
 [Install]

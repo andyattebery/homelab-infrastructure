@@ -23,3 +23,12 @@
       ansible.builtin.package:
         name:
           - wol
+    - name: Add syncoid user
+      ansible.builtin.user:
+        name: "{{ offsite_nas_syncoid_username }}"
+        password: '!'
+    - name: Authorize nas-01 syncoid key for syncoid user
+      ansible.posix.authorized_key:
+        user: "{{ offsite_nas_syncoid_username }}"
+        state: present
+        key: "{{ nas_01_syncoid_ssh_public_key }}"

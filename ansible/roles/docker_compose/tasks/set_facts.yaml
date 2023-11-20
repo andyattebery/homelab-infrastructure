@@ -1,0 +1,4 @@
+---
+- name: Set facts
+  ansible.builtin.set_fact:
+    docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path }}"

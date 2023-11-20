@@ -7,16 +7,17 @@ collections:
   - name: vladgh.samba
 
 roles:
-  - role: artis3n.tailscale
-  - role: geerlingguy.docker
-  - role: geerlingguy.glusterfs
-  - role: geerlingguy.nfs
-  - role: geerlingguy.node_exporter
-  - role: geerlingguy.ntp
-  - role: geerlingguy.security
-  - role: ironicbadger.proxmox_nag_removal
-  - role: ironicbadger.snapraid
-  - role: nvidia.nvidia_docker
-  - role: nvidia.nvidia_driver
-  - role: samdoran.fish
-  - role: simoncaron.pve_addons
+  - name: artis3n.tailscale
+  - name: geerlingguy.docker
+  - name: geerlingguy.glusterfs
+  - name: geerlingguy.nfs
+  - name: geerlingguy.node_exporter
+  - name: geerlingguy.ntp
+  - name: geerlingguy.postfix
+  - name: geerlingguy.security
+  - name: ironicbadger.proxmox_nag_removal
+  - name: ironicbadger.snapraid
+  - name: nvidia.nvidia_docker
+  - name: nvidia.nvidia_driver
+  - name: samdoran.fish
+  - name: simoncaron.pve_addons

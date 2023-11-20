@@ -3,16 +3,11 @@
   ansible.builtin.command:
     cmd: "zfs allow -u {{ syncoid_source_username }} mount,send,hold,snapshot,destroy -ld {{ syncoid_source_dataset }}"
   changed_when: false
-- name: Set syncoid_service_name
-  vars:
-    syncoid_service_name: "syncoid-{{ syncoid_destination_host }}-{{ syncoid_source_dataset }}"
-  ansible.builtin.set_fact:
-    syncoid_service: "{{ syncoid_service_name }}.service"
-- name: "Copy {{ syncoid_service }}"
+- name: "Copy {{ syncoid_dataset_service }}"
   ansible.builtin.template:
     src: templates/syncoid-dataset.service.j2
-    dest: "/etc/systemd/system/{{ syncoid_service }}"
+    dest: "/etc/systemd/system/{{ syncoid_dataset_service }}"
     mode: "0644"
 - name: Update syncoid_dataset_services
   ansible.builtin.set_fact:
-    syncoid_dataset_services: "{{ syncoid_dataset_services + [syncoid_service] }}"
+    syncoid_dataset_services: "{{ syncoid_dataset_services + [syncoid_dataset_service] }}"
