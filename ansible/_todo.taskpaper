@@ -10,7 +10,7 @@ docker_compose:
     - [x] remove docker_compose_service_name
 
 docker_compose_traefik:
-    - [] get it working
+    - [x] get it working
 
 snapraid-btrfs-runner:
     - [] move conf, service, and timer to role

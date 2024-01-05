@@ -30,9 +30,13 @@ nas_host_02_mac_address: "{{ vault_nas_host_02_mac_address }}"
 
 offsite_nas_mac_address: "{{ vault_offsite_nas_mac_address }}"
 offsite_nas_syncoid_username: "{{ vault_offsite_nas_syncoid_username }}"
+
 offsite_pikvm_auth_token: "{{ vault_offsite_pikvm_auth_token }}"
 offsite_pikvm_web_username: "{{ vault_offsite_pikvm_web_username }}"
 offsite_pikvm_web_password: "{{ vault_offsite_pikvm_web_password }}"
+
+steamdeck_ssh_public_key: "{{ vault_steamdeck_ssh_public_key }}"
+
 work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
 
 # groups
@@ -99,8 +103,6 @@ snapraid_btrfs_runner_user: "{{ ansible_user }}"
 snapraid_btrfs_runner_from_email: "{{ vault_snapraid_btrfs_runner_from_email }}"
 snapraid_btrfs_runner_to_email: "{{ vault_snapraid_btrfs_runner_to_email }}"
 
-steamdeck_ssh_public_key: "{{ vault_steamdeck_ssh_public_key }}"
-
 tailscale_tailnet: "{{ vault_tailscale_tailnet }}"
 
 zed_pushover_token: "{{ vault_zed_pushover_token }}"
@@ -124,7 +126,7 @@ security_sudoers_passwordless:
   - "{{ ansible_user }}"
 
 # pve_cluster_acme
-# adguardhome_docker_compose
+# docker_compose_adguardhome
 cloudflare_account_id: "{{ vault_cloudflare_account_id }}"
 cloudflare_api_token: "{{ vault_cloudflare_api_token }}"
 certbot_email: "{{ vault_certbot_email }}"
@@ -132,7 +134,7 @@ certbot_email: "{{ vault_certbot_email }}"
 # pve_cluster_acme
 pve_acme_contact_email: "{{ certbot_email }}"
 
-# adguardhome_docker_compose
+# docker_compose_adguardhome
 network_01_adguardhome_hostname: adguardhome.{{ domain_name }}
 network_01_adguardhome_username: "{{ vault_network_01_adguardhome_username }}"
 network_01_adguardhome_password: "{{ vault_network_01_adguardhome_password }}"
@@ -145,7 +147,7 @@ network_03_adguardhome_hostname: adguardhome-03.{{ domain_name }}
 network_03_adguardhome_username: "{{ vault_network_03_adguardhome_username }}"
 network_03_adguardhome_password: "{{ vault_network_03_adguardhome_password }}"
 
-# adguardhome_docker_compose sync
+# docker_compose_adguardhome_sync
 adguardhome_origin_domain_name: "{{ network_01_adguardhome_hostname }}"
 adguardhome_origin_username: "{{ network_01_adguardhome_username }}"
 adguardhome_origin_password: "{{ network_01_adguardhome_password }}"

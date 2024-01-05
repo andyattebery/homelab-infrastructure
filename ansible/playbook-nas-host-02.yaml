@@ -12,17 +12,11 @@
   #   - scrutiny_collector
 
   tasks:
-    - name: Update grub parameters
-      ansible.builtin.lineinfile:
-        path: /etc/default/grub
-        regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
-        line: GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_pstate=active cpufreq.default_governor=powersave"
-      register: update_grub_parameters_result
-    - name: Update grub # noqa no-handler
-      when: update_grub_parameters_result.changed
-      ansible.builtin.command:
-        cmd: update-grub
-      changed_when: true
+    - name: Update kernel parameters
+      ansible.builtin.include_role:
+        name: pve_kernel_cmdline_parameters
+      vars:
+        kernel_cmdline_parameters: "amd_pstate=active cpufreq.default_governor=powersave"
     # - name: Configure network interfaces
     #   ansible.builtin.copy:
     #     src: files/nas-host-02/interfaces
