@@ -1,4 +1,4 @@
-vault_ansible_user: {{ op://Personal/ansible all group vars/variables/ansibile_user}}
+vault_ansible_user: {{ op://Personal/ansible all group vars/variables/ansible_user}}
 vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
 vault_cloudflare_api_token: {{ op://Personal/Cloudflare API Token - Ansible Vault DNS Edit/credential }}
@@ -10,6 +10,14 @@ vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}
 vault_homeassistant_access_token: {{ op://Personal/ydvsd4qzib2ixsyuoqk5h3j3ky/credential }}
 vault_homelab_domain_name: {{ op://Personal/Home Lab Domain Name/notesPlain }}
+vault_ideapad_3_ssh_public_key: {{ op://Personal/h3ycxizrlk7bsfnt5li3bqlcua/public key}}
+vault_immich_db_username: "{{ op://Personal/Immich/config/db_username }}"
+vault_immich_db_password: "{{ op://Personal/Immich/config/db_password }}"
+vault_linkding_superuser_name: {{ op://Personal/linkding/username }}
+vault_linkding_superuser_password: {{ op://Personal/linkding/password }}
+vault_linkwarden_postgres_user: {{ op://Personal/Linkwarden/config/postgres_user }}
+vault_linkwarden_postgres_password: {{ op://Personal/Linkwarden/config/postgres_password }}
+vault_linkwarden_nextauth_secret: {{ op://Personal/Linkwarden/config/nextauth_secret }}
 vault_minio_password: {{ op://Personal/minio/password }}
 vault_minio_username: {{ op://Personal/minio/username }}
 vault_myjdownloader_password: {{ op://Personal/MyJDownloader/password }}
@@ -35,6 +43,13 @@ vault_nextcloud_mysql_database: {{ op://Personal/Nextcloud/database/name }}
 vault_nextcloud_mysql_password: {{ op://Personal/Nextcloud/database/password }}
 vault_nextcloud_mysql_root_password: {{ op://Personal/Nextcloud/database/root password }}
 vault_nextcloud_mysql_user: {{ op://Personal/Nextcloud/database/username }}
+vault_omnivore_content_fetch_verification_token: "{{ op://Personal/Omnivore/config/content_fetch_verification_token }}"
+vault_omnivore_image_proxy_secret: "{{ op://Personal/Omnivore/config/image_proxy_secret }}"
+vault_omnivore_jwt_secret: "{{ op://Personal/Omnivore/config/jwt_secret }}"
+vault_omnivore_sso_jwt_secret: "{{ op://Personal/Omnivore/config/sso_jwt_secret }}"
+vault_omnivore_postgres_user: "{{ op://Personal/Omnivore/config/postgres_user }}"
+vault_omnivore_postgres_password: "{{ op://Personal/Omnivore/config/postgres_password }}"
+vault_omnivore_postgres_db: "{{ op://Personal/Omnivore/config/postgres_db }}"
 vault_offsite_nas_mac_address: {{ op://Personal/offsite-nas/hardware/mac address }}
 vault_offsite_nas_syncoid_username: {{ op://Personal/offsite-nas/syncoid/username }}
 vault_offsite_pikvm_auth_token: {{ op://Personal/offsite-pikvm/api/auth token }}
@@ -53,6 +68,7 @@ vault_smtp_password: {{ op://Personal/ansible SMTP/password }}
 vault_smtp_username: {{ op://Personal/ansible SMTP/username }}
 vault_snapraid_btrfs_runner_from_email: {{ op://Personal/snapraid-btrfs-runner/add more/from email}}
 vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add more/to email }}
+vault_steamdeck_ssh_public_key: {{op://Personal/wk2jbsx4hmdhpiaqqr2knbn5bq/public key }}
 vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
 vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}

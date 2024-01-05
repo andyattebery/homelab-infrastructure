@@ -30,6 +30,58 @@ services:
     ports:
       - 5201:5201/tcp
       - 5201:5201/udp
+  linkding:
+    image: sissbruecker/linkding:latest
+    container_name: "linkding"
+    volumes:
+      - "/mnt/tank/linkding/data:/etc/linkding/data"
+    environment:
+      - LD_SUPERUSER_NAME=${LINKDING_SUPERUSER_NAME}
+      - LD_SUPERUSER_PASSWORD=${LINKDING_SUPERUSER_PASSWORD}
+      - LD_CSRF_TRUSTED_ORIGINS=https://linkding.$DOMAIN_NAME
+      - LD_LOG_X_FORWARDED_FOR=true
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.linkding.rule=Host(`linkding.$DOMAIN_NAME`)
+      - traefik.http.routers.linkding.entrypoints=websecure
+      - traefik.http.routers.linkding.tls.certresolver=cloudflare
+      - traefik.http.services.linkding.loadbalancer.server.port=9090
+  linkwarden-postgres:
+    image: postgres:16-alpine
+    container_name: linkwarden-postgres
+    restart: unless-stopped
+    networks:
+      - linkwarden
+    environment:
+      - POSTGRES_USER=${LINKWARDEN_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${LINKWARDEN_POSTGRES_PASSWORD}
+      - POSTGRES_DB=${LINKWARDEN_POSTGRES_DB}
+    volumes:
+      - /mnt/tank/linkwarden/postgres:/var/lib/postgresql/data
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    container_name: linkwarden
+    environment:
+      - DATABASE_URL=postgresql://${LINKWARDEN_POSTGRES_USER}:${LINKWARDEN_POSTGRES_PASSWORD}@linkwarden-postgres:5432/${LINKWARDEN_POSTGRES_DB}
+      - NEXTAUTH_SECRET=${LINKWARDEN_NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=http://localhost:3000
+    restart: always
+    volumes:
+      - /mnt/tank/linkwarden/data:/data/data
+    depends_on:
+      - linkwarden-postgres
+    networks:
+      - linkwarden
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.linkwarden.rule=Host(`linkwarden.$DOMAIN_NAME`)
+      - traefik.http.routers.linkwarden.entrypoints=websecure
+      - traefik.http.routers.linkwarden.tls.certresolver=cloudflare
+      - traefik.http.services.linkwarden.loadbalancer.server.port=3000
   minio:
     image: minio/minio:latest
     container_name: minio
@@ -56,6 +108,30 @@ services:
       - traefik.http.routers.minio-console.service=minio-console
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
       - dsm.traefik.router=minio-console
+  netbootxyz:
+    image: ghcr.io/netbootxyz/netbootxyz
+    container_name: netbootxyz
+    # environment:
+      # - MENU_VERSION=2.0.47 # optional
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/netbootxyz/config:/config
+      - ${DOCKER_DATA_DIRECTORY}/netbootxyz/assets:/assets
+    ports:
+      - 69:69/udp
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.netbootxyz.rule=Host(`netbootxyz.$DOMAIN_NAME`)
+      - traefik.http.routers.netbootxyz.entrypoints=websecure
+      - traefik.http.routers.netbootxyz.tls.certresolver=cloudflare
+      - traefik.http.routers.netbootxyz.service=netbootxyz
+      - traefik.http.services.netbootxyz.loadbalancer.server.port=3000
+      - traefik.http.routers.netbootxyz-assets.rule=Host(`netbootxyz-assets.$DOMAIN_NAME`)
+      - traefik.http.routers.netbootxyz-assets.entrypoints=websecure
+      - traefik.http.routers.netbootxyz-assets.tls.certresolver=cloudflare
+      - traefik.http.routers.netbootxyz-assets.service=netbootxyz-assets
+      - traefik.http.services.netbootxyz-assets.loadbalancer.server.port=80
   resilio_sync:
     image: lscr.io/linuxserver/resilio-sync:latest
     container_name: resilio-sync
@@ -108,3 +184,5 @@ networks:
   traefik:
     name: traefik
     external: true
+  linkwarden:
+    name: linkwarden

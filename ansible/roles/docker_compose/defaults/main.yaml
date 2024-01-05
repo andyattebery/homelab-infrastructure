@@ -10,6 +10,8 @@ docker_compose_should_run_up: true
 docker_compose_should_prune: false
 docker_compose_copy_scripts: false
 
+docker_compose_up_command: "{{ docker_compose_base_command }} up --detach"
+
 docker_compose_default_envs:
   PUID: "{{ docker_compose_uid }}"
   PGID: "{{ docker_compose_gid }}"

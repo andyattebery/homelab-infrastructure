@@ -4,6 +4,16 @@
     user: "{{ ansible_user }}"
     key: https://github.com/andyattebery.keys
     state: present
+- name: Add ssh authorized keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ ideapad_3_ssh_public_key }}"
+    state: present
+- name: Add ssh authorized keys
+  ansible.posix.authorized_key:
+    user: "{{ ansible_user }}"
+    key: "{{ steamdeck_ssh_public_key }}"
+    state: present
 - name: Install packages
   ansible.builtin.apt:
     name:

@@ -4,5 +4,5 @@
     "**/ansible/**/*.yaml": "ansible",
     "**/docker-compose*.yaml": "dockercompose"
   },
-  "ansible.python.interpreterPath": "/opt/homebrew/bin/python3"
+  "ansible.python.interpreterPath": "/opt/homebrew/bin/python3.12"
 }

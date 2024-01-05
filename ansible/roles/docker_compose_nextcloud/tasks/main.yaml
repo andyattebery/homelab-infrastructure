@@ -1,4 +1,4 @@
-- name: Configure nas-01 docker compose
+- name: Configure nextcloud docker compose
   vars:
     docker_compose_src_file_path: files/docker-compose-nextcloud.yaml
     docker_compose_envs:
@@ -36,6 +36,11 @@
           'OC\Preview\PNG',
           'OC\Preview\TXT',
           'OC\Preview\XBitmap',
+          'OC\Preview\Movie',
+          'OC\Preview\MOV',
+          'OC\Preview\MKV',
+          'OC\Preview\MP4',
+          'OC\Preview\AVI'
         ],
   register: nextcloud_config_result
 - name: Nextcloud restart # noqa no-handler

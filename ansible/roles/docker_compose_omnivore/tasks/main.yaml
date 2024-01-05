@@ -11,10 +11,17 @@
   vars:
     docker_compose_src_file_path: files/docker-compose-omnivore.yaml
     docker_compose_envs:
-      POSTGRES_USER: "{{ omnivore_postgres_user }}"
-      POSTGRES_PASSWORD: "{{ omnivore_postgres_password }}"
-      POSTGRES_DB: "{{ omnivore_postgres_db }}"
-      MINIO_USERNAME: "{{ minio_username }}"
-      MINIO_PASSWORD: "{{ minio_password }}"
+      OMNIVORE_DATA_DIRECTORY: "{{ docker_compose_omnivore_data_directory_path }}"
+      OMNIVORE_REPO_PATH: "{{ docker_compose_omnivore_repo_path }}"
+      OMNIVORE_DOMAIN_NAME: "omnivore.{{ domain_name }}"
+      OMNIVORE_API_DOMAIN_NAME: "omnivore-api.{{ domain_name }}"
+      OMNIVORE_TTS_DOMAIN_NAME: "omnivore-tts.{{ domain_name }}"
+      OMNIVORE_JWT_SECRET: "{{ omnivore_jwt_secret }}"
+      OMNIVORE_SSO_JWT_SECRET: "{{ omnivore_sso_jwt_secret }}"
+      OMNIVORE_IMAGE_PROXY_SECRET: "{{ omnivore_image_proxy_secret }}"
+      OMNIVORE_CONTENT_FETCH_VERIFICATION_TOKEN: "{{ omnivore_content_fetch_verification_token }}"
+      OMNIVORE_POSTGRES_USER: "{{ omnivore_postgres_user }}"
+      OMNIVORE_POSTGRES_PASSWORD: "{{ omnivore_postgres_password }}"
+      OMNIVORE_POSTGRES_DB: "{{ omnivore_postgres_db }}"
   ansible.builtin.include_role:
     name: docker_compose

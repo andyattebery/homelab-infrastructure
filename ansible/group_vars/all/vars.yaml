@@ -7,6 +7,8 @@ lang_two_letter: en
 timezone: "{{ vault_timezone }}"
 
 # hosts
+ideapad_3_ssh_public_key: "{{ vault_ideapad_3_ssh_public_key }}"
+
 smb_nas_01_username: "{{ vault_smb_nas_01_username }}"
 smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
 smb_nas_01_uid: "{{ vault_smb_nas_01_uid }}"
@@ -50,6 +52,16 @@ healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 
+immich_db_username: "{{ vault_immich_db_username }}"
+immich_db_password: "{{ vault_immich_db_password }}"
+
+linkding_superuser_name: "{{ vault_linkding_superuser_name }}"
+linkding_superuser_password: "{{ vault_linkding_superuser_password }}"
+
+linkwarden_postgres_user: "{{ vault_linkwarden_postgres_user }}"
+linkwarden_postgres_password: "{{ vault_linkwarden_postgres_password }}"
+linkwarden_nextauth_secret: "{{ vault_linkwarden_nextauth_secret }}"
+
 minio_username: "{{ vault_minio_username }}"
 minio_password: "{{ vault_minio_password }}"
 
@@ -62,6 +74,14 @@ nextcloud_mysql_root_password: "{{ vault_nextcloud_mysql_root_password }}"
 nextcloud_mysql_user: "{{ vault_nextcloud_mysql_user }}"
 nextcloud_mysql_password: "{{ vault_nextcloud_mysql_password }}"
 nextcloud_mysql_database: "{{ vault_nextcloud_mysql_database }}"
+
+omnivore_content_fetch_verification_token: "{{ vault_omnivore_content_fetch_verification_token }}"
+omnivore_image_proxy_secret: "{{ vault_omnivore_image_proxy_secret }}"
+omnivore_jwt_secret: "{{ vault_omnivore_jwt_secret }}"
+omnivore_sso_jwt_secret: "{{ vault_omnivore_sso_jwt_secret }}"
+omnivore_postgres_user: "{{ vault_omnivore_postgres_user }}"
+omnivore_postgres_password: "{{ vault_omnivore_postgres_password }}"
+omnivore_postgres_db: "{{ vault_omnivore_postgres_db }}"
 
 plex_token: "{{ vault_plex_token }}"
 plex_claim_token: "{{ vault_plex_claim_token }}"
@@ -78,6 +98,8 @@ scrutiny_pushover_token: "{{ vault_scrutiny_pushover_token }}"
 snapraid_btrfs_runner_user: "{{ ansible_user }}"
 snapraid_btrfs_runner_from_email: "{{ vault_snapraid_btrfs_runner_from_email }}"
 snapraid_btrfs_runner_to_email: "{{ vault_snapraid_btrfs_runner_to_email }}"
+
+steamdeck_ssh_public_key: "{{ vault_steamdeck_ssh_public_key }}"
 
 tailscale_tailnet: "{{ vault_tailscale_tailnet }}"
 

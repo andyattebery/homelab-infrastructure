@@ -1,28 +1,29 @@
 ---
-- name: Configure Proxmox nas-01 host
+- name: Configure Proxmox nas-host-01 host
   hosts: nas-host-01
   become: true
 
-  roles:
-    # - pve_cluster_acme
-    # - pve_node_acme
-    # - configure_server
-    # - pve_storage_add_nas_01_proxmox
-    - scrutiny_collector
+  # roles:
+  #   - pve_config
+  #   - pve_cluster_acme
+  #   - pve_node_acme
+  #   - configure_server
+  #   - pve_storage_add_nas_01_proxmox
+  #   - scrutiny_collector
 
-## Make sure the Proxmox VM video output is VGA
+# Make sure the Proxmox VM video output is VGA
   tasks:
-    - name: Update grub parameters
-      ansible.builtin.lineinfile:
-        path: /etc/default/grub
-        regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
-        line: GRUB_CMDLINE_LINUX_DEFAULT="quiet video=efifb:off video=vesa:off amd_pstate=passive cpufreq.default_governor=schedutil"
-      register: update_grub_parameters_result
-    - name: Update grub # noqa no-handler
-      when: update_grub_parameters_result.changed
-      ansible.builtin.command:
-        cmd: update-grub
-      changed_when: true
+  #   - name: Update grub parameters
+  #     ansible.builtin.lineinfile:
+  #       path: /etc/default/grub
+  #       regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
+  #       line: GRUB_CMDLINE_LINUX_DEFAULT="quiet video=efifb:off video=vesa:off amd_pstate=active cpufreq.default_governor=schedutil"
+  #     register: update_grub_parameters_result
+  #   - name: Update grub # noqa no-handler
+  #     when: update_grub_parameters_result.changed
+  #     ansible.builtin.command:
+  #       cmd: update-grub
+  #     changed_when: true
     - name: Configure network interfaces
       ansible.builtin.copy:
         src: files/nas-host-01/interfaces

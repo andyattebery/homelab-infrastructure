@@ -1,4 +1,5 @@
-dnspython
-passlib
 bcrypt
+dnspython
+jc
+passlib
 pip

@@ -1,2 +1,4 @@
 ---
-docker_compose_omnivore_repo_path: "{{ (docker_compose_dst_directory_path, 'omnivore') | path_join }}"
+docker_compose_omnivore_data_directory_path: "{{ (docker_compose_dst_directory_path, 'omnivore') | path_join }}"
+docker_compose_omnivore_repo_path: "{{ (docker_compose_omnivore_data_directory_path, 'repo') | path_join }}"
+docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --build"

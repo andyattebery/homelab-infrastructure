@@ -4,7 +4,7 @@ services:
     image: nextcloud:27
     container_name: nextcloud
     restart: unless-stopped
-    depends_on:
+    links:
       - nextcloud-mariadb
       - nextcloud-redis
     volumes:

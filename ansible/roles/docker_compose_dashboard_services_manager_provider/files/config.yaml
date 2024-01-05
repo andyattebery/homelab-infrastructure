@@ -1,7 +1,7 @@
 ---
 api_url: https://dashboard-services-manager.omegaho.me
 dashy_config_file_path: /config/dashy_config.yaml
-docker_label_prefix: dcm
+docker_label_prefix: dsm
 are_service_hosts_https: true
 ignored_service_names:
   - Dashy
