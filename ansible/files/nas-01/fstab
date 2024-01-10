@@ -57,7 +57,4 @@
 /mnt/data/data*    /mnt/storage    fuse.mergerfs    defaults,nonempty,allow_other,use_ino,noforget,inodecalc=path-hash,cache.files=partial,category.create=mspmfs,moveonenospc=mfs,dropcacheonclose=true,func.getattr=newest,minfreespace=1000G,fsname=mergerfs    0    0
 
 # depot
-# /dev/disk/by-id/scsi-SATA_WDC_WD80EFAX-68L_7SGG0B3C-part1   /mnt/depot  xfs defaults    0   0
-
-# depot-cache
-/dev/disk/by-id/nvme-VK003840KWWFP_KIB4T0001I0204T31-part1  /mnt/depot-cache    xfs    defaults    0   0
+/dev/disk/by-id/nvme-VK003840KWWFP_KIB4T0001I0204T31-part1  /mnt/depot    ext4    defaults    0   0

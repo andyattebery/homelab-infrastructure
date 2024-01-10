@@ -41,7 +41,6 @@
     #   loop:
     #     - "storage"
     #     - "depot"
-    #     - "depot-cache"
     #     - "data"
     #     - "content"
     #     - "docker"
