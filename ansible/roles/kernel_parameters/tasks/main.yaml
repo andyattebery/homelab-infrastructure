@@ -1,0 +1,38 @@
+---
+- name: Run if kernel_parameters_new_parameters is set
+  when: kernel_parameters_new_parameters is defined
+  block:
+    - name: Proxmox
+      when: ansible_kernel.endswith('-pve')
+      block:
+        - name: Get efibootmgr
+          ansible.builtin.command:
+            cmd: efibootmgr -v
+          register:
+            efibootmgr_result
+          changed_when: false
+        - name: Set __kernel_parameters_is_grub
+          when: "'grubx64.efi' in efibootmgr_result.stdout | lower"
+          ansible.builtin.set_fact:
+            __kernel_parameters_is_grub: true
+        - name: Configure systemd-boot
+          when: "'bootx64.efi' in efibootmgr_result.stdout | lower"
+          ansible.builtin.set_fact:
+            __kernel_parameters_is_proxmox_systemd_boot: true
+    # Assume Ubuntu is using grub
+    - name: Ubuntu or Fedora
+      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Fedora'
+      ansible.builtin.set_fact:
+        __kernel_parameters_is_grub: true
+    - name: Throw unsupported distribution error
+      when: (not __kernel_parameters_is_grub is defined or not __kernel_parameters_is_grub) and (not __kernel_parameters_is_proxmox_systemd_boot is defined or not __kernel_parameters_is_proxmox_systemd_boot)
+      ansible.builtin.fail:
+        msg: "Only Proxmox, Ubuntu, and Fedora are supported. Other distributions that use grub 2 can easily be added."
+    - name: Configure grub
+      when: __kernel_parameters_is_grub is defined and __kernel_parameters_is_grub
+      ansible.builtin.include_tasks:
+        file: configure_grub.yaml
+    - name: Configure systemd-boot
+      when: __kernel_parameters_is_proxmox_systemd_boot is defined and __kernel_parameters_is_proxmox_systemd_boot
+      ansible.builtin.include_tasks:
+        file: configure_proxmox_systemd_boot.yaml

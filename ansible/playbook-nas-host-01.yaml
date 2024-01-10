@@ -3,21 +3,25 @@
   hosts: nas-host-01
   become: true
 
-  # roles:
+  roles:
   #   - pve_config
   #   - pve_cluster_acme
   #   - pve_node_acme
   #   - configure_server
   #   - pve_storage_add_nas_01_proxmox
   #   - scrutiny_collector
+    - role: kernel_parameters
+      vars:
+        kernel_parameters_new_parameters:
+          video:
+            - efifb:off
+            - vesa:off
+          amd_pstate: active
+          cpufreq.default_governor: powersave
+          pcie_aspm.policy: powersave
 
 # Make sure the Proxmox VM video output is VGA
   tasks:
-    - name: Update kernel parameters
-      ansible.builtin.include_role:
-        name: pve_kernel_cmdline_parameters
-      vars:
-        kernel_cmdline_parameters: "root=ZFS=rpool/ROOT/pve-1 boot=zfs video=efifb:off video=vesa:off amd_pstate=active cpufreq.default_governor=powersave"
     - name: Configure network interfaces
       ansible.builtin.copy:
         src: files/nas-host-01/interfaces

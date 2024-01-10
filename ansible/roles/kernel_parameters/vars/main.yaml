@@ -1,0 +1,2 @@
+---
+kernel_parameters_grub_config_path: /etc/default/grub

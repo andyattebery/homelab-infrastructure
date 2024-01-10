@@ -3,27 +3,28 @@
   hosts: nas-host-02
   become: true
 
-  # roles:
+  roles:
   #   - pve_cluster_acme
   #   - pve_node_acme
   #   - pve_config
   #   - pve_storage_add_nas_01_proxmox
   #   - configure_server
   #   - scrutiny_collector
+    - role: kernel_parameters
+      vars:
+        kernel_parameters_new_parameters:
+          amd_pstate: active
+          cpufreq.default_governor: powersave
+          pcie_aspm.policy: powersave
 
   tasks:
-    - name: Update kernel parameters
-      ansible.builtin.include_role:
-        name: pve_kernel_cmdline_parameters
-      vars:
-        kernel_cmdline_parameters: "amd_pstate=active cpufreq.default_governor=powersave"
-    # - name: Configure network interfaces
-    #   ansible.builtin.copy:
-    #     src: files/nas-host-02/interfaces
-    #     dest: /etc/network/interfaces
-    #     mode: "0644"
-    #     owner: root
-    #     group: root
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/nas-host-02/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
     # - name: Add syncoid user
     #   ansible.builtin.user:
     #     name: "{{ nas_02_syncoid_username }}"

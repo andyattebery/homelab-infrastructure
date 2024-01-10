@@ -1,0 +1,22 @@
+---
+- name: Parse existing grub kernel parameters # noqa command-instead-of-module
+  ansible.builtin.command:
+    cmd: "sed --quiet 's/^GRUB_CMDLINE_LINUX_DEFAULT=\"\\(.*\\)\"$/\\1/p' {{ kernel_parameters_grub_config_path }}"
+  changed_when: false
+  register: __kernel_parameters_grub_existing_parameters_result
+- name: Set __kernel_parameters_updated_parameters_string
+  vars:
+    __kernel_parameters_existing_parameters_string: "{{ __kernel_parameters_grub_existing_parameters_result.stdout }}"
+  ansible.builtin.include_tasks:
+    file: set_kernel_parameters_updated_parameters_string.yaml
+- name: Update /etc/default/grub
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: ^GRUB_CMDLINE_LINUX_DEFAULT
+    line: GRUB_CMDLINE_LINUX_DEFAULT="{{ __kernel_parameters_updated_parameters_string }}"
+  register: update_grub_cmdline_result
+- name: Update grub # noqa no-handler
+  when: update_grub_cmdline_result.changed
+  ansible.builtin.command:
+    cmd: update-grub
+  changed_when: true

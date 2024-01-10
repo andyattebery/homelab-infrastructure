@@ -1,0 +1,22 @@
+---
+- name: Parse existing /etc/kernel/cmdline
+  ansible.builtin.command:
+    cmd: cat /etc/kernel/cmdline
+  register: __kernel_parameters_systemd_boot_existing_parameters_result
+  changed_when: false
+- name: Set __kernel_parameters_updated_parameters_string
+  vars:
+    __kernel_parameters_existing_parameters_string: "{{ __kernel_parameters_systemd_boot_existing_parameters_result.stdout }}"
+  ansible.builtin.include_tasks:
+    file: set_kernel_parameters_updated_parameters_string.yaml
+- name: Update /etc/kernel/cmdline
+  ansible.builtin.copy:
+    dest: /etc/kernel/cmdline
+    mode: "0644"
+    content: "{{ __kernel_parameters_updated_parameters_string }}"
+  register: update_kernel_cmdline_result
+- name: Run proxmox-boot-tool refresh  # noqa no-handler
+  when: update_kernel_cmdline_result.changed
+  ansible.builtin.command:
+    cmd: proxmox-boot-tool refresh
+  changed_when: true

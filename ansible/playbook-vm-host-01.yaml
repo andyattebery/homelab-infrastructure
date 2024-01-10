@@ -7,20 +7,21 @@
     network_interface_2_5_gbe: enp2s0
     interface_mac_address: 1c:fd:08:75:10:24
 
-  # roles:
+  roles:
   #   - pve_config
   #   - pve_cluster_acme
   #   - pve_node_acme
   #   - configure_server
   #   - pve_storage_add_nas_01_proxmox
   #   - scrutiny_collector
+    - role: kernel_parameters
+      vars:
+        kernel_parameters_new_parameters:
+          intel_iommu: "on"
+          intel_pstate: active
+          cpufreq.default_governor: powersave
 
   tasks:
-    - name: Update kernel parameters
-      ansible.builtin.include_role:
-        name: pve_kernel_cmdline_parameters
-      vars:
-        kernel_cmdline_parameters: "intel_iommu=on intel_pstate=active cpufreq.default_governor=powersave"
     - name: Add contrib, non-free, and non-free-firmware repository
       ansible.builtin.replace:
         dest: /etc/apt/sources.list
@@ -43,16 +44,3 @@
         mode: "0644"
         owner: root
         group: root
-    # - name: Comment out manual 2.5GbE network interface
-    #   ansible.builtin.replace:
-    #     path: /etc/network/interfaces
-    #     regexp: '(^iface {{ network_interface_2_5_gbe }}.*manual$)'
-    #     replace: '#\1'
-    # - name: Configure 2.5GbE network interface
-    #   ansible.builtin.blockinfile:
-    #     marker_begin: BEGIN 2.5GbE INTERFACE
-    #     marker_end: END 2.5GbE INTERFACE
-    #     path: /etc/network/interfaces
-    #     block: |
-    #       auto {{ network_interface_2_5_gbe }}
-    #       iface {{ network_interface_2_5_gbe }} inet dhcp
