@@ -13,6 +13,7 @@
   register: which_fish
   changed_when: false
 - name: Change shell to fish
+  when: fish_install_change_shell
   ansible.builtin.user:
     user: "{{ ansible_user }}"
     shell: "{{ which_fish.stdout }}"

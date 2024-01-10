@@ -39,6 +39,7 @@
   loop_control:
     loop_var: role_item
   vars:
+    fish_install_change_shell: true
     settings_repo_application_dotfiles:
       - fish
       - git
