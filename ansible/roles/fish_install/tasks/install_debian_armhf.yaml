@@ -1,0 +1,62 @@
+---
+# - name: Set _install_fish_ubuntu_release_for_debian for Debian 11 (bullseye)
+#   when: ansible_distribution_major_version == '11'
+#   ansible.builtin.set_fact:
+#     _install_fish_ubuntu_release_for_debian: focal
+# - name: Set _install_fish_ubuntu_release_for_debian for Debian 12 (bookworm)
+#   when: ansible_distribution_major_version == '12'
+#   ansible.builtin.set_fact:
+#     _install_fish_ubuntu_release_for_debian: jammy
+# - name: Add fish Launchpad PPA
+#   vars:
+#     apt_add_launchpad_ppa_user: fish-shell
+#     apt_add_launchpad_ppa_repository: release-3
+#     apt_add_launchpad_ppa_ubuntu_version_name: "{{ _install_fish_ubuntu_release_for_debian }}"
+#   ansible.builtin.include_role:
+#     name: apt_add_launchpad_ppa
+# - name: Add bookworm repository
+#   ansible.builtin.apt_repository:
+#     repo: "deb http://raspbian.raspberrypi.org/raspbian/ bookworm main"
+#     filename: "bookworm"
+#     state: present
+#     update_cache: false
+# - name: Pin bookworm repository for fish
+#   ansible.builtin.copy:
+#     content: |
+#       Package: fish
+#       Pin: release a=bookworm-backports
+#       Pin-Priority: 900
+
+#       Package: fish-common
+#       Pin: release a=bookworm-backports
+#       Pin-Priority: 900
+#     dest: /etc/apt/preferences.d/900-fish-bookworm
+#     mode: "0644"
+# - name: Add backports repository key
+#   ansible.builtin.get_url:
+#     url: "https://ftp-master.debian.org/keys/archive-key-{{ ansible_distribution_major_version }}.asc"
+#     dest: "/etc/apt/trusted.gpg.d/{{ ansible_distribution_release }}-backports.asc"
+#     mode: '0644'
+#     force: true
+# - name: Add backports repository
+#   ansible.builtin.apt_repository:
+#     repo: "deb http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main"
+#     filename: "{{ ansible_distribution_release }}_backports"
+#     state: present
+#     update_cache: false
+# - name: Pin backports repository for fish
+#   ansible.builtin.copy:
+#     content: |
+#       Package: fish
+#       Pin: release a={{ ansible_distribution_release }}-backports
+#       Pin-Priority: 900
+
+#       Package: fish-common
+#       Pin: release a={{ ansible_distribution_release }}-backports
+#       Pin-Priority: 900
+#     dest: /etc/apt/preferences.d/900-fish-backports
+#     mode: "0644"
+- name: Install fish
+  ansible.builtin.apt:
+    name: fish
+    update_cache: true

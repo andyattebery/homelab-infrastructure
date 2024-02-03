@@ -1,12 +1,19 @@
 ---
-- name: Install on Debian
-  when: ansible_distribution == 'Debian'
+- name: Install on Debian armhf (armv6l)
+  when: ansible_distribution == 'Debian' and ansible_machine == 'armv6l'
   ansible.builtin.include_tasks:
-    file: install_debian.yaml
-- name: Install on Ubuntu
-  when: ansible_distribution == 'Ubuntu'
-  ansible.builtin.include_tasks:
-    file: install_ubuntu.yaml
+    file: install_debian_armhf.yaml
+- name: Install on all other architectures
+  when: ansible_machine != 'armv6l'
+  block:
+    - name: Install on Debian
+      when: ansible_distribution == 'Debian'
+      ansible.builtin.include_tasks:
+        file: install_debian.yaml
+    - name: Install on Ubuntu
+      when: ansible_distribution == 'Ubuntu'
+      ansible.builtin.include_tasks:
+        file: install_ubuntu.yaml
 - name: Get shell path
   ansible.builtin.command:
     cmd: which fish
