@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+# https://networkupstools.org/docs/man/upsd.conf.html
+
+{% if nut_enable_server_remote_access %}
+LISTEN 127.0.0.1
+LISTEN {{ nut_ip_address }}
+{% endif %}
+
+{% for directive in nut_upsd_directives | default({}) %}
+{% if nut_upsd_directives[directive] != none %}
+{{ directive }} = {{ nut_upsd_directives[directive] }}
+{% endif %}
+{% endfor %}

@@ -79,6 +79,17 @@ nextcloud_mysql_user: "{{ vault_nextcloud_mysql_user }}"
 nextcloud_mysql_password: "{{ vault_nextcloud_mysql_password }}"
 nextcloud_mysql_database: "{{ vault_nextcloud_mysql_database }}"
 
+nut_pushover_token: "{{ vault_nut_pushover_token }}"
+
+ups_monitor_rack_nut_ups_name: rack-ups
+ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ homelab_domain_name }}"
+ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
+ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
+ups_monitor_rack_nut_nas_host_01_username: "nas-host-01"
+ups_monitor_rack_nut_nas_host_01_password: "{{ vault_ups_monitor_rack_nut_nas_host_01_password }}"
+ups_monitor_rack_nut_vm_host_01_username: "vm-host-01"
+ups_monitor_rack_nut_vm_host_01_password: "{{ vault_ups_monitor_rack_nut_vm_host_01_password }}"
+
 omnivore_content_fetch_verification_token: "{{ vault_omnivore_content_fetch_verification_token }}"
 omnivore_image_proxy_secret: "{{ vault_omnivore_image_proxy_secret }}"
 omnivore_jwt_secret: "{{ vault_omnivore_jwt_secret }}"

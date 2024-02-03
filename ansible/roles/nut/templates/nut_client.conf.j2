@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# https://networkupstools.org/docs/man/nut.conf.html
+
+MODE=netclient
+
+{% for directive in nut_nut_directives | default({}) %}
+{% if nut_nut_directives[directive] != none %}
+{{ directive }} = {{ nut_nut_directives[directive] }}
+{% endif %}
+{% endfor %}

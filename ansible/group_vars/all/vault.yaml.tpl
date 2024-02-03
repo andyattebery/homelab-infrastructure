@@ -43,6 +43,7 @@ vault_nextcloud_mysql_database: {{ op://Personal/Nextcloud/database/name }}
 vault_nextcloud_mysql_password: {{ op://Personal/Nextcloud/database/password }}
 vault_nextcloud_mysql_root_password: {{ op://Personal/Nextcloud/database/root password }}
 vault_nextcloud_mysql_user: {{ op://Personal/Nextcloud/database/username }}
+vault_nut_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/nut }}
 vault_omnivore_content_fetch_verification_token: "{{ op://Personal/Omnivore/config/content_fetch_verification_token }}"
 vault_omnivore_image_proxy_secret: "{{ op://Personal/Omnivore/config/image_proxy_secret }}"
 vault_omnivore_jwt_secret: "{{ op://Personal/Omnivore/config/jwt_secret }}"
@@ -72,5 +73,10 @@ vault_steamdeck_ssh_public_key: {{op://Personal/wk2jbsx4hmdhpiaqqr2knbn5bq/publi
 vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
 vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
+vault_ups_monitor_rack_nut_admin_password: {{ op://Personal/ups-monitor-rack/nut/admin password }}
+vault_ups_monitor_rack_nut_upsmon_password: {{ op://Personal/ups-monitor-rack/nut/upsmon password }}
+vault_ups_monitor_rack_nut_homeassistant_password: {{ op://Personal/ups-monitor-rack/nut/homeassistant password }}
+vault_ups_monitor_rack_nut_nas_host_01_password: {{ op://Personal/ups-monitor-rack/nut/nas-host-01 password }}
+vault_ups_monitor_rack_nut_vm_host_01_password: {{ op://Personal/ups-monitor-rack/nut/vm-host-01 password }}
 vault_work_laptop_01_ssh_public_key: {{ op://Work/uqd5fx77qsbcrgh3gtwb4ctv4u/public key }}
 vault_zed_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/zed }}

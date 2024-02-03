@@ -1,0 +1,9 @@
+---
+- name: Configure server
+  when: nut_enable_server
+  ansible.builtin.include_tasks:
+    file: server.yaml
+- name: Configure client for remote server(s)
+  when: nut_enable_client
+  ansible.builtin.include_tasks:
+    file: client.yaml

@@ -1,0 +1,53 @@
+---
+nut_enable_client: false
+nut_enable_server: false
+nut_enable_server_remote_access: false
+
+nut_admin_username: admin
+nut_monitor_primary_username: monitor-primary
+
+nut_services_group: nut
+
+nut_enable_shutdown: true
+nut_shutdown_command: /sbin/shutdown -h +0
+
+nut_notify_command_types:
+  # UPS is back online
+  - "ONLINE"
+  # UPS is on battery
+  - "ONBATT"
+  # UPS is on battery and has a low battery (is critical)
+  - "LOWBATT"
+  # UPS is being shutdown by the primary (FSD = "Forced Shutdown")
+  - "FSD"
+  # Communications established with the UPS
+  - "COMMOK"
+  # Communications lost to the UPS
+  - "COMMBAD"
+  # The system is being shutdown
+  - "SHUTDOWN"
+  # The UPS battery is bad and needs to be replaced
+  - "REPLBATT"
+  # A UPS is unavailable (can’t be contacted for monitoring)
+  - "NOCOMM"
+  # upsmon parent process died - shutdown impossible
+  - "NOPARENT"
+  # UPS calibration in progress
+  - "CAL"
+  # UPS calibration finished
+  - "NOTCAL"
+  # UPS administratively OFF or asleep
+  - "OFF"
+  # UPS no longer administratively OFF or asleep
+  - "NOTOFF"
+  # UPS on bypass (powered, not protecting)
+  - "BYPASS"
+  # UPS no longer on bypass
+  - "NOTBYPASS"
+
+nut_notify_pushover_script_directory: /usr/local/bin
+nut_notify_pushover_script_name: upsmon_notify_pushover.sh
+
+nut_ups_global_directives:
+  # Set maxretry to 3 by default, this should mitigate race with slow devices
+  maxretry: 3

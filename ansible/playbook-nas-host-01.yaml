@@ -10,15 +10,14 @@
   #   - configure_server
   #   - pve_storage_add_nas_01_proxmox
   #   - scrutiny_collector
-    - role: kernel_parameters
+    - role: nut
       vars:
-        kernel_parameters_new_parameters:
-          video:
-            - efifb:off
-            - vesa:off
-          amd_pstate: active
-          cpufreq.default_governor: powersave
-          pcie_aspm.policy: powersave
+        nut_enable_client: true
+        nut_client_servers:
+          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+            server_address: "{{ ups_monitor_rack_nut_server_address }}"
+            username: "{{ ups_monitor_rack_nut_nas_host_01_username }}"
+            password: "{{ ups_monitor_rack_nut_nas_host_01_password }}"
 
 # Make sure the Proxmox VM video output is VGA
   tasks:

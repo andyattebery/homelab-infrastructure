@@ -14,12 +14,14 @@
   #   - configure_server
   #   - pve_storage_add_nas_01_proxmox
   #   - scrutiny_collector
-    - role: kernel_parameters
+    - role: nut
       vars:
-        kernel_parameters_new_parameters:
-          intel_iommu: "on"
-          intel_pstate: active
-          cpufreq.default_governor: powersave
+        nut_enable_client: true
+        nut_client_servers:
+          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+            server_address: "{{ ups_monitor_rack_nut_server_address }}"
+            username: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
+            password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
 
   tasks:
     - name: Add contrib, non-free, and non-free-firmware repository

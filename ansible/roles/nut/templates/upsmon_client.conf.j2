@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# https://networkupstools.org/docs/man/upsmon.conf.html
+
+{% for server in nut_client_servers %}
+MONITOR {{ server.ups_name }}@{{ server.server_address }} 1 {{ server.username }} {{ server.password }} secondary
+{% endfor %}
+
+{% if nut_enable_shutdown %}
+SHUTDOWNCMD "{{ nut_shutdown_command }}"
+{% endif %}
+
+{% for directive in nut_upsmon_directives | default({}) %}
+{% if nut_upsmon_directives[directive] != none %}
+{{ directive }} = {{ nut_upsmon_directives[directive] }}
+{% endif %}
+{% endfor %}

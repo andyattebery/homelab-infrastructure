@@ -1,0 +1,6 @@
+---
+
+nut_ip_address: "{{ ansible_default_ipv4.address }}"
+
+nut_enable_notify_pushover: "{{ nut_notify_pushover_token is defined and nut_notify_pushover_user_key is defined }}"
+nut_notify_pushover_script_path: "{{ (nut_notify_pushover_script_directory, nut_notify_pushover_script_name) | path_join }}"

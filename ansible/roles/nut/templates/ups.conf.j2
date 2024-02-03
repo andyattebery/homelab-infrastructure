@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+# https://networkupstools.org/docs/man/ups.conf.html
+
+{% for directive in nut_ups_global_directives %}
+{% if nut_ups_global_directives[directive] != none %}
+{{ directive }} = {{ nut_ups_global_directives[directive] }}
+{% endif %}
+{% endfor %}
+
+{% for ups in nut_upses | default([]) %}
+[{{ ups.name }}]
+    driver = {{ ups.driver }} # required
+    port = {{ ups.port }} # required
+{% for option in ups %}
+{% if option != "name" and option != "driver" and option != "port" %}
+    {{ option }} = {{ ups[option] }}
+{% endif %}
+{% endfor %}
+{% endfor %}

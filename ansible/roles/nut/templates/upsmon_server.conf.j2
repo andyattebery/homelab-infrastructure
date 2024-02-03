@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+# https://networkupstools.org/docs/man/upsmon.conf.html
+
+# MONITOR 'system' 'powervalue' 'username' 'password' 'type'
+{% for nut_ups in nut_upses %}
+MONITOR {{ nut_ups.name }}@localhost 1 {{ nut_monitor_primary_username }} {{ nut_monitor_primary_password }} primary
+{% endfor %}
+
+{% if nut_enable_shutdown %}
+SHUTDOWNCMD "{{ nut_shutdown_command }}"
+{% endif %}
+
+{% if nut_notify_command is defined or nut_enable_notify_pushover %}
+{% if nut_notify_command is defined %}
+NOTIFYCMD "{{ nut_notify_command }}"
+{% elif nut_enable_notify_pushover %}
+NOTIFYCMD "{{ nut_notify_pushover_script_path }}"
+{% endif %}
+{% for nut_notify_command_type in nut_notify_command_types %}
+NOTIFYFLAG {{ nut_notify_command_type }} SYSLOG+WALL+EXEC
+{% endfor %}
+{% endif %}
+
+{% for directive in nut_upsmon_directives | default({}) %}
+{% if nut_upsmon_directives[directive] != none %}
+{{ directive }} = {{ nut_upsmon_directives[directive] }}
+{% endif %}
+{% endfor %}

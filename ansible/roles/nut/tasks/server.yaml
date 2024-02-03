@@ -1,0 +1,68 @@
+---
+- name: Install nut
+  ansible.builtin.package:
+    name:
+      - nut-server
+      - nut-client
+- name: Copy nut.conf
+  ansible.builtin.template:
+    src: templates/nut_server.conf.j2
+    dest: /etc/nut/nut.conf
+    mode: "0640"
+    owner: root
+    group: "{{ nut_services_group }}"
+  notify: Restart nut-server
+- name: Copy ups.conf
+  ansible.builtin.template:
+    src: templates/ups.conf.j2
+    dest: /etc/nut/ups.conf
+    mode: "0640"
+    owner: root
+    group: "{{ nut_services_group }}"
+  notify: Restart nut-server
+- name: Copy upsd.conf
+  ansible.builtin.template:
+    src: templates/upsd.conf.j2
+    dest: /etc/nut/upsd.conf
+    mode: "0640"
+    owner: root
+    group: "{{ nut_services_group }}"
+  notify: Restart nut-server
+- name: Copy upsd.users
+  ansible.builtin.template:
+    src: templates/upsd.users.j2
+    dest: /etc/nut/upsd.users
+    mode: "0640"
+    owner: root
+    group: "{{ nut_services_group }}"
+  notify: Restart nut-server
+- name: Create /etc/systemd/system/nut-server.service.d
+  ansible.builtin.file:
+    dest: /etc/systemd/system/nut-server.service.d
+    state: directory
+    mode: "0755"
+- name: Configure nut-server.service to wait for the network to be online before starting
+  ansible.builtin.copy:
+    content: |
+      [Unit]
+      Requires=network-online.target
+      After=network-online.target
+    dest: /etc/systemd/system/nut-server.service.d/network.conf
+    mode: "0644"
+  notify: Restart nut-server
+- name: Copy upsmon.conf
+  ansible.builtin.template:
+    src: templates/upsmon_server.conf.j2
+    dest: /etc/nut/upsmon.conf
+    mode: "0640"
+    owner: root
+    group: "{{ nut_services_group }}"
+  notify: Restart nut-monitor
+- name: Copy {{ nut_notify_pushover_script_name }}
+  when: nut_enable_notify_pushover
+  ansible.builtin.template:
+    src: templates/upsmon_notify_pushover.sh.j2
+    dest: "{{ nut_notify_pushover_script_path }}"
+    mode: "0750"
+    owner: root
+    group: "{{ nut_services_group }}"
