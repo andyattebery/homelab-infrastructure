@@ -1,0 +1,42 @@
+---
+- name: Configure all pikvms
+  hosts:
+    - pikvm
+    - pikvm-hid
+    - offsite-pikvm
+  gather_facts: false # Gathering facts will fail because of the readonly filesystem
+
+  pre_tasks:
+    - name: Enable read/write on filesystem
+      ansible.builtin.raw: rw
+      changed_when: false
+  post_tasks:
+    - name: Disable read/write on filesystem
+      ansible.builtin.raw: ro
+      changed_when: false
+
+  roles:
+    - role: pikvm
+    - pikvm_tailscale_exit_node
+    - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
+      when: inventory_hostname == 'pikvm' or inventory_hostname == 'offsite-pikvm'
+    - role: pikvm_hid_kvm_switch_input # Creating cert for tailscale DNS name
+      when: inventory_hostname == 'pikvm'
+      vars:
+        pikvm_hid_username: "{{ pikvm_hid_api_username }}"
+        pikvm_hid_password: "{{ pikvm_hid_api_password }}"
+        pikvm_hid_hostname: "pikvm-hid.{{ domain_name }}"
+    - role: esphome_api_cli
+      when: inventory_hostname == 'pikvm'
+
+  tasks:
+    - name: Generate locale
+      community.general.locale_gen:
+        name: "{{ locale }}"
+    - name: Set locale
+      ansible.builtin.command:
+        cmd: "localectl set-locale LANG={{ locale }}"
+      changed_when: false
+    - name: Set timezone
+      community.general.timezone:
+        name: "{{ timezone }}"
