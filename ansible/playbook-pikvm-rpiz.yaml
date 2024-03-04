@@ -1,0 +1,17 @@
+---
+- name: Configure Raspberry Pi Zero W pikvm
+  hosts: pikvm-rpiz
+  become: true
+
+  roles:
+    - pikvm_armbian
+    - configure_server
+    - pikvm
+    - role: certbot_dns_cloudflare
+      vars:
+        cerbot_dns_cloudflare_post_create_command: systemctl restart kvmd-nginx.service
+        certbot_dns_cloudflare_symlink_cert_files:
+          - src_file: fullchain.pem
+            dest_file_path: /etc/kvmd/nginx/ssl/server.crt
+          - src_file: privkey.pem
+            dest_file_path: /etc/kvmd/nginx/ssl/server.key
