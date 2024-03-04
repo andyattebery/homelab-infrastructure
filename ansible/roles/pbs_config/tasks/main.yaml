@@ -1,0 +1,11 @@
+---
+- name: Remove PBS enterprise repository
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pbs-enterprise.list
+    state: absent
+- name: Add PBS no-subscription repository
+  ansible.builtin.apt_repository:
+    repo: deb http://download.proxmox.com/debian/pbs {{ ansible_distribution_release }} pbs-no-subscription
+    filename: pbs-no-subscription
+    state: present
+    update_cache: true

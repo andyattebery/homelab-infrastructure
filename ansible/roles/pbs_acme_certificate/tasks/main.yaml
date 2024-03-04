@@ -1,0 +1,7 @@
+---
+- name: Configure account and plugin
+  ansible.builtin.include_tasks:
+    file: account_and_plugin.yaml
+- name: Configure node
+  ansible.builtin.include_tasks:
+    file: node.yaml

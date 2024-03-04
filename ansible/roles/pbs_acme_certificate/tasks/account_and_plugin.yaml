@@ -1,0 +1,51 @@
+---
+- name: List ACME accounts
+  ansible.builtin.command:
+    cmd: proxmox-backup-manager acme account list
+  register: pbm_acme_account_list
+  changed_when: false
+- name: Register default ACME account
+  when: '"default" not in pbm_acme_account_list.stdout'
+  block:
+    - name: Get ACME TOS
+      ansible.builtin.command:
+        cmd: "{{ pbs_curl_base_get_command }}/config/acme/tos"
+      register: pbs_curl_get_acme_tos_result
+      changed_when: false
+    - name: Register ACME account
+      vars:
+        pbs_acme_tos_url: "{{ pbs_curl_get_acme_tos_result.stdout | from_json | json_query('data') }}"
+      # ansible.builtin.debug:
+      #   var: pbs_acme_tos_url
+      ansible.builtin.command:
+        cmd: >
+          {{ pbs_curl_base_post_command }}/config/acme/account
+          --data name=default
+          --data-urlencode contact={{ pve_acme_contact_email }}
+          --data-urlencode directory=https://acme-v02.api.letsencrypt.org/directory
+          --data-urlencode tos_url={{ pbs_acme_tos_url }}
+      register: pbs_curl_post_acme_account_result
+      changed_when: true
+    # - name: debug
+    #   ansible.builtin.debug:
+    #     msg: "{{ pbs_curl_post_acme_account_result.stdout | from_json }}"
+- name: List ACME plugins
+  ansible.builtin.command:
+    cmd: "{{ pbs_curl_base_get_command }}/config/acme/plugins"
+  register: pbs_curl_get_acme_plugins_result
+  changed_when: false
+- name: Add CloudFlare ACME DNS plugin
+  when: '"\"api\":\"cf\"" not in pbs_curl_get_acme_plugins_result.stdout'
+  vars:
+    acme_plugin_cloudflare_config: |-
+      CF_Account_ID={{ cloudflare_account_id }}
+      CF_Token={{ cloudflare_api_token }}
+    acme_plugin_cloudflare_data: "{{ acme_plugin_cloudflare_config | b64encode }}"
+  ansible.builtin.command:
+    cmd: >
+      {{ pbs_curl_base_post_command }}/config/acme/plugins
+      --data id=cloudflare
+      --data type=dns
+      --data api=cf
+      --data data={{ acme_plugin_cloudflare_data }}
+  changed_when: true

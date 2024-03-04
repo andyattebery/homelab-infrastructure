@@ -1,0 +1,6 @@
+---
+pbs_api_base_url: "https://localhost:8007/api2/json"
+pbs_curl_base_command: "curl --insecure -H 'Authorization: PBSAPIToken={{ pbs_api_token_name }}:{{ pbs_api_token_value }}'" # The separater is a ':' vs a '=' for the PVE API
+pbs_curl_base_get_command: "{{ pbs_curl_base_command }} {{ pbs_api_base_url }}"
+pbs_curl_base_post_command: "{{ pbs_curl_base_command }} --request POST {{ pbs_api_base_url }}"
+pbs_curl_base_put_command: "{{ pbs_curl_base_command }} --request PUT {{ pbs_api_base_url }}"
