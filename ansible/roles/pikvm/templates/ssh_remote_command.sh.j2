@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+remote_hostname=$1
+shift 1
+remote_command=$@
+
+/usr/bin/ssh -o StrictHostKeyChecking=yes -o IdentityFile={{ pikvm_ssh_remote_command_private_key_path }} {{ pikvm_ssh_user }}@$remote_hostname "$remote_command"

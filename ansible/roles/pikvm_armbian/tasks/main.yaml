@@ -1,0 +1,24 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    name:
+      - git
+      - make
+      - python3-dev
+      - gcc
+- name: Create /opt/kvmd-armbian
+  ansible.builtin.file:
+    dest: /opt/kvmd-armbian
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+- name: Clone repository # noqa latest[git]
+  become: false
+  ansible.builtin.git:
+    repo: https://github.com/srepac/kvmd-armbian.git
+    dest: /opt/kvmd-armbian
+# - name: Run install.sh
+#   ansible.builtin.command:
+#     cmd: /opt/kvmd-armbian/install.sh
+#   changed_when: false

@@ -1,0 +1,3 @@
+---
+pikvm_remote_command_username: kvmd
+pikvm_remote_command_script_path: /usr/local/bin/pikvm_remote_command

@@ -1,0 +1,2 @@
+---
+pikvm_certbot_dns_cloudflare_credentials_path: /var/lib/kvmd/pst/data/certbot/runroot/cloudflare.ini

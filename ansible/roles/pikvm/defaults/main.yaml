@@ -1,0 +1,3 @@
+---
+pikvm_ssh_user: kvmd
+pikvm_ssh_remote_command_directory_path: /opt/remote_ssh_command

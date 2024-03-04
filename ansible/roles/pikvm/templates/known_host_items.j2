@@ -1,0 +1,11 @@
+[
+{% for ssh_keyscan_result in pikvm_ssh_remote_command_ssh_keyscan_result.results %}
+{% for ssh_keyscan_item in ssh_keyscan_result.stdout_lines %}
+{
+    "failed" : {{ ssh_keyscan_result.failed | bool }},
+    "hostname" : "{{ ssh_keyscan_result.pikvm_ssh_remote_command_host.hostname }}",
+    "known_host" : "{{ ssh_keyscan_item }}"
+},
+{% endfor %}
+{% endfor %}
+]

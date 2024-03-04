@@ -1,0 +1,5 @@
+---
+pikvm_hid_kvm_switch_input_directory_path: /opt/pikvm_hid_kvm_switch_input
+pikvm_hid_kvm_switch_input_hotkey: ScrollLock
+pikvm_hid_kvm_switch_input_kvmd_user: kvmd
+pikvm_hid_kvm_switch_input_kvmd_group: kvmd

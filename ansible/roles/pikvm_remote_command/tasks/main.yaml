@@ -1,0 +1,24 @@
+---
+- name: Copy pikvm_remote_command
+  ansible.builtin.copy:
+    src: pikvm_remote_command
+    dest: "{{ pikvm_remote_command_script_path }}"
+    mode: "0755"
+- name: Add pikvm user
+  ansible.builtin.user:
+    name: "{{ pikvm_remote_command_username }}"
+    password: '!'
+- name: Authorize remote pikvm ssh key for pikvm user
+  ansible.posix.authorized_key:
+    user: "{{ pikvm_remote_command_username }}"
+    state: present
+    key: "{{ pikvm_remote_command_ssh_public_key }}"
+    key_options: 'command="{{ pikvm_remote_command_script_path }}"'
+- name: Allow pikvm user to reboot
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: "{{ pikvm_remote_command_username }} ALL=NOPASSWD: /usr/sbin/reboot"
+- name: Allow pikvm user to shutdown
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: "{{ pikvm_remote_command_username }} ALL=NOPASSWD: /usr/sbin/shutdown"

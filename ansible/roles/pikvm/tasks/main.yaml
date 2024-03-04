@@ -3,12 +3,6 @@
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
     use: systemd
-- name: Copy SSH keys
-  ansible.posix.authorized_key:
-    user: "{{ ansible_user }}"
-    key: https://github.com/andyattebery.keys
-    state: present
-    exclusive: true
 - name: Set root password
   ansible.builtin.user:
     user: "{{ ansible_user }}"
@@ -18,9 +12,62 @@
     cmd: python -c "import passlib.apache; print(passlib.apache.HtpasswdFile('/etc/kvmd/htpasswd').check_password('admin', 'admin'));"
   register: web_password_default_result
   changed_when: false
-- name: Set web admin password
+- name: Set web admin password # noqa risky-shell-pipe
   when: web_password_default_result.stdout is truthy(convert_bool=True)
   ansible.builtin.shell:
     cmd: echo "{{ pikvm_web_admin_password }}" | kvmd-htpasswd set --read-stdin admin
   no_log: true
   changed_when: false
+- name: Copy override.yaml
+  when: pikvm_override_yaml_template_src is defined
+  ansible.builtin.template:
+    src: "{{ pikvm_override_yaml_template_src }}"
+    dest: "/etc/kvmd/override.yaml"
+    mode: "0644"
+  notify: Restart kvmd
+- name: Copy kvmd ssh key and ssh_remote_command.sh
+  when: pikvm_ssh_remote_command_private_key is defined and pikvm_ssh_remote_command_hosts is defined
+  block:
+    - name: Create {{ pikvm_ssh_remote_command_directory_path }}
+      ansible.builtin.file:
+      dest: "{{ pikvm_ssh_remote_command_directory_path }}"
+      owner: "{{ pikvm_ssh_user }}"
+      group: "{{ pikvm_ssh_user }}"
+      mode: '0755'
+      state: directory
+    - name: Copy ssh key
+      ansible.builtin.copy:
+        content: "{{ pikvm_kvmd_ssh_private_key }}"
+        dest: "{{ pikvm_ssh_remote_command_private_key_path }}"
+        owner: "{{ pikvm_ssh_user }}"
+        group: "{{ pikvm_ssh_user }}"
+        mode: '0600'
+    - name: Copy ssh_remote_command.sh
+      ansible.builtin.template:
+        src: ssh_remote_command.sh.j2
+        dest: "{{ pikvm_ssh_remote_command_script_path }}"
+        owner: "{{ pikvm_ssh_user }}"
+        group: "{{ pikvm_ssh_user }}"
+        mode: '0744'
+    - name: Set pikvm_ssh_remote_command_ssh_keyscan_result
+      ansible.builtin.command:
+        cmd: ssh-keyscan -t rsa,ed25519 {{ pikvm_ssh_remote_command_host.hostname }}
+      register: pikvm_ssh_remote_command_ssh_keyscan_result
+      changed_when: false
+      failed_when: false
+      loop: "{{ pikvm_ssh_remote_command_hosts }}"
+      loop_control:
+        loop_var: pikvm_ssh_remote_command_host
+    - name: Add to ssh_known_hosts
+      when: not known_host_item.failed
+      vars:
+        known_host_items: "{{ lookup('template', 'known_host_items.j2') }}"
+      ansible.builtin.known_hosts:
+        name: "{{ known_host_item.hostname }}"
+        key: "{{ known_host_item.known_host }}"
+        path: /etc/ssh/ssh_known_hosts
+        state: present
+      no_log: true
+      loop: "{{ known_host_items }}"
+      loop_control:
+        loop_var: known_host_item

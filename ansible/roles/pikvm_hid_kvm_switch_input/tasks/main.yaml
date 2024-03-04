@@ -1,0 +1,21 @@
+- name: Create {{ pikvm_hid_kvm_switch_input_directory_path }}
+  ansible.builtin.file:
+    dest: "{{ pikvm_hid_kvm_switch_input_directory_path }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ pikvm_hid_kvm_switch_input_kvmd_user }}"
+    group: "{{ pikvm_hid_kvm_switch_input_kvmd_group }}"
+- name: Copy pikvm_hid_kvm_switch_input.sh
+  ansible.builtin.copy:
+    src: pikvm_hid_kvm_switch_input.sh
+    dest: "{{ (pikvm_hid_kvm_switch_input_directory_path, 'pikvm_hid_kvm_switch_input.sh') | path_join }}"
+    mode: "0755"
+    owner: "{{ pikvm_hid_kvm_switch_input_kvmd_user }}"
+    group: "{{ pikvm_hid_kvm_switch_input_kvmd_group }}"
+- name: Copy ENV_CONFIG
+  ansible.builtin.template:
+    src: ENV_CONFIG.j2
+    dest: "{{ (pikvm_hid_kvm_switch_input_directory_path, 'ENV_CONFIG') | path_join }}"
+    mode: "0600"
+    owner: "{{ pikvm_hid_kvm_switch_input_kvmd_user }}"
+    group: "{{ pikvm_hid_kvm_switch_input_kvmd_group }}"
