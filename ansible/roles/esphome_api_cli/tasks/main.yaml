@@ -1,0 +1,26 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    name:
+      - python-pip
+      - rust
+- name: Create {{ esphome_api_cli_directory_path }}
+  ansible.builtin.file:
+    dest: "{{ esphome_api_cli_directory_path }}"
+    state: directory
+    mode: "0755"
+- name: Clone repository # noqa latest[git]
+  ansible.builtin.git:
+    repo: https://github.com/andyattebery/esphome-api-cli.git
+    dest: "{{ esphome_api_cli_directory_path }}"
+    accept_newhostkey: true
+- name: Run install.sh
+  ansible.builtin.command:
+    cmd: "{{ (esphome_api_cli_directory_path, 'install.sh') | path_join }}"
+  register: esphome_api_cli_install_result
+  changed_when: "'Successfully installed' in esphome_api_cli_install_result.stdout"
+- name: Link script to /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ (esphome_api_cli_directory_path, 'esphome-api-cli') | path_join }}"
+    dest: /usr/local/bin/esphome-api-cli
+    state: link
