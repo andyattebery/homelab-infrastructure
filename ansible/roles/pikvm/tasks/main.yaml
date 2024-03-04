@@ -30,11 +30,11 @@
   block:
     - name: Create {{ pikvm_ssh_remote_command_directory_path }}
       ansible.builtin.file:
-      dest: "{{ pikvm_ssh_remote_command_directory_path }}"
-      owner: "{{ pikvm_ssh_user }}"
-      group: "{{ pikvm_ssh_user }}"
-      mode: '0755'
-      state: directory
+        dest: "{{ pikvm_ssh_remote_command_directory_path }}"
+        owner: "{{ pikvm_ssh_user }}"
+        group: "{{ pikvm_ssh_user }}"
+        mode: '0755'
+        state: directory
     - name: Copy ssh key
       ansible.builtin.copy:
         content: "{{ pikvm_kvmd_ssh_private_key }}"
