@@ -3,6 +3,7 @@ collections:
   - name: community.general
   - name: community.docker
   - name: gluster.gluster
+  - name: kubernetes.core
   - name: prometheus.prometheus
   - name: vladgh.samba
 
@@ -15,9 +16,10 @@ roles:
   - name: geerlingguy.ntp
   - name: geerlingguy.postfix
   - name: geerlingguy.security
-  - name: ironicbadger.proxmox_nag_removal
   - name: ironicbadger.snapraid
   - name: nvidia.nvidia_docker
   - name: nvidia.nvidia_driver
-  - name: samdoran.fish
+  - name: oefenweb.locales
+    src: git@github.com:Oefenweb/ansible-locales.git
+    scm: git
   - name: simoncaron.pve_addons
