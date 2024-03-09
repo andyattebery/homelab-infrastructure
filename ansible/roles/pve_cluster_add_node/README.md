@@ -1,4 +1,6 @@
 # pve_cluster_add_node
 
-## Status: WIP
+Adds a node to a Proxmox cluster.
+
+## Status: Production
 

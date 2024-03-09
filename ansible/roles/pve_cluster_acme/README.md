@@ -1,4 +1,6 @@
 # pve_cluster_acme
 
-## Status: WIP
+Configures ACME for a Proxmox cluster.
+
+## Status: Production
 

@@ -1,4 +1,6 @@
 # pbs_acme_certificate
 
-## Status: WIP
+Configures ACME certificate on a Proxmox Backup Server.
+
+## Status: Production
 

@@ -1,0 +1,15 @@
+---
+- name: Copy remote_power_control script
+  ansible.builtin.get_url:
+    url: https://github.com/andyattebery/remote_power_control/raw/main/remote_power_control
+    dest: /usr/local/bin
+    mode: "0755"
+    owner: root
+    group: root
+- name: Copy remote_power_control.env
+  ansible.builtin.template:
+    src: remote_power_control.env.j2
+    dest: /etc/remote_power_control.env
+    mode: "0644"
+    owner: root
+    group: root

@@ -1,0 +1,24 @@
+---
+- name: Copy remote_power_control
+  ansible.builtin.copy:
+    src: remote_power_control
+    dest: "{{ remote_power_control_script_path }}"
+    mode: "0755"
+- name: Add pikvm user
+  ansible.builtin.user:
+    name: "{{ remote_power_control_username }}"
+    password: '!'
+- name: Authorize remote pikvm ssh key for pikvm user
+  ansible.posix.authorized_key:
+    user: "{{ remote_power_control_username }}"
+    state: present
+    key: "{{ remote_power_control_ssh_public_key }}"
+    key_options: 'command="{{ remote_power_control_script_path }}"'
+- name: Allow pikvm user to reboot
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: "{{ remote_power_control_username }} ALL=NOPASSWD: /usr/sbin/reboot"
+- name: Allow pikvm user to shutdown
+  ansible.builtin.lineinfile:
+    path: /etc/sudoers
+    line: "{{ remote_power_control_username }} ALL=NOPASSWD: /usr/sbin/shutdown"

@@ -2,6 +2,7 @@
 {
   "files.associations": {
     "**/ansible/**/*.yaml": "ansible",
+    "**/ansible/**/*.j2": "ansible-jinja",
     "**/docker-compose*.yaml": "dockercompose"
   },
   "ansible.python.interpreterPath": "/opt/homebrew/bin/python3.12"

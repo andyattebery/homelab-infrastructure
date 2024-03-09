@@ -1,4 +1,6 @@
 # fish_install
 
-## Status: WIP
+Installs fish shell and sets it as the default.
+
+## Status: Production
 

@@ -1,4 +1,6 @@
 # pbs_config
 
-## Status: WIP
+Configures Proxmox Backup Server non-productions repositories.
+
+## Status: Production
 

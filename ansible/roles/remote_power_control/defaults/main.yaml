@@ -1,0 +1,3 @@
+---
+remote_power_control_username: kvmd
+remote_power_control_script_path: /usr/local/bin/remote_power_control
