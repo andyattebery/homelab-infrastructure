@@ -1,0 +1,38 @@
+---
+- name: Install openSeaChest
+  when: openseachest_install and (power_saving_hard_drives is defined and power_saving_hard_drives | length > 0)
+  ansible.builtin.include_tasks:
+    file: install_openseachest.yaml
+- name: Uninstall openSeaChest
+  when: openseachest_uninstall
+  ansible.builtin.include_tasks:
+    file: uninstall_openseachest.yaml
+# - name: Create config.json
+#   ansible.builtin.copy:
+#     content: "{{ power_saving_hard_drives | to_nice_json }}"
+#     dest: ~/Developer/Projects/homelab-infrastructure/ansible/roles/power_saving/files/config.json
+#     mode: "0644"
+- name: Create {{ power_saving_dir }}
+  ansible.builtin.file:
+    dest: "{{ power_saving_dir }}"
+    state: directory
+    mode: "0755"
+- name: Set power_saving_hard_drives_script_path
+  ansible.builtin.set_fact:
+    power_saving_hard_drives_script_path: "{{ (power_saving_dir, 'power_saving_hard_drives.sh') | path_join }}"
+- name: Create {{ power_saving_hard_drives_script_path }}
+  ansible.builtin.template:
+    src: templates/power_saving_hard_drives.sh.j2
+    dest: "{{ power_saving_hard_drives_script_path }}"
+    mode: "0755"
+- name: Copy power-saving-hard-drives.service
+  ansible.builtin.template:
+    src: "templates/power-saving-hard-drives.service.j2"
+    dest: "/etc/systemd/system/power-saving-hard-drives.service"
+    mode: "0644"
+- name: Enable power-saving-hard-drives.service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: power-saving-hard-drives.service
+    state: reloaded
+    enabled: true

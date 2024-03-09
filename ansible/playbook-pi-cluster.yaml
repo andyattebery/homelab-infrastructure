@@ -2,39 +2,143 @@
 - name: Configure all nodes
   hosts: pi_cluster
   become: true
-  roles:
-    - geerlingguy.docker
-    - configure_server
-    - system_upgrade
+  # roles:
+    # - geerlingguy.docker
+    # - configure_server
+    # - system_upgrade
 
-# - name: Configure main node
-#   hosts: pi_cluster_main
-#   tasks:
-#     - name: Configure Ceph community repository
-#       ansible.builtin.apt_repository:
-#         repo: "deb https://download.ceph.com/debian-{{ ceph_release }}/ {{ ansible_facts['distribution_release'] }} main"
-#         state: present
-#         filename: ceph
-#         update_cache: false
-#     - name: Install cephadm
-#       ansible.builtin.package:
-#         name:
-#           - ca-certificates
-#           - cephadm
+  handlers:
+    - name: Reboot
+      ansible.builtin.reboot:
 
-      # - name: Create the ceph cluster (TODO).
-      #   meta: noop
+  tasks:
+    - name: Install packages
+      ansible.builtin.apt:
+        name:
+          - linux-modules-extra-raspi
+    - name: Ensure cgroups are configured correctly in cmdline.txt.
+      ansible.builtin.replace:
+        path: /boot/firmware/cmdline.txt
+        regexp: '^([\w](?!.*\b{{ item }}\b).*)$'
+        replace: '\1 {{ item }}'
+      with_items:
+        - "cgroup_memory=1"
+        - "cgroup_enable=memory"
+      notify: Reboot
+    - name: Download K3s install script.
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: "~/k3s_install.sh"
+        mode: a+x
+    - name: Create k3s data directory
+      ansible.builtin.file:
+        dest: /var/lib/rancher/k3s
+        state: directory
+        mode: "0755"
+    - name: Add k3s mount
+      ansible.posix.mount:
+        path: /var/lib/rancher/k3s
+        src: /dev/nvme0n1p1
+        fstype: ext4
+        state: mounted
+    - name: Set facts
+      ansible.builtin.set_fact:
+        control_plane_01_ip: "{{ hostvars[groups['pi_cluster'][0]]['ansible_default_ipv4']['address'] }}"
+    - name: Enable SSH forwarding for sudo
+      ansible.builtin.lineinfile:
+        dest: /etc/sudoers
+        insertafter: '^#?\s*Defaults\s+env_keep\b'
+        line: 'Defaults    env_keep += "KUBECONFIG"'
+    - name: Set environment variables
+      become: false
+      ansible.builtin.copy:
+        content: |
+          set --export KUBECONFIG /etc/rancher/k3s/k3s.yaml
+          set --export K8S_AUTH_KUBECONFIG /etc/rancher/k3s/k3s.yaml
+        dest: ~/.config/fish/conf.d/kubernetes.fish
+        mode: "0644"
+    # - name: Set environment variables
+    #   become: false
+    #   ansible.builtin.lineinfile:
+    #     path: /root/.bashrc
+    #     line: export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    #     mode: "0644"
+- name: Configure the first control plane.
+  hosts: pi_cluster[0]
+  gather_facts: false
+  become: true
 
-      # - name: Retrieve the ceph pubkey.
-      #   ansible.builtin.fetch:
-      #     src: /etc/ceph/ceph.pub
-      #     dest: files/ceph.pub
-      #     flat: yes
+  tasks:
+    - name: Install K3s on first control plane (takes a while).
+      ansible.builtin.shell: >-
+        INSTALL_K3S_EXEC="server --cluster-init --tls-san={{ control_plane_01_ip }}"
+        ~/k3s_install.sh >> ~/k3s_install_log.txt
+      args:
+        chdir: "~"
+        creates: /var/lib/rancher/k3s/server/node-token
+    - name: Get node token.
+      ansible.builtin.command: cat /var/lib/rancher/k3s/server/node-token
+      changed_when: false
+      register: node_token_output
+    - name: Set node_token fact.
+      ansible.builtin.set_fact:
+        node_token: "{{ node_token_output.stdout_lines[0] }}"
+    - name: Download Helm command line tool
+      ansible.builtin.uri:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        return_content: true
+      register: helm_installer
+    - name: Install Helm
+      ansible.builtin.command:
+        cmd: bash
+        stdin: "{{ helm_installer.content }}"
+        creates: /usr/local/bin/helm
+      environment:
+        DESIRED_VERSION: "{{ helm_version | default('') }}"
+    # - name: Add helm repositories
+    #   kubernetes.core.helm_repository:
+    #     name: "{{ helm_repository_item.name }}"
+    #     repo_url: "{{ helm_repository_item.repo_url }}"
+    #   loop:
+    #     - name: rook-release
+    #       repo_url: https://charts.rook.io/release
+    #     - name: rancher-stable
+    #       repo_url: https://releases.rancher.com/server-charts/stable
+    #   loop_control:
+    #     loop_var: helm_repository_item
+    # - name: Create namespaces
+    #   kubernetes.core.k8s:
+    #     name: cattle-system
+    #     kind: Namespace
+    #     state: present
 
-      # - name: Ensure NFS dependencies are installed.
-      #   ansible.builtin.package:
-      #     name:
-      #       - libcephfs2
-      #       - nfs-ganesha
-      #       - nfs-ganesha-ceph
-      #     state: present
+- name: Configure the other control planes.
+  hosts: pi_cluster[1:2]
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Install K3s on other control planes (takes a while).
+      ansible.builtin.shell: >-
+        INSTALL_K3S_EXEC="server"
+        K3S_URL="https://{{ control_plane_01_ip }}:6443"
+        K3S_TOKEN="{{ hostvars[groups['pi_cluster'][0]]['node_token'] }}"
+        ~/k3s_install.sh >> ~/k3s_install_log.txt
+      args:
+        chdir: "~"
+        creates: /var/lib/rancher/k3s/server/node-token
+
+- name: Configure the worker nodes.
+  hosts: pi_cluster[3:5]
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Install K3s on nodes (takes a while).
+      ansible.builtin.shell: >-
+        K3S_URL="https://{{ control_plane_01_ip }}:6443"
+        K3S_TOKEN="{{ hostvars[groups['pi_cluster'][0]]['node_token'] }}"
+        ~/k3s_install.sh >> ~/k3s_install_log.txt
+      args:
+        chdir: "~"
+        creates: /var/lib/rancher/k3s/agent/kubelet.kubeconfig

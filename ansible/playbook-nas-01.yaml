@@ -5,6 +5,77 @@
 
   vars:
     docker_compose_dst_data_directory_path: "/mnt/docker"
+    power_saving_hard_drives:
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_QBH1LSAT
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4SA5
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_8LGD8JRK
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_9LGA6YWA
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D3HY7
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D12AX
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM000J-2T_ZR516PR9
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3LGHSB2U
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3GKK6M2K
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
 
   roles:
     - ansible_non_become_user_facts
@@ -15,6 +86,68 @@
     # - snapraid_btrfs_install
     # - artis3n.tailscale
     # - geerlingguy.postfix
+    - role: power_saving
+      vars:
+        power_saving_configure_cpu: false
+    - zed_notifications
+    - healthchecks_service
+    - role: scrutiny_collector
+      vars:
+        scrutiny_ignored_devices:
+          - /dev/sda
+          - /dev/sdb
+          - /dev/sdc
+    - role: sanoid
+      vars:
+        sanoid_datasets:
+          template:
+            frequently: 0
+            hourly: 1
+            daily: 30
+            monthly: 1
+            yearly: 0
+            autosnap: true
+            autoprune: true
+          tank:
+            use_template: template
+            recursive: true
+          sink:
+            use_template: template
+            recursive: true
+    - role: docker_compose_traefik
+      vars:
+        docker_compose_traefik_version: "3.0"
+        docker_compose_traefik_enable_dashboard: true
+        docker_compose_traefik_enable_tailscale: true
+        docker_compose_traefik_log_level: ERROR
+    - role: docker_compose_dashboard_services_manager_provider
+    - role: docker_compose_diun
+    - role: docker_compose_immich
+      vars:
+        immich_photos_directory: "/mnt/tank/immich/photos"
+        immich_db_directory: "/mnt/tank/immich/db"
+        immich_machine_learning_model_cache_directory: "/mnt/tank/immich/model_cache"
+    - role: docker_compose_nextcloud
+      vars:
+        docker_compose_nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
+    - role: docker_compose_omnivore
+    - role: docker_compose_scrutiny_web
+      vars:
+        scrutiny_shoutrrr_notify_urls:
+          - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
+        docker_compose_copy_scripts: true
+        docker_compose_envs:
+          MINIO_USERNAME: "{{ minio_username }}"
+          MINIO_PASSWORD: "{{ minio_password }}"
+          LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
+          LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
+          LINKWARDEN_POSTGRES_DB: "linkwarden"
+          LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
+          LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
+          LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
 
   tasks:
     # - name: Install packages
@@ -30,7 +163,6 @@
     #     owner: "{{ ansible_non_become_user_id }}"
     #     group: "{{ ansible_non_become_user_gid }}"
     #     mode: '0600'
-
     # - name: Create mount points
     #   ansible.builtin.file:
     #     path: "/mnt/{{ item }}"
@@ -83,10 +215,10 @@
     #     - "data03"
     #     - "data08"
     #     - "snapraid"
-    - name: Add fstab entries
-      ansible.builtin.blockinfile:
-        block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
-        path: "/etc/fstab"
+    # - name: Add fstab entries
+    #   ansible.builtin.blockinfile:
+    #     block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
+    #     path: "/etc/fstab"
     # - name: Install snapraid
     #   ansible.builtin.include_role:
     #     name: ironicbadger.snapraid
@@ -124,12 +256,6 @@
     # #     cmd: "snapper --config {{ item }} create-config --template snapraid_data /mnt/data/{{ item }}"
     # #   loop: "{{ snapper_data_disks_to_create }}"
     # #   changed_when: true
-    # - name: Configure zed notifications
-    #   ansible.builtin.include_role:
-    #     name: zed_notifications
-    # - name: Add healthchecks.service
-    #   ansible.builtin.include_role:
-    #     name: healthchecks_service
     # - name: Install snapraid-btrfs-runner
     #   vars:
     #     snapraid_btrfs_runner_install_conf_template_path: "files/nas-01/snapraid-btrfs-runner.conf.j2"
@@ -182,82 +308,47 @@
     #         syncoid_destination_dataset: backups/sink
     #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
     #         syncoid_healthchecks_uuid: 379c392b-04f5-42ef-bbc7-1afdd850d863
-    # - name: Configure syncoid to offsite-nas
-    #   ansible.builtin.include_role:
-    #     name: syncoid_source
-    #   vars:
-    #     syncoid_source_username: "{{ ansible_user }}"
-    #     syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
-    #     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-    #     syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
-    #     syncoid_pre_sync_commands:
-    #       - "/usr/bin/echo 'Powering on via PiKVM' ; -/usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
-    #       - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
-    #     syncoid_post_sync_commands:
-    #       - "-/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"
-    #     syncoid_timer_on_calendar: "*-*-* 02:00:00"
-    #     syncoid_datasets:
-    #       - syncoid_source_dataset: tank
-    #         syncoid_destination_dataset: backups/tank
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/tank
-    #         syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
-    #       - syncoid_source_dataset: sink
-    #         syncoid_destination_dataset: backups/sink
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
-    #         syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
-    # - name: Run docker_compose_traefik # Needs to be before docker-compose-nas-01 for the traefik network to be created
-    #   vars:
-    #     docker_compose_traefik_version: "3.0"
-    #     docker_compose_traefik_enable_dashboard: true
-    #     docker_compose_traefik_enable_tailscale: true
-    #     docker_compose_traefik_log_level: ERROR
-    #   ansible.builtin.include_role:
-    #     name: docker_compose_traefik
-    - name: Configure docker compose roles
-      vars:
-        docker_compose_nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
-        scrutiny_shoutrrr_notify_urls:
-          - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
-        immich_photos_directory: "/mnt/tank/immich/photos"
-        immich_db_directory: "/mnt/tank/immich/db"
-        immich_machine_learning_model_cache_directory: "/mnt/tank/immich/model_cache"
+    - name: Configure syncoid to backup-01
       ansible.builtin.include_role:
-        name: "{{ nas_01_docker_compose_role }}"
-      loop:
-        # - docker_compose_dashboard_services_manager_provider
-        # - docker_compose_diun
-        - docker_compose_immich
-        # - docker_compose_nextcloud
-        # - docker_compose_omnivore
-        # - docker_compose_scrutiny_web
-      loop_control:
-        loop_var: nas_01_docker_compose_role
-    - name: Configure nas-01 docker compose
+        name: syncoid_source
       vars:
-        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
-        docker_compose_copy_scripts: true
-        docker_compose_envs:
-          # CERTBOT_EMAIL: "{{ certbot_email }}"
-          # CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
-          # STORAGE_DIR: /mnt/storage
-          MINIO_USERNAME: "{{ minio_username }}"
-          MINIO_PASSWORD: "{{ minio_password }}"
-          LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
-          LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
-          LINKWARDEN_POSTGRES_DB: "linkwarden"
-          LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
-          LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
-          LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+        syncoid_source_username: "{{ ansible_user }}"
+        syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+        syncoid_destination_username: "syncoid"
+        syncoid_destination_host: "backup-01.{{ domain_name }}"
+        syncoid_timer_on_calendar: "*-*-* 02:00:00"
+        syncoid_datasets:
+          - syncoid_source_dataset: tank
+            syncoid_destination_dataset: backups/tank
+            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+            syncoid_healthchecks_uuid: 8493a848-6cfd-4ab9-9931-c94a6b053b21
+          - syncoid_source_dataset: sink
+            syncoid_destination_dataset: backups/sink
+            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+            syncoid_healthchecks_uuid: b5eaeb0d-e04c-49da-bf13-020e82560a2a
+    - name: Configure syncoid to offsite-nas
       ansible.builtin.include_role:
-        name: docker_compose
-    # - name: Configure scrutiny collector
-    #   vars:
-    #     scrutiny_ignored_devices:
-    #       - /dev/sda
-    #       - /dev/sdb
-    #       - /dev/sdc
-    #   ansible.builtin.include_role:
-    #     name: scrutiny_collector
+        name: syncoid_source
+      vars:
+        syncoid_source_username: "{{ ansible_user }}"
+        syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+        syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
+        syncoid_pre_sync_commands:
+          - "/usr/bin/echo 'Powering on via PiKVM' ; /usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
+          - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
+        syncoid_post_sync_commands:
+          - "/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"
+        syncoid_timer_on_calendar: "*-*-* 03:00:00"
+        syncoid_datasets:
+          - syncoid_source_dataset: tank
+            syncoid_destination_dataset: backups/tank
+            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+            syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
+          - syncoid_source_dataset: sink
+            syncoid_destination_dataset: backups/sink
+            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+            syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
     # - name: Configure samba
     #   ansible.builtin.copy:
     #     src: "files/nas-01/smb.conf"
@@ -275,7 +366,6 @@
     #   vars:
     #     nfs_exports:
     #       # - "/mnt/basin *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
-    #       # - "/mnt/depot/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
     #       # - "/mnt/sink/photos *(rw,sync,insecure,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
     #       - "/mnt/storage *(rw,sync,insecure,fsid=999,no_subtree_check,all_squash,anonuid={{ smb_nas_01_uid }},anongid={{ vault_smb_nas_01_gid }})"
     #   ansible.builtin.include_role:

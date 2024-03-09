@@ -1,0 +1,8 @@
+---
+pve_storage_name: "backup-01_pbs"
+pve_storage_pbs_server: "backup-01.{{ domain_name }}"
+pve_storage_pbs_datastore: "zfs_backups_pbs"
+pve_storage_pbs_namespace: "{{ ansible_hostname }}"
+pve_storage_pbs_user: "{{ pbs_api_token_name }}"
+pve_storage_pbs_password: "{{ pbs_api_token_value }}"
+pve_storage_pbs_fingerprint: "{{ pbs_fingerprint }}"

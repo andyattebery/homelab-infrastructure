@@ -1,0 +1,10 @@
+[Unit]
+Description=Configure power management for hard drives
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=oneshot
+
+ExecStart={{ power_saving_hard_drives_script_path }} configure

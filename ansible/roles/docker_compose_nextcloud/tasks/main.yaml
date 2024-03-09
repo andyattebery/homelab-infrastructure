@@ -2,6 +2,7 @@
   vars:
     docker_compose_src_file_path: files/docker-compose-nextcloud.yaml
     docker_compose_envs:
+      NEXTCLOUD_IMAGE_TAG: "{{ nextcloud_image_tag }}"
       NEXTCLOUD_DATA_DIRECTORY: "{{ docker_compose_nextcloud_data_directory }}"
       NEXTCLOUD_TRUSTED_PROXIES: 172.18.0.0/16
       NEXTCLOUD_ADMIN_USER: "{{ nextcloud_admin_user }}"

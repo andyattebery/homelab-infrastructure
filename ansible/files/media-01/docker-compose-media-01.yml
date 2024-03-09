@@ -1,10 +1,7 @@
 ---
-include:
-  - ./docker-compose-traefik.yaml
-
 services:
   jellyfin:
-    image: jellyfin/jellyfin
+    image: jellyfin/jellyfin:latest
     container_name: jellyfin
     user: ${PUID}:${PGID}
     restart: unless-stopped
@@ -31,8 +28,42 @@ services:
       - traefik.http.routers.jellyfin.entrypoints=websecure
       - traefik.http.routers.jellyfin.tls.certresolver=cloudflare
       - traefik.http.services.jellyfin.loadbalancer.server.port=8096
+  jellystat:
+    image: cyfershepard/jellystat:latest
+    container_name: jellystat
+    environment:
+      POSTGRES_USER: ${JELLYSTAT_DB_USERNAME}
+      POSTGRES_PASSWORD: ${JELLYSTAT_DB_PASSWORD}
+      POSTGRES_IP: jellystat-db
+      POSTGRES_PORT: 5432
+      JWT_SECRET: ${JELLYSTAT_JWT_SECRET}
+      TZ: ${TZ}
+    networks:
+      - traefik
+      - jellystat
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/jellystat:/app/backend/backup-data # Mounting the volume
+    depends_on:
+      - jellystat-db
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.jellystat.rule=Host(`jellystat.$DOMAIN_NAME`)
+      - traefik.http.routers.jellystat.entrypoints=websecure
+      - traefik.http.routers.jellystat.tls.certresolver=cloudflare
+      - traefik.http.services.jellystat.loadbalancer.server.port=3000
+  jellystat-db:
+    image: postgres:15
+    container_name: jellystat-db
+    environment:
+      POSTGRES_USER: ${JELLYSTAT_DB_USERNAME}
+      POSTGRES_PASSWORD: ${JELLYSTAT_DB_PASSWORD}
+    networks:
+      - jellystat
+    volumes:
+    - ${DOCKER_DATA_DIRECTORY}/jellystat-db:/var/lib/postgresql/data
   plex:
-    image: ghcr.io/linuxserver/plex
+    image: ghcr.io/linuxserver/plex:latest
     container_name: plex
     restart: unless-stopped
     runtime: nvidia
@@ -93,10 +124,14 @@ services:
       - traefik.http.routers.tdarr.tls.certresolver=cloudflare
       - traefik.http.services.tdarr.loadbalancer.server.port=8265
 
+networks:
+  jellystat:
+    name: jellystat
+
 volumes:
   smb_storage:
     driver: local
     driver_opts:
       type: cifs
-      o: noserverino,addr=nas-01.${DOMAIN_NAME},username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+      o: noserverino,username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
       device: "//nas-01.${DOMAIN_NAME}/storage"

@@ -1,0 +1,120 @@
+---
+# This can probably all go away for Debian >= [trixie (13)](https://packages.debian.org/trixie/openseachest) and Ubuntu >= [mantic (23.10)](https://packages.ubuntu.com/mantic/openseachest) because there are packges for those releases.
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/Seagate/openSeaChest/releases/latest
+    return_content: true
+  register:
+    openseachest_latest_release_json_response
+- name: Install deb
+  vars:
+    browser_download_url_json_query: "assets[?ends_with(name, 'amd64.deb')].browser_download_url"
+    browser_download_urls: "{{ openseachest_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
+    openseachest_deb_download_url: "{{ browser_download_urls | first }}"
+  ansible.builtin.apt:
+    deb: "{{ openseachest_deb_download_url }}"
+    state: present
+  register: openseachest_deb_install_result
+# For some reason the deb installs the binaries and man files into /usr/bin/openSeaChest which won't be in your PATH or where `man` searches, so link them to standard locations.
+# For the bin files the default is `/usr/bin`
+# For the man files the default is `/usr/share/man`
+- name: Link bin and man files to standard locations # noqa no-handler
+  when: openseachest_deb_install_result.changed
+  block:
+    - name: Find bin files
+      ansible.builtin.find:
+        path: "{{ openseachest_deb_install_dir }}"
+        pattern: "openSeaChest_*"
+        file_type: file
+        mode: "0755"
+      register: openseachest_bin_files_result
+    - name: Link bin files to {{ openseachest_bin_dir }}
+      ansible.builtin.file:
+        src: "{{ openseachest_bin_file.path }}"
+        dest: "{{ (openseachest_bin_dir, openseachest_bin_file.path | basename) | path_join }}"
+        state: link
+      # ansible.builtin.debug:
+      #   msg: "{{ openseachest_bin_file.path }}"
+      loop: "{{ openseachest_bin_files_result.files }}"
+      loop_control:
+        loop_var: openseachest_bin_file
+        label: "{{ openseachest_bin_file.path }}"
+    - name: Find man files
+      ansible.builtin.find:
+        path: "{{ (openseachest_deb_install_dir, 'man', 'man8') | path_join }}"
+        file_type: file
+      register: openseachest_man_files_result
+    - name: Link man files to {{ openseachest_man_dir }}
+      ansible.builtin.file:
+        src: "{{ openseachest_man_file.path }}"
+        dest: "{{ (openseachest_man_dir, 'man8', openseachest_man_file.path | basename) | path_join }}"
+        state: link
+      # ansible.builtin.debug:
+      #   msg: "{{ openseachest_man_file.path }}"
+      loop: "{{ openseachest_man_files_result.files }}"
+      loop_control:
+        loop_var: openseachest_man_file
+        label: "{{ openseachest_man_file.path }}"
+
+## Copying from tar
+# - name: Check if openSeaChest_PowerControl is installed
+#   ansible.builtin.stat:
+#     path: "{{ openseachest_powercontrol_path }}"
+#   register: openseachest_powercontrol_stat_result
+# # - name: Check openSeaChest_PowerControl version
+# #   when: openSeaChest_PowerControl.stat.exists
+# #   ansible.builtin.command:
+# #     cmd: "{{ openseachest_powercontrol_base_command }} "
+# - name: Install OpenSeaChest
+#   when: not openSeaChest_PowerControl.stat.exists
+#   block:
+    # - name: Set openseachest_tar_pattern - x86_64
+    #   when: ansible_architecture == 'x86_64'
+    #   ansible.builtin.set_fact:
+    #     openseachest_tar_ends_with: -linux-x86_64-portable.tar.xz
+    # - name: Set openseachest_tar_pattern - aarch64
+    #   when: ansible_architecture == 'aarch64'
+    #   ansible.builtin.set_fact:
+    #     openseachest_tar_ends_with: -linux-aarch64-portable.tar.xz
+    # - name: Create temp download directory
+    #   ansible.builtin.tempfile:
+    #     state: directory
+    #     suffix: openseachest
+    #   register: openseachest_download_dir
+    # - name: Download and unarchive portable binaries # noqa jinja[invalid]
+    #   vars:
+    #     browser_download_url_json_query: "assets[?ends_with(name, '{{ openseachest_tar_ends_with }}')].browser_download_url"
+    #     browser_download_urls: "{{ openseachest_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
+    #     openseachest_tar_download_url: "{{ browser_download_urls | first }}"
+    #   ansible.builtin.unarchive:
+    #     src: "{{ openseachest_tar_download_url }}"
+    #     dest: "{{ openseachest_download_dir.path }}"
+    #     remote_src: true
+    # - name: Get binary paths
+    #   ansible.builtin.find:
+    #     path: "{{ openseachest_download_dir.path }}"
+    #     recurse: true
+    #     depth: 2
+    #     pattern: "openSeaChest_*"
+    #   register: openseachest_binary_paths_result
+    # - name: Copy binaries
+    #   ansible.builtin.copy:
+    #     src: "{{ openseachest_bin_file.path }}"
+    #     dest: "{{ openseachest_bin_dir }}/"
+    #     remote_src: true
+    #     mode: "0755"
+    #   loop: "{{ openseachest_binary_paths_result.files }}"
+    #   loop_control:
+    #     loop_var: openseachest_bin_file
+    # # - name: Copy man files
+    # #   ansible.builtin.copy:
+    # #     # Trailing slash will copy contents of directory
+    # #     src: "{{ (openseachest_download_dir.path, 'man/') | path_join }}"
+    # #     dest: "{{ openseachest_man_dir }}/"
+    # #     remote_src: true
+    # #     mode: "0755"
+    # # - name: Remove temp download directory
+    # #   ansible.builtin.file:
+    # #     path: "{{ openseachest_download_dir.path }}"
+    # #     state: absent
+    # #   when: openseachest_download_dir.path is defined

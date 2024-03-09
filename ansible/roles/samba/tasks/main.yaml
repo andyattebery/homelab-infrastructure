@@ -2,14 +2,21 @@
 - name: Install samba
   ansible.builtin.package:
     name: samba
-- name: Set samba users passwords
-  ansible.builtin.shell:
-    cmd: "echo -e '{{ samba_user.password }}\n{{ samba_user.password }}' | smbpasswd -U {{ samba_user.username }}"
-    register: smbpasswd_result
-  loop: samba_users
+# https://stackoverflow.com/a/71050848
+- name: Create samba users
+  ansible.builtin.shell: >
+    set -e -o pipefail
+    && (pdbedit --user={{ samba_users_item.username }} 2>&1 > /dev/null)
+    || (echo '{{ samba_users_item.password }}'; echo '{{ samba_users_item.password }}')
+    | smbpasswd -s -a {{ samba_users_item.username }}
+  args:
+    executable: /bin/bash
+  register: samba_create_users
+  changed_when: "'Added user' in samba_create_users.stdout"
+  loop: "{{ samba_users }}"
   loop_control:
-    loop_var: samba_user
-  changed_when: false
+    loop_var: samba_users_item
+  no_log: true
 - name: Configure samba
   ansible.builtin.template:
     src: "templates/smb.conf.j2"

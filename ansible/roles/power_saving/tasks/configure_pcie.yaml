@@ -1,0 +1,21 @@
+---
+# - name: Configure kernel parameters
+#   vars:
+#     kernel_parameters_new_parameters: "{{ power_saving_pcie_kernel_parameters }}"
+#   ansible.builtin.import_role:
+#     name: kernel_parameters
+- name: Install sysfsutils
+  ansible.builtin.package:
+    name: sysfsutils
+    state: present
+- name: Set PCIe ASPM policy to powersave
+  ansible.builtin.copy:
+    dest: /etc/sysfs.d/power_saving_pci.conf
+    content: "module/pcie_aspm/parameters/policy = powersave"
+    mode: "0644"
+- name: Copy PCI runtime power management udev rule
+  when: (power_saving_pcie_runtime_all_devices is defined and power_saving_pcie_runtime_all_devices) or (power_saving_pcie_runtime_devices is defined and power_saving_pcie_runtime_devices | length > 0)
+  ansible.builtin.template:
+    src: templates/10-power-saving-pcie.rules.j2
+    dest: /etc/udev/rules.d/10-power-saving-pcie.rules
+    mode: "0644"

@@ -1,11 +1,3 @@
-{% for parameter in __kernel_parameters_updated_parameters_dict_with_value_list | dict2items -%}
-{% if parameter.value | length == 0 or (parameter.value | length == 1 and parameter.value[0] == "") -%}
-{{ parameter.key -}}
-{% else -%}
-{% for value in parameter.value -%}
-{{ parameter.key }}={{value-}}
-{% if loop.length > 1 and not loop.last %} {% endif -%}
-{% endfor -%}
-{% endif -%}
-{% if not loop.last %} {% endif -%}
+{% for parameter in kernel_parameters_updated_parameters | dict2items -%}
+{{ parameter.key }}{% if parameter.value %}={{ parameter.value }}{% endif %}{% if not loop.last %} {% endif -%}
 {% endfor -%}

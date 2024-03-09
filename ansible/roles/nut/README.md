@@ -1,5 +1,7 @@
 # nut
 
+## Status: Production
+
 Installs and configures [NUT (Network UPS Tools)](https://networkupstools.org/) as either:
 - Server (`nut_enable_server: true`) that is standalone or can have remote clients(`nut_enable_server_remote_access: true`) for monitoring the local UPS(es).
 - Client (`nut_enable_client: true`) for monitoring a remote NUT server(s).

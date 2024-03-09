@@ -1,0 +1,16 @@
+[
+    {
+        "dev": "/dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG",
+        "epc_idle_a": "enable",
+        "epc_idle_b": 300000,
+        "epc_idle_c": 600000,
+        "epc_standby_z": 900000
+    },
+    {
+        "dev": "/dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4SA5",
+        "epc_idle_a": "enable",
+        "epc_idle_b": "enable",
+        "epc_idle_c": "enable",
+        "epc_standby_z": "enable"
+    }
+]

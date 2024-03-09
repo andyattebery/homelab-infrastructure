@@ -10,3 +10,13 @@
     daily = 30
     monthly = 6
     yearly = 0
+
+{% for syncoid_destination_dataset_config in syncoid_destination_dataset_config | default([]) %}
+[{{ syncoid_destination_dataset_config.name }}]
+{% for option in syncoid_destination_dataset_config %}
+{% if option != "name" %}
+    {{ option }} = {{ syncoid_destination_dataset_config[option] }}
+{% endif %}
+{% endfor %}
+
+{% endfor %}

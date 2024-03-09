@@ -58,7 +58,7 @@
   changed_when: true
   # changed_when: pveceph_mds_create_result == 0
   # failed_when: pveceph_mds_create_result.rc != 0 and pveceph_mds_create_result.rc != 255
-- name: Get CRUSH map
+- name: Get CRUSH map # noqa risky-shell-pipe
   ansible.builtin.shell:
     cmd: ceph osd getcrushmap | crushtool -d -
   register: ceph_crush_map_result

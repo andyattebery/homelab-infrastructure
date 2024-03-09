@@ -4,7 +4,7 @@
   become: true
 
   roles:
-    - ansible-role-proxmox-ve-install-arm
+    - pve_install_arm
     - geerlingguy.ntp
     - configure_server
 

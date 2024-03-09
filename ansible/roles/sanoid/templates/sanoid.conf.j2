@@ -1,0 +1,12 @@
+{% for dataset in sanoid_datasets | default([]) %}
+[{{ dataset }}]
+{% for option in sanoid_datasets[dataset] %}
+{% if sanoid_datasets[dataset][option] is boolean %}
+{{ option }} = {% if sanoid_datasets[dataset][option] %}yes{% else %}no{% endif %}
+
+{% else %}
+{{ option }} = {{ sanoid_datasets[dataset][option] }}
+{% endif %}
+{% endfor %}
+
+{% endfor %}

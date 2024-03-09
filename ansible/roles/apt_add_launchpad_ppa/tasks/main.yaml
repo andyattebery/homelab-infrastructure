@@ -1,0 +1,18 @@
+---
+- name: Get fingerprint # noqa risky-shell-pipe command-instead-of-module
+  ansible.builtin.shell:
+    cmd: curl -sL 'https://launchpad.net/~{{ apt_add_launchpad_ppa_user }}/+archive/ubuntu/{{ apt_add_launchpad_ppa_repository }}' | sed -n -e 's/^.*key_fingerprint//p' | cut -d \" -f 3
+  register: _apt_add_launchpad_ppa_fingerprint
+  changed_when: false
+- name: Save key
+  ansible.builtin.get_url:
+    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x{{ _apt_add_launchpad_ppa_fingerprint.stdout }}"
+    dest: "/etc/apt/trusted.gpg.d/{{ apt_add_launchpad_ppa_user }}_{{ apt_add_launchpad_ppa_repository }}.asc"
+    mode: '0644'
+    force: true
+- name: Add PPA
+  ansible.builtin.apt_repository:
+    repo: "deb https://ppa.launchpadcontent.net/{{ apt_add_launchpad_ppa_user }}/{{ apt_add_launchpad_ppa_repository }}/ubuntu {{ apt_add_launchpad_ppa_ubuntu_version_name }} main"
+    filename: "{{ apt_add_launchpad_ppa_user }}_{{ apt_add_launchpad_ppa_repository }}"
+    state: present
+    update_cache: false

@@ -1,0 +1,24 @@
+---
+- name: Set CPU kernel parameters for Intel
+  when: ansible_processor is contains('GenuineIntel')
+  ansible.builtin.set_fact:
+    __power_saving_cpu_kernel_parameters: "{{ power_saving_cpu_kernel_parameters_intel }}"
+- name: Set CPU kernel parameters for AMD <= 6.0
+  when: (ansible_processor is contains('AuthenticAMD')) and (ansible_kernel is version('6.0.0', 'le', version_type='semver') and ansible_kernel is version('6.1.0', 'lt', version_type='semver'))
+  ansible.builtin.set_fact:
+    __power_saving_cpu_kernel_parameters: "{{ power_saving_cpu_kernel_parameters_amd_le_6_0 }}"
+- name: Set CPU kernel parameters for AMD >= 6.1
+  when: (ansible_processor is contains('AuthenticAMD')) and (ansible_kernel is version('6.1.0', 'ge', version_type='semver') and ansible_kernel is version('6.3.0', 'lt', version_type='semver'))
+  ansible.builtin.set_fact:
+    __power_saving_cpu_kernel_parameters: "{{ power_saving_cpu_kernel_parameters_amd_ge_6_1 }}"
+- name: Set CPU kernel parameters for AMD >= 6.3
+  when: (ansible_processor is contains('AuthenticAMD')) and (ansible_kernel is version('6.3.0', 'ge', version_type='semver'))
+  ansible.builtin.set_fact:
+    __power_saving_cpu_kernel_parameters: "{{ power_saving_cpu_kernel_parameters_amd_ge_6_3 }}"
+- name: Configure kernel parameters
+  vars:
+    kernel_parameters_new_parameters: "{{ __power_saving_cpu_kernel_parameters }}"
+  # ansible.builtin.debug:
+  #   var: kernel_parameters_new_parameters
+  ansible.builtin.import_role:
+    name: kernel_parameters

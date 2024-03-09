@@ -16,7 +16,7 @@
         docker_compose_copy_scripts: true
 
 - name: Configure origin adguardhome host
-  hosts: network[0]
+  hosts: network-01
   become: true
   tasks:
     - name: Configure adguardhome-sync

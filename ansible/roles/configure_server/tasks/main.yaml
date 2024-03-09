@@ -1,27 +1,42 @@
 ---
-- name: Copy SSH keys
+- name: Copy Github SSH authorized keys
   ansible.posix.authorized_key:
     user: "{{ ansible_user }}"
     key: https://github.com/andyattebery.keys
     state: present
-- name: Add ssh authorized keys
+- name: Add SSH authorized keys
   ansible.posix.authorized_key:
     user: "{{ ansible_user }}"
-    key: "{{ ideapad_3_ssh_public_key }}"
+    key: "{{ ssh_public_key }}"
     state: present
-- name: Add ssh authorized keys
-  ansible.posix.authorized_key:
-    user: "{{ ansible_user }}"
-    key: "{{ steamdeck_ssh_public_key }}"
-    state: present
+  loop:
+    - "{{ blink_ssh_public_key }}"
+    - "{{ ideapad_3_ssh_public_key }}"
+    - "{{ servercat_ssh_public_key }}"
+    - "{{ steamdeck_ssh_public_key }}"
+  loop_control:
+    loop_var: ssh_public_key
+- name: Enable SSH forwarding for sudo
+  ansible.builtin.lineinfile:
+    dest: /etc/sudoers
+    insertafter: '^#?\s*Defaults\s+env_keep\b'
+    line: 'Defaults    env_keep += "SSH_AUTH_SOCK"'
 - name: Install packages
-  ansible.builtin.apt:
+  ansible.builtin.package:
     name:
       - git
       - gpg
       - mosh
       - tmux
       - vim
+- name: Set locale
+  ansible.builtin.include_role:
+    name: oefenweb.locales
+  vars:
+    locales_present:
+      - "{{ locale }}"
+    locales_default:
+      lang: "{{ locale }}"
 - name: Set timezone
   community.general.timezone:
     name: "{{ timezone }}"
@@ -35,7 +50,7 @@
   loop:
     - geerlingguy.security
     - fish_install
-    - settings_repo
+    - configure_dotfiles
   loop_control:
     loop_var: role_item
   vars:

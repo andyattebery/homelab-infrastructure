@@ -1,0 +1,28 @@
+---
+- name: Set x86_64 facts
+  when: ansible_architecture == 'x86_64'
+  ansible.builtin.set_fact:
+    certbot_dns_cloudflare_image_tag: amd64-latest
+- name: Set aarch64 facts
+  when: ansible_architecture == 'aarch64'
+  ansible.builtin.set_fact:
+    certbot_dns_cloudflare_image_tag: arm64v8-latest
+- name: Initial docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-certbot.yaml
+    docker_compose_envs:
+      CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG: "{{ certbot_dns_cloudflare_image_tag }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/cloudflare_credentials.ini.j2
+        dst_relative_file_path: certbot/cloudflare_credentials.ini
+      - src_file_path: files/certbot_create_cert.sh
+        dst_relative_file_path: certbot/certbot_create_cert.sh
+        mode: "0755"
+        run_command: true
+        command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_dns_cloudflare_domain_name }}"
+        changed_when: false # "'Certificate not yet due for renewal' not in run_config_file_result.stdout"
+      - src_file_path: files/certbot_renew_entrypoint.sh
+        dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
+        mode: "0755"
+  ansible.builtin.include_role:
+    name: docker_compose

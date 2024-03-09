@@ -1,0 +1,46 @@
+---
+- name: Install python3-certbot-dns-cloudflare
+  ansible.builtin.apt:
+    package: python3-certbot-dns-cloudflare
+- name: Create cloudflare credentials directory
+  ansible.builtin.file:
+    dest: "{{ certbot_dns_cloudflare_credentials_path | dirname }}"
+    state: directory
+    mode: "0755"
+- name: Create cloudflare credentials file
+  ansible.builtin.copy:
+    dest: "{{ certbot_dns_cloudflare_credentials_path }}"
+    content: "dns_cloudflare_api_token = {{ cloudflare_api_token }}"
+    mode: "0600"
+- name: Add certbot post deploy hook script
+  when: cerbot_dns_cloudflare_post_create_command is defined
+  block:
+    - name: Create {{ certbot_renewal_hooks_deploy_path }}
+      ansible.builtin.file:
+        dest: "{{ certbot_renewal_hooks_deploy_path }}"
+        state: directory
+        mode: "0755"
+    - name: Create renewal_deploy_script.sh
+      ansible.builtin.template:
+        dest: "{{ (certbot_renewal_hooks_deploy_path, 'renewal_deploy_script.sh') | path_join }}"
+        src: renewal_deploy_script.sh.j2
+        mode: "0755"
+- name: Create certificate
+  ansible.builtin.command:
+    cmd: >
+      certbot certonly
+      --dns-cloudflare
+      --dns-cloudflare-propagation-seconds 60
+      --dns-cloudflare-credentials {{ certbot_dns_cloudflare_credentials_path }}
+      --agree-tos
+      --noninteractive
+      --email {{ certbot_email }}
+      --domain {{ certbot_dns_cloudflare_domain_name }}
+  register: certbot_certonly_result
+  changed_when: "'Certificate not yet due for renewal' not in certbot_certonly_result.stdout"
+  notify: "certbot certificate created"
+- name: Enable and start certbot.timer
+  ansible.builtin.systemd_service:
+    name: "certbot.timer"
+    state: started
+    enabled: true

@@ -3,19 +3,33 @@
 ansible_user: "{{ vault_ansible_user }}"
 ansible_host: "{{ inventory_hostname }}.{{ domain_name }}"
 
+locale: en_US.UTF-8
 lang_two_letter: en
 timezone: "{{ vault_timezone }}"
 
-# hosts
+# ssh keys
+blink_ssh_public_key: "{{ vault_blink_ssh_public_key }}"
 ideapad_3_ssh_public_key: "{{ vault_ideapad_3_ssh_public_key }}"
+nas_01_syncoid_ssh_private_key: "{{ vault_nas_01_syncoid_ssh_private_key }}"
+nas_01_syncoid_ssh_public_key: "{{ vault_nas_01_syncoid_ssh_public_key }}"
+pikvm_kvmd_ssh_private_key: "{{ vault_pikvm_kvmd_ssh_private_key }}"
+pikvm_kvmd_ssh_public_key: "{{ vault_pikvm_kvmd_ssh_public_key }}"
+servercat_ssh_public_key: "{{ vault_servercat_ssh_public_key }}"
+steamdeck_ssh_public_key: "{{ vault_steamdeck_ssh_public_key }}"
+work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
+
+# hosts
+backup_01_mac_address: "{{ vault_backup_01_mac_address }}"
 
 smb_nas_01_username: "{{ vault_smb_nas_01_username }}"
 smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
 smb_nas_01_uid: "{{ vault_smb_nas_01_uid }}"
 smb_nas_01_gid: "{{ vault_smb_nas_01_gid }}"
 
-nas_01_syncoid_ssh_private_key: "{{ vault_nas_01_syncoid_ssh_private_key }}"
-nas_01_syncoid_ssh_public_key: "{{ vault_nas_01_syncoid_ssh_public_key }}"
+nas_host_01_ipmi_username: "{{ vault_nas_host_01_ipmi_username }}"
+nas_host_01_ipmi_password: "{{ vault_nas_host_01_ipmi_password }}"
+nas_host_01_mac_address: "{{ vault_nas_host_01_mac_address }}"
+
 nas_01_tailscale_ip: "{{ vault_nas_01_tailscale_ip }}"
 
 # nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"
@@ -26,8 +40,6 @@ nas_02_syncoid_password: "{{ vault_nas_02_syncoid_password }}"
 nas_03_syncoid_username: "{{ vault_nas_03_syncoid_username }}"
 nas_03_syncoid_password: "{{ vault_nas_03_syncoid_password }}"
 
-nas_host_02_mac_address: "{{ vault_nas_host_02_mac_address }}"
-
 offsite_nas_mac_address: "{{ vault_offsite_nas_mac_address }}"
 offsite_nas_syncoid_username: "{{ vault_offsite_nas_syncoid_username }}"
 
@@ -35,15 +47,35 @@ offsite_pikvm_auth_token: "{{ vault_offsite_pikvm_auth_token }}"
 offsite_pikvm_web_username: "{{ vault_offsite_pikvm_web_username }}"
 offsite_pikvm_web_password: "{{ vault_offsite_pikvm_web_password }}"
 
-steamdeck_ssh_public_key: "{{ vault_steamdeck_ssh_public_key }}"
+pi_cluster_01_ansible_password: "{{ vault_pi_cluster_01_ansible_password }}"
+pi_cluster_02_ansible_password: "{{ vault_pi_cluster_02_ansible_password }}"
+pi_cluster_03_ansible_password: "{{ vault_pi_cluster_03_ansible_password }}"
+pi_cluster_04_ansible_password: "{{ vault_pi_cluster_04_ansible_password }}"
+pi_cluster_05_ansible_password: "{{ vault_pi_cluster_05_ansible_password }}"
+pi_cluster_06_ansible_password: "{{ vault_pi_cluster_06_ansible_password }}"
 
-work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
+pikvm_api_username: "{{ vault_pikvm_api_username }}"
+pikvm_api_password: "{{ vault_pikvm_api_password }}"
+
+pikvm_hid_api_username: "{{ vault_pikvm_hid_api_username }}"
+pikvm_hid_api_password: "{{ vault_pikvm_hid_api_password }}"
+
+vm_host_01_mac_address: "{{ vault_vm_host_01_mac_address }}"
+vm_host_02_mac_address: "{{ vault_vm_host_02_mac_address }}"
+vm_host_03_mac_address: "{{ vault_vm_host_03_mac_address }}"
 
 # groups
 homelab_domain_name: "{{ vault_homelab_domain_name }}"
 
 # applications
 diun_pushover_token: "{{ vault_diun_pushover_token }}"
+
+esphome_api_encryption_key_backup_01_outlet: "{{ vault_esphome_api_encryption_key_backup_01_outlet }}"
+esphome_api_encryption_key_mac_mini_01_outlet: "{{ vault_esphome_api_encryption_key_mac_mini_01_outlet }}"
+esphome_api_encryption_key_nas_host_01_outlet: "{{ vault_esphome_api_encryption_key_nas_host_01_outlet }}"
+esphome_api_encryption_key_vm_host_01_outlet: "{{ vault_esphome_api_encryption_key_vm_host_01_outlet }}"
+esphome_api_encryption_key_vm_host_02_outlet: "{{ vault_esphome_api_encryption_key_vm_host_02_outlet }}"
+esphome_api_encryption_key_vm_host_03_outlet: "{{ vault_esphome_api_encryption_key_vm_host_03_outlet }}"
 
 filebot_pushover_token: "{{ vault_filebot_pushover_token }}"
 
@@ -58,6 +90,11 @@ homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 
 immich_db_username: "{{ vault_immich_db_username }}"
 immich_db_password: "{{ vault_immich_db_password }}"
+
+jellystat_db_name: "{{ vault_jellystat_db_name }}"
+jellystat_db_username: "{{ vault_jellystat_db_username }}"
+jellystat_db_password: "{{ vault_jellystat_db_password }}"
+jellystat_jwt_secret: "{{ vault_jellystat_jwt_secret }}"
 
 linkding_superuser_name: "{{ vault_linkding_superuser_name }}"
 linkding_superuser_password: "{{ vault_linkding_superuser_password }}"
@@ -89,6 +126,10 @@ ups_monitor_rack_nut_nas_host_01_username: "nas-host-01"
 ups_monitor_rack_nut_nas_host_01_password: "{{ vault_ups_monitor_rack_nut_nas_host_01_password }}"
 ups_monitor_rack_nut_vm_host_01_username: "vm-host-01"
 ups_monitor_rack_nut_vm_host_01_password: "{{ vault_ups_monitor_rack_nut_vm_host_01_password }}"
+ups_monitor_rack_nut_vm_host_02_username: "vm-host-02"
+ups_monitor_rack_nut_vm_host_02_password: "{{ vault_ups_monitor_rack_nut_vm_host_02_password }}"
+ups_monitor_rack_nut_network_02_username: "network-02"
+ups_monitor_rack_nut_network_02_password: "{{ vault_ups_monitor_rack_nut_network_02_password }}"
 
 omnivore_content_fetch_verification_token: "{{ vault_omnivore_content_fetch_verification_token }}"
 omnivore_image_proxy_secret: "{{ vault_omnivore_image_proxy_secret }}"
@@ -102,6 +143,14 @@ plex_token: "{{ vault_plex_token }}"
 plex_claim_token: "{{ vault_plex_claim_token }}"
 
 pushover_user_key: "{{ vault_pushover_user_key }}"
+
+pve_backup_job_script_healthchecks_io_url: "{{ healthchecks_server_url }}"
+
+remote_power_control_pikvm_url: "https://pikvm.{{ domain_name }}"
+remote_power_control_pikvm_username: "{{ pikvm_api_username }}"
+remote_power_control_pikvm_password: "{{ pikvm_api_password }}"
+remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}"
+remote_power_control_homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"
 
 smtp_host: "{{ vault_smtp_host }}"
 smtp_username: "{{ vault_smtp_username }}"
@@ -135,6 +184,11 @@ ntp_manage_config: true
 # geerlingguy.security
 security_sudoers_passwordless:
   - "{{ ansible_user }}"
+
+# pbs_acme
+pbs_fingerprint: "{{ vault_pbs_fingerprint }}"
+pbs_api_token_name: "{{ vault_pbs_api_token_name }}"
+pbs_api_token_value: "{{ vault_pbs_api_token_value }}"
 
 # pve_cluster_acme
 # docker_compose_adguardhome

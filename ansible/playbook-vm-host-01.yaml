@@ -8,37 +8,52 @@
     interface_mac_address: 1c:fd:08:75:10:24
 
   roles:
-  #   - pve_config
-  #   - pve_cluster_acme
-  #   - pve_node_acme
-  #   - configure_server
-  #   - pve_storage_add_nas_01_proxmox
-  #   - scrutiny_collector
-    - role: nut
+    # - pve_config
+    # - pve_cluster_acme
+    # - pve_node_acme
+    # - pve_storage_add_nas_01_proxmox
+    # - pve_storage_add_backup_01_pbs
+    # - configure_server
+    # - scrutiny_collector
+    # - role: kernel_parameters
+    #   vars:
+    #     kernel_parameters_new_parameters:
+    #       intel_iommu: "on"
+    # - role: power_saving
+    # - role: nut
+    #   vars:
+    #     nut_enable_client: true
+    #     nut_client_servers:
+    #       - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+    #         server_address: "{{ ups_monitor_rack_nut_server_address }}"
+    #         username: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
+    #         password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
+    # - role: pikvm_remote_command
+    #   vars:
+    #     pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+    # - role: remote_power_control
+    - role: pve_backup_job_script
       vars:
-        nut_enable_client: true
-        nut_client_servers:
-          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
-            server_address: "{{ ups_monitor_rack_nut_server_address }}"
-            username: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
-            password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
+        pve_backup_job_script_job_init_commands:
+          - /usr/local/bin/remote_power_control pikvm on
+        pve_backup_job_script_healthchecks_io_uuid: bcc471ae-d0f3-4e7f-8db5-4b5465721be0
 
   tasks:
-    - name: Add contrib, non-free, and non-free-firmware repository
-      ansible.builtin.replace:
-        dest: /etc/apt/sources.list
-        regexp: '^(deb.+main).*$'
-        replace: '\1 contrib non-free non-free-firmware'
-    - name: Install NIC DKMS modules
-      ansible.builtin.apt:
-        name:
-          - r8168-dkms
-          - r8125-dkms
-        update_cache: true
-    - name: Add udev rule for r8125
-      ansible.builtin.include_role:
-        name: ansible-role-realtek-r8125-dkms
-        tasks_from: add_udev_rule
+  #   - name: Add contrib, non-free, and non-free-firmware repository
+  #     ansible.builtin.replace:
+  #       dest: /etc/apt/sources.list
+  #       regexp: '^(deb.+main).*$'
+  #       replace: '\1 contrib non-free non-free-firmware'
+  #   - name: Install NIC DKMS modules
+  #     ansible.builtin.apt:
+  #       name:
+  #         - r8168-dkms
+  #         - r8125-dkms
+  #       update_cache: true
+  #   - name: Add udev rule for r8125
+  #     ansible.builtin.include_role:
+  #       name: realtek_r8125_dkms
+  #       tasks_from: add_udev_rule
     - name: Configure network interfaces
       ansible.builtin.copy:
         src: files/vm-host-01/interfaces

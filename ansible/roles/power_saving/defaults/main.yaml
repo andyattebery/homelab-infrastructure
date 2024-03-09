@@ -1,0 +1,26 @@
+---
+openseachest_install: true
+openseachest_uninstall: false
+
+power_saving_dir: /opt/power_saving
+
+power_saving_configure_cpu: true
+power_saving_configure_hard_drives: true
+power_saving_configure_pcie: true
+power_saving_configure_sata: true
+
+power_saving_cpu_kernel_parameters_intel:
+  intel_pstate: active
+  cpufreq.default_governor: powersave
+power_saving_cpu_kernel_parameters_amd_le_6_0:
+  amd_pstate: passive
+  cpufreq.default_governor: schedutil
+power_saving_cpu_kernel_parameters_amd_ge_6_1:
+  amd_pstate: passive
+  cpufreq.default_governor: schedutil
+power_saving_cpu_kernel_parameters_amd_ge_6_3:
+  amd_pstate: active
+  cpufreq.default_governor: powersave
+
+# power_saving_pcie_kernel_parameters:
+#   pcie_aspm.policy: powersave

@@ -1,0 +1,3 @@
+---
+pbs_backup_01_username: "nas-host-01"
+pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"

@@ -1,3 +1,5 @@
+# Not used
+# pi-nas
 ---
 - name: Configure nas-03 host
   hosts: nas-03
@@ -10,6 +12,6 @@
 
   roles:
     # - configure_server
-  #   - ansible-role-realtek-r8125-dkms
+  #   - realtek_r8125_dkms
     - zfs_install
     - backup_destination

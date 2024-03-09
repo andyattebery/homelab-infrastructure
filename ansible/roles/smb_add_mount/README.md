@@ -1,3 +1,9 @@
+# smb_add_mount
+
+Adds a SMB mount to fstab with credentials
+
+## Status: Production
+
 ## Required Variables
 - smb_share_mount_dir
 - smb_share_uri

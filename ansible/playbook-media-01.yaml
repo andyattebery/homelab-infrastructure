@@ -9,44 +9,39 @@
   roles:
     - configure_server
     - geerlingguy.docker
-
-  tasks:
-    - name: Install nvidia driver
+    - role: nvidia.nvidia_driver
       vars:
         nvidia_driver_skip_reboot: true
         nvidia_driver_branch: "535"
         nvidia_driver_ubuntu_install_from_cuda_repo: true
         nvidia_driver_add_repos: false
-      ansible.builtin.include_role:
-        name: nvidia.nvidia_driver
-    - name: Install nvidia docker
-      ansible.builtin.include_role:
-        name: nvidia.nvidia_docker
-    - name: Configure docker compose roles
-      ansible.builtin.include_role:
-        name: "{{ role }}"
-      loop:
-        - docker_compose_dashboard_services_manager_provider
-        - docker_compose_diun
-      loop_control:
-        loop_var: role
-    - name: Run docker_compose_traefik # Needs to be before docker-compose-media-01 for the traefik network to be created
+    - nvidia.nvidia_docker
+    - role: power_saving
+      vars:
+        power_saving_configure_cpu: false
+        power_saving_pci_runtime_devices:
+          # Nvidia T600 Video
+          - vendor_id: "0x10de"
+            device_id: "0x1fb1"
+          # Nvidia T600 Audio
+          - vendor_id: "0x10de"
+            device_id: "0x10fa"
+    - role: docker_compose_traefik
       vars:
         docker_compose_traefik_enable_dashboard: true
         docker_compose_traefik_enable_host_network: true
-      ansible.builtin.include_role:
-        name: docker_compose_traefik
-    - name: Configure docker compose
+    - docker_compose_dashboard_services_manager_provider
+    - docker_compose_diun
+    - role: docker_compose
       vars:
         docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/media-01/docker-compose-media-01.yml
         docker_compose_envs:
-          CERTBOT_EMAIL: "{{ certbot_email }}"
-          CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
+          JELLYSTAT_DB_USERNAME: "{{ jellystat_db_username }}"
+          JELLYSTAT_DB_PASSWORD: "{{ jellystat_db_password }}"
+          JELLYSTAT_JWT_SECRET: "{{ jellystat_jwt_secret }}"
           PLEX_CLAIM_TOKEN: "{{ plex_claim_token }}"
           SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
           SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
           SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
           SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
-      ansible.builtin.include_role:
-        name: docker_compose

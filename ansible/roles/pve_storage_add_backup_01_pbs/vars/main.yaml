@@ -1,0 +1,2 @@
+---
+pve_storage_pbs_repository: "{{ pve_storage_pbs_user }}@{{ pve_storage_pbs_server }}:{{ pve_storage_pbs_datastore }}"

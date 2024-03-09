@@ -1,9 +1,9 @@
 ---
 - name: Configure certbot docker compose
   vars:
-    docker_compose_certbot_domain_name: "{{ adguardhome_hostname }}"
+    docker_compose_certbot_dns_cloudflare_domain_name: "{{ adguardhome_hostname }}"
   ansible.builtin.include_role:
-    name: docker_compose_certbot
+    name: docker_compose_certbot_dns_cloudflare
 - name: Configure adguardhome docker compose
   vars:
     docker_compose_src_file_path: files/docker-compose-adguardhome.yaml
@@ -12,13 +12,13 @@
       ADGUARDHOME_CONFIG_DIRECTORY: "{{ adguardhome_config_directory }}"
   ansible.builtin.include_role:
     name: docker_compose
-- name: Try to access web interface
+- name: Try to access initial setup
   ansible.builtin.uri:
-    url: "http://{{ adguardhome_hostname }}"
+    url: "http://localhost:3000"
   ignore_errors: true
-  register: adguardhome_web_interface_result
+  register: adguardhome_initial_setup_result
 - name: Initial config
-  when: adguardhome_web_interface_result.status == -1
+  when: not adguardhome_initial_setup_result.failed
   block:
     - name: AdGuardHome initial setup
       vars:
@@ -37,13 +37,13 @@
           username: "{{ adguardhome_username }}"
           password: "{{ adguardhome_password }}"
       ansible.builtin.uri:
-        url: "http://{{ adguardhome_hostname }}:3000/control/install/configure"
+        url: "http://localhost:3000/control/install/configure"
         method: POST
         body: "{{ setup_request | to_json }}"
         body_format: json
     - name: Get AdGuardHome.yaml
       ansible.builtin.slurp:
-        src: "{{ adguardhome_config_path }}"
+        src: "{{ adguardhome_config_file_path }}"
       register: adguardhome_config_slurp_result
     - name: Configure SSL
       vars:
@@ -60,7 +60,7 @@
             private_key_path: "/certbot/config/live/{{ adguardhome_hostname }}/privkey.pem"
         updated_adguardhome_config: "{{ adguardhome_config | combine(ssl_config) }}"
       ansible.builtin.copy:
-        dest: "{{ adguardhome_config_path }}"
+        dest: "{{ adguardhome_config_file_path }}"
         content: "{{ updated_adguardhome_config | to_yaml }}"
         mode: "0644"
     - name: Restart adguardhome

@@ -14,7 +14,12 @@
       changed_when: false
     - name: Register ACME account
       ansible.builtin.command:
-        cmd: pvesh create /cluster/acme/account -contact {{ pve_acme_contact_email }} -directory https://acme-v02.api.letsencrypt.org/directory -name default -tos_url {{ pvesh_get_acme_tos.stdout }} # noqa yaml[line-length]
+        cmd: >
+          pvesh create /cluster/acme/account
+          -contact {{ pve_acme_contact_email }}
+          -directory https://acme-v02.api.letsencrypt.org/directory
+          -name default
+          -tos_url {{ pvesh_get_acme_tos.stdout }}
       register: pvesh_create_acme_account
       changed_when: pvesh_create_acme_account.rc == 0
 - name: List ACME plugins
@@ -31,3 +36,4 @@
     acme_plugin_cloudflare_data: "{{ acme_plugin_cloudflare_config | b64encode }}"
   ansible.builtin.command:
     cmd: pvesh create /cluster/acme/plugins -id cloudflare -type dns -api cf -data {{ acme_plugin_cloudflare_data }}
+  changed_when: true

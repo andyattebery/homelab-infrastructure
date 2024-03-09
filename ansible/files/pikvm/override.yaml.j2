@@ -1,0 +1,207 @@
+kvmd:
+    gpio:
+        drivers:
+            kvm_switch_input_1:
+                type: cmd
+                cmd: ['/opt/pikvm_hid_kvm_switch_input/pikvm_hid_kvm_switch_input.sh', 1]
+            kvm_switch_input_2:
+                type: cmd
+                cmd: ['/opt/pikvm_hid_kvm_switch_input/pikvm_hid_kvm_switch_input.sh', 2]
+            kvm_switch_input_3:
+                type: cmd
+                cmd: ['/opt/pikvm_hid_kvm_switch_input/pikvm_hid_kvm_switch_input.sh', 3]
+            kvm_switch_input_4:
+                type: cmd
+                cmd: ['/opt/pikvm_hid_kvm_switch_input/pikvm_hid_kvm_switch_input.sh', 4]
+            wol_backup_01:
+                type: wol
+                mac: {{ backup_01_mac_address }}
+            wol_nas_host_01:
+                type: wol
+                mac: {{ nas_host_01_mac_address }}
+            wol_vm_host_01:
+                type: wol
+                mac: {{ vm_host_01_mac_address }}
+            wol_vm_host_02:
+                type: wol
+                mac: {{ vm_host_02_mac_address }}
+            wol_vm_host_03:
+                type: wol
+                mac: {{ vm_host_03_mac_address }}
+            #ipmi_nas_host_01:
+            #    type: ipmi
+            #    host: ipmi.nas-host-01.{{ domain_name }}
+            #    user: {{ nas_host_01_ipmi_username }}
+            #    passwd: {{ nas_host_01_ipmi_password }}
+{% for ssh_remote_command_host in pikvm_ssh_remote_command_hosts | default([]) %}
+            reboot_{{ ssh_remote_command_host.yaml_key_name }}:
+                type: cmd
+                cmd:
+                    - '{{ pikvm_ssh_remote_command_script_path }}'
+                    - '{{ ssh_remote_command_host.hostname }}'
+                    - 'reboot'
+            shutdown_{{ ssh_remote_command_host.yaml_key_name }}:
+                type: cmd
+                cmd:
+                    - '{{ pikvm_ssh_remote_command_script_path }}'
+                    - '{{ ssh_remote_command_host.hostname }}'
+                    - 'shutdown'
+{% endfor %}
+{% for esphome_outlet in pikvm_esphome_outlets | default([]) %}
+            esphome_outlet_off_{{ esphome_outlet.yaml_key_name }}:
+                type: cmd
+                cmd:
+                    - '{{ pikvm_esphome_api_cli_script_path }}'
+                    - '{{ esphome_outlet.hostname }}'
+                    - 'switch_off'
+                    - '--encryption-key'
+                    - '{{ esphome_outlet.api_encryption_key }}'
+            esphome_outlet_on_{{ esphome_outlet.yaml_key_name }}:
+                type: cmd
+                cmd:
+                    - '{{ pikvm_esphome_api_cli_script_path }}'
+                    - '{{ esphome_outlet.hostname }}'
+                    - 'switch_on'
+                    - '--encryption-key'
+                    - '{{ esphome_outlet.api_encryption_key }}'
+{% endfor %}
+        scheme:
+            kvm_switch_input_1:
+                driver: kvm_switch_input_1
+                pin: 0
+                mode: output
+                switch: false
+            kvm_switch_input_2:
+                driver: kvm_switch_input_2
+                pin: 0
+                mode: output
+                switch: false
+            kvm_switch_input_3:
+                driver: kvm_switch_input_3
+                pin: 0
+                mode: output
+                switch: false
+            kvm_switch_input_4:
+                driver: kvm_switch_input_4
+                pin: 0
+                mode: output
+                switch: false
+            wol_backup_01:
+                driver: wol_backup_01
+                pin: 0
+                mode: output
+                switch: false
+            wol_nas_host_01:
+                driver: wol_nas_host_01
+                pin: 0
+                mode: output
+                switch: false
+            wol_vm_host_01:
+                driver: wol_vm_host_01
+                pin: 0
+                mode: output
+                switch: false
+            wol_vm_host_02:
+                driver: wol_vm_host_02
+                pin: 0
+                mode: output
+                switch: false
+            wol_vm_host_03:
+                driver: wol_vm_host_03
+                pin: 0
+                mode: output
+                switch: false
+            #ipmi_nas_host_01_status:
+            #    driver: ipmi_nas_host_01
+            #    pin: 0
+            #    mode: input
+            #ipmi_nas_host_01_on:
+            #    driver: ipmi_nas_host_01
+            #    pin: 1
+            #    mode: output
+            #ipmi_nas_host_01_on:
+            #    driver: ipmi_nas_host_01
+            #    pin: 2
+            #    mode: output
+            #ipmi_nas_host_01_reset:
+            #    driver: ipmi_nas_host_01
+            #    pin: 4
+            #    mode: output
+{% for ssh_remote_command_host in pikvm_ssh_remote_command_hosts | default([]) %}
+            reboot_{{ ssh_remote_command_host.yaml_key_name }}:
+                driver: reboot_{{ ssh_remote_command_host.yaml_key_name }}
+                pin: 0
+                mode: output
+                switch: false
+            shutdown_{{ ssh_remote_command_host.yaml_key_name }}:
+                driver: shutdown_{{ ssh_remote_command_host.yaml_key_name }}
+                pin: 0
+                mode: output
+                switch: false
+{% endfor %}
+{% for esphome_outlet in pikvm_esphome_outlets | default([]) %}
+            esphome_outlet_off_{{ esphome_outlet.yaml_key_name }}:
+                driver: esphome_outlet_off_{{ esphome_outlet.yaml_key_name }}
+                pin: 0
+                mode: output
+                switch: false
+            esphome_outlet_on_{{ esphome_outlet.yaml_key_name }}:
+                driver: esphome_outlet_on_{{ esphome_outlet.yaml_key_name }}
+                pin: 0
+                mode: output
+                switch: false
+{% endfor %}
+        view:
+            header:
+                title: Control
+            table:
+                -
+                    - "#backup-01"
+                    - "kvm_switch_input_1 | KVM Switch"
+                    - "wol_backup_01 | confirm | Power On (WoL)"
+                    - "reboot_backup_01 | confirm | Reboot"
+                    - "shutdown_backup_01 | confirm | Shutdown"
+                    - "esphome_outlet_on_backup_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_backup_01 | confirm | Outlet Off"
+                -
+                    - "#vm-host-01"
+                    - "kvm_switch_input_2 | KVM Switch"
+                    - "wol_vm_host_01 | confirm | Power On (WoL)"
+                    - "reboot_vm_host_01 | confirm | Reboot"
+                    - "shutdown_vm_host_01 | confirm | Shutdown"
+                    - "esphome_outlet_on_vm_host_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_vm_host_01 | confirm | Outlet Off"
+                -
+                    - "#vm-host-02"
+                    - "kvm_switch_input_3 | KVM Switch"
+                    - "wol_vm_host_02 | confirm | Power On (WoL)"
+                    - "reboot_vm_host_02 | confirm | Reboot"
+                    - "shutdown_vm_host_02 | confirm | Shutdown"
+                    - "esphome_outlet_on_vm_host_02 | confirm | Outlet On"
+                    - "esphome_outlet_off_vm_host_02 | confirm | Outlet Off"
+                -
+                    - "#temp"
+                    - "kvm_switch_input_4 | KVM Switch"
+                - []
+                -
+                    - "#mac-mini-01"
+                    - "esphome_outlet_on_mac_mini_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_mac_mini_01 | confirm | Outlet Off"
+                -
+                    - "#nas-host-01"
+                    #- ipmi_nas_host_01_status
+                    - "wol_nas_host_01 | confirm | Power On (WoL)"
+                    - "reboot_nas_host_01 | confirm | Reboot"
+                    - "shutdown_nas_host_01 | confirm | Shutdown"
+                    - "esphome_outlet_on_nas_host_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_nas_host_01 | confirm | Outlet Off"
+                    #- "ipmi_nas_host_01_on | confirm | IPMI On"
+                    #- "ipmi_nas_host_01_off | confirm | IPMI Off"
+                    #- "ipmi_nas_host_01_reset | confirm | IPMI Reset"
+                -
+                    - "#vm-host-03"
+                    - "wol_vm_host_03 | confirm | Power On (WoL)"
+                    - "reboot_vm_host_03 | confirm | Reboot"
+                    - "shutdown_vm_host_03 | confirm | Shutdown"
+                    - "esphome_outlet_on_vm_host_03 | confirm | Outlet On"
+                    - "esphome_outlet_off_vm_host_03 | confirm | Outlet Off"

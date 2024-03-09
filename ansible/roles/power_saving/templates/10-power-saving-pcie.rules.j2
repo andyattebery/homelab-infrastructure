@@ -1,0 +1,11 @@
+{% set power_saving_pcie_runtime_all_devices_enabled = power_saving_pcie_runtime_all_devices is defined and power_saving_pcie_runtime_all_devices -%}
+
+{% if power_saving_pcie_runtime_all_devices_enabled %}
+SUBSYSTEM=="pci", ATTR{power/control}="auto"
+{% endif -%}
+
+{% if not power_saving_pcie_runtime_all_devices_enabled %}
+{% for power_saving_pcie_runtime_device in power_saving_pcie_runtime_devices | default([]) %}
+SUBSYSTEM=="pci", ATTR{vendor}=="{{ power_saving_pcie_runtime_device.vendor_id }}", ATTR{device}=="{{ power_saving_pcie_runtime_device.device_id }}", ATTR{power/control}="auto"
+{% endfor %}
+{% endif -%}

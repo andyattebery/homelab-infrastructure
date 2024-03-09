@@ -3,11 +3,19 @@
   ansible.builtin.apt:
     name:
       - sanoid
+      - lz4
 - name: Install wakeonlan
   when: syncoid_destination_mac_address is defined
   ansible.builtin.apt:
     name:
       - wakeonlan
+- name: Set zfs permissions for non-root syncoid
+  ansible.builtin.command:
+    cmd: "zfs allow -u {{ syncoid_source_username }} bookmark {{ syncoid_dataset.syncoid_source_dataset }}"
+  changed_when: false
+  loop: "{{ syncoid_datasets }}"
+  loop_control:
+    loop_var: syncoid_dataset
 # - name: "Allow syncoid_source_username to manage systemd services"
 #   ansible.builtin.template:
 #     src: templates/polkit-rule-user-systemd-manage-units.pkla.j2
@@ -27,11 +35,21 @@
 #     state: directory
 #     mode: "0755"
 #     owner: "{{ syncoid_source_username }}"
-# - name: Add {{ syncoid_destination_host }} to known_hosts for syncoid ssh key # noqa name[template]
-#   ansible.builtin.known_hosts:
-#     path: "/home/{{ syncoid_source_username }}/.ssh/known_hosts"
-#     name: "{{ syncoid_destination_host }}"
-#     key: "{{ syncoid_destination_host }} {{ syncoid_source_ssh_public_key }}"
+- name: Set syncoid_destination_ssh_keyscan_result
+  ansible.builtin.command:
+    cmd: ssh-keyscan -t rsa,ed25519 {{ syncoid_destination_host }}
+  register: syncoid_destination_ssh_keyscan_result
+  changed_when: false
+  failed_when: false
+- name: Add {{ syncoid_destination_host }} to known_hosts # noqa name[template]
+  when: not syncoid_destination_ssh_keyscan_result.failed
+  become: false
+  ansible.builtin.known_hosts:
+    name: "{{ syncoid_destination_host }}"
+    key: "{{ ssh_keyscan_item }}"
+  loop: "{{ syncoid_destination_ssh_keyscan_result.stdout_lines }}"
+  loop_control:
+    loop_var: ssh_keyscan_item
 - name: Set empty syncoid_dataset_services
   ansible.builtin.set_fact:
     syncoid_dataset_services: []

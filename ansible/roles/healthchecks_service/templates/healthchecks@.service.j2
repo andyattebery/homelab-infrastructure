@@ -3,7 +3,7 @@ Description=Pings healthchecks (%i)
 
 [Service]
 
-ExecStart=/bin/bash -c 'IFS=: read -r UNIT UUID ACTION <<< "%i"; if [ "$ACTION" = "start" ]; then LOGS="" && EXIT_CODE="start"; elif [ "$ACTION" = "success" ]; then LOGS=$(journalctl --no-pager -n 50 -u $UNIT) && EXIT_CODE=0; elif [ "$ACTION" = "failure" ]; then LOGS=$(journalctl --no-pager -n 50 -u $UNIT) && EXIT_CODE=255; fi && curl -fSs -m 10 --retry 3 --data-raw "$LOGS" "{{ healthchecks_server_url }}/ping/$UUID/$EXIT_CODE"'
+ExecStart=/bin/bash -c 'IFS=: read -r UNIT UUID ACTION <<< "%i"; if [ "$ACTION" = "start" ]; then LOGS="" && EXIT_CODE="start"; elif [ "$ACTION" = "success" ]; then LOGS=$(journalctl --no-pager -n 50 -u $UNIT) && EXIT_CODE=0; elif [ "$ACTION" = "failure" ]; then LOGS=$(journalctl --no-pager -n 50 -u $UNIT) && EXIT_CODE=255; fi && curl --fail --silent --show-error --max-time 10 --retry 3 --data-raw "$LOGS" "{{ healthchecks_server_url }}/ping/$UUID/$EXIT_CODE"'
 Type=oneshot
 
 [Install]

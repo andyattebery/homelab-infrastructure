@@ -1,5 +1,8 @@
+# syncoid_destination
 
-# syncoid_destination README
+Configures host to be used as a syncoid destination.
+
+## Status: Production
 
 ## Variables
 

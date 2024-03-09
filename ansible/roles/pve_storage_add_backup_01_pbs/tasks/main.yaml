@@ -1,0 +1,35 @@
+---
+- name: Get PBS server datastore namespaces # noqa command-instead-of-shell
+  ansible.builtin.shell:
+    cmd: >
+      PBS_PASSWORD='{{ pve_storage_pbs_password }}'
+      proxmox-backup-client namespace list
+      --repository {{ pve_storage_pbs_repository }}
+  register: pve_storage_pbs_namespace_list_result
+  changed_when: false
+- name: Create PBS server datastore namespace # noqa command-instead-of-shell
+  when: "pve_storage_pbs_namespace not in pve_storage_pbs_namespace_list_result.stdout"
+  ansible.builtin.shell:
+    cmd: >
+      PBS_PASSWORD='{{ pve_storage_pbs_password }}'
+      proxmox-backup-client namespace create {{ pve_storage_pbs_namespace }}
+      --repository {{ pve_storage_pbs_repository }}
+  changed_when: true
+- name: Get storage
+  ansible.builtin.command:
+    cmd: pvesm status
+  register:
+    pvesm_status_result
+  changed_when: false
+- name: Add PBS storage
+  when: "pve_storage_name not in pvesm_status_result.stdout"
+  ansible.builtin.command:
+    cmd: >
+      pvesm add pbs {{ pve_storage_name }}
+      --server {{ pve_storage_pbs_server }}
+      --datastore {{ pve_storage_pbs_datastore }}
+      --namespace {{ pve_storage_pbs_namespace }}
+      --username {{ pbs_backup_01_username }}@pbs
+      --password {{ pbs_backup_01_password }}
+      --fingerprint {{ pve_storage_pbs_fingerprint }}
+  changed_when: true

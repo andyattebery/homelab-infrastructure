@@ -1,5 +1,8 @@
+# syncoid_source
 
-# syncoid_source README
+Configures syncoid to run as a systemd service on a timer.
+
+## Status: Production
 
 ## Variables
 

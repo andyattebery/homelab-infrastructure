@@ -1,5 +1,4 @@
-bcrypt
-dnspython
-jc
-passlib
-pip
+bcrypt ~= 4
+dnspython ~= 2
+jc ~= 1
+passlib ~= 1

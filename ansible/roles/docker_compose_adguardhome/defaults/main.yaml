@@ -1,4 +1,3 @@
 ---
 # adguardhome_docker_compose
 adguardhome_config_directory: "{{ (docker_compose_dst_directory_path, 'adguardhome', 'conf') | path_join }}"
-adguardhome_config_file_path: "{{ (adguardhome_config_directory, 'AdGuardHome.yaml') | path_join }}"

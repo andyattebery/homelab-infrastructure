@@ -1,0 +1,17 @@
+---
+- name: Configure CPU
+  when: power_saving_configure_cpu
+  ansible.builtin.include_tasks:
+    file: configure_cpu.yaml
+- name: Run configure_hard_drives
+  when: power_saving_configure_hard_drives and (power_saving_hard_drives is defined and power_saving_hard_drives | length > 0)
+  ansible.builtin.include_tasks:
+    file: configure_hard_drives.yaml
+- name: Run configure_pcie
+  when: power_saving_configure_pcie
+  ansible.builtin.include_tasks:
+    file: configure_pcie.yaml
+- name: Run configure_sata
+  when: power_saving_configure_sata
+  ansible.builtin.include_tasks:
+    file: configure_sata.yaml

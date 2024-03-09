@@ -1,0 +1,40 @@
+---
+- name: Remove openseachest deb
+  ansible.builtin.apt:
+    name: openseachest
+    state: absent
+# Remove bin links
+- name: Find bin links
+  ansible.builtin.find:
+    path: "{{ openseachest_bin_dir }}"
+    file_type: link
+    pattern: "openSeaChest_*"
+  register: openseachest_bin_links_result
+- name: Remove bin links
+  ansible.builtin.file:
+    path: "{{ openseachest_bin_link.path }}"
+    state: absent
+  # ansible.builtin.debug:
+  #   msg: "{{ openseachest_bin_link.path }}"
+  loop: "{{ openseachest_bin_links_result.files }}"
+  loop_control:
+    loop_var: openseachest_bin_link
+    label: "{{ openseachest_bin_link.path }}"
+# Remove man links
+- name: Find man links
+  ansible.builtin.find:
+    path: "{{ openseachest_man_dir }}"
+    file_type: link
+    pattern: "openSeaChest_*"
+    recurse: true
+  register: openseachest_man_links_result
+- name: Remove man links
+  ansible.builtin.file:
+    path: "{{ openseachest_man_link.path }}"
+    state: absent
+  # ansible.builtin.debug:
+  #   msg: "{{ openseachest_man_link.path }}"
+  loop: "{{ openseachest_man_links_result.files }}"
+  loop_control:
+    loop_var: openseachest_man_link
+    label: "{{ openseachest_man_link.path }}"

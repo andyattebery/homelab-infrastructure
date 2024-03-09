@@ -10,6 +10,7 @@
     node_fqdn: "{{ ansible_hostname }}.{{ domain_name }}"
   ansible.builtin.command:
     cmd: pvesh set /nodes/{{ ansible_hostname }}/config -acmedomain0 domain={{ node_fqdn }},plugin=cloudflare
+  changed_when: true
 - name: Get certificates info for node
   ansible.builtin.command:
     cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
@@ -21,3 +22,4 @@
   when: '"pveproxy-ssl.pem" not in pvesh_get_node_certificates_info.stdout'
   ansible.builtin.command:
     cmd: pvesh create /nodes/{{ ansible_hostname }}/certificates/acme/certificate
+  changed_when: true

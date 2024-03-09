@@ -1,0 +1,3 @@
+---
+certbot_dns_cloudflare_domain_name: "{{ ansible_host }}"
+certbot_directory_path: /etc/letsencrypt

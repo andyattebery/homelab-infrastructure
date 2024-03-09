@@ -6,13 +6,14 @@
       - lzop
       - mbuffer
       - acl
-- name: Allow syncoid user to run mount.zfs
-  ansible.builtin.lineinfile:
-    path: /etc/sudoers
-    line: "{{ syncoid_destination_username }} ALL=NOPASSWD: /usr/sbin/mount.zfs"
+      - lz4
+# - name: Allow syncoid user to run mount.zfs
+#   ansible.builtin.lineinfile:
+#     path: /etc/sudoers
+#     line: "{{ syncoid_destination_username }} ALL=NOPASSWD: /usr/sbin/mount.zfs"
 - name: Set zfs permissions for non-root syncoid destinations
   ansible.builtin.command:
-    cmd: "zfs allow -u {{ syncoid_destination_username }}  compression,create,destroy,hold,mount,mountpoint,receive,refreservation,release,rollback,snapshot {{ syncoid_destination_dataset }}"
+    cmd: "zfs allow -u {{ syncoid_destination_username }} compression,create,destroy,hold,mount,mountpoint,receive,refreservation,release,rollback,snapshot {{ syncoid_destination_dataset }}"
   changed_when: false
 # - name: Enable ACLs on syncoid_destination_dataset
 #   ansible.builtin.command:

@@ -1,0 +1,29 @@
+---
+- name: Remove symlinks to ~/settings
+  become: false
+  ansible.builtin.file:
+    path: "{{ dotfile_to_remove }}"
+    state: absent
+  loop:
+    - ~/.config/fish/config.fish
+    - ~/.config/fish/fish_plugins
+    - ~/.gitconfig
+    - ~/.gitconfig.user
+    - ~/.gitignore
+    - ~/.tmux.conf
+    - ~/.vimrc
+  loop_control:
+    loop_var: dotfile_to_remove
+- name: Clone dotfiles repository # noqa latest[git]
+  become: false
+  ansible.builtin.git:
+    repo: git@github.com:andyattebery/dotfiles.git
+    accept_newhostkey: true
+    dest: ~/dotfiles
+- name: Link dotfiles
+  become: false
+  ansible.builtin.command:
+    cmd: ./link_dotfiles.fish
+    chdir: ~/dotfiles
+  register: link_dotfiles_result
+  changed_when: '"already links to" not in link_dotfiles_result.stdout'

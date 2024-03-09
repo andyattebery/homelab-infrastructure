@@ -1,0 +1,82 @@
+#!/usr/bin/bash
+
+phase=$1
+mode=$2 # stop/suspend/snapshot
+vmid=$3
+
+# undef for Proxmox Backup Server storages
+# undef in phase 'job-init' except when --dumpdir is used directly
+# $DUMPDIR
+# undef when --dumpdir is used directly
+# $STOREID
+
+# $VMTYPE # lxc/qemu
+
+# undef for Proxmox Backup Server storages
+# $DUMPDIR
+
+# undef when --dumpdir is used directly
+# $STOREID
+
+# $HOSTNAME
+
+# target is only available in phase 'backup-end'
+# $TARGET
+
+# logfile is only available in phase 'log-end'
+# undef for Proxmox Backup Server storages
+# $LOGFILE
+
+{% if pve_backup_job_script_healthchecks_io_uuid is defined %}
+update_healthchecks_io() {
+    action=$1
+
+    if [ $action = 'start' ]; then
+        check_status="start"
+    elif [ $action = 'fail' ]; then
+        check_status="fail"
+    elif [ $action = 'success' ]; then
+        check_status=""
+    else
+        echo "$action is an invalid action."
+        return 1
+    fi
+
+    curl \
+    --fail --silent --show-error --max-time 10 --retry 3 \
+    "{{ pve_backup_job_script_healthchecks_io_url }}/ping/{{ pve_backup_job_script_healthchecks_io_uuid }}/$check_status"
+}
+{% endif %}
+
+PHASE_JOB_INIT="job-init"
+PHASE_JOB_START="job-start"
+PHASE_JOB_END="job-end"
+PHASE_JOB_ABORT="job-abort"
+PHASE_BACKUP_START="backup-start"
+PHASE_BACKUP_END="backup-end"
+PHASE_BACKUP_ABORT="backup-abort"
+PHASE_LOG_END="log-end"
+PHASE_PRE_STOP="pre-stop"
+PHASE_PRE_RESTART="pre-restart"
+PHASE_POST_RESTART="post-restart"
+
+if [ $phase = $PHASE_JOB_INIT ]; then
+{% for command in pve_backup_job_script_job_init_commands | default([]) %}
+    {{ command }}
+{% endfor %}
+elif [ $phase = $PHASE_JOB_START ]; then
+{% if pve_backup_job_script_healthchecks_io_uuid is defined %}
+    update_healthchecks_io start
+{% endif %}
+elif [ $phase = $PHASE_JOB_ABORT ]; then
+{% if pve_backup_job_script_healthchecks_io_uuid is defined %}
+    update_healthchecks_io fail
+{% endif %}
+elif [ $phase = $PHASE_JOB_END ]; then
+{% if pve_backup_job_script_healthchecks_io_uuid is defined %}
+    update_healthchecks_io success
+{% endif %}
+{% for command in pve_backup_job_script_job_end_commands | default([]) %}
+    {{ command }}
+{% endfor %}
+fi

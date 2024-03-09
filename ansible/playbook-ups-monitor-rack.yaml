@@ -4,7 +4,7 @@
   become: true
 
   roles:
-    - role: configure_server
+    # - configure_server
     - role: nut
       vars:
         nut_enable_server: true
@@ -13,9 +13,9 @@
           - name: "{{ ups_monitor_rack_nut_ups_name }}"
             driver: usbhid-ups # required
             port: auto # required
-            desc: APC Back-UPS RS1000G
+            desc: APC Smart-UPS SMT1500RM2U
             vendorid: "051D"
-            productid: "0002"
+            productid: "0003"
         nut_monitor_primary_password: "{{ ups_monitor_rack_nut_upsmon_password }}"
         nut_monitor_secondary_users:
           - name: homeassistant
@@ -24,5 +24,7 @@
             password: "{{ ups_monitor_rack_nut_nas_host_01_password }}"
           - name: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
             password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
+          - name: "{{ ups_monitor_rack_nut_network_02_username }}"
+            password: "{{ ups_monitor_rack_nut_network_02_password }}"
         nut_notify_pushover_token: "{{ nut_pushover_token }}"
         nut_notify_pushover_user_key: "{{ pushover_user_key }}"

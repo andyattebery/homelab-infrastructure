@@ -1,0 +1,39 @@
+---
+- name: Configure backup-01
+  hosts: backup-01
+  become: true
+
+  roles:
+    - pbs_config
+    - pbs_acme_certificate
+    - geerlingguy.ntp
+    - configure_server
+    - role: power_saving
+    - role: backup_destination
+      vars:
+        syncoid_destination_username: "syncoid"
+        syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+        syncoid_destination_dataset: backups
+    - role: nut
+      vars:
+        nut_enable_client: true
+        nut_client_servers:
+          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+            server_address: "{{ ups_monitor_rack_nut_server_address }}"
+            username: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
+            password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
+    - role: pikvm_remote_command
+      vars:
+        pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+
+  tasks:
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/backup-01/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+    # - name: Wake on LAN
+      # echo 'enabled' > '/sys/class/net/enp4s0/device/power/wakeup'
+      # echo 'enabled' > 'sys/class/net/enp5s0/device/power/wakeup'

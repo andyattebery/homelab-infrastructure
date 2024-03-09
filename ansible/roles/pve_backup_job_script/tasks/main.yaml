@@ -1,0 +1,33 @@
+---
+- name: Copy pve_backup_job_script
+  ansible.builtin.template:
+    src: pve_backup_job_script.bash.j2
+    dest: "{{ pve_backup_job_script_path }}"
+    mode: "0755"
+- name: Get backup jobs
+  ansible.builtin.command:
+    cmd: pvesh get /cluster/backup --output-format json
+  register: pvesh_get_backup_jobs_result
+  changed_when: false
+- name: Get back job details
+  ansible.builtin.command:
+    cmd: pvesh get /cluster/backup/{{ pve_backup_job_item.id }} --output-format json
+  loop: "{{ pvesh_get_backup_jobs_result.stdout | from_json }}"
+  loop_control:
+    loop_var: pve_backup_job_item
+  changed_when: false
+  register: pvesh_backup_job_details_result
+- name: Add script to backup job
+  vars:
+    pve_backup_job_detail: "{{ pve_backup_job_detail_item.stdout }}"
+  when: pve_backup_job_detail.script is not defined
+  # ansible.builtin.debug:
+  #   msg: "{{ pve_backup_job_detail }}"
+  ansible.builtin.command:
+    cmd: >
+      pvesh set /cluster/backup/{{ pve_backup_job_detail.id }}
+      --script {{ pve_backup_job_script_path }}
+  changed_when: true
+  loop: "{{ pvesh_backup_job_details_result.results }}"
+  loop_control:
+    loop_var: pve_backup_job_detail_item

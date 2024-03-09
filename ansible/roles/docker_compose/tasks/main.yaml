@@ -3,6 +3,9 @@
   when: docker_compose_uid is not defined and docker_compose_gid is not defined
   ansible.builtin.include_role:
     name: ansible_non_become_user_facts
+- name: Set docker_compose_dst_directory_path fact
+  ansible.builtin.set_fact:
+    docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path }}"
 - name: Create docker compose directory
   ansible.builtin.file:
     path: "{{ docker_compose_dst_directory_path }}"

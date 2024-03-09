@@ -1,0 +1,2 @@
+---
+adguardhome_config_file_path: "{{ (adguardhome_config_directory, 'AdGuardHome.yaml') | path_join }}"

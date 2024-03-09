@@ -1,0 +1,2 @@
+---
+apt_add_launchpad_ppa_url: "https://launchpad.net/~{{ apt_add_launchpad_ppa_user }}/+archive/ubuntu/{{ apt_add_launchpad_ppa_repository }}"

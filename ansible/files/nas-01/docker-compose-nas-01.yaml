@@ -1,28 +1,48 @@
 ---
 services:
-  gitea:
-    image: gitea/gitea:latest
-    container_name: gitea
+  # gitea:
+  #   image: gitea/gitea:latest
+  #   container_name: gitea
+  #   environment:
+  #     - USER_UID=${PUID}
+  #     - USER_GID=${PGID}
+  #   restart: unless-stopped
+  #   ports:
+  #     - "222:22" # SSH
+  #   volumes:
+  #     - /mnt/tank/data/gitea:/data
+  #     - /etc/timezone:/etc/timezone:ro
+  #     - /etc/localtime:/etc/localtime:ro
+  #   networks:
+  #     - traefik
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.http.routers.gitea.rule=Host(`gitea.$DOMAIN_NAME`)
+  #     - traefik.http.routers.gitea.entrypoints=websecure
+  #     - traefik.http.routers.gitea.tls.certresolver=cloudflare
+  #     - traefik.http.routers.gitea.service=gitea
+  #     - traefik.http.services.gitea.loadbalancer.server.port=3000
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:1.21
+    container_name: forgejo
     environment:
       - USER_UID=${PUID}
       - USER_GID=${PGID}
     restart: unless-stopped
-    ports:
-      - "222:22" # SSH
-    volumes:
-      - /mnt/tank/data/gitea:/data
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
     networks:
       - traefik
+    volumes:
+      - /mnt/tank/forgejo:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - '222:22'
     labels:
       - traefik.enable=true
-      - traefik.http.routers.gitea.rule=Host(`gitea.$DOMAIN_NAME`)
-      - traefik.http.routers.gitea.entrypoints=websecure
-      - traefik.http.routers.gitea.tls.certresolver=cloudflare
-      - traefik.http.routers.gitea.service=gitea
-      - traefik.http.services.gitea.loadbalancer.server.port=3000
-      - dsm.traefik.router=gitea
+      - traefik.http.routers.forgejo.rule=Host(`forgejo.$DOMAIN_NAME`)
+      - traefik.http.routers.forgejo.entrypoints=websecure
+      - traefik.http.routers.forgejo.tls.certresolver=cloudflare
+      - traefik.http.services.forgejo.loadbalancer.server.port=3000
   iperf:
     container_name: iperf
     image: mlabbe/iperf3
@@ -132,6 +152,7 @@ services:
       - traefik.http.routers.netbootxyz-assets.tls.certresolver=cloudflare
       - traefik.http.routers.netbootxyz-assets.service=netbootxyz-assets
       - traefik.http.services.netbootxyz-assets.loadbalancer.server.port=80
+      - dsm.traefik.router=netbootxyz
   resilio_sync:
     image: lscr.io/linuxserver/resilio-sync:latest
     container_name: resilio-sync
@@ -141,8 +162,7 @@ services:
       - TZ=${TZ}
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/resilio-sync/config:/config
-      - /mnt/storage:/storage
-      - /mnt/depot-cache/resilio-sync:/downloads
+      - ${DOCKER_DATA_DIRECTORY}/resilio-sync/downloads:/downloads
       - /mnt/storage:/sync
     ports:
       - 53255:55555

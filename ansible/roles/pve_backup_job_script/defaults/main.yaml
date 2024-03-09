@@ -1,0 +1,2 @@
+---
+pve_backup_job_script_path: /usr/local/bin/pve_backup_job_script

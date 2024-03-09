@@ -15,6 +15,7 @@
   roles:
     - configure_server
     - artis3n.tailscale
+    - backup_destination
 
   tasks:
     - name: Add to hosts file
@@ -25,6 +26,3 @@
         owner: root
         group: root
         mode: '0644'
-    - name: Configure backup destination
-      ansible.builtin.include_role:
-        name: backup_destination

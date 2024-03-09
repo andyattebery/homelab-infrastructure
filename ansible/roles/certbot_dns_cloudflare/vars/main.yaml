@@ -1,0 +1,4 @@
+---
+certbot_dns_cloudflare_credentials_path: "{{ (certbot_directory_path, 'cloudflare.ini') | path_join }}"
+certbot_certificate_directory_path: "{{ (certbot_directory_path, 'live', certbot_dns_cloudflare_domain_name) | path_join }}"
+certbot_renewal_hooks_deploy_path: "{{ (certbot_directory_path, 'renewal-hooks', 'deploy') | path_join }}"

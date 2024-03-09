@@ -3,7 +3,7 @@
   become: true
 
   roles:
-    - ansible-role-proxmox-ve-install
+    - pve_install
     - configure_server
 
   tasks:
@@ -31,7 +31,7 @@
         update_cache: true
     - name: Add udev rule for r8125
       ansible.builtin.include_role:
-        name: ansible-role-realtek-r8125-dkms
+        name: realtek_r8125_dkms
         tasks_from: add_udev_rule
     - name: Configure network interfaces
       ansible.builtin.copy:

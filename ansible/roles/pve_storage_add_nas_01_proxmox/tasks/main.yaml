@@ -5,8 +5,14 @@
   register:
     pvesm_status_result
   changed_when: false
-- name: Add nas_01_proxmox storage
-  when: "not 'nas_01_proxmox' in pvesm_status_result.stdout"
+- name: Add {{ pve_storage_add_nas_01_proxmox_storage_name }} storage # noqa name[template]
+  when: "not pve_storage_add_nas_01_proxmox_storage_name in pvesm_status_result.stdout"
   ansible.builtin.command:
-    cmd: "pvesm add cifs nas_01_proxmox --server nas-01.{{ domain_name }} --share proxmox --username {{ smb_nas_01_username }} --password {{ smb_nas_01_password }} --content images,rootdir,vztmpl,backup,iso,snippets"
-  changed_when: false
+    cmd: >
+      pvesm add cifs {{ pve_storage_add_nas_01_proxmox_storage_name }}
+      --server nas-01.{{ domain_name }}
+      --share {{ pve_storage_add_nas_01_proxmox_smb_share_name }}
+      --username {{ smb_nas_01_username }}
+      --password {{ smb_nas_01_password }}
+      --content images,rootdir,vztmpl,backup,iso,snippets
+  changed_when: true

@@ -1,0 +1,3 @@
+---
+pve_storage_add_nas_01_proxmox_storage_name: nas-01_proxmox
+pve_storage_add_nas_01_proxmox_smb_share_name: proxmox

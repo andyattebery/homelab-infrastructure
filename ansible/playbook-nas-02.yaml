@@ -1,3 +1,4 @@
+# Not used
 ---
 - name: Configure nas
   hosts: nas-02

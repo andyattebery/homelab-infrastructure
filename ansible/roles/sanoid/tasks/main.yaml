@@ -1,0 +1,15 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    name:
+      - sanoid
+- name: Create {{ sanoid_conf_path | dirname }}
+  ansible.builtin.file:
+    dest: "{{ sanoid_conf_path | dirname }}"
+    state: directory
+    mode: "0755"
+- name: Copy sanoid.conf
+  ansible.builtin.template:
+    src: sanoid.conf.j2
+    dest: "{{ sanoid_conf_path }}"
+    mode: "0644"

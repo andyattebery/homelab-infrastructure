@@ -1,0 +1,22 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    certResolvers: {}
+  letsencrypt:
+    # for challenge options cf. https://doc.traefik.io/traefik/https/acme/
+    email: email@example.com
+    dnsChallenge:
+      # also add the provider's required configuration under env
+      # or expand then from secrets/configmaps with envfrom
+      # cf. https://doc.traefik.io/traefik/https/acme/#providers
+      provider: cloudflare
+      # add futher options for the dns challenge as needed
+      # cf. https://doc.traefik.io/traefik/https/acme/#dnschallenge
+      delayBeforeCheck: 30
+      resolvers:
+        - 1.1.1.1
+        - 8.8.8.8

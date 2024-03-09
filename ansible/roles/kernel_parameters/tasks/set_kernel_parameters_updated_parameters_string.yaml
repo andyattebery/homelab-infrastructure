@@ -9,34 +9,10 @@
     cmd: "echo {{ __kernel_parameters_existing_parameters_string | quote }} | xargs --max-args=1"
   changed_when: false
   register: __kernel_parameters_existing_parameters_lines_result
-- name: Set __kernel_parameters_existing_kv_list
-  ansible.builtin.set_fact:
-    __kernel_parameters_existing_kv_list: "{{ __kernel_parameters_existing_parameters_lines_result.stdout_lines | map('community.general.jc', 'kv', 'raw=true') | map('dict2items') | flatten }}"
-- name: Set __kernel_parameters_existing_parameters_dict_with_value_list
-  ansible.builtin.set_fact:
-    __kernel_parameters_existing_parameters_dict_with_value_list: "{{ __kernel_parameters_existing_parameters_dict_with_value_list | default({}) | ansible.builtin.combine({parameter_kv.key: [parameter_kv.value]}, list_merge='append') }}"
-  loop: "{{ __kernel_parameters_existing_kv_list }}"
-  loop_control:
-    loop_var: parameter_kv
-# - name: debug
-#   ansible.builtin.debug:
-#     var: __kernel_parameters_existing_parameters_dict_with_value_list
-- name: Set __kernel_parameters_new_parameters_dict_with_value_list
-  ansible.builtin.set_fact:
-    __kernel_parameters_new_parameters_dict_with_value_list: "{{ __kernel_parameters_new_parameters_dict_with_value_list | default({}) | ansible.builtin.combine({parameter_kv.key: [parameter_kv.value] | flatten}, list_merge='append') }}"
-  loop: "{{ kernel_parameters_new_parameters | dict2items }}"
-  loop_control:
-    loop_var: parameter_kv
-# - name: debug
-#   ansible.builtin.debug:
-#     var: __kernel_parameters_new_parameters_dict_with_value_list
-- name: Set __kernel_parameters_updated_parameters_dict_with_value_list for template
-  ansible.builtin.set_fact:
-    __kernel_parameters_updated_parameters_dict_with_value_list: "{{ __kernel_parameters_existing_parameters_dict_with_value_list | combine(__kernel_parameters_new_parameters_dict_with_value_list) }}"
-# - name: debug
-#   ansible.builtin.debug:
-#     var: __kernel_parameters_updated_parameters_dict_with_value_list
 - name: Set __kernel_parameters_updated_parameters_string
+  vars:
+    kernel_parameters_existing_parameters: "{{ __kernel_parameters_existing_parameters_lines_result.stdout_lines | map('community.general.jc', 'kv', 'raw=true') }}"
+    kernel_parameters_updated_parameters: "{{ kernel_parameters_existing_parameters | combine(kernel_parameters_new_parameters) }}"
   ansible.builtin.set_fact:
     __kernel_parameters_updated_parameters_string: "{{ lookup('ansible.builtin.template', 'kernel_parameters_string.j2') }}"
 # - name: debug

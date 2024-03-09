@@ -1,0 +1,61 @@
+#!/usr/bin/sh
+
+usage() {
+    echo "Usage: hard_drive_power_saving.sh <configure|show_epc_settings|show_power_mode>"
+}
+
+configure() {
+{% for power_saving_hard_drive in power_saving_hard_drives | default([]) %}
+    # {{ power_saving_hard_drive.dev -}}
+
+{% set epc_idle_a_enabled = power_saving_hard_drive.epc_idle_a is defined and power_saving_hard_drive.epc_idle_a != 'disable' %}
+{% set epc_idle_b_enabled = power_saving_hard_drive.epc_idle_b is defined and power_saving_hard_drive.epc_idle_b != 'disable' %}
+{% set epc_idle_c_enabled = power_saving_hard_drive.epc_idle_c is defined and power_saving_hard_drive.epc_idle_c != 'disable' %}
+{% set epc_standby_y_enabled = power_saving_hard_drive.epc_standby_y is defined and power_saving_hard_drive.epc_standby_y != 'disable' %}
+{% set epc_standby_z_enabled = power_saving_hard_drive.epc_standby_z is defined and power_saving_hard_drive.epc_standby_z != 'disable' %}
+
+{% if epc_idle_a_enabled or epc_idle_b_enabled or epc_idle_c_enabled or epc_standby_y_enabled or epc_standby_z_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --disableAPM
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --EPCfeature enable
+{% endif %}
+{% if epc_idle_a_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --idle_a {{ power_saving_hard_drive.epc_idle_a }}
+{% endif %}
+{% if epc_idle_b_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --idle_b {{ power_saving_hard_drive.epc_idle_b }}
+{% endif %}
+{% if epc_idle_c_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --idle_c {{ power_saving_hard_drive.epc_idle_c }}
+{% endif %}
+{% if epc_standby_y_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --standby_y {{ power_saving_hard_drive.epc_standby_y }}
+{% endif %}
+{% if epc_standby_z_enabled %}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --standby_z {{ power_saving_hard_drive.epc_standby_z }}
+{% endif %}
+
+{% endfor %}
+}
+
+show_epc_settings() {
+{% for power_saving_hard_drive in power_saving_hard_drives | default([]) %}
+    # {{ power_saving_hard_drive.dev }}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --showEPCSettings
+
+{% endfor %}
+}
+
+show_power_mode() {
+{% for power_saving_hard_drive in power_saving_hard_drives | default([]) %}
+    # {{ power_saving_hard_drive.dev }}
+    {{ openseachest_powercontrol_base_command }} --device {{ power_saving_hard_drive.dev }} --checkPowerMode
+
+{% endfor %}
+}
+
+case "$1" in
+    configure ) configure;;
+    show_epc_settings ) show_epc_settings;;
+    show_power_mode ) show_power_mode;;
+    * ) usage;;
+esac

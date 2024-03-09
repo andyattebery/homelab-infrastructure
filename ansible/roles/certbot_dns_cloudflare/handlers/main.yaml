@@ -1,0 +1,15 @@
+---
+- name: Symlink certificate files
+  when: certbot_dns_cloudflare_symlink_cert_files is defined
+  ansible.builtin.include_tasks:
+    file: link_cert_file.yaml
+  loop: "{{ certbot_dns_cloudflare_symlink_cert_files }}"
+  loop_control:
+    loop_var: symlink_item
+  listen: "certbot certificate created"
+- name: Run post create command
+  when: cerbot_dns_cloudflare_post_create_command is defined
+  ansible.builtin.command:
+    cmd: cerbot_dns_cloudflare_post_create_command
+  changed_when: true
+  listen: "certbot certificate created"
