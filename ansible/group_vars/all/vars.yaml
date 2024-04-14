@@ -8,6 +8,8 @@ lang_two_letter: en
 timezone: "{{ vault_timezone }}"
 
 # ssh keys
+backup_01_syncoid_ssh_private_key: "{{ vault_backup_01_syncoid_ssh_private_key }}"
+backup_01_syncoid_ssh_public_key: "{{ vault_backup_01_syncoid_ssh_public_key }}"
 blink_ssh_public_key: "{{ vault_blink_ssh_public_key }}"
 ideapad_3_ssh_public_key: "{{ vault_ideapad_3_ssh_public_key }}"
 nas_01_syncoid_ssh_private_key: "{{ vault_nas_01_syncoid_ssh_private_key }}"
@@ -102,6 +104,12 @@ linkding_superuser_password: "{{ vault_linkding_superuser_password }}"
 linkwarden_postgres_user: "{{ vault_linkwarden_postgres_user }}"
 linkwarden_postgres_password: "{{ vault_linkwarden_postgres_password }}"
 linkwarden_nextauth_secret: "{{ vault_linkwarden_nextauth_secret }}"
+
+miniflux_admin_username: "{{ vault_miniflux_admin_username }}"
+miniflux_admin_password: "{{ vault_miniflux_admin_password }}"
+miniflux_db_name: "{{ vault_miniflux_db_name }}"
+miniflux_db_username: "{{ vault_miniflux_db_username }}"
+miniflux_db_password: "{{ vault_miniflux_db_password }}"
 
 minio_username: "{{ vault_minio_username }}"
 minio_password: "{{ vault_minio_password }}"

@@ -9,23 +9,10 @@
   roles:
     - configure_server
     - geerlingguy.docker
-
-  tasks:
-    - name: Add ssh authorized keys
-      ansible.posix.authorized_key:
-        user: "{{ ansible_user }}"
-        key: "{{ work_laptop_01_ssh_public_key }}"
-        state: present
-    - name: Configure docker compose roles
-      ansible.builtin.include_role:
-        name: "{{ role }}"
-      loop:
-        - docker_compose_diun
-        - docker_compose_wireguard
-        - docker_compose_traefik # Needs to be before docker-compose-cloud-01 for the traefik network to be created
-      loop_control:
-        loop_var: role
-    - name: Configure cloud-01 docker compose
+    - docker_compose_diun
+    - docker_compose_wireguard
+    - docker_compose_traefik # Needs to be before docker-compose-cloud-01 for the traefik network to be created
+    - role: docker_compose
       vars:
         docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/cloud-01/docker-compose-cloud-01.yml
@@ -37,8 +24,19 @@
           FRESHRSS_EMAIL: "{{ freshrss_email }}"
           FRESHRSS_API_PASSWORD: "{{ freshrss_api_password }}"
           FRESHRSS_UPDATE_FEEDS_CRON_MIN: 9,39
-      ansible.builtin.include_role:
-        name: docker_compose
+          MINIFLUX_DOMAIN_NAME: "miniflux.{{ domain_name }}"
+          MINIFLUX_ADMIN_USERNAME: "{{ miniflux_admin_username }}"
+          MINIFLUX_ADMIN_PASSWORD: "{{ miniflux_admin_password }}"
+          MINIFLUX_DB_NAME: "{{ miniflux_db_name }}"
+          MINIFLUX_DB_USERNAME: "{{ miniflux_db_username }}"
+          MINIFLUX_DB_PASSWORD: "{{ miniflux_db_password }}"
+
+  tasks:
+    - name: Add ssh authorized keys
+      ansible.posix.authorized_key:
+        user: "{{ ansible_user }}"
+        key: "{{ work_laptop_01_ssh_public_key }}"
+        state: present
     - name: FreshRSS update feeds cron job
       ansible.builtin.cron:
         name: "Run FreshRSS feed updater"

@@ -1,5 +1,8 @@
 vault_ansible_user: {{ op://Personal/ansible all group vars/variables/ansible_user}}
 vault_backup_01_mac_address: {{ op://Personal/backup-01/hardware/mac address }}
+vault_backup_01_syncoid_ssh_private_key: |
+{{ op://Personal/2ytdcuqc72zqrejql63gcmm6gi/add more/indented private key }}
+vault_backup_01_syncoid_ssh_public_key: {{ op://Personal/2ytdcuqc72zqrejql63gcmm6gi/public key }} backup-01_syncoid
 vault_blink_ssh_public_key: {{ op://Personal/vn2mbjsxznrduprppa427rlzvm/public key }}
 vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
@@ -30,13 +33,18 @@ vault_linkding_superuser_password: {{ op://Personal/linkding/password }}
 vault_linkwarden_postgres_user: {{ op://Personal/Linkwarden/config/postgres_user }}
 vault_linkwarden_postgres_password: {{ op://Personal/Linkwarden/config/postgres_password }}
 vault_linkwarden_nextauth_secret: {{ op://Personal/Linkwarden/config/nextauth_secret }}
+vault_miniflux_admin_username: "{{ op://Personal/miniflux/username }}"
+vault_miniflux_admin_password: "{{ op://Personal/miniflux/password }}"
+vault_miniflux_db_name: "{{ op://Personal/miniflux/database/name }}"
+vault_miniflux_db_username: "{{ op://Personal/miniflux/database/username }}"
+vault_miniflux_db_password: "{{ op://Personal/miniflux/database/password }}"
 vault_minio_password: {{ op://Personal/minio/password }}
 vault_minio_username: {{ op://Personal/minio/username }}
 vault_myjdownloader_password: {{ op://Personal/MyJDownloader/password }}
 vault_myjdownloader_username: {{ op://Personal/MyJDownloader/validationKey }}
 vault_nas_01_syncoid_ssh_private_key: |
-{{ op://Personal/ptxqxllkmedp37r3kf6j723sv4/indented private key }}
-vault_nas_01_syncoid_ssh_public_key: {{ op://Personal/ptxqxllkmedp37r3kf6j723sv4/public key }} nas-01_syncoid
+{{ op://Personal/7qdbfxgaseannltp3kppbwks3e/indented private key }}
+vault_nas_01_syncoid_ssh_public_key: {{ op://Personal/7qdbfxgaseannltp3kppbwks3e/public key }} nas-01_syncoid
 vault_nas_01_tailscale_ip: {{ op://Personal/nas-01/tailscale/ip }}
 vault_nas_02_syncoid_password: {{ op://Personal/nas-02/syncoid/password }}
 vault_nas_02_syncoid_username: {{ op://Personal/nas-02/syncoid/username }}
