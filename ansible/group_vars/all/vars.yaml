@@ -86,6 +86,10 @@ freshrss_username: "{{ vault_freshrss_username }}"
 freshrss_password: "{{ vault_freshrss_password }}"
 freshrss_api_password: "{{ vault_freshrss_api_password }}"
 
+healthchecks_superuser_email: "{{ vault_healthchecks_superuser_email }}"
+healthchecks_superuser_password: "{{ vault_healthchecks_superuser_password }}"
+healthchecks_pushover_subscription_url: "{{ vault_healthchecks_pushover_subscription_url }}"
+healthchecks_pushover_token: "{{ vault_healthchecks_pushover_token }}"
 healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
@@ -161,6 +165,7 @@ remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}
 remote_power_control_homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"
 
 smtp_host: "{{ vault_smtp_host }}"
+smtp_port: "{{ vault_smtp_port }}"
 smtp_username: "{{ vault_smtp_username }}"
 smtp_password: "{{ vault_smtp_password }}"
 

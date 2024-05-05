@@ -19,6 +19,10 @@ vault_freshrss_api_password: {{ op://Personal/adguardhome-02/password }}0
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
 vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}
+vault_healthchecks_superuser_email: {{ op://Personal/Healthchecks/username }}
+vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
+vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
+vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
 vault_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/ansible }}
 vault_homelab_domain_name: {{ op://Personal/Home Lab Domain Name/notesPlain }}
 vault_ideapad_3_ssh_public_key: {{ op://Personal/h3ycxizrlk7bsfnt5li3bqlcua/public key}}
@@ -105,6 +109,7 @@ vault_smb_nas_01_password: {{ op://Personal/nas-01/smb/password }}
 vault_smb_nas_01_uid: {{ op://Personal/nas-01/smb/uid }}
 vault_smb_nas_01_username: {{ op://Personal/nas-01/username }}
 vault_smtp_host: {{ op://Personal/ansible SMTP/add more/host }}
+vault_smtp_port: {{ op://Personal/ansible SMTP/add more/port }}
 vault_smtp_password: {{ op://Personal/ansible SMTP/password }}
 vault_smtp_username: {{ op://Personal/ansible SMTP/username }}
 vault_snapraid_btrfs_runner_from_email: {{ op://Personal/snapraid-btrfs-runner/add more/from email}}

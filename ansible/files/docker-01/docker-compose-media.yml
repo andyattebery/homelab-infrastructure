@@ -1,0 +1,68 @@
+---
+services:
+  jellystat:
+    image: cyfershepard/jellystat:latest
+    container_name: jellystat
+    depends_on:
+      - jellystat-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${JELLYSTAT_DB_USERNAME}
+      POSTGRES_PASSWORD: ${JELLYSTAT_DB_PASSWORD}
+      POSTGRES_IP: jellystat-db
+      POSTGRES_PORT: 5432
+      JWT_SECRET: ${JELLYSTAT_JWT_SECRET}
+      TZ: ${TZ}
+    networks:
+      - traefik
+      - jellystat
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/jellystat:/app/backend/backup-data # Mounting the volume
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.jellystat.rule=Host(`jellystat.$DOMAIN_NAME`)
+      - traefik.http.routers.jellystat.entrypoints=websecure
+      - traefik.http.routers.jellystat.tls.certresolver=cloudflare
+      - traefik.http.services.jellystat.loadbalancer.server.port=3000
+  jellystat-db:
+    image: postgres:15
+    container_name: jellystat-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${JELLYSTAT_DB_USERNAME}
+      POSTGRES_PASSWORD: ${JELLYSTAT_DB_PASSWORD}
+    networks:
+      - jellystat
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/jellystat-db:/var/lib/postgresql/data
+  tautulli:
+    image: tautulli/tautulli:latest
+    container_name: tautulli
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/tautulli/config:/config
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.tautulli.rule=Host(`tautulli.$DOMAIN_NAME`)
+      - traefik.http.routers.tautulli.entrypoints=websecure
+      - traefik.http.routers.tautulli.tls.certresolver=cloudflare
+      - traefik.http.services.tautulli.loadbalancer.server.port=8181
+  trakt-for-appletv:
+    image: forgejo.omegaho.me/andy/trakt-for-appletv:latest
+    container_name: trakt-for-appletv
+    network_mode: host
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/trakt-for-appletv/data:/opt/TVRemote/data
+
+networks:
+  jellystat:
+    name: jellystat
+  traefik:
+    name: traefik
+    external: true

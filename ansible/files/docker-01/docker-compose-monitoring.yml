@@ -1,0 +1,59 @@
+---
+services:
+  healthchecks:
+    image: lscr.io/linuxserver/healthchecks:latest
+    container_name: healthchecks
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - SITE_ROOT=https://healthchecks.${DOMAIN_NAME}
+      - SITE_NAME=Healthchecks
+      - DEFAULT_FROM_EMAIL=healthchecks@${DOMAIN_NAME}
+      - EMAIL_HOST=${HEALTHCHECKS_EMAIL_HOST}
+      - EMAIL_PORT=${HEALTHCHECKS_EMAIL_PORT}
+      - EMAIL_HOST_USER=${HEALTHCHECKS_EMAIL_HOST_USER}
+      - EMAIL_HOST_PASSWORD=${HEALTHCHECKS_EMAIL_HOST_PASSWORD}
+      - EMAIL_USE_TLS=${HEALTHCHECKS_EMAIL_USE_TLS}
+      - SUPERUSER_EMAIL=${HEALTHCHECKS_SUPERUSER_EMAIL}
+      - SUPERUSER_PASSWORD=${HEALTHCHECKS_SUPERUSER_PASSWORD}
+      - REGENERATE_SETTINGS=True #optional
+      - APPRISE_ENABLED=False #optional
+      - PUSHOVER_API_TOKEN=${HEALTHCHECKS_PUSHOVER_API_TOKEN}
+      - PUSHOVER_SUBSCRIPTION_URL=${HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL}
+      - DEBUG=False
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/healthchecks:/config
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.healthchecks.rule=Host(`healthchecks.$DOMAIN_NAME`)
+      - traefik.http.routers.healthchecks.entrypoints=websecure
+      - traefik.http.routers.healthchecks.tls.certresolver=cloudflare
+      - traefik.http.services.healthchecks.loadbalancer.server.port=8000
+      - homepage.group=Utilities
+      - homepage.name=Healthchecks
+      - homepage.icon=healthchecks
+      - homepage.href=healthchecks.$DOMAIN_NAME
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime-kuma
+    restart: unless-stopped
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/uptime-kuma/data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.uptime-kuma.rule=Host(`uptime-kuma.$DOMAIN_NAME`)
+      - traefik.http.routers.uptime-kuma.entrypoints=websecure
+      - traefik.http.routers.uptime-kuma.tls.certresolver=cloudflare
+      - traefik.http.services.uptime-kuma.loadbalancer.server.port=3001
+  
+networks:
+  traefik:
+    name: traefik
+    external: true
