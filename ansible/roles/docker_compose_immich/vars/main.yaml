@@ -1,0 +1,2 @@
+---
+docker_compose_immich_docker_compose_file: "{{ 'docker-compose-immich-machine-learning.yaml' if docker_compose_immich_only_machine_learning else 'docker-compose-immich.yaml' }}"

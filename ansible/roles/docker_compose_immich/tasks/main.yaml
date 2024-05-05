@@ -1,15 +1,27 @@
 ---
 - name: Configure immich docker compose
+  when: not immich_only_machine_learning
   vars:
-    docker_compose_src_file_path: files/docker-compose-immich.yaml
+    docker_compose_src_file_path: "templates/docker-compose-immich.yaml"
     docker_compose_copy_scripts: false
     docker_compose_envs:
       IMMICH_VERSION: "{{ immich_version }}"
       IMMICH_PHOTOS_DIRECTORY: "{{ immich_photos_directory }}"
       IMMICH_DB_DIRECTORY: "{{ immich_db_directory }}"
-      IMMICH_MACHINE_LEARNING_MODEL_CACHE_DIRECTORY: "{{ immich_machine_learning_model_cache_directory }}"
+      IMMICH_MACHINE_LEARNING_HOST: "{{ immich_machine_learning_host }}"
       IMMICH_DB_USERNAME: "{{ immich_db_username }}"
       IMMICH_DB_PASSWORD: "{{ immich_db_password }}"
       IMMICH_DB_DATABASE_NAME: "{{ immich_db_database_name }}"
+  ansible.builtin.include_role:
+    name: docker_compose
+- name: Configure immich-machine-learning docker compose
+  when: not immich_no_machine_learning
+  vars:
+    docker_compose_src_file_path: "templates/docker-compose-immich-machine-learning.yaml.j2"
+    docker_compose_dst_file_name: docker-compose-immich-machine-learning.yaml
+    docker_compose_copy_scripts: false
+    docker_compose_envs:
+      IMMICH_VERSION: "{{ immich_version }}"
+      IMMICH_MACHINE_LEARNING_MODEL_CACHE_DIRECTORY: "{{ immich_machine_learning_model_cache_directory }}"
   ansible.builtin.include_role:
     name: docker_compose

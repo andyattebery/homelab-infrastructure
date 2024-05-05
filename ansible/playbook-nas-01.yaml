@@ -124,9 +124,10 @@
     - role: docker_compose_diun
     - role: docker_compose_immich
       vars:
+        immich_no_machine_learning: true
+        immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
         immich_photos_directory: "/mnt/tank/immich/photos"
         immich_db_directory: "/mnt/tank/immich/db"
-        immich_machine_learning_model_cache_directory: "/mnt/tank/immich/model_cache"
     - role: docker_compose_nextcloud
       vars:
         docker_compose_nextcloud_data_directory: "/mnt/tank/nextcloud/app/"
