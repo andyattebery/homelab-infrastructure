@@ -1,5 +1,5 @@
 ---
-docker_compose_traefik_version: "2.10"
+docker_compose_traefik_version: "3.0"
 docker_compose_traefik_log_level: "ERROR"
 docker_compose_traefik_enable_dashboard: false
 docker_compose_traefik_enable_host_network: false
