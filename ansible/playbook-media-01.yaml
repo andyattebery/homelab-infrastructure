@@ -42,9 +42,6 @@
         docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/media-01/docker-compose-media-01.yml
         docker_compose_envs:
-          JELLYSTAT_DB_USERNAME: "{{ jellystat_db_username }}"
-          JELLYSTAT_DB_PASSWORD: "{{ jellystat_db_password }}"
-          JELLYSTAT_JWT_SECRET: "{{ jellystat_jwt_secret }}"
           PLEX_CLAIM_TOKEN: "{{ plex_claim_token }}"
           SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
           SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
