@@ -1,19 +1,29 @@
 auto lo
 iface lo inet loopback
 
-iface eno1 inet manual
-iface eno2 inet manual
+auto eno1
+iface eno1 inet dhcp
+auto eno2
+iface eno2 inet dhcp
 
-auto bond0
-iface bond0 inet manual
-    bond-slaves eno1 eno2
-    bond-mode 802.3ad
-    bond-miimon 100
+#iface eno1 inet manual
+#iface eno2 inet manual
+
+#auto bond0
+#iface bond0 inet manual
+#    bond-slaves eno1 eno2
+#    bond-mode 802.3ad
+#    bond-miimon 100
+
+iface enp193s0f0np0 inet manual
+# Passed through to nas-01
+#iface enp193s0f1np1 inet manual
 
 auto vmbr0
 iface vmbr0 inet static
 	address 192.168.1.231/24
 	gateway 192.168.1.1
-	bridge-ports bond0
+	bridge-ports enp193s0f0np0
 	bridge-stp off
 	bridge-fd 0
+	#post-up route add default via 192.168.1.1 dev vmbr0

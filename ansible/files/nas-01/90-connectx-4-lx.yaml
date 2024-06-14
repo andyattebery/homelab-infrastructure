@@ -1,0 +1,20 @@
+network:
+    version: 2
+    ethernets:
+        eth1p0:
+            match:
+                macaddress: 50:6b:4b:25:d6:a7
+            set-name: eth1p0
+            optional: true
+        eth1p1:
+            match:
+                macaddress: 50:6b:4b:25:d6:a8
+            set-name: eth1p1
+            optional: true
+            addresses:
+                - "10.100.1.2/24"
+            routes:
+                - to: default
+                  via: 10.100.1.1
+                  on-link: true
+                  metric: 200

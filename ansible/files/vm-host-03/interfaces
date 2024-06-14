@@ -1,34 +1,25 @@
 auto lo
 iface lo inet loopback
 
-auto enp4s0
-iface enp4s0 inet static
-    address 192.168.1.247/24
+auto enp5s0
+iface enp5s0 inet static
+    address 192.168.1.243/24
     gateway 192.168.1.1
     ethernet-wol g
-iface enp5s0 inet manual
-    ethernet-wol g
-iface enp6s0 inet manual
-    ethernet-wol g
-iface enp7s0 inet manual
-    ethernet-wol g
+
+#iface enp1s0 inet manual
+#iface enp1s0d1 inet manual
 
 #auto bond0
 #iface bond0 inet manual
-#    bond-slaves enp5s0 enp6s0
+#    bond-slaves enp1s0 enp1s0d1
 #    bond-mode 802.3ad
 #    bond-miimon 100
 
-auto vmbr0
-iface vmbr0 inet dhcp
-    bridge-ports enp5s0
-    bridge-stp off
-    bridge-fd 0
+#auto vmbr0
+#iface vmbr0 inet dhcp
+#	bridge-ports bond0
+#	bridge-stp off
+#	bridge-fd 0
 
-#auto vmbr1
-#iface vmbr1 inet static
-#    address 192.168.1.247/24
-#    gateway 192.168.1.1
-#    bridge-ports enp4s0
-#    bridge-stp off
-#    bridge-fd 0
+source /etc/network/interfaces.d/*
