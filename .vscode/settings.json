@@ -1,9 +1,3 @@
-// Place your settings in this file to overwrite the default settings
 {
-  "files.associations": {
-    "**/ansible/**/*.yaml": "ansible",
-    "**/ansible/**/*.j2": "ansible-jinja",
-    "**/docker-compose*.yaml": "dockercompose"
-  },
-  "ansible.python.interpreterPath": "/opt/homebrew/bin/python3.12"
+    "ansible.python.interpreterPath": "/Users/andy/.pyenv/versions/3.13.5/bin/python"
 }
