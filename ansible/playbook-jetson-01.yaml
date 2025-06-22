@@ -1,0 +1,18 @@
+---
+- name: Configure jetson-01
+  hosts: jetson-01
+  become: true
+  roles:
+    - configure_server
+    # - role: waveshare_cm4_io_base_dual_cameras
+    #   vars:
+    #     raspberry_pi_camera_overlays:
+    #       - dtoverlay=imx708,cam0
+    #       - dtoverlay=imx708,cam1
+    # - role: certbot_dns_cloudflare
+    #   vars:
+    #     certbot_dns_cloudflare_domain_name: "jetson-01.{{ domain_name }}"
+    # - role: go2rtc
+    #   vars:
+    #     # go2rtc_config_file: files/jetson-01/go2rtc-rpi4.yaml.j2
+    #     go2rtc_config_file: files/jetson-01/go2rtc-rpi5.yaml.j2

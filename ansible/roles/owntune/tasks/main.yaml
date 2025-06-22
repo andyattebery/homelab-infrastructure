@@ -1,0 +1,39 @@
+---
+# - name: Add apt key # noqa command-instead-of-module risky-shell-pipe
+#   ansible.builtin.shell:
+#     cmd: "wget -q -O - http://www.gyfgafguf.dk/raspbian/owntone.gpg | gpg --dearmor --output /usr/share/keyrings/owntone-archive-keyring.gpg"
+#     creates: /usr/share/keyrings/owntone-archive-keyring.gpg"
+- name: Add owntune apt key
+  ansible.builtin.get_url:
+    url: http://www.gyfgafguf.dk/raspbian/owntone.gpg
+    dest: /etc/apt/trusted.gpg.d/owntone.asc
+    mode: '0644'
+- name: Add owntune apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb http://www.gyfgafguf.dk/raspbian/owntone {{ ansible_distribution_release }} contrib"
+    filename: owntune
+    state: present
+    update_cache: false
+# - name: Add owntune repo using key from URL.
+#   ansible.builtin.deb822_repository:
+#     name: owntune
+#     types: [deb]
+#     uris: http://www.gyfgafguf.dk/raspbian/owntone
+#     suites:
+#       - "{{ ansible_distribution_release }}"
+#     components:
+#       - contrib
+#     signed_by: http://www.gyfgafguf.dk/raspbian/owntone.gpg
+#     state: present
+#     enabled: true
+# - name: Add apt repository
+#   ansible.builtin.get_url:
+#     url: "http://www.gyfgafguf.dk/raspbian/owntone-{{ ansible_distribution_release }}.list"
+#     dest: "/etc/apt/sources.list.d/owntone.list"
+#     owner: root
+#     group: root
+#     mode: '0644'
+- name: Install owntune
+  ansible.builtin.package:
+    name: owntune
+    update_cache: true

@@ -1,0 +1,19 @@
+{% if keepalived_docker_compose_include_file is defined %}
+include:
+  - {{ keepalived_docker_compose_include_file }}
+{% endif %}
+
+services:
+  keepalived:
+    image: shawly/keepalived:2
+    container_name: {{ keepalived_container_name }}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      KEEPALIVED_CUSTOM_CONFIG: true
+    network_mode: ${KEEPALIVED_NETWORK_MODE}
+    cap_add:
+      - NET_ADMIN
+      - NET_BROADCAST
+    volumes:
+      - "${DOCKER_DATA_DIRECTORY}/keepalived:/etc/keepalived:ro"

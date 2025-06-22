@@ -1,3 +1,0 @@
-ACTION=="add", SUBSYSTEM=="pci", ATTR{subsystem_device}=="0x0123", ATTR{subsystem_vendor}=="0x10ec" \
-RUN+="/bin/sh -c 'echo $kernel > /sys/bus/pci/drivers/r8169/unbind'", \
-RUN+="/bin/sh -c 'echo $kernel > /sys/bus/pci/drivers/r8125/bind'"

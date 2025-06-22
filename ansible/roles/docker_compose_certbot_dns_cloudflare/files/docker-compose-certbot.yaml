@@ -6,4 +6,4 @@ services:
     restart: unless-stopped
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot
-    entrypoint: [ "/certbot/certbot_renew_entrypoint.sh" ]
+    entrypoint: ["/certbot/certbot_renew_entrypoint.sh"]

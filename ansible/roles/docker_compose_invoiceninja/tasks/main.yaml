@@ -1,0 +1,52 @@
+---
+- name: Initial invoiceninja docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-invoiceninja.yaml
+    docker_compose_envs:
+      INVOICENINJA_NGINX_CONF_FILE_RELATIVE_PATH: "{{ invoiceninja_nginx_conf_file_relative_path }}"
+      # IN application vars
+      INVOICENINJA_APP_URL=http://in.localhost:8003
+      INVOICENINJA_APP_KEY=<insert your generated key in here>
+      INVOICENINJA_APP_DEBUG=false
+      INVOICENINJA_REQUIRE_HTTPS=false
+      INVOICENINJA_PHANTOMJS_PDF_GENERATION=false
+      INVOICENINJA_PDF_GENERATOR=snappdf
+      INVOICENINJA_TRUSTED_PROXIES='*'
+      INVOICENINJA_QUEUE_CONNECTION=database
+
+      # DB connection
+      INVOICENINJA_DB_HOST=db
+      INVOICENINJA_DB_PORT=3306
+      INVOICENINJA_DB_DATABASE=ninja
+      INVOICENINJA_DB_USERNAME=ninja
+      INVOICENINJA_DB_PASSWORD=ninja
+
+      # Create initial user
+      # Default to these values if empty
+      # IN_USER_EMAIL=admin@example.com
+      # IN_PASSWORD=changeme!
+      INVOICENINJA_IN_USER_EMAIL=
+      INVOICENINJA_IN_PASSWORD=
+
+      # Mail options
+      INVOICENINJA_MAIL_MAILER=log
+      INVOICENINJA_MAIL_HOST=smtp.mailtrap.io
+      INVOICENINJA_MAIL_PORT=2525
+      INVOICENINJA_MAIL_USERNAME=null
+      INVOICENINJA_MAIL_PASSWORD=null
+      INVOICENINJA_MAIL_ENCRYPTION=null
+      INVOICENINJA_MAIL_FROM_ADDRESS='user@example.com'
+      INVOICENINJA_MAIL_FROM_NAME='Self Hosted User'
+      # MySQL
+      INVOICENINJA_MYSQL_ROOT_PASSWORD=ninjaAdm1nPassword
+      INVOICENINJA_MYSQL_USER=ninja
+      INVOICENINJA_MYSQL_PASSWORD=ninja
+      INVOICENINJA_MYSQL_DATABASE=ninja
+      # GoCardless/Nordigen API key for banking integration
+      INVOICENINJA_NORDIGEN_SECRET_ID=
+      INVOICENINJA_NORDIGEN_SECRET_KEY=
+    docker_compose_src_config_files:
+      - src_file_path: nginx-invoiceninja.conf
+        dst_relative_file_path: "{{ invoiceninja_nginx_conf_file_relative_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -1,42 +1,77 @@
 [global]
-  # From: https://wiki.samba.org/index.php/Configure_Samba_to_Work_Better_with_Mac_OS_X
-  vfs objects = fruit streams_xattr
+  server string = {{ samba_server_name if samba_server_name is defined else '%h' }}
+{% if samba_workgroup is defined %}
+  workgroup = {{ samba_workgroup }}
+{% endif %}
+  browseable = {{ 'yes' if samba_global_browseable else 'no'}}
+  guest ok = {{ 'yes' if samba_global_guest_ok else 'no'}}
+  read only = {{ 'yes' if samba_global_read_only else 'no'}}
 
+  inherit owner = unix only
+  inherit permissions = yes
+
+  ; Disable multicast because Avahi will broadcast mDNS
+  multicast dns register = no
+
+  ; Apple Config
+  ; https://wiki.samba.org/index.php/Configure_Samba_to_Work_Better_with_Mac_OS_X
+  vfs objects = catia fruit streams_xattr
   fruit:encoding = native
   fruit:metadata = stream
-  fruit:model = RackMount
+  fruit:model = MacPro7,1@ECOLOR=226,226,224
   fruit:zero_file_id = yes
   fruit:nfs_aces = no
   fruit:veto_appledouble = no
   fruit:wipe_intentionally_left_blank_rfork = yes
   fruit:delete_empty_adfiles = yes
 
-  workgroup = WORKGROUP
-  server string = {{ samba_server_name }}
-  security = user
-  guest ok = yes
-  map to guest = Bad Password
-
   smb encrypt = off
   server multi channel support = yes
 
+  ; Performance Tuning
+  ; https://www.samba.org/samba/samba/docs/man/manpages/smb.conf.5.html#MINRECEIVEFILESIZE
+  min receivefile size = 16384
+  ; https://www.man7.org/linux/man-pages/man7/ip.7.html
+  socket options = IPTOS_LOWDELAY TCP_NODELAY IPTOS_THROUGHPUT
+
+  ; Logging
   log file = /var/log/samba/%m.log
   max log size = 50
+
+  ; Disable printers
   printcap name = /dev/null
   load printers = no
 
-  inherit owner = unix only
-  inherit permissions = yes
+{% if samba_homes_enabled %}
+; https://www.samba.org/samba/samba/docs/man/manpages/smb.conf.5.html#HOMESECT
+[homes]
+  browseable = {{ 'yes' if samba_homes_browseable else 'no'}}
+  guest ok = {{ 'yes' if samba_homes_guest_ok else 'no'}}
+  read only = {{ 'yes' if samba_homes_read_only else 'no'}}
+{% endif %}
 
-  include = registry
-
-# Samba Shares
-{% for samba_share in samba_shares %}
+; Samba Shares
+{% for samba_share in samba_shares | default([]) %}
 [{{ samba_share.name }}]
   path = {{ samba_share.path }}
-  browseable = yes
-  read only = no
-  guest ok = yes
-  create mask = 0775
-  directory mask = 0775
+{% if samba_share.browseable is defined %}
+  browseable = {{ 'yes' if samba_share.browseable else 'no'}}
+{% endif %}
+{% if samba_share.guest_ok is defined %}
+  guest ok = {{ 'yes' if samba_share.guest_ok else 'no'}}
+{% endif %}
+{% if samba_share.read_only is defined %}
+  read only= {{ 'yes' if samba_share.read_only else 'no'}}
+{% endif %}
 {% endfor %}
+
+{% if samba_timemachine is defined %}
+[timemachine]
+  comment = Time Machine
+  fruit:model = TimeCapsule
+  path = {{ samba_timemachine.path }}
+  force users = {{ samba_timemachine.username }}
+  read only = no
+  fruit:time machine = yes
+  fruit:time machine max size = {{ samba_timemachine.max_size }}
+{% endif %}

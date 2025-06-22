@@ -1,0 +1,13 @@
+---
+- name: Configure octoprint
+  hosts: octoprint
+  become: true
+
+  roles:
+    # - configure_server
+    - role: certbot_dns_cloudflare
+      vars:
+        certbot_dns_cloudflare_domain_name: "octoprint.{{ domain_name }}"
+        cerbot_dns_cloudflare_post_create_command: |
+          cat {{ certbot_certificate_directory_path }}/fullchain.pem {{ certbot_certificate_directory_path }}/privkey.pem > /etc/ssl/snakeoil.pem
+          systemctl restart haproxy.service

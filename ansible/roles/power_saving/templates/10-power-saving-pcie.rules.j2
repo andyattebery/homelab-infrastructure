@@ -1,5 +1,3 @@
-{% set power_saving_pcie_runtime_all_devices_enabled = power_saving_pcie_runtime_all_devices is defined and power_saving_pcie_runtime_all_devices -%}
-
 {% if power_saving_pcie_runtime_all_devices_enabled %}
 SUBSYSTEM=="pci", ATTR{power/control}="auto"
 {% endif -%}

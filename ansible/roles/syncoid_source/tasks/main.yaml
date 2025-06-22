@@ -16,6 +16,17 @@
   loop: "{{ syncoid_datasets }}"
   loop_control:
     loop_var: syncoid_dataset
+- name: Get syncoid_source_username user result
+  ansible.builtin.user:
+    name: "{{ syncoid_source_username }}"
+  register: user_syncoid_source_username_result
+- name: Copy syncoid_source_ssh_private_key
+  ansible.builtin.copy:
+    content: "{{ syncoid_source_ssh_private_key }}"
+    dest: "{{ syncoid_ssh_key_path }}"
+    owner: "{{ user_syncoid_source_username_result.uid }}"
+    group: "{{ user_syncoid_source_username_result.group }}"
+    mode: '0600'
 # - name: "Allow syncoid_source_username to manage systemd services"
 #   ansible.builtin.template:
 #     src: templates/polkit-rule-user-systemd-manage-units.pkla.j2

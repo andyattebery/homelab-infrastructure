@@ -1,0 +1,17 @@
+[Unit]
+Description=Beszel Agent Service
+After=network.target
+
+[Service]
+Environment="PORT={{ beszel_agent_port }}"
+Environment="KEY={{ beszel_key }}"
+{% if beszel_extra_filesystems is defined %}
+Environment="EXTRA_FILESYSTEMS={{ beszel_extra_filesystems }}"
+{% endif %}
+ExecStart={{ beszel_agent_bin_path }}/beszel-agent
+User=beszel
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

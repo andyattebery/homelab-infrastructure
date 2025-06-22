@@ -1,11 +1,19 @@
 ---
 - name: Configure ipv4 forwarding
-  ansible.posix.sysctl:
-    name: net.ipv4.ip_forward
-    value: 1
-    state: present
-    ignoreerrors: true
-    sysctl_set: true
+  ansible.builtin.copy:
+    content: |
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+    dest: /etc/sysctl.d/99-tailscale.conf
+    mode: "0644"
+    owner: root
+    group: root
+  register: ip_forwarding_result
+- name: Load sysctl file # noqa no-handler
+  when: ip_forwarding_result.changed
+  ansible.builtin.command:
+    cmd: sysctl --load=/etc/sysctl.d/99-tailscale.conf
+  changed_when: true
 - name: Get subnet routes
   ansible.builtin.command:
     cmd: ip route show protocol kernel

@@ -1,0 +1,55 @@
+services:
+  manyfold:
+    image: ghcr.io/manyfold3d/manyfold:latest
+    container_name: manyfold
+    restart: unless-stopped
+    # ports:
+    #   - 3214:3214
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/manyfold/libraries:/libraries
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      DATABASE_URL: postgresql://${MANYFOLD_DB_USERNAME}:${MANYFOLD_DB_PASSWORD}@manyfold-db/${MANYFOLD_DB_NAME}?pool=5
+      SECRET_KEY_BASE: ${MANYFOLD_SECRET_KEY_BASE}
+      REDIS_URL: redis://manyfold-redis:6379/1
+      # For details of other optional environment variables, including features such
+      # as multiuser mode, visit https://manyfold.app/sysadmin/configuration.html
+    depends_on:
+      - manyfold-db
+      - manyfold-redis
+    networks:
+      - manyfold
+      - traefik
+    links:
+      - manyfold-db
+      - manyfold-redis
+    labels:
+      - traefik.enable=true
+
+  manyfold-db:
+    image: postgres:15
+    container_name: manyfold-db
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/manyfold/db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${MANYFOLD_DB_NAME}
+      POSTGRES_USER: ${MANYFOLD_DB_USERNAME}
+      POSTGRES_PASSWORD: ${MANYFOLD_DB_PASSWORD}
+    restart: on-failure
+    networks:
+      - manyfold
+
+  manyfold-redis:
+    image: redis:7
+    container_name: manyfold-redis
+    restart: on-failure
+    networks:
+      - manyfold
+
+networks:
+  manyfold:
+    name: manyfold
+  traefik:
+    name: traefik
+    external: true

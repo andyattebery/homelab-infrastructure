@@ -4,6 +4,10 @@
     name:
       - nut-server
       - nut-client
+- name: Install nut-snmp
+  when: nut_enable_snmp
+  ansible.builtin.package:
+    name: nut-snmp
 - name: Copy nut.conf
   ansible.builtin.template:
     src: templates/nut_server.conf.j2

@@ -1,0 +1,22 @@
+---
+- name: Create {{ certbot_asrock_ipmi_cert_updater_directory_path }}
+  ansible.builtin.file:
+    path: "{{ certbot_asrock_ipmi_cert_updater_directory_path }}"
+    state: directory
+    mode: "0755"
+- name: Download asrock_ipmi_cert_updater
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/khung/letsencrypt-scripts/refs/heads/master/asrock_ipmi_cert_updater.py"
+    dest: "{{ certbot_asrock_ipmi_cert_updater_bin_path }}"
+    mode: "0644"
+- name: Copy asrock_ipmi_cert_updater.ini
+  ansible.builtin.template:
+    src: templates/asrock_ipmi_cert_updater.ini.j2
+    dest: "{{ certbot_asrock_ipmi_cert_updater_ini_path }}"
+    mode: "0644"
+- name: Initial docker compose setup
+  vars:
+    docker_compose_certbot_dns_cloudflare_domain_name: "{{ certbot_asrock_ipmi_cert_updater_domain_name }}"
+    certbot_deploy_hook: "python {{ certbot_asrock_ipmi_cert_updater_bin_path }} config --config-file {{ certbot_asrock_ipmi_cert_updater_ini_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose_certbot_dns_cloudflare

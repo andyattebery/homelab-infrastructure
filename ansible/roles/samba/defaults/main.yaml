@@ -1,0 +1,8 @@
+samba_global_browseable: true
+samba_global_guest_ok: true
+samba_global_read_only: false
+samba_homes_enabled: false
+samba_homes_browseable: false
+samba_homes_guest_ok: false
+samba_homes_read_only: false
+samba_workgroup: WORKGROUP

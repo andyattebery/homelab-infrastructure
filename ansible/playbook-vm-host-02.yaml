@@ -4,29 +4,46 @@
   become: true
 
   roles:
-    - pve_cluster_acme
-    - pve_node_acme
-    - pve_config
-    - pve_storage_add_nas_01_proxmox
-    - configure_server
-    - scrutiny_collector
-    - role: power_saving
-      vars:
-        power_saving_pcie_runtime_all_devices: true
-        power_saving_sata_all_devices: true
-    - role: nut
-      vars:
-        nut_enable_client: true
-        nut_client_servers:
-          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
-            server_address: "{{ ups_monitor_rack_nut_server_address }}"
-            username: "{{ ups_monitor_rack_nut_vm_host_02_username }}"
-            password: "{{ ups_monitor_rack_nut_vm_host_02_password }}"
-    - role: pikvm_remote_command
-      vars:
-        pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+    # - pve_config
+    # - pve_cluster_acme
+    # - pve_node_acme
+  #   - pve_storage_add_nas_01_proxmox
+    - realtek_r8152_dkms
+    # - geerlingguy.ntp
+    # - configure_server
+  #   - scrutiny_collector
+    # - role: power_saving
+    #   vars:
+    #     power_saving_pcie_runtime_all_devices: true
+    #     power_saving_sata_all_devices: true
+  #   - role: kernel_parameters
+  #     vars:
+  #       kernel_parameters_new_parameters:
+  #         intel_iommu: "on"
+  #   - role: pikvm_remote_command
+  #     vars:
+  #       pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+    # - role: pve_backup_job_script
+    #   vars:
+    #     pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
 
   tasks:
+    # - name: Add contrib, non-free, and non-free-firmware repository
+    #   ansible.builtin.replace:
+    #     dest: /etc/apt/sources.list
+    #     regexp: '^(deb.+main).*$'
+    #     replace: '\1 contrib non-free non-free-firmware'
+    # - name: Install NIC DKMS modules
+    #   ansible.builtin.apt:
+    #     name:
+    #       - proxmox-headers-6.8
+            # - r8168-dkms
+    #       - r8125-dkms
+    #     update_cache: true
+    # - name: Add udev rule for r8125
+    #   ansible.builtin.include_role:
+    #     name: realtek_r8125_dkms
+        # tasks_from: add_udev_rule
     - name: Configure network interfaces
       ansible.builtin.copy:
         src: files/vm-host-02/interfaces
@@ -34,16 +51,3 @@
         mode: "0644"
         owner: root
         group: root
-    # - name: Add syncoid user
-    #   ansible.builtin.user:
-    #     name: "{{ nas_02_syncoid_username }}"
-    #     password: '!'
-    # - name: Authorize nas-01 syncoid key for syncoid user
-    #   ansible.posix.authorized_key:
-    #     user: "{{ nas_02_syncoid_username }}"
-    #     state: present
-    #     key: "{{ nas_01_syncoid_ssh_public_key }}"
-    # - name: Allow syncoid user to shutdown
-    #   ansible.builtin.lineinfile:
-    #     path: /etc/sudoers
-    #     line: "{{ nas_02_syncoid_username }} ALL=NOPASSWD: /usr/sbin/shutdown"

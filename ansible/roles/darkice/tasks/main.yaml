@@ -1,0 +1,24 @@
+- name: Install packages
+  ansible.builtin.package:
+    name:
+      - darkice
+- name: Copy darkice config
+  ansible.builtin.template:
+    src: "{{ darkice_config_file }}"
+    dest: /etc/darkice.cfg
+    mode: "0644"
+    owner: root
+  notify: Restart darkice
+- name: Copy darkice.service
+  ansible.builtin.template:
+    src: darkice.service.j2
+    dest: /etc/systemd/system/darkice.service
+    mode: "0644"
+    owner: root
+  notify: Restart darkice
+- name: Enable and start darkice.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: darkice.service
+    state: started
+    enabled: true

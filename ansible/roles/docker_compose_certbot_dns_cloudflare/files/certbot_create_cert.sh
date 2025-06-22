@@ -11,4 +11,5 @@ docker compose -f $1 run --rm --entrypoint="" certbot certbot certonly \
       --agree-tos \
       --dns-cloudflare \
       --dns-cloudflare-credentials $3 \
+      --dns-cloudflare-propagation-seconds 30 \
       --domain $4

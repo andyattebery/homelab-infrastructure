@@ -1,0 +1,92 @@
+---
+- name: Set package facts
+  ansible.builtin.package_facts:
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - dkms
+- name: Install raspberrypi-kernel-headers
+  ansible.builtin.apt:
+    name:
+      - raspberrypi-kernel-headers
+  when: "'raspberrypi-kernel' in ansible_facts.packages"
+- name: Install PVE kernel headers
+  ansible.builtin.apt:
+    name:
+      - pve-headers
+  when: ansible_facts.packages is search("pve-kernel")
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/awesometic/realtek-r8152-dkms/releases/latest
+    return_content: true
+  register:
+    realtek_r8152_dkms_latest_release_json_response
+- name: Set realtek_r8152_dkms_latest_version
+  ansible.builtin.set_fact:
+    realtek_r8152_dkms_latest_version: "{{ realtek_r8152_dkms_latest_release_json_response.json.tag_name | regex_search('^[0-9\\.]+') }}"
+- name: Get dkms status
+  ansible.builtin.command:
+    cmd: dkms status
+  changed_when: false
+  register: dkms_status_result
+- name: Set installed realtek_r8152_dkms_installed_versions
+  when: dkms_status_result.stdout
+  ansible.builtin.set_fact:
+    realtek_r8152_dkms_installed_versions: "{{ dkms_status_result.stdout | regex_search('^r8152/(.+?),.+installed$', '\\1') }}" # noqa yaml[line-length]
+- name: Set installed realtek_r8152_dkms_installed_version
+  when: realtek_r8152_dkms_installed_versions is defined and realtek_r8152_dkms_installed_versions | length > 0
+  ansible.builtin.set_fact:
+    realtek_r8152_dkms_installed_version: "{{ realtek_r8152_dkms_installed_versions | first }}"
+- name: Set installed empty realtek_r8152_dkms_installed_version
+  when: not dkms_status_result.stdout or not realtek_r8152_dkms_installed_versions
+  ansible.builtin.set_fact:
+    realtek_r8152_dkms_installed_version: ""
+- name: Install realtek-r8152-dkms if needed
+  when: realtek_r8152_dkms_installed_version != realtek_r8152_dkms_latest_version
+  block:
+    - name: Uninstall old version
+      when: realtek_r8152_dkms_installed_version != ''
+      block:
+        - name: Remove old dkms
+          ansible.builtin.command:
+            cmd: "dkms remove r8152/{{ realtek_r8152_dkms_installed_version }} --all"
+          register:
+            realtek_r8152_dkms_remove_result
+          changed_when: realtek_r8152_dkms_remove_result.stdout != ''
+        - name: Remove old dkms source directory
+          vars:
+            realtek_r8152_dkms_installed_src_directory: "r8152-{{ realtek_r8152_dkms_installed_version }}"
+          ansible.builtin.file:
+            path: "{{ ('usr', 'src', realtek_r8152_dkms_installed_src_directory) | path_join }}"
+            state: absent
+    - name: Create temporary build directory
+      ansible.builtin.tempfile:
+        state: directory
+      register:
+        realtek_r8152_dkms_temp_build_directory
+    - name: Download latest release source
+      ansible.builtin.unarchive:
+        list_files: true
+        remote_src: true
+        src: "{{ realtek_r8152_dkms_latest_release_json_response.json.tarball_url }}"
+        dest: "{{ realtek_r8152_dkms_temp_build_directory.path }}"
+      register:
+        realtek_r8152_dkms_unarchive_result
+    - name: Install realtek-r8152-dkms
+      ansible.builtin.command:
+        cmd: "./dkms-install.sh"
+        chdir: "{{ realtek_r8152_dkms_source_path }}"
+      changed_when: realtek_r8152_dkms_install_result.stdout != ""
+      vars:
+        realtek_r8152_dkms_source_path: "{{ (realtek_r8152_dkms_temp_build_directory.path, realtek_r8152_dkms_unarchive_result.files[0]) | path_join }}"
+      register: realtek_r8152_dkms_install_result
+    - name: Remove temporary build directory
+      ansible.builtin.file:
+        name: "{{ realtek_r8152_dkms_temp_build_directory }}"
+        state: absent
+    - name: Load module # noqa no-changed-when
+      ansible.builtin.command:
+        cmd: modprobe r8152
+# - name: Add udev rule to use r8152 module for specific devices
+#   ansible.builtin.include_tasks:
+#     file: add_udev_rule.yaml

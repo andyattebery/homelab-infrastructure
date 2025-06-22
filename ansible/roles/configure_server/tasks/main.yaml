@@ -51,6 +51,7 @@
     - geerlingguy.security
     - fish_install
     - configure_dotfiles
+    - beszel_agent
   loop_control:
     loop_var: role_item
   vars:

@@ -3,23 +3,29 @@
   block:
     - name: Add apt key
       ansible.builtin.get_url:
-        url: "https://global.mirrors.apqa.cn/proxmox/debian/pveport.gpg"
+        url: "https://mirrors.apqa.cn/proxmox/debian/pveport.gpg"
         dest: "/etc/apt/trusted.gpg.d/pveport.gpg"
         owner: root
         group: root
         mode: '0644'
-    - name: Add no subscription repository
+    - name: Add Proxmox ARM64 repository
       ansible.builtin.apt_repository:
-        repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_distribution_release }} port"
-        filename: pve-arm
+        repo: "deb [arch=arm64] https://mirrors.apqa.cn/proxmox/debian/pve bookworm port"
+        filename: pveport
         update_cache: false
         state: present
-    - name: Add kernel repository
-      ansible.builtin.apt_repository:
-        repo: "deb https://mirrors.apqa.cn/proxmox/debian/kernel sid port"
-        filename: pve-arm64-kernel
-        update_cache: false
-        state: present
+    # - name: Add no subscription repository
+    #   ansible.builtin.apt_repository:
+    #     repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_distribution_release }} port"
+    #     filename: pve-arm
+    #     update_cache: false
+    #     state: present
+    # - name: Add kernel repository
+    #   ansible.builtin.apt_repository:
+    #     repo: "deb https://mirrors.apqa.cn/proxmox/debian/kernel sid port"
+    #     filename: pve-arm64-kernel
+    #     update_cache: false
+    #     state: present
 - name: Configure /etc/hosts
   block:
     - name: Remove default 127.0.1.1 entry

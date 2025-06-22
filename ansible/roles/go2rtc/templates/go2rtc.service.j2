@@ -1,0 +1,12 @@
+[Unit]
+Description=Run go2rtc
+Requires={{ go2rtc_systemd_requires }}
+After={{ go2rtc_systemd_after }}
+
+[Service]
+ExecStart={{ go2rtc_service_exec_command }}
+Type=exec
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,61 @@
+- name: Configure all proxmox hosts
+  hosts: proxmox_cluster
+  become: true
+
+  roles:
+    - pve_install
+    - configure_server
+    - role: power_saving
+
+  tasks:
+    - name: Add contrib, non-free, and non-free-firmware repository
+      ansible.builtin.replace:
+        dest: /etc/apt/sources.list
+        regexp: '^(deb.+main).*$'
+        replace: '\1 contrib non-free non-free-firmware'
+    - name: Install NIC DKMS modules
+      ansible.builtin.apt:
+        name:
+          - r8125-dkms
+        update_cache: true
+    - name: Add udev rule for r8125
+      ansible.builtin.include_role:
+        name: realtek_r8125_dkms
+        tasks_from: add_udev_rule
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/proxmox-cluster/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+    - name: Get 2.5GbE network interface status
+      ansible.builtin.command:
+        cmd: "ip link show {{ network_interface_2_5_gbe }}"
+      register: ip_link_show_network_interface_2_5_gbe_result
+      changed_when: false
+    - name: Bring 2.5GbE network interface up
+      when: "'DOWN' in ip_link_show_network_interface_2_5_gbe_result.stdout"
+      ansible.builtin.command:
+        cmd: "ifup {{ network_interface_2_5_gbe }}"
+      changed_when: false
+
+- name: Configure first cluster node
+  hosts: proxmox_cluster[0]
+  become: true
+
+  roles:
+    - pve_cluster_create
+    - pve_cluster_acme
+    - pve_node_acme
+    - pve_cluster_ceph
+    - pve_storage_add_nas_01_proxmox
+
+- name: Configure other cluster nodes
+  hosts: proxmox_cluster[1:2]
+  become: true
+
+  roles:
+    - pve_cluster_add_node
+    - pve_node_acme
+    - pve_node_ceph

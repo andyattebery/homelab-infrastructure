@@ -9,12 +9,17 @@ services:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --providers.docker.network=traefik
+{%- raw %}
+      - '--providers.docker.defaultRule=Host(`{{ index .Labels "com.docker.compose.service" }}.$DOMAIN_NAME`)'
+{% endraw %}
       - --metrics.prometheus=true
       - --entrypoints.web.address=:80
       - --entrypoints.web.http.redirections.entryPoint.to=websecure
       - --entrypoints.web.http.redirections.entryPoint.scheme=https
       - --entrypoints.web.http.redirections.entrypoint.permanent=true
       - --entrypoints.websecure.address=:443
+      - --entryPoints.websecure.asDefault=true
+      - --entryPoints.websecure.http.tls.certResolver=cloudflare
       - --log=true
       - --log.level=${TRAEFIK_LOG_LEVEL}
       - --log.filePath=/logs/traefik.log
@@ -50,8 +55,6 @@ services:
     labels:
       - traefik.enable=true
       - "traefik.http.routers.dashboard-https.rule=Host(`traefik.$HOSTNAME.$DOMAIN_NAME`)"
-      - traefik.http.routers.dashboard-https.entrypoints=websecure
-      - traefik.http.routers.dashboard-https.tls.certresolver=cloudflare
       - traefik.http.routers.dashboard-https.service=api@internal
 {% endif %}
 

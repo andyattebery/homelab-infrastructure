@@ -4,18 +4,36 @@
   become: true
 
   roles:
-    - configure_server
+    - role: configure_server
+      vars:
+        security_ssh_permit_root_login: "prohibit-password"
     - role: nut
       vars:
         nut_enable_server: true
         nut_enable_server_remote_access: true
+        nut_enable_snmp: true
         nut_upses:
+          # - name: "{{ ups_monitor_rack_nut_ups_name }}"
+          #   driver: usbhid-ups # required
+          #   port: auto # required
+          #   desc: APC Smart-UPS SMT1500RM2U
+          #   vendorid: "051D"
+          #   productid: "0003"
           - name: "{{ ups_monitor_rack_nut_ups_name }}"
-            driver: usbhid-ups # required
-            port: auto # required
-            desc: APC Smart-UPS SMT1500RM2U
-            vendorid: "051D"
-            productid: "0003"
+            driver: snmp-ups
+            port: "{{ ups_rack_snmp_address }}"
+            desc: APC Smart-UPS SMT1500RM2U via AP9630 (NMC2)
+            snmp_version: v1
+            community: "{{ ups_rack_snmp_read_write_community }}"
+          # - name: "{{ ups_monitor_rack_nut_pdu_name }}"
+          #   driver: snmp-ups
+          #   mibs: cyberpower
+          #   port: "{{ pdu_rack_network_snmp_address }}"
+          #   desc: CyberPower PDU41002
+          #   snmp_version: v1
+          #   community: "{{ pdu_rack_network_snmp_read_write_community }}"
+        nut_server_listen_interfaces:
+          - ups-monitor-rack.omegaho.me
         nut_monitor_primary_password: "{{ ups_monitor_rack_nut_upsmon_password }}"
         nut_monitor_secondary_users:
           - name: homeassistant
@@ -24,8 +42,6 @@
             password: "{{ ups_monitor_rack_nut_nas_host_01_password }}"
           - name: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
             password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
-          # - name: "{{ ups_monitor_rack_nut_network_02_username }}"
-          #   password: "{{ ups_monitor_rack_nut_network_02_password }}"
         nut_notify_pushover_token: "{{ nut_pushover_token }}"
         nut_notify_pushover_user_key: "{{ pushover_user_key }}"
 

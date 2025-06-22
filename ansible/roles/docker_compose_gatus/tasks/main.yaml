@@ -1,0 +1,13 @@
+---
+- name: Configure gatus docker compose
+  vars:
+    docker_compose_src_file_path: "templates/docker-compose-gatus.yaml"
+    gatus_config_directory_relative_path: gatus/config
+    docker_compose_copy_scripts: false
+    docker_compose_src_config_files:
+      - src_file_path: templates/config.yaml.j2
+        dst_relative_file_path: "{{ (gatus_config_directory_relative_path, 'config.yaml') | path_join }}"
+    docker_compose_envs:
+      GATUS_CONFIG_DIRECTORY_RELATIVE_PATH: "{{ gatus_config_directory_relative_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose

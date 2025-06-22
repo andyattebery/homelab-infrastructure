@@ -1,0 +1,4 @@
+---
+certbot_asrock_ipmi_cert_updater_bin_path: "{{ certbot_asrock_ipmi_cert_updater_directory_path }}/asrock_ipmi_cert_updater.py"
+certbot_asrock_ipmi_cert_updater_ini_path: "{{ certbot_asrock_ipmi_cert_updater_directory_path }}/asrock_ipmi_cert_updater.ini"
+certbot_asrock_ipmi_cert_updater_certificates_path: "/opt/docker-compose/certbot/config/live/{{ certbot_asrock_ipmi_cert_updater_domain_name }}"

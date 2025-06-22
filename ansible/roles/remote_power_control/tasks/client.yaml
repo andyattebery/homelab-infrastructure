@@ -6,10 +6,25 @@
     mode: "0755"
     owner: root
     group: root
+- name: Create remote_power_control_config_directory_path
+  ansible.builtin.file:
+    dest: "{{ remote_power_control_config_directory_path }}"
+    mode: "0755"
+    owner: root
+    group: root
+    state: directory
 - name: Copy remote_power_control.env
   ansible.builtin.template:
-    src: remote_power_control.env.j2
-    dest: /etc/remote_power_control.env
+    src: env.j2
+    dest: "{{ remote_power_control_config_directory_path }}/env"
     mode: "0644"
     owner: root
     group: root
+- name: Copy client ssh private key
+  when: (remote_power_control_client_private_key is defined) and (remote_power_control_ssh_username is defined)
+  ansible.builtin.copy:
+    content: "{{ remote_power_control_client_private_key }}"
+    dest: "{{ (remote_power_control_config_directory_path, remote_power_control_client_private_key_name) | path_join }}"
+    owner: "{{ remote_power_control_ssh_username }}"
+    group: "{{ remote_power_control_ssh_username }}"
+    mode: '0600'

@@ -1,29 +1,57 @@
 ---
+- name: Check motd-news
+  ansible.builtin.stat:
+    path: /etc/default/motd-news
+  register: motd_news_stat
 - name: Disable motd-news
+  when: motd_news_stat.stat.exists
   ansible.builtin.lineinfile:
     path: /etc/default/motd-news
     regexp: "^ENABLED="
     line: "ENABLED=0"
-- name: Get apt_news config value # noqa risky-shell-pipe
-  ansible.builtin.shell:
-    cmd: pro config show apt_news | cut -d' ' -f2
-  register: pro_config_apt_news_result
-  changed_when: false
+# - name: Check if pro exists
+#   ansible.builtin.raw: which pro
+#   check_mode: false
+#   changed_when: false
+#   failed_when: which_res.rc > 1
+#   register: which_pro
 - name: Disable apt_news
-  when: pro_config_apt_news_result.stdout | bool
-  ansible.builtin.command:
-    cmd: pro config set apt_news=false
-  changed_when: true
+  block:
+    - name: Get apt_news config value # noqa risky-shell-pipe
+      ansible.builtin.shell:
+        cmd: pro config show apt_news | cut -d' ' -f2
+      register: pro_config_apt_news_result
+      changed_when: false
+    - name: Disable apt_news
+      when: pro_config_apt_news_result.stdout | bool
+      ansible.builtin.command:
+        cmd: pro config set apt_news=false
+      changed_when: true
+- name: Check help-text MOTD
+  ansible.builtin.stat:
+    path: /etc/update-motd.d/10-help-text
+  register: help_text_motd_stat
 - name: Disable help-text MOTD
+  when: help_text_motd_stat.stat.exists
   ansible.builtin.file:
     path: /etc/update-motd.d/10-help-text
     mode: "0644"
+- name: Check apt-esm-hook
+  ansible.builtin.stat:
+    path: /etc/apt/apt.conf.d/20apt-esm-hook.conf
+  register: apt_esm_hook_stat
 - name: Remove apt-esm-hook
+  when: apt_esm_hook_stat.stat.exists
   ansible.builtin.replace:
     path: /etc/apt/apt.conf.d/20apt-esm-hook.conf
     regexp: '^([^#\n].+)$'
     replace: '# \1'
+- name: Check ESM MOTD
+  ansible.builtin.stat:
+    path: /usr/lib/update-notifier/apt_check.py
+  register: esm_motd_stat
 - name: Remove ESM messages from updates-available MOTD
+  when: esm_motd_stat.stat.exists
   ansible.builtin.blockinfile:
     path: /usr/lib/update-notifier/apt_check.py
     insertafter: "{{ insertafter_regex }}"

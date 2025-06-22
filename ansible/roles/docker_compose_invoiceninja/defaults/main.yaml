@@ -1,0 +1,37 @@
+---
+invoiceninja_nginx_conf_file: nginx-invoiceninja.conf
+invoiceninja_nginx_conf_file_relative_path: "invoiceninja/nginx/conf/{{ invoiceninja_nginx_conf_file }}"
+
+# IN application vars
+
+app_debug: false
+require_https: false
+phantomjs_pdf_generation: false
+pdf_generator: snappdf
+trusted_proxies: '*'
+
+queue_connection: database
+
+# DB connection
+invoiceninja_db_port: 3306
+
+# Mail options
+MAIL_MAILER=log
+MAIL_HOST=smtp.mailtrap.io
+MAIL_PORT=2525
+MAIL_USERNAME=null
+MAIL_PASSWORD=null
+MAIL_ENCRYPTION=null
+MAIL_FROM_ADDRESS='user@example.com'
+MAIL_FROM_NAME='Self Hosted User'
+
+# MySQL
+MYSQL_ROOT_PASSWORD=ninjaAdm1nPassword
+MYSQL_USER=ninja
+MYSQL_PASSWORD=ninja
+MYSQL_DATABASE=ninja
+
+
+# V4 env vars
+# DB_STRICT=false
+# APP_CIPHER=AES-256-CBC

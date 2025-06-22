@@ -1,0 +1,12 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:${MEDIAMTX_IMAGE_TAG}
+    container_name: mediamtx
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    tmpfs:
+      - /dev/shm:exec
+    volumes:
+      - /run/udev:/run/udev:ro
+      - ${DOCKER_DATA_DIRECTORY}/mediamtx/mediamtx.yml:/mediamtx.yml

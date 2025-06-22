@@ -4,8 +4,9 @@ Requires={{ scrutiny_collector_systemd_requires }}
 After={{ scrutiny_collector_systemd_after }}
 
 [Service]
-ExecStart={{ scrutiny_collector_run_command }}
 Type=oneshot
+ExecStartPre=/bin/sleep 60
+ExecStart={{ scrutiny_collector_run_command }}
 
 [Install]
 WantedBy=multi-user.target

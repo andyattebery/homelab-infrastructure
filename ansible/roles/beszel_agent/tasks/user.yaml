@@ -1,0 +1,6 @@
+- name: Add beszel_agent_username
+  ansible.builtin.user:
+    name: "{{ beszel_agent_username }}"
+    password: '!'
+    system: true
+    create_home: false

@@ -1,7 +1,0 @@
-#!/usr/bin/sh
-
-case "$SSH_ORIGINAL_COMMAND" in
-    reboot ) sudo reboot;;
-    shutdown ) sudo shutdown now;;
-    * ) echo "$SSH_ORIGINAL_COMMAND not supported";;
-esac

@@ -2,7 +2,10 @@ auto lo
 iface lo inet loopback
 
 auto eno1
-iface eno1 inet dhcp
+iface eno1 inet static
+address 10.1.40.13/24
+    gateway 10.1.40.1
+
 auto eno2
 iface eno2 inet dhcp
 
@@ -23,6 +26,7 @@ auto vmbr0
 iface vmbr0 inet static
 	address 192.168.1.231/24
 	gateway 192.168.1.1
+    dns-nameservers 192.168.1.222 192.168.1.226
 	bridge-ports enp193s0f0np0
 	bridge-stp off
 	bridge-fd 0

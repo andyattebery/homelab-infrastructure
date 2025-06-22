@@ -31,12 +31,8 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
-      - traefik.http.routers.scrutiny.entrypoints=websecure
-      - traefik.http.routers.scrutiny.tls.certresolver=cloudflare
       - traefik.http.routers.scrutiny.service=scrutiny
       - traefik.http.routers.scrutiny-tailscale.rule=Host(`scrutiny.ts.$DOMAIN_NAME`)
-      - traefik.http.routers.scrutiny-tailscale.entrypoints=websecure
-      - traefik.http.routers.scrutiny-tailscale.tls.certresolver=cloudflare
       - traefik.http.routers.scrutiny-tailscale.service=scrutiny
       - traefik.http.services.scrutiny.loadbalancer.server.port=8080
       - dsm.traefik.router=scrutiny

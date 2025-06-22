@@ -1,0 +1,7 @@
+paths:
+  cam0:
+    source: rpiCamera
+    rpiCameraCamID: 0
+  cam1:
+    source: rpiCamera
+    rpiCameraCamID: 1

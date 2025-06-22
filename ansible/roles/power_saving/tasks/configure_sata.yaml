@@ -1,8 +1,14 @@
 ---
 # Configures SATA Active Link Power Management
 - name: Copy power_saving_sata.rule
-  when: (power_saving_sata_all_devices is defined and power_saving_sata_all_devices) or (power_saving_sata_devices is defined and power_saving_sata_devices | length > 0)
+  when: (power_saving_sata_all_devices_enabled) or (power_saving_sata_devices is defined and power_saving_sata_devices | length > 0)
   ansible.builtin.template:
     src: templates/10-power-saving-sata.rules.j2
     dest: /etc/udev/rules.d/10-power-saving-sata.rules
+    mode: "0644"
+- name: Set SATA Link Power Management Policy to med_power_with_dipm
+  when: (power_saving_sata_all_devices is defined and power_saving_sata_all_devices)
+  ansible.builtin.copy:
+    dest: /etc/sysfs.d/power_saving_sata.conf
+    content: "class/scsi_host/host*/link_power_management_policy = med_power_with_dipm"
     mode: "0644"

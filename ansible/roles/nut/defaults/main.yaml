@@ -2,6 +2,7 @@
 nut_enable_client: false
 nut_enable_server: false
 nut_enable_server_remote_access: false
+nut_enable_snmp: false
 
 nut_admin_username: admin
 nut_monitor_primary_username: monitor-primary

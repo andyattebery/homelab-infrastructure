@@ -1,47 +1,29 @@
 ---
-x-immich-server: &base-immich-server
-  image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION}
-  environment:
-    - TZ=${TZ}
-    - DB_DATABASE_NAME=${IMMICH_DB_DATABASE_NAME}
-    - DB_HOSTNAME=immich-postgres
-    - DB_PASSWORD=${IMMICH_DB_PASSWORD}
-    - DB_USERNAME=${IMMICH_DB_USERNAME}
-    - REDIS_HOSTNAME=immich-redis
-    - MACHINE_LEARNING_HOST=${IMMICH_MACHINE_LEARNING_HOST}
-  volumes:
-    - ${IMMICH_PHOTOS_DIRECTORY}:/usr/src/app/upload
-    - /etc/localtime:/etc/localtime:ro
-  depends_on:
-    - immich-redis
-    - immich-database
-  restart: unless-stopped
-
 services:
   immich-server:
-    <<: *base-immich-server
+    image: ghcr.io/immich-app/immich-server:${IMMICH_VERSION}
     container_name: immich-server
-    command: [ "start.sh", "immich" ]
+    restart: unless-stopped
+    depends_on:
+      - immich-redis
+      - immich-database
+    environment:
+      - TZ=${TZ}
+      - DB_DATABASE_NAME=${IMMICH_DB_DATABASE_NAME}
+      - DB_HOSTNAME=immich-postgres
+      - DB_PASSWORD=${IMMICH_DB_PASSWORD}
+      - DB_USERNAME=${IMMICH_DB_USERNAME}
+      - REDIS_HOSTNAME=immich-redis
     networks:
       - traefik
       - immich
+    volumes:
+      - ${IMMICH_PHOTOS_DIRECTORY}:/usr/src/app/upload
+      - /etc/localtime:/etc/localtime:ro
     labels:
       - traefik.enable=true
       - traefik.http.routers.immich.rule=Host(`immich.$DOMAIN_NAME`)
-      - traefik.http.routers.immich.entrypoints=websecure
-      - traefik.http.routers.immich.tls.certresolver=cloudflare
-      - traefik.http.services.immich.loadbalancer.server.port=3001
       - dsm.name=Immich
-
-  immich-microservices:
-    <<: *base-immich-server
-    container_name: immich-microservices
-    # extends:
-    #   file: hwaccel.yml
-    #   service: hwaccel
-    command: [ "start.sh", "microservices" ]
-    networks:
-      - immich
 
   immich-redis:
     container_name: immich-redis

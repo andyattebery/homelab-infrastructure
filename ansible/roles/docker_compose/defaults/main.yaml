@@ -16,5 +16,7 @@ docker_compose_default_envs:
   PUID: "{{ docker_compose_uid }}"
   PGID: "{{ docker_compose_gid }}"
   TZ: "{{ timezone }}"
+  LANGUAGE_TWO_LETTER: "{{ lang_two_letter }}"
+  LANGUAGE_REGION_WITH_UNDERSCORE: "{{ language_region_with_underscore }}"
   DOMAIN_NAME: "{{ domain_name }}"
   DOCKER_DATA_DIRECTORY: "{{ docker_compose_dst_data_directory_path }}"

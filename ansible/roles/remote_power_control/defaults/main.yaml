@@ -1,3 +1,10 @@
 ---
-remote_power_control_username: kvmd
-remote_power_control_script_path: /usr/local/bin/remote_power_control
+remote_power_control_client: false
+remote_power_control_remote_server: false
+remote_power_control_config_directory_path: /etc/remote_power_control
+remote_power_control_client_private_key_name: id_ed25519
+remote_power_control_ssh_username: remote-power-control
+remote_power_control_ssh_power_control_script_path: /usr/local/bin/ssh_power_control
+remote_power_control_ssh_sudo_commands:
+  - /usr/sbin/reboot
+  - /usr/sbin/shutdown

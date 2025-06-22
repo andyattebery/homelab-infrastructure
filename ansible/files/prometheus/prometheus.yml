@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+- job_name: node
+  static_configs:
+  - targets:
+      - docker-01.omegaho.me:9100
+      - media-01.omegaho.me:9100
+      - nas-01.omegaho.me:9100
+      - nas-host-01.omegaho.me:9100
+      - vm-host-01.omegaho.me:9100
+- job_name: gpu-metrics
+  scrape_interval: 1s
+  metrics_path: /metrics
+  scheme: http
+  static_configs:
+  - targets:
+      - media-01.omegaho.me:9400
+- job_name: cadvisor
+  scrape_interval: 5s
+  static_configs:
+  - targets:
+      - docker-01.omegaho.me:8080
+      - media-01.omegaho.me:8080
+      - nas-01.omegaho.me:8080

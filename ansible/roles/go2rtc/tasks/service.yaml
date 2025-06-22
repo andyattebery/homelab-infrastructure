@@ -1,0 +1,14 @@
+---
+- name: Copy go2rtc.service
+  ansible.builtin.template:
+    src: go2rtc.service.j2
+    dest: /etc/systemd/system/go2rtc.service
+    mode: "0644"
+    owner: root
+  notify: Restart go2rtc
+- name: Enable and start go2rtc.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "go2rtc.service"
+    state: started
+    enabled: true

@@ -1,0 +1,42 @@
+---
+- name: Download snapraid-btrfs-runner.py
+  ansible.builtin.get_url:
+    url: "https://github.com/fmoledina/snapraid-btrfs-runner/raw/master/snapraid-btrfs-runner.py"
+    dest: "/usr/local/bin/snapraid-btrfs-runner.py"
+    mode: "0755"
+- name: Copy snapraid-btrfs-runner | snapraid_btrfs_runner_install_conf_template_path
+  when: snapraid_btrfs_runner_install_conf_template_path | length > 0
+  ansible.builtin.template:
+    src: "{{ snapraid_btrfs_runner_install_conf_template_path }}"
+    dest: "/etc/snapraid-btrfs-runner.conf"
+    mode: "0644"
+- name: Copy snapraid-btrfs-runner.service | default
+  when: snapraid_btrfs_runner_install_service_template_path | length == 0
+  ansible.builtin.get_url:
+    url: "https://github.com/fmoledina/snapraid-btrfs-runner/raw/master/init/snapraid-btrfs-runner.service"
+    dest: "/etc/systemd/system/snapraid-btrfs-runner.service"
+    mode: "0644"
+- name: Copy snapraid-btrfs-runner.service | snapraid_btrfs_runner_install_service_template_path
+  when: snapraid_btrfs_runner_install_service_template_path | length > 0
+  ansible.builtin.template:
+    src: "{{ snapraid_btrfs_runner_install_service_template_path }}"
+    dest: "/etc/systemd/system/snapraid-btrfs-runner.service"
+    mode: "0644"
+- name: Copy default snapraid-btrfs-runner.timer
+  when: snapraid_btrfs_runner_install_timer_template_path | length == 0
+  ansible.builtin.get_url:
+    url: "https://github.com/fmoledina/snapraid-btrfs-runner/raw/master/init/snapraid-btrfs-runner.timer"
+    dest: "/etc/systemd/system/snapraid-btrfs-runner.timer"
+    mode: "0644"
+- name: Copy snapraid-btrfs-runner.timer | snapraid_btrfs_runner_install_timer_template_path
+  when: snapraid_btrfs_runner_install_timer_template_path | length > 0
+  ansible.builtin.template:
+    src: "{{ snapraid_btrfs_runner_install_timer_template_path }}"
+    dest: "/etc/systemd/system/snapraid-btrfs-runner.timer"
+    mode: "0644"
+- name: Enable snapraid-btrfs-runner.timer
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: "snapraid-btrfs-runner.timer"
+    state: started
+    enabled: true

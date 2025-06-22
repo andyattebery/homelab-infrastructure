@@ -4,13 +4,20 @@
   become: true
 
   roles:
-    - configure_server
-    - geerlingguy.docker
+    # - configure_server
+    # - geerlingguy.docker
     - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
     - tailscale_exit_node
-    - docker_compose_adguardhome
+    - role: docker_compose_adguardhome
+      when: inventory_hostname != 'network-01'
     - docker_compose_dashboard_services_manager_provider
     - docker_compose_diun
+    - role: docker_compose_keepalived
+      vars:
+        keepalived_network_mode: host
+        keepalived_instance_name: adguardhome
+        keepalived_interface: eth0
+        keepalived_virtual_ipaddress: 192.168.1.222
     - role: docker_compose_wireguard
       vars:
         docker_compose_copy_scripts: true
@@ -19,6 +26,15 @@
   hosts: network-01
   become: true
   tasks:
+    - name: Clone settings repository # noqa latest[git]
+      become: false
+      ansible.builtin.git:
+        repo: git@github.com:andyattebery/settings.git
+        accept_newhostkey: true
+        dest: ~/settings
+    - name: Configure adguardhome
+      ansible.builtin.include_role:
+        name: docker_compose_adguardhome
     - name: Configure adguardhome-sync
       vars:
         adguardhome_sync_hostname: "{{ adguardhome_hostname }}"

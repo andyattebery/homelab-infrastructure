@@ -1,0 +1,45 @@
+---
+- name: Configure Proxmox vm-host-04
+  hosts: vm-host-04
+  become: true
+
+  roles:
+    - pve_config
+    - pve_cluster_acme
+    - pve_node_acme
+    - pve_storage_add_nas_01_proxmox
+    - configure_server
+    - scrutiny_collector
+    - role: power_saving
+      vars:
+        power_saving_pcie_runtime_all_devices: false
+        power_saving_sata_all_devices: false
+    - role: kernel_parameters
+      vars:
+        kernel_parameters_new_parameters:
+          intel_iommu: "on"
+    - role: pikvm_remote_command
+      vars:
+        pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+
+  tasks:
+    - name: Configure network interfaces
+      ansible.builtin.copy:
+        src: files/vm-host-04/interfaces
+        dest: /etc/network/interfaces
+        mode: "0644"
+        owner: root
+        group: root
+    # - name: Add syncoid user
+    #   ansible.builtin.user:
+    #     name: "{{ nas_02_syncoid_username }}"
+    #     password: '!'
+    # - name: Authorize nas-01 syncoid key for syncoid user
+    #   ansible.posix.authorized_key:
+    #     user: "{{ nas_02_syncoid_username }}"
+    #     state: present
+    #     key: "{{ nas_01_syncoid_ssh_public_key }}"
+    # - name: Allow syncoid user to shutdown
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/sudoers
+    #     line: "{{ nas_02_syncoid_username }} ALL=NOPASSWD: /usr/sbin/shutdown"

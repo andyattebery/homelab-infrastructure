@@ -1,0 +1,3 @@
+streams:
+  cam1:
+    - exec:rpicam-vid --vflip --hflip --autofocus-mode continuous --autofocus-range normal --autofocus-window 0.25,0.2,0.4,0.6 --framerate 30 --width 2304 --height 1296 --codec libav --libav-format h264 --libav-video-codec libx264 --libav-video-codec-opts 'profile=high;level=4.2;preset=fast;tune=zerolatency' --timeout 0 --nopreview --inline --verbose 0 --output -

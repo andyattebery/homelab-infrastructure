@@ -1,0 +1,8 @@
+---
+- name: Install db blob
+  ansible.builtin.include_tasks:
+    file: dt_blob.yaml
+- name: Add camera overlays
+  when: raspberry_pi_camera_overlays is defined
+  ansible.builtin.include_tasks:
+    file: camera_overlays.yaml

@@ -4,3 +4,6 @@ openseachest_man_dir: /usr/share/man
 openseachest_deb_install_dir: "/usr/bin/openSeaChest"
 openseachest_powercontrol_path: "{{ (openseachest_bin_dir, 'openSeaChest_PowerControl') | path_join }}"
 openseachest_powercontrol_base_command: "{{ openseachest_powercontrol_path }} --noBanner"
+
+power_saving_pcie_runtime_all_devices_enabled: "{{ power_saving_pcie_runtime_all_devices is defined and power_saving_pcie_runtime_all_devices }}"
+power_saving_sata_all_devices_enabled: "{{ power_saving_sata_all_devices is defined and power_saving_sata_all_devices }}"

@@ -21,7 +21,7 @@
         run_command: true
         command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_dns_cloudflare_domain_name }}"
         changed_when: false # "'Certificate not yet due for renewal' not in run_config_file_result.stdout"
-      - src_file_path: files/certbot_renew_entrypoint.sh
+      - src_file_path: templates/certbot_renew_entrypoint.sh.j2
         dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
         mode: "0755"
   ansible.builtin.include_role:

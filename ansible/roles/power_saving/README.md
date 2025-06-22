@@ -123,6 +123,8 @@ NVMe 1.1: Autonomous Power State Transitions (APST)
 
 ## Notes
 
+https://forums.servethehome.com/index.php?threads/12gen-n-series-nas-motherboard-topton-cwwk.42432/page-4#post-407589
+
 GRUB_CMDLINE_LINUX_DEFAULT="intel_iommu=on intel_pstate=active cpufreq.default_governor=powersave"
 
 "ansible_cmdline": {

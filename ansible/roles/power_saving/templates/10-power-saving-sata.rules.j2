@@ -1,12 +1,12 @@
-{% set power_saving_sata_all_devices_enabled = power_saving_sata_all_devices is defined and power_saving_sata_all_devices -%}
+{# {% set power_saving_sata_all_devices_enabled = power_saving_sata_all_devices is defined and power_saving_sata_all_devices -%} #}
 
 {% if power_saving_sata_all_devices_enabled %}
-ACTION=="add", SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_saving_policy}="med_power_with_dipm"
+SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_saving_policy}="med_power_with_dipm"
 {% endif -%}
 
 {% if not power_saving_sata_all_devices_enabled %}
 {% for power_saving_sata_device in power_saving_sata_devices | default([]) %}
 SUBSYSTEM=="pci", ATTR{vendor}=="{{ power_saving_sata_device.vendor_id }}", ATTR{device}=="{{ power_saving_sata_device.device_id }}", ENV{sata_kernel_pci_id_{{loop.index}}}="$kernel"
-DEVPATH=="*$env{sata_kernel_pci_id_{{loop.index}}}*" ACTION=="add", SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_saving_policy}="med_power_with_dipm"
+DEVPATH=="*$env{sata_kernel_pci_id_{{loop.index}}}*" SUBSYSTEM=="scsi_host", KERNEL=="host*", ATTR{link_power_saving_policy}="med_power_with_dipm"
 {% endfor %}
 {% endif -%}

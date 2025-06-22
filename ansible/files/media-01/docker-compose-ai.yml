@@ -1,0 +1,59 @@
+---
+services:
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+    container_name: dcgm-exporter
+    cap_add:
+      - SYS_ADMIN
+    runtime: nvidia  # Specifies using NVIDIA runtime (equivalent to --gpus)
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "9400:9400"
+  ollama:
+    image: ollama/ollama
+    container_name: ollama
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_FLASH_ATTENTION=1
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/ollama:/root/.ollama
+    networks:
+      - traefik
+      - ollama
+    labels:
+      - traefik.enable=true
+      - dsm.ignore=true
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    depends_on:
+      - ollama
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/open-webui:/app/backend/data
+    networks:
+      - traefik
+      - ollama
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+
+networks:
+  ollama:
+    name: ollama
+  traefik:
+    name: traefik
+    external: true

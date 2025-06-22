@@ -1,0 +1,11 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    name: ubuntu-drivers-common
+- name: Install driver
+  ansible.builtin.command:
+    cmd: "ubuntu-drivers install --gpgpu nvidia:{{ nvidia_driver_branch }}{{ '-server' if nvidia_driver_server else '' }}"
+  register: ubuntu_drivers_result
+- name: debug
+  ansible.builtin.debug:
+    var: ubuntu_drivers_result

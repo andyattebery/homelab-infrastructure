@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ffmpeg ALSA hw:0:0 to IceCast stream
+Requires=sys-devices-platform-scb-fd500000.pcie-pci0000:00-0000:00:00.0-0000:01:00.0-usb1-1\x2d1-1\x2d1.4-1\x2d1.4:1.0-sound-card3-controlC3.device
+After=sys-devices-platform-scb-fd500000.pcie-pci0000:00-0000:00:00.0-0000:01:00.0-usb1-1\x2d1-1\x2d1.4-1\x2d1.4:1.0-sound-card3-controlC3.device
+
+[Service]
+ExecStart=arecord --device=hw:3,0 --format=cd --file-type=raw /opt/docker-compose/owntone/media/turntable_pipe
+Type=exec
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

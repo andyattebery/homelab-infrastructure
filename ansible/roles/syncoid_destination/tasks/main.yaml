@@ -7,6 +7,22 @@
       - mbuffer
       - acl
       - lz4
+- name: Add syncoid_destination_username
+  ansible.builtin.user:
+    name: "{{ syncoid_destination_username }}"
+    password: '!'
+- name: Authorize syncoid_source_ssh_public_keys for syncoid_destination_username
+  ansible.posix.authorized_key:
+    user: "{{ syncoid_destination_username }}"
+    state: present
+    key: "{{ syncoid_source_ssh_public_key }}"
+  loop: "{{ syncoid_source_ssh_public_keys }}"
+  loop_control:
+    loop_var: syncoid_source_ssh_public_key
+# - name: Allow syncoid user to shutdown
+#   ansible.builtin.lineinfile:
+#     path: /etc/sudoers
+#     line: "{{ syncoid_destination_username }} ALL=NOPASSWD: /usr/sbin/shutdown"
 # - name: Allow syncoid user to run mount.zfs
 #   ansible.builtin.lineinfile:
 #     path: /etc/sudoers
@@ -29,13 +45,21 @@
 #     cmd: "chmod g+s {{ syncoid_destination_dataset_mountpoint_result.stdout }}"
     # cmd: "setfacl A+user:{{ syncoid_destination_username }}:add_subdirectory:allow {{ syncoid_destination_dataset_mountpoint_result.stdout }}"
   # changed_when: false
-- name: Create /etc/sanoid
-  ansible.builtin.file:
-    path: /etc/sanoid
-    state: directory
-    mode: "0755"
-- name: Copy sanoid.conf
-  ansible.builtin.template:
-    src: sanoid-destination.conf.j2
-    dest: /etc/sanoid/sanoid.conf
-    mode: "0644"
+- name: Configure sanoid
+  vars:
+    sanoid_dataset_configs:
+      - key: "{{ syncoid_destination_dataset }}"
+        value:
+          ### remove outdated snapshots
+          autoprune: true
+          ### don't have sanoid take snapshots as they are coming from syncoid
+          autosnap: false
+          recursive: true
+          ### define what to keep
+          frequently: 0
+          hourly: 0
+          daily: 30
+          monthly: 6
+          yearly: 0
+  ansible.builtin.include_role:
+    name: sanoid

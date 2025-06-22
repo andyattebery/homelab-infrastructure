@@ -1,27 +1,5 @@
 ---
 services:
-  # gitea:
-  #   image: gitea/gitea:latest
-  #   container_name: gitea
-  #   environment:
-  #     - USER_UID=${PUID}
-  #     - USER_GID=${PGID}
-  #   restart: unless-stopped
-  #   ports:
-  #     - "222:22" # SSH
-  #   volumes:
-  #     - /mnt/tank/data/gitea:/data
-  #     - /etc/timezone:/etc/timezone:ro
-  #     - /etc/localtime:/etc/localtime:ro
-  #   networks:
-  #     - traefik
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.http.routers.gitea.rule=Host(`gitea.$DOMAIN_NAME`)
-  #     - traefik.http.routers.gitea.entrypoints=websecure
-  #     - traefik.http.routers.gitea.tls.certresolver=cloudflare
-  #     - traefik.http.routers.gitea.service=gitea
-  #     - traefik.http.services.gitea.loadbalancer.server.port=3000
   forgejo:
     image: codeberg.org/forgejo/forgejo:1.21
     container_name: forgejo
@@ -39,9 +17,6 @@ services:
       - '222:22'
     labels:
       - traefik.enable=true
-      - traefik.http.routers.forgejo.rule=Host(`forgejo.$DOMAIN_NAME`)
-      - traefik.http.routers.forgejo.entrypoints=websecure
-      - traefik.http.routers.forgejo.tls.certresolver=cloudflare
       - traefik.http.services.forgejo.loadbalancer.server.port=3000
   iperf:
     container_name: iperf
@@ -65,10 +40,6 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.routers.linkding.rule=Host(`linkding.$DOMAIN_NAME`)
-      - traefik.http.routers.linkding.entrypoints=websecure
-      - traefik.http.routers.linkding.tls.certresolver=cloudflare
-      - traefik.http.services.linkding.loadbalancer.server.port=9090
   linkwarden-postgres:
     image: postgres:16-alpine
     container_name: linkwarden-postgres
@@ -98,10 +69,6 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.routers.linkwarden.rule=Host(`linkwarden.$DOMAIN_NAME`)
-      - traefik.http.routers.linkwarden.entrypoints=websecure
-      - traefik.http.routers.linkwarden.tls.certresolver=cloudflare
-      - traefik.http.services.linkwarden.loadbalancer.server.port=3000
   minio:
     image: minio/minio:latest
     container_name: minio
@@ -118,13 +85,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.minio.rule=Host(`s3.$DOMAIN_NAME`)
-      - traefik.http.routers.minio.entrypoints=websecure
-      - traefik.http.routers.minio.tls.certresolver=cloudflare
       - traefik.http.routers.minio.service=minio
       - traefik.http.services.minio.loadbalancer.server.port=9000
       - traefik.http.routers.minio-console.rule=Host(`minio.$DOMAIN_NAME`)
-      - traefik.http.routers.minio-console.entrypoints=websecure
-      - traefik.http.routers.minio-console.tls.certresolver=cloudflare
       - traefik.http.routers.minio-console.service=minio-console
       - traefik.http.services.minio-console.loadbalancer.server.port=9001
       - dsm.traefik.router=minio-console
@@ -143,17 +106,13 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.netbootxyz.rule=Host(`netbootxyz.$DOMAIN_NAME`)
-      - traefik.http.routers.netbootxyz.entrypoints=websecure
-      - traefik.http.routers.netbootxyz.tls.certresolver=cloudflare
       - traefik.http.routers.netbootxyz.service=netbootxyz
       - traefik.http.services.netbootxyz.loadbalancer.server.port=3000
       - traefik.http.routers.netbootxyz-assets.rule=Host(`netbootxyz-assets.$DOMAIN_NAME`)
-      - traefik.http.routers.netbootxyz-assets.entrypoints=websecure
-      - traefik.http.routers.netbootxyz-assets.tls.certresolver=cloudflare
       - traefik.http.routers.netbootxyz-assets.service=netbootxyz-assets
       - traefik.http.services.netbootxyz-assets.loadbalancer.server.port=80
       - dsm.traefik.router=netbootxyz
-  resilio_sync:
+  resilio-sync:
     image: lscr.io/linuxserver/resilio-sync:latest
     container_name: resilio-sync
     environment:
@@ -171,9 +130,6 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.routers.resilio-sync.rule=Host(`resilio-sync.$DOMAIN_NAME`)
-      - traefik.http.routers.resilio-sync.entrypoints=websecure
-      - traefik.http.routers.resilio-sync.tls.certresolver=cloudflare
       - traefik.http.services.reslio-sync.loadbalancer.server.port=8888
   syncthing:
     image: lscr.io/linuxserver/syncthing:latest
@@ -184,8 +140,8 @@ services:
       - PGID=${PGID}
       - TZ=${TZ}
     volumes:
-      - ${DOCKER_DATA_DIRECTORY}/syncthing/config:/config
-      # - /mnt/tank/data/syncthing:/data
+      - /mnt/tank/syncthing/config:/config
+      - /mnt/tank/syncthing/data:/data
     ports:
       - 22000:22000/tcp
       - 22000:22000/udp
@@ -195,9 +151,6 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.routers.syncthing.rule=Host(`syncthing.$DOMAIN_NAME`)
-      - traefik.http.routers.syncthing.entrypoints=websecure
-      - traefik.http.routers.syncthing.tls.certresolver=cloudflare
       - traefik.http.services.syncthing.loadbalancer.server.port=8384
 
 networks:

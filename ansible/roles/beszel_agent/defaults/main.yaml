@@ -1,0 +1,4 @@
+beszel_agent_port: 45876
+beszel_agent_bin_path: /usr/local/bin
+beszel_agent_username: beszel
+beszel_agent_installer_path: /tmp/beszel/install-agent.sh

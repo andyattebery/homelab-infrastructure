@@ -1,0 +1,11 @@
+---
+- name: Configure manyfold with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-manyfold.yaml
+    docker_compose_envs:
+      MANYFOLD_DB_NAME: "{{ manyfold_db_name }}"
+      MANYFOLD_DB_USERNAME: "{{ manyfold_db_name }}"
+      MANYFOLD_DB_PASSWORD: "{{ manyfold_db_password }}"
+      MANYFOLD_SECRET_KEY_BASE: "{{ manyfold_secret_key_base }}"
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -1,0 +1,47 @@
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/ayufan/camera-streamer/releases/latest
+    return_content: true
+  register:
+    camera_streamer_latest_release_json_response
+- name: Set camera_streamer_version fact # noqa jinja[invalid]
+  vars:
+    tag: "{{ camera_streamer_latest_release_json_response.json | json_query('tag_name') }}"
+  ansible.builtin.set_fact:
+    camera_streamer_version: "{{ tag | regex_replace('^v(.*)$', '\\1') }}"
+- name: Set camera_streamer_variant - generic
+  when: not (('-rpi-' in ansible_kernel) or ('-raspi' in ansible_kernel))
+  ansible.builtin.set_fact:
+    camera_streamer_variant: generic
+- name: Set camera_streamer_variant - raspi
+  when: ('-rpi-' in ansible_kernel) or ('-raspi' in ansible_kernel)
+  ansible.builtin.set_fact:
+    camera_streamer_variant: raspi
+- name: Get architecture
+  ansible.builtin.command:
+    cmd: dpkg --print-architecture
+  register: dpkg_architecture_result
+  changed_when: false
+- name: Set camera_streamer_architecture
+  ansible.builtin.set_fact:
+    camera_streamer_architecture: "{{ dpkg_architecture_result.stdout }}"
+- name: Set camera_streamer_deb_name
+  ansible.builtin.set_fact:
+    camera_streamer_deb_name: "camera-streamer-{{ camera_streamer_variant }}_{{ camera_streamer_version }}.{{ ansible_lsb.codename }}_{{ camera_streamer_architecture }}.deb"
+- name: Create temp dir
+  ansible.builtin.tempfile:
+    state: directory
+  register: camera_streamer_deb_directory
+- name: Download deb # noqa jinja[invalid]
+  vars:
+    browser_download_url_json_query: "assets[?name == '{{ camera_streamer_deb_name }}'].browser_download_url"
+    browser_download_urls: "{{ camera_streamer_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
+    camera_streamer_deb_url: "{{ browser_download_urls | first }}"
+  ansible.builtin.get_url:
+    url: "{{ camera_streamer_deb_url }}"
+    dest: "{{ camera_streamer_deb_directory.path }}"
+    mode: "0644"
+  register: camera_streamer_deb_download_result
+- name: Install camera-stream deb
+  ansible.builtin.apt:
+    deb: "{{ (camera_streamer_deb_directory.path, camera_streamer_deb_name) | path_join }}"

@@ -1,0 +1,14 @@
+---
+- name: Configure paperless-ngx with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-paperless-ngx.yaml
+    docker_compose_envs:
+      PAPERLESS_DIRECTORY: "{{ paperless_directory }}"
+      PAPERLESS_SECRET_KEY: "{{ paperless_secret_key }}"
+      PAPERLESS_ADMIN_USER: "{{ paperless_admin_user }}"
+      PAPERLESS_ADMIN_PASSWORD: "{{ paperless_admin_password }}"
+      PAPERLESS_DB_NAME: "{{ paperless_db_name }}"
+      PAPERLESS_DB_USER: "{{ paperless_db_user }}"
+      PAPERLESS_DB_PASSWORD: "{{ paperless_db_password }}"
+  ansible.builtin.include_role:
+    name: docker_compose

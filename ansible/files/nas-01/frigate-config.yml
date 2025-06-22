@@ -1,0 +1,24 @@
+mqtt:
+  enabled: false
+detect:
+  enabled: false
+record:
+  enabled: false
+  retain:
+    days: 7
+    mode: all
+cameras:
+  pi-camera-cam0:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://pi-camera.omegaho.me:8554/cam0
+          roles:
+            - record
+  pi-camera-cam1:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://pi-camera.omegaho.me:8554/cam1
+          roles:
+            - record

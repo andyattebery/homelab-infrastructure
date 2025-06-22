@@ -10,7 +10,7 @@
   block:
     - name: Set pve_main_node_ip and host_node_ip
       ansible.builtin.set_fact:
-        pve_main_node_ip: "{{ lookup('community.general.dig', hostvars[pve_cluster_main_node].ansible_host) }}"
+        # pve_main_node_ip: "{{ lookup('community.general.dig', hostvars[pve_cluster_main_node].ansible_host) }}"
         host_node_ip: "{{ lookup('community.general.dig', ansible_host) }}"
     # - name: Get host IP
     #   ansible.builtin.command:
@@ -22,5 +22,5 @@
       vars:
         node_cluster_network_ip: "{{ host_node_ip }}"
       ansible.builtin.command:
-        cmd: pvesh create /cluster/config/join -fingerprint {{ pve_cluster_fingerprint }} -hostname {{ pve_main_node_ip }} -password {{ pve_cluster_main_node_root_password }} # noqa yaml[line-length]
+        cmd: pvesh create /cluster/config/join -fingerprint {{ pve_cluster_fingerprint }} -hostname {{ pve_main_node_ip }} -password {{ pve_cluster_main_node_root_password }} -link0 address={{ node_cluster_network_ip }} # noqa yaml[line-length]
       changed_when: true

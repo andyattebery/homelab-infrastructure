@@ -1,3 +1,6 @@
 ---
 pbs_backup_01_username: "vm-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
+pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_950_PRO_512GB_S2GMNCAGB07802W
+ceph_mon_address: "192.168.1.247"
+security_ssh_permit_root_login: "prohibit-password"

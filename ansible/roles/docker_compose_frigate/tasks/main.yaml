@@ -1,0 +1,12 @@
+- name: Configure frigate with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-frigate.yaml
+    docker_compose_envs:
+      FRIGATE_STORAGE_DIRECTORY: "{{ frigate_storage_directory }}"
+      FRIGATE_RELATIVE_CONFIG_DIRECTORY: "{{ frigate_relative_config_directory }}"
+    docker_compose_src_config_files:
+      - src_file_path: "{{ frigate_config_file_path }}"
+        dst_relative_file_path: "{{ (frigate_relative_config_directory, 'config.yml') | path_join }}"
+        service_name_to_restart: frigate
+  ansible.builtin.include_role:
+    name: docker_compose

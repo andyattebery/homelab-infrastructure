@@ -156,16 +156,8 @@ kvmd:
                 title: Control
             table:
                 -
-                    - "#backup-01"
-                    - "kvm_switch_input_1 | KVM Switch"
-                    - "wol_backup_01 | confirm | Power On (WoL)"
-                    - "reboot_backup_01 | confirm | Reboot"
-                    - "shutdown_backup_01 | confirm | Shutdown"
-                    - "esphome_outlet_on_backup_01 | confirm | Outlet On"
-                    - "esphome_outlet_off_backup_01 | confirm | Outlet Off"
-                -
                     - "#vm-host-01"
-                    - "kvm_switch_input_2 | KVM Switch"
+                    - "kvm_switch_input_1 | KVM Switch"
                     - "wol_vm_host_01 | confirm | Power On (WoL)"
                     - "reboot_vm_host_01 | confirm | Reboot"
                     - "shutdown_vm_host_01 | confirm | Shutdown"
@@ -173,7 +165,7 @@ kvmd:
                     - "esphome_outlet_off_vm_host_01 | confirm | Outlet Off"
                 -
                     - "#vm-host-02"
-                    - "kvm_switch_input_3 | KVM Switch"
+                    - "kvm_switch_input_2 | KVM Switch"
                     - "wol_vm_host_02 | confirm | Power On (WoL)"
                     - "reboot_vm_host_02 | confirm | Reboot"
                     - "shutdown_vm_host_02 | confirm | Shutdown"
@@ -184,9 +176,12 @@ kvmd:
                     - "kvm_switch_input_4 | KVM Switch"
                 - []
                 -
-                    - "#mac-mini-01"
-                    - "esphome_outlet_on_mac_mini_01 | confirm | Outlet On"
-                    - "esphome_outlet_off_mac_mini_01 | confirm | Outlet Off"
+                    - "#backup-01"
+                    - "wol_backup_01 | confirm | Power On (WoL)"
+                    - "reboot_backup_01 | confirm | Reboot"
+                    - "shutdown_backup_01 | confirm | Shutdown"
+                    - "esphome_outlet_on_backup_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_backup_01 | confirm | Outlet Off"
                 -
                     - "#nas-host-01"
                     #- ipmi_nas_host_01_status
@@ -205,3 +200,7 @@ kvmd:
                     - "shutdown_vm_host_03 | confirm | Shutdown"
                     - "esphome_outlet_on_vm_host_03 | confirm | Outlet On"
                     - "esphome_outlet_off_vm_host_03 | confirm | Outlet Off"
+                -
+                    - "#mac-mini-01"
+                    - "esphome_outlet_on_mac_mini_01 | confirm | Outlet On"
+                    - "esphome_outlet_off_mac_mini_01 | confirm | Outlet Off"

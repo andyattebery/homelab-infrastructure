@@ -23,19 +23,26 @@
     cmd: pveceph status
   register: pveceph_status_result
   changed_when: false
+  failed_when: false
 - name: Set ceph_monitors, ceph_managers
+  when: pveceph_status_result.rc == 0
   vars:
     mon_regex: '^\s*(mon:.*$)'
     mgr_regex: '^\s*(mgr:.*$)'
   ansible.builtin.set_fact:
     ceph_monitors: "{{ pveceph_status_result.stdout | regex_search(mon_regex, multiline=True) }}"
     ceph_managers: "{{ pveceph_status_result.stdout | regex_search(mgr_regex, multiline=True) }}"
+- name: Set empty ceph_monitors, ceph_managers
+  when: pveceph_status_result.rc != 0
+  ansible.builtin.set_fact:
+    ceph_monitors: []
+    ceph_managers: []
 - name: Create ceph monitor
   # vars:
   #   monitor_name: "mon.{{ ansible_hostname }}"
   when: "ansible_hostname not in ceph_monitors"
   ansible.builtin.command:
-    cmd: pveceph mon create
+    cmd: "pveceph mon create --mon-address {{ ceph_mon_address }}"
   register: pveceph_mon_create_result
   changed_when: true
   # changed_when: pveceph_mon_create_result.rc == 0

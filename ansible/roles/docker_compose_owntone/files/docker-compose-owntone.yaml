@@ -1,0 +1,13 @@
+services:
+  owntone:
+    image: docker.io/owntone/owntone:latest
+    container_name: owntone
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - UID=${PUID}
+      - GID=${PGID}
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/owntone/etc:/etc/owntone
+      - ${DOCKER_DATA_DIRECTORY}/owntone/media:/srv/media
+      - ${DOCKER_DATA_DIRECTORY}/owntone/cache:/var/cache/owntone

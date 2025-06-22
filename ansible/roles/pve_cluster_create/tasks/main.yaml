@@ -5,9 +5,6 @@
   changed_when: false
   register:
     host_ip_result
-- name: Register main node IP
-  ansible.builtin.set_fact:
-    pve_main_node_ip: "{{ host_ip_result.stdout }}"
 - name: Get PVE cluster status
   ansible.builtin.command:
     cmd: pvecm status

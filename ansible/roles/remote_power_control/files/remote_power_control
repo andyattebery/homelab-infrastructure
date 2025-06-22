@@ -1,0 +1,186 @@
+#!/usr/bin/env sh
+
+# Dependencies
+# - curl
+# - wakeonlan
+
+# Resources
+# - [Variable null or empty checking](https://stackoverflow.com/a/13864829)
+# - [Home Assistant REST API](https://developers.home-assistant.io/docs/api/rest/)
+# - [PiKVM API](https://docs.pikvm.org/api/)
+
+# Config
+: ${ENV_FILE_PATH:="/etc/remote_power_control/env"}
+
+# Functions
+usage() {
+    cat << "USAGE_TXT"
+remote_power_control <host> <type> [<action>] <...>
+Supported types: homeassistant, pikvm, wakeonlan (only supports 'on' action), ssh
+Supported actions: on, off
+
+Type usages:
+    remote_power_control <host> homeassistant <action> <switch_entity_id> [<homeassistant_base_url>] [<homeassistant_access_token>]
+    remote_power_control <host> pikvm <action> [<pikvm_url>] [<pikvm_username>] [<pikvm_password>]
+    remote_power_control <host> wakeonlan <mac_address>
+
+ENV variables (optionally set in $ENV_FILE_PATH) can also be set instead of optional parameters:
+    - REMOTE_POWER_CONTROL_PIKVM_URL
+    - REMOTE_POWER_CONTROL_PIKVM_USERNAME
+    - REMOTE_POWER_CONTROL_PIKVM_PASSWORD
+    - REMOTE_POWER_CONTROL_HOMEASSISTANT_URL
+    - REMOTE_POWER_CONTROL_HOMEASSISTANT_ACCESS_TOKEN
+    - REMOTE_POWER_CONTROL_POST_POWER_ON_SLEEP_IN_SECONDS
+
+USAGE_TXT
+}
+
+homeassistant_switch() {
+    action=${1:?"<action> not specified"}
+    homeassistant_switch_entity_id=${2:?"<switch_entity_id> not specified"}
+
+    homeassistant_url=${3:-${REMOTE_POWER_CONTROL_HOMEASSISTANT_URL}}
+    homeassistant_access_token=${4:-${REMOTE_POWER_CONTROL_HOMEASSISTANT_ACCESS_TOKEN}}
+
+    : ${homeassistant_url:?"<homeassistant_url> parameter or REMOTE_POWER_CONTROL_HOMEASSISTANT_URL is not set"}
+    : ${homeassistant_access_token:?"<homeassistant_access_token> parameter or REMOTE_POWER_CONTROL_HOMEASSISTANT_ACCESS_TOKEN is not set"}
+
+    # echo $action
+    # echo $homeassistant_switch_entity_id
+    # echo $homeassistant_url
+    # echo $homeassistant_access_token
+
+    if [ $action = 'on' ]; then
+        homeassistant_action_url_part='turn_on'
+    elif [ $action = 'off' ]; then
+        homeassistant_action_url_part='turn_off'
+    else
+        echo "$action is not valid."
+    fi
+
+    homeassistant_post_data="{\"entity_id\": \"$homeassistant_switch_entity_id\"}"
+
+    echo "Powering $action via Home Assistant..."
+
+    /usr/bin/curl \
+    --no-progress-meter \
+    --header "Authorization: Bearer $homeassistant_access_token" \
+    --header "Content-Type application/json" \
+    --data "$homeassistant_post_data" \
+    --request POST \
+    "$homeassistant_url:8123/api/services/switch/$homeassistant_action_url_part"
+}
+
+pikvm_atx() {
+    action=${1:?action not specified}
+
+    pikvm_url=${2:-${REMOTE_POWER_CONTROL_PIKVM_URL}}
+    pikvm_username=${3:-${REMOTE_POWER_CONTROL_PIKVM_USERNAME}}
+    pikvm_password=${4:-${REMOTE_POWER_CONTROL_PIKVM_PASSWORD}}
+
+    : ${pikvm_url:?"<pikvm_url> parameter or REMOTE_POWER_CONTROL_PIKVM_URL is not set"}
+    : ${pikvm_username:?"<pikvm_username> parameter or REMOTE_POWER_CONTROL_PIKVM_USERNAME is not set"}
+    : ${pikvm_password:?"<pikvm_password> parameter or REMOTE_POWER_CONTROL_PIKVM_PASSWORD is not set"}
+
+    # echo $action
+    # echo $pikvm_url
+    # echo $pikvm_username
+    # echo $pikvm_password
+
+    if [ $action = 'on' ]; then
+        power_action='on'
+    elif [ $action = 'off' ]; then
+        power_action='off'
+    else
+        echo "$action is not valid."
+    fi
+
+    echo "Powering $action via PiKVM ATX..."
+
+    /usr/bin/curl \
+    --no-progress-meter \
+    --header "X-KVMD-User:$pikvm_username" \
+    --header "X-KVMD-Passwd:$pikvm_password" \
+    --request POST \
+    "$pikvm_url/api/atx/power?action=$power_action"
+}
+
+power_control_ssh_command() {
+    action=${1:?"action not specified"}
+    hostname=${2:?"hostname not specified"}
+    private_key_path
+
+    /usr/bin/ssh \
+    -o StrictHostKeyChecking=accept-new \
+    -o IdentityFile={{ pikvm_ssh_remote_command_private_key_path }} \
+    {{ pikvm_ssh_user }}@$host \
+    "$action"
+
+}
+
+wake_on_lan() {
+    mac_address=$1
+
+    echo "Powering on via wake-on-LAN..."
+    wakeonlan $mac_address
+}
+
+post_power_on_sleep() {
+    sleep_in_seconds=${REMOTE_POWER_CONTROL_POST_POWER_ON_SLEEP_IN_SECONDS:-"240"} # 4 minutes
+
+    echo "Sleeping for $sleep_in_seconds seconds..."
+    sleep "$sleep_in_seconds"
+}
+
+# Main
+if [ $# -eq 0 ]; then
+    usage
+    exit
+fi
+
+if [ -e $ENV_FILE_PATH ]; then
+    . $ENV_FILE_PATH
+fi
+
+type=${1:?type not specified}
+host=${2:?host not specified}
+
+if [ $type = 'wakeonlan' ]; then
+    action='on'
+else
+    action=${3:?action not specified}
+fi
+
+# Check if host is already powered on
+if [ $action = 'on' ]; then
+    ping -q -c 5 $host # quiet, count 5
+
+    if [ $? -eq 0 ]; then
+        echo "$host is already on."
+        exit
+    fi
+fi
+
+case $type in
+    "homeassistant" )
+        # <action> <switch_entity_id> [<homeassistant_base_url>] [<homeassistant_access_token>]
+        homeassistant_switch $action $4 $5 $6
+        ;;
+    "pikvm" )
+        # <action> [<pikvm_url>] [<pikvm_username>] [<pikvm_password>]
+        pikvm_atx $action $4 $5 $6
+        ;;
+    "wakeonlan" )
+        # <mac_address>
+        wake_on_lan $2
+        ;;
+    "ssh" )
+        ssh_power_control $3
+    * )
+        usage
+        ;;
+esac
+
+if [ $action = 'on' ]; then
+    post_power_on_sleep
+fi

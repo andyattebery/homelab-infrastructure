@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ffmpeg ALSA hw:0:0 to IceCast stream
+Requires=icecast2.service
+After=icecast2.service
+
+[Service]
+ExecStart=ffmpeg -ac 1 -f alsa -i hw:3,0 -acodec libmp3lame -b:a 320 -content_type audio/mpeg -f mp3 icecast://source:{{ icecast_server_password }}@{{ icecast_server_hostname }}:{{ icecast_server_port }}/turntable
+Type=exec
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

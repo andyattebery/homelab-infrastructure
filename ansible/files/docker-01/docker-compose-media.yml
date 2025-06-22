@@ -1,5 +1,30 @@
 ---
 services:
+  calibre:
+    image: lscr.io/linuxserver/calibre:latest
+    container_name: calibre
+    security_opt:
+      - seccomp:unconfined #optional
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - PASSWORD= #optional
+      - CLI_ARGS= #optional
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/calibre:/config
+      # - /dev/dri:/dev/dri
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.calibre-gui.rule=Host(`calibre-gui.$DOMAIN_NAME`)
+      - traefik.http.routers.calibre-gui.service=calibre-gui
+      - traefik.http.services.calibre-gui.loadbalancer.server.port=8080
+      - traefik.http.routers.calibre.rule=Host(`calibre.$DOMAIN_NAME`)
+      - traefik.http.routers.calibre.service=calibre
+      - traefik.http.services.calibre.loadbalancer.server.port=8081
   jellystat:
     image: cyfershepard/jellystat:latest
     container_name: jellystat
@@ -20,10 +45,6 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/jellystat:/app/backend/backup-data # Mounting the volume
     labels:
       - traefik.enable=true
-      - traefik.http.routers.jellystat.rule=Host(`jellystat.$DOMAIN_NAME`)
-      - traefik.http.routers.jellystat.entrypoints=websecure
-      - traefik.http.routers.jellystat.tls.certresolver=cloudflare
-      - traefik.http.services.jellystat.loadbalancer.server.port=3000
   jellystat-db:
     image: postgres:15
     container_name: jellystat-db
@@ -49,10 +70,6 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/tautulli/config:/config
     labels:
       - traefik.enable=true
-      - traefik.http.routers.tautulli.rule=Host(`tautulli.$DOMAIN_NAME`)
-      - traefik.http.routers.tautulli.entrypoints=websecure
-      - traefik.http.routers.tautulli.tls.certresolver=cloudflare
-      - traefik.http.services.tautulli.loadbalancer.server.port=8181
   trakt-for-appletv:
     image: forgejo.omegaho.me/andy/trakt-for-appletv:latest
     container_name: trakt-for-appletv

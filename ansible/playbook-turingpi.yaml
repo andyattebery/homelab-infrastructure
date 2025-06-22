@@ -1,0 +1,6 @@
+- name: Configure all nodes
+  hosts: turingpi
+  become: true
+  roles:
+    - configure_server
+    - system_upgrade

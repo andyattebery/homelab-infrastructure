@@ -1,0 +1,15 @@
+---
+services:
+  gatus:
+    image: twinproduction/gatus:latest
+    container_name: gatus
+    user: ${PUID}:${PGID}
+    restart: unless-stopped
+    # ports:
+    #   - 8080:8080
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/${GATUS_CONFIG_DIRECTORY_RELATIVE_PATH}/config
+    labels:
+      - traefik.enable=true

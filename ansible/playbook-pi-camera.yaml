@@ -1,0 +1,47 @@
+---
+- name: Configure pi-camera
+  hosts: pi-camera
+  become: true
+
+  pre_tasks:
+    - name: Remove packages
+      ansible.builtin.package:
+        name: rpicam-apps-lite
+        state: absent
+    - name: Install packages
+      ansible.builtin.package:
+        name: rpicam-apps
+
+  roles:
+    # - configure_server
+    # - role: waveshare_cm4_io_base_dual_cameras
+    #   vars:
+    #     raspberry_pi_camera_overlays:
+    #       - dtoverlay=imx708,cam0
+    #       - dtoverlay=imx708,cam1
+    - role: certbot_dns_cloudflare
+      vars:
+        certbot_dns_cloudflare_domain_name: "pi-camera.{{ domain_name }}"
+    - role: go2rtc
+      vars:
+        # go2rtc_config_file: files/pi-camera/go2rtc-rpi4.yaml.j2
+        go2rtc_config_file: files/pi-camera/go2rtc-rpi5.yaml.j2
+    # - geerlingguy.docker
+    # - role: docker_compose_mediamtx
+    #   vars:
+    #     docker_compose_copy_scripts: true
+    #     mediamtx_image_tag: latest-ffmpeg-rpi
+    #     mediamtx_config_file_src_path: files/pi-camera/mediamtx.yml
+    # - role: camera_streamer
+    #   vars:
+    #     camera_streamer_cameras:
+    #       - type: raspberry_pi_camera_module_3
+    #         name: wide
+    #         path: /base/soc/i2c0mux/i2c@1/imx708@1a
+    #         http_port: 8080
+    #         rtsp_port: 8554
+    #       - type: raspberry_pi_camera_module_3
+    #         name: normal
+    #         path: /base/soc/i2c0mux/i2c@0/imx708@1a
+    #         http_port: 8081
+    #         rtsp_port: 8555

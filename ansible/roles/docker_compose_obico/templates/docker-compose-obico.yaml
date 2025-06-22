@@ -1,0 +1,110 @@
+x-base: &obico-base
+  image: ghcr.io/gabe565/obico/web
+  depends_on:
+    - obico-redis
+  environment:
+    OCTOPRINT_TUNNEL_PORT_RANGE: '0-0'
+    EMAIL_HOST: '${OBICO_EMAIL_HOST-}'
+    EMAIL_HOST_USER: '${OBICO_EMAIL_HOST_USER-}'
+    EMAIL_HOST_PASSWORD: '${OBICO_EMAIL_HOST_PASSWORD-}'
+    EMAIL_PORT: '${OBICO_EMAIL_PORT-587}'
+    EMAIL_USE_TLS: '${OBICO_EMAIL_USE_TLS-True}'
+    DEFAULT_FROM_EMAIL: '${OBICO_DEFAULT_FROM_EMAIL-changeme@example.com}'
+    DEBUG: '${OBICO_DEBUG-False}'    # Don't set DEBUG to True unless you know what you are doing. Otherwise the static files will be cached in browser until hard-refresh
+    ADMIN_IP_WHITELIST: '${OBICO_ADMIN_IP_WHITELIST-}'
+    SITE_USES_HTTPS: '${OBICO_SITE_USES_HTTPS-False}'
+    SITE_IS_PUBLIC: '${OBICO_SITE_IS_PUBLIC-False}'
+    CSRF_TRUSTED_ORIGINS: '${OBICO_CSRF_TRUSTED_ORIGINS-}'
+    SOCIAL_LOGIN: '${OBICO_SOCIAL_LOGIN-False}'
+    REDIS_URL: '${OBICO_REDIS_URL-redis://obico-redis:6379}'
+    DATABASE_URL: '${OBICO_DATABASE_URL-sqlite:////data/db.sqlite3}'
+    INTERNAL_MEDIA_HOST: '${OBICO_INTERNAL_MEDIA_HOST-http://obico-web:3334}'
+    ML_API_HOST: '${OBICO_ML_API_HOST-http://obico-ml:3333}'
+    ACCOUNT_ALLOW_SIGN_UP: '${OBICO_ACCOUNT_ALLOW_SIGN_UP-False}'
+    WEBPACK_LOADER_ENABLED: '${OBICO_WEBPACK_LOADER_ENABLED-False}'
+    TELEGRAM_BOT_TOKEN: '${OBICO_TELEGRAM_BOT_TOKEN-}'
+    TWILIO_ACCOUNT_SID: '${OBICO_TWILIO_ACCOUNT_SID-}'
+    TWILIO_AUTH_TOKEN: '${OBICO_TWILIO_AUTH_TOKEN-}'
+    TWILIO_FROM_NUMBER: '${OBICO_TWILIO_FROM_NUMBER-}'
+    SENTRY_DSN: '${OBICO_SENTRY_DSN-}'
+    PUSHOVER_APP_TOKEN: '${OBICO_PUSHOVER_APP_TOKEN-}'
+    SLACK_CLIENT_ID: '${OBICO_SLACK_CLIENT_ID-}'
+    SLACK_CLIENT_SECRET: '${OBICO_SLACK_CLIENT_SECRET-}'
+    DJANGO_SECRET_KEY: '${OBICO_DJANGO_SECRET_KEY-}'
+    SYNDICATE: '${OBICO_SYNDICATE-}'
+    VERSION:
+  volumes:
+    - ${DOCKER_DATA_DIRECTORY}/obico/data:/data
+    - ${DOCKER_DATA_DIRECTORY}/obico/media:/app/static_build/media
+    - ${DOCKER_DATA_DIRECTORY}/obico/static:/app/static_build
+
+services:
+  obico-collectstatic:
+    <<: *obico-base
+    container_name: obico-collectstatic
+    command:
+      - python
+      - manage.py
+      - collectstatic
+      - --verbosity=2
+      - --noinput
+      - --link
+    networks:
+    - obico
+
+  obico-migrate:
+    <<: *obico-base
+    container_name: obico-migrate
+    command:
+      - python
+      - manage.py
+      - migrate
+    networks:
+    - obico
+
+  obico-redis:
+    image: redis:7.2-alpine
+    container_name: obico-redis
+    restart: unless-stopped
+    networks:
+    - obico
+
+  obico-tasks:
+    <<: *obico-base
+    container_name: obico-tasks
+    restart: unless-stopped
+    command:
+      - celery
+      - --app=config
+      - worker
+      - --beat
+      - --loglevel=info
+      - --concurrency=2
+      - --queues=realtime,celery
+      - --schedule=/tmp/celerybeat-schedule
+    networks:
+    - obico
+
+  obico-web:
+    <<: *obico-base
+    container_name: obico-web
+    depends_on:
+      obico-collectstatic:
+        condition: service_completed_successfully
+      obico-migrate:
+        condition: service_completed_successfully
+    command: [python, manage.py, runserver, --noreload, 0.0.0.0:3334]
+    restart: unless-stopped
+    networks:
+      - obico
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.obico.rule=Host(`obico.$DOMAIN_NAME`)
+
+networks:
+  obico:
+    name: obico
+  traefik:
+    name: traefik
+    external: true

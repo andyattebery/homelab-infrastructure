@@ -1,0 +1,42 @@
+services:
+  perplexica-backend:
+    container_name: perplexica-backend
+    image: rqi14/perplexica-backend:slim
+    # ports:
+    #   - 3001:3001
+    environment:
+      - SEARXNG_API_URL=${PERPLEXICA_SEARXNG_API_URL}
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/perplexica/backend-dbstore:/home/perplexica/data
+      - ${DOCKER_DATA_DIRECTORY}/perplexica/config.toml:/home/perplexica/config.toml
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      - perplexica
+    restart: unless-stopped
+  perplexica-frontend:
+    container_name: perplexica
+    build:
+      context: ./perplexica
+      dockerfile: app.dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://perplexica-backend:3001/api
+        - NEXT_PUBLIC_WS_URL=ws://perplexica-backend:3001
+    depends_on:
+      - perplexica-backend
+    # ports:
+    #   - 3000:3000
+    networks:
+      - perplexica
+      - traefik
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.perplexica.rule=Host(`perplexica.$DOMAIN_NAME`)
+      - traefik.http.routers.perplexica.service=perplexica
+      - traefik.http.services.perplexica.loadbalancer.server.port=3000
+
+networks:
+  perplexica:
+  traefik:
+    external: true

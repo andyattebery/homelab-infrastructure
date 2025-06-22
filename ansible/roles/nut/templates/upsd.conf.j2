@@ -4,6 +4,9 @@
 {% if nut_enable_server_remote_access %}
 LISTEN 127.0.0.1
 LISTEN {{ nut_ip_address }}
+{% for listen_interface in nut_server_listen_interfaces | default([]) %}
+LISTEN {{ listen_interface }}
+{% endfor %}
 {% endif %}
 
 {% for directive in nut_upsd_directives | default({}) %}

@@ -1,0 +1,14 @@
+---
+- name: Disable camera auto detect
+  ansible.builtin.lineinfile:
+    dest: "{{ raspberry_pi_config_txt_path }}"
+    regexp: "^camera_auto_detect=1"
+    line: "camera_auto_detect=0"
+- name: Add camera overlays
+  ansible.builtin.lineinfile:
+    dest: "{{ raspberry_pi_config_txt_path }}"
+    insertafter: camera_auto_detect=
+    line: "{{ camera_overlay }}"
+  loop: "{{ raspberry_pi_camera_overlays }}"
+  loop_control:
+    loop_var: camera_overlay

@@ -4,20 +4,24 @@
   become: true
 
   roles:
-    - pve_config
-    - pve_cluster_acme
-    - pve_node_acme
-    - pve_storage_add_nas_01_proxmox
-    - configure_server
+    # - pve_cluster_acme
+    # - pve_node_acme
+    # - pve_config
+    # - pve_storage_add_nas_01_proxmox
+    # - configure_server
     - scrutiny_collector
     - role: power_saving
       vars:
-        power_saving_pcie_runtime_all_devices: true
-        power_saving_sata_all_devices: true
-    - role: kernel_parameters
-      vars:
-        kernel_parameters_new_parameters:
-          intel_iommu: "on"
+        power_saving_pcie_runtime_all_devices_enabled: true
+        # power_saving_sata_all_devices: true
+    # - role: nut
+    #   vars:
+    #     nut_enable_client: true
+    #     nut_client_servers:
+    #       - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+    #         server_address: "{{ ups_monitor_rack_nut_server_address }}"
+    #         username: "{{ ups_monitor_rack_nut_vm_host_03_username }}"
+    #         password: "{{ ups_monitor_rack_nut_vm_host_03_password }}"
     - role: pikvm_remote_command
       vars:
         pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"

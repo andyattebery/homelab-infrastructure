@@ -6,7 +6,8 @@
 
   vars:
     syncoid_destination_username: "{{ nas_02_syncoid_username }}"
-    syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
+    syncoid_source_ssh_public_keys:
+      - "{{ nas_01_syncoid_ssh_public_key }}"
     syncoid_destination_dataset: basin
 
   tasks:

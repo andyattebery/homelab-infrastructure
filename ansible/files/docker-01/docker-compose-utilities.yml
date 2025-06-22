@@ -22,6 +22,7 @@ services:
       - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000
       # - WEBDRIVER_URL=http://browser-chrome:4444/wd/hub
     networks:
+      - changedetection
       - traefik
     depends_on:
       playwright-chrome:
@@ -30,10 +31,6 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/changedetectionio:/datastore
     labels:
       - traefik.enable=true
-      - traefik.http.routers.changedetectionio.rule=Host(`changedetection.$DOMAIN_NAME`)
-      - traefik.http.routers.changedetectionio.entrypoints=websecure
-      - traefik.http.routers.changedetectionio.tls.certresolver=cloudflare
-      - "traefik.http.services.changedetectionio.loadbalancer.server.port=5000"
       - dsm.name=ChangeDetection.io
   dashboard-services-manager:
     image: ghcr.io/andyattebery/dashboard-services-manager:api-latest
@@ -49,10 +46,6 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock"
     labels:
       - traefik.enable=true
-      - traefik.http.routers.dashboard-services-manager.rule=Host(`dashboard-services-manager.$DOMAIN_NAME`)
-      - traefik.http.routers.dashboard-services-manager.entrypoints=websecure
-      - traefik.http.routers.dashboard-services-manager.tls.certresolver=cloudflare
-      - traefik.http.services.dashboard-services-manager.loadbalancer.server.port=59999
       - dsm.ignore=true
   dashboard_services_manager_provider:
     image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
@@ -60,7 +53,7 @@ services:
     restart: unless-stopped
     environment:
       - DSM_PROVIDEROPTIONS__HOSTNAME=${HOSTNAME}
-      - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.omegaho.me
+      - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
       - DSM_PROVIDEROPTIONS__DOCKERLABELPREFIX=dsm
       - DSM_PROVIDEROPTIONS__ARESERVICEHOSTSHTTPS=true
       - DSM_PROVIDEROPTIONS__SERVICESPROVIDERTYPES__0=yaml
@@ -91,10 +84,7 @@ services:
       start_period: 40s
     labels:
       - traefik.enable=true
-      - "traefik.http.routers.dashy.rule=Host(`home.$DOMAIN_NAME`)"
-      - traefik.http.routers.dashy.entrypoints=websecure
-      - traefik.http.routers.dashy.tls.certresolver=cloudflare
-      - traefik.http.services.dashy.loadbalancer.server.port=8080
+      - traefik.http.routers.dashy.rule=Host(`dashy.$DOMAIN_NAME`) || Host(`home.$DOMAIN_NAME`)
       - dsm.ignore=true
   homepage:
     image: ghcr.io/gethomepage/homepage:latest
@@ -110,10 +100,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       - traefik.enable=true
-      - traefik.http.routers.homepage.rule=Host(`homepage.$DOMAIN_NAME`)
-      - traefik.http.routers.homepage.entrypoints=websecure
-      - traefik.http.routers.homepage.tls.certresolver=cloudflare
-      - traefik.http.services.homepage.loadbalancer.server.port=3000
       - dsm.ignore=true
   playwright-chrome:
     image: dgtlmoon/sockpuppetbrowser:latest
@@ -128,7 +114,41 @@ services:
       - SCREEN_HEIGHT=1024
       - SCREEN_DEPTH=16
       - MAX_CONCURRENT_CHROME_PROCESSES=10
+    networks:
+      - changedetection
+  semaphore:
+    image: semaphoreui/semaphore:latest
+    environment:
+      - SEMAPHORE_DB_DIALECT=bolt
+      - SEMAPHORE_ADMIN=admin
+      - SEMAPHORE_ADMIN_PASSWORD=changeme
+      - SEMAPHORE_ADMIN_NAME="Admin"
+      - SEMAPHORE_ADMIN_EMAIL=admin@localhost
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/semaphore/data:/var/lib/semaphore
+      - ${DOCKER_DATA_DIRECTORY}/semaphore/config:/etc/semaphore
+      - ${DOCKER_DATA_DIRECTORY}/semaphore/temp:/tmp/semaphore
+  stirling-pdf:
+    image: frooodle/s-pdf:latest
+    container_name: stirling-pdf
+    user: ${PUID}:${PGID}
+    environment:
+      - DOCKER_ENABLE_SECURITY=false
+      - INSTALL_BOOK_AND_ADVANCED_HTML_OPS=false
+      - LANGS=${LANGUAGE_REGION_WITH_UNDERSCORE}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/stirling-pdf/trainingData:/usr/share/tessdata #Required for extra OCR languages
+      - ${DOCKER_DATA_DIRECTORY}/stirling-pdf/configs:/configs
+      - ${DOCKER_DATA_DIRECTORY}/stirling-pdf/customFiles:/customFiles/
+      - ${DOCKER_DATA_DIRECTORY}/stirling-pdf/logs:/logs/
+    labels:
+      - traefik.enable=true
 
 networks:
+  changedetection:
   traefik:
     external: true

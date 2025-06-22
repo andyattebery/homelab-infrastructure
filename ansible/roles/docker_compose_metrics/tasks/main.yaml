@@ -1,0 +1,17 @@
+---
+- name: Run docker_compose_traefik
+  ansible.builtin.include_tasks:
+    name: docker_compose_traefik
+  vars:
+    docker_compose_traefik_enable_dashboard: true
+- role: docker_compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-metrics.yml
+    docker_compose_envs:
+      INFLUXDB_INIT_USERNAME: "{{  }}"
+      INFLUXDB_INIT_PASSWORD: "{{  }}"
+      INFLUXDB_INIT_ORG: "{{  }}"
+      INFLUXDB_INIT_BUCKET: "{{  }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/prometheus.yaml.j2
+        dst_relative_file_path: prometheus/config/prometheus.yaml

@@ -1,0 +1,5 @@
+---
+darkice_bin_path: /usr/bin/darkice
+darkice_systemd_requires: network-online.target
+darkice_systemd_after: network-online.target
+darkice_service_exec_command: "{{ darkice_bin_path }}"

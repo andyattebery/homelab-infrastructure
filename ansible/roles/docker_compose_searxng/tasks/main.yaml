@@ -1,0 +1,13 @@
+---
+- name: Initial searxng docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-searxng.yml
+    docker_compose_envs:
+      SEARXNG_DOMAIN_NAME: "searxng.{{ domain_name }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/limiter.toml.j2
+        dst_relative_file_path: searxng/limiter.toml
+      - src_file_path: templates/settings.yml.j2
+        dst_relative_file_path: searxng/settings.yml
+  ansible.builtin.include_role:
+    name: docker_compose

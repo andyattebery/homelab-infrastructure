@@ -1,0 +1,13 @@
+---
+dependencies: []
+
+galaxy_info:
+  role_name: realtek_r8152_dkms
+  author: andyattebery
+  description: Install Realtek r8152 module as DKMS
+  license: "license (BSD, MIT)"
+  min_ansible_version: "2.4"
+  platforms:
+    - name: Debian
+      versions:
+        - all

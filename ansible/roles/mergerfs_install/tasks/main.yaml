@@ -1,0 +1,23 @@
+---
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/trapexit/mergerfs/releases/latest
+    return_content: true
+  register:
+    mergerfs_latest_release_json_response
+- name: Set x86_64 facts
+  when: ansible_architecture == 'x86_64'
+  ansible.builtin.set_fact:
+    mergerfs_asset_arch: amd64
+- name: Set aarch64 facts
+  when: ansible_architecture == 'aarch64'
+  ansible.builtin.set_fact:
+    mergerfs_asset_arch: arm64
+- name: Install deb
+  when: ansible_os_family == 'Debian'
+  ansible.builtin.include_tasks:
+    file: debian.yaml
+- name: Install mergerfs-tools
+  when: mergerfs_install_tools
+  ansible.builtin.include_tasks:
+    file: tools.yaml

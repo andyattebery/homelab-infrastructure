@@ -1,0 +1,13 @@
+---
+- name: Initial keepalived docker compose setup
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-keepalived.yaml.j2
+    docker_compose_dst_file_name: docker-compose-keepalived.yaml
+    docker_compose_envs:
+      KEEPALIVED_NETWORK_MODE: "{{ keepalived_network_mode }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/keepalived.conf.j2
+        dst_relative_file_path: keepalived/keepalived.conf
+        service_name_to_restart: "{{ keepalived_container_name }}"
+  ansible.builtin.include_role:
+    name: docker_compose

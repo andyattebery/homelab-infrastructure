@@ -1,3 +1,5 @@
 ---
 pbs_backup_01_username: "nas-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
+pve_ceph_osd_device: /dev/disk/by-id/nvme-INTEL_SSDPE21D960GA_PHM2911300BM960CGN
+ceph_mon_address: "192.168.1.231"

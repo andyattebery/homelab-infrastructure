@@ -1,0 +1,5 @@
+---
+camera_streamer_snapshot_height: 1080
+camera_streamer_video_height: 1080
+camera_streamer_stream_height: 1080
+camera_streamer_http_port: 8080

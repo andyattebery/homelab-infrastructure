@@ -1,0 +1,28 @@
+---
+- name: Set camera_streamer_service_template_name
+  when: camera_streamer_camera.type == 'raspberry_pi_camera_module_3'
+  ansible.builtin.set_fact:
+    camera_streamer_service_template_name: camera-streamer-raspi-v3-12MP
+- name: Unsupported camera_streamer_camera.type
+  when: camera_streamer_camera.type != 'raspberry_pi_camera_module_3'
+  ansible.builtin.fail:
+    msg: "camera_streamer_camera.type = {{ camera_streamer_camera.type }} is unsupported"
+- name: Set camera_streamer_service_file_name
+  ansible.builtin.set_fact:
+    camera_streamer_service_file_name: "{{ camera_streamer_service_template_name }}-{{ camera_streamer_camera.name }}.service"
+- name: Copy camera-streamer service
+  vars:
+    camera_streamer_camera_path: "{{ camera_streamer_camera.path }}"
+    camera_streamer_http_port: "{{ camera_streamer_camera.http_port }}"
+    camera_streamer_rtsp_port: "{{ camera_streamer_camera.rtsp_port }}"
+  ansible.builtin.template:
+    src: "{{ camera_streamer_service_template_name }}.service.j2"
+    dest: "/etc/systemd/system/{{ camera_streamer_service_file_name }}"
+    mode: "0644"
+    owner: root
+- name: Enable and start camera-streamer.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "{{ camera_streamer_service_file_name }}"
+    state: started
+    enabled: true

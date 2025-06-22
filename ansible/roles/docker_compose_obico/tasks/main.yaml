@@ -1,0 +1,14 @@
+---
+- name: Initial obico docker compose setup
+  when: not obico_only_machine_learning
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-obico.yaml
+  ansible.builtin.include_role:
+    name: docker_compose
+- name: Configure obico-ml docker compose
+  when: not obico_no_machine_learning
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-obico-ml.yaml.j2
+    docker_compose_dst_file_name: docker-compose-obico-ml.yaml
+  ansible.builtin.include_role:
+    name: docker_compose

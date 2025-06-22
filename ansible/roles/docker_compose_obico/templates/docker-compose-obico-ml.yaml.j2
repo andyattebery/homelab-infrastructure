@@ -1,0 +1,34 @@
+services:
+  obico-ml:
+    image: ghcr.io/gabe565/obico/ml-api
+    container_name: obico-ml
+    environment:
+      DEBUG: 'True'
+      FLASK_APP: 'server.py'
+      ML_API_TOKEN: ${OBICO_ML_API_TOKEN}
+    restart: unless-stopped
+    tty: true
+    command: [gunicorn, --bind=0.0.0.0:3333, --workers=1, --access-logfile=-, wsgi]
+{% if obico_machine_learning_cuda %}
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+{% endif %}
+{% if obico_only_machine_learning %}
+    ports:
+      - 3333:3333
+{% else %}
+    networks:
+      - obico
+
+networks:
+  obico:
+    name: obico
+    external: true
+{% endif %}

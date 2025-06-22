@@ -1,0 +1,5 @@
+---
+- name: Restart go2rtc
+  ansible.builtin.systemd:
+    name: go2rtc
+    state: restarted

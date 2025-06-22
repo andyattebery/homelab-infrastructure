@@ -17,19 +17,12 @@
         docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/cloud-01/docker-compose-cloud-01.yml
         docker_compose_envs:
-          LANG_TWO_LETTER: "{{ lang_two_letter }}"
           FRESHRSS_DOMAIN_NAME: "freshrss.{{ domain_name }}"
           FRESHRSS_USERNAME: "{{ freshrss_username }}"
           FRESHRSS_PASSWORD: "{{ freshrss_password }}"
           FRESHRSS_EMAIL: "{{ freshrss_email }}"
           FRESHRSS_API_PASSWORD: "{{ freshrss_api_password }}"
           FRESHRSS_UPDATE_FEEDS_CRON_MIN: 9,39
-          MINIFLUX_DOMAIN_NAME: "miniflux.{{ domain_name }}"
-          MINIFLUX_ADMIN_USERNAME: "{{ miniflux_admin_username }}"
-          MINIFLUX_ADMIN_PASSWORD: "{{ miniflux_admin_password }}"
-          MINIFLUX_DB_NAME: "{{ miniflux_db_name }}"
-          MINIFLUX_DB_USERNAME: "{{ miniflux_db_username }}"
-          MINIFLUX_DB_PASSWORD: "{{ miniflux_db_password }}"
 
   tasks:
     - name: Add ssh authorized keys

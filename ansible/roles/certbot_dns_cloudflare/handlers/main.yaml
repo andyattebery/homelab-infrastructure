@@ -10,6 +10,6 @@
 - name: Run post create command
   when: cerbot_dns_cloudflare_post_create_command is defined
   ansible.builtin.command:
-    cmd: cerbot_dns_cloudflare_post_create_command
+    cmd: "{{ certbot_renewal_hooks_deploy_script_path }}"
   changed_when: true
   listen: "certbot certificate created"

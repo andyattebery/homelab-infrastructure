@@ -9,38 +9,78 @@
   roles:
     # - configure_server
     # - geerlingguy.docker
-    - role: docker_compose_traefik
+    # - role: docker_compose_traefik
+    #   vars:
+    #     docker_compose_copy_scripts: true
+    #     docker_compose_traefik_enable_dashboard: true
+    # - role: docker_compose_diun
+    # - role: docker_compose_obico
+    #   vars:
+    #     obico_no_machine_learning: true
+    #     docker_compose_envs:
+    #       OBICO_SITE_USES_HTTPS: 'True'
+    #       OBICO_INTERNAL_MEDIA_HOST: "https://obico.{{ domain_name }}"
+    #       OBICO_ML_API_HOST: "http://obico-ml.{{ domain_name }}:3333"
+    #       OBICO_EMAIL_HOST: "{{ smtp_host }}"
+    #       OBICO_EMAIL_PORT: "{{ smtp_port }}"
+    #       OBICO_EMAIL_HOST_USER: "{{ smtp_username }}"
+    #       OBICO_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
+    #       OBICO_DEFAULT_FROM_EMAIL: "obico@{{ domain_name }}"
+    #       OBICO_DJANGO_SECRET_KEY: "{{ obico_django_secret_key }}"
+    # - role: docker_compose_beszel_hub
+    # - role: beszel_agent
+    # - role: prometheus.prometheus.node_exporter
+    - role: docker_compose_certbot_asrock_ipmi
       vars:
-        docker_compose_traefik_enable_dashboard: true
-    - role: docker_compose_diun
-    - role: docker_compose
-      vars:
-        docker_compose_copy_scripts: true
-        docker_compose_src_file_path: files/docker-01/docker-compose-media.yml
-        docker_compose_envs:
-          JELLYSTAT_DB_USERNAME: "{{ jellystat_db_username }}"
-          JELLYSTAT_DB_PASSWORD: "{{ jellystat_db_password }}"
-          JELLYSTAT_JWT_SECRET: "{{ jellystat_jwt_secret }}"
-    - role: docker_compose
-      vars:
-        docker_compose_copy_scripts: true
-        docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
-        docker_compose_envs:
-          HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
-          HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
-          HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
-          HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
-          HEALTHCHECKS_EMAIL_USE_TLS: "True"
-          HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
-          HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
-          HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
-          HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
-    - role: docker_compose
-      vars:
-        docker_compose_copy_scripts: true
-        docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
-  tasks:
-    - name: Install packages
-      ansible.builtin.package:
-        name:
-          - zfsutils-linux
+        certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
+        certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
+        certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
+    # - role: docker_compose_docker_monitoring
+    # - role: docker_compose_perplexica
+    #   vars:
+    #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
+    #     perplexica_ollama_api_url: "https://ollama.{{ domain_name }}"
+    # - role: docker_compose_searxng
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-3d-printing.yml
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-finance.yml
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
+    #     docker_compose_envs:
+    #       HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
+    #       HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
+    #       HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
+    #       HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
+    #       HEALTHCHECKS_EMAIL_USE_TLS: "True"
+    #       HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
+    #       HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
+    #       HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
+    #       HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
+    #       INFLUXDB_INIT_USERNAME: "{{ influxdb_init_username }}"
+    #       INFLUXDB_INIT_PASSWORD: "{{ influxdb_init_password }}"
+    #       INFLUXDB_INIT_ORG: "{{ influxdb_init_org }}"
+    #       INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
+    # - role: sanoid
+    #   vars:
+    #     sanoid_dataset_configs:
+    #       data:
+    #         autosnap: true
+    #         autoprune: true
+    #         recursive: true
+    #         frequently: 0
+    #         hourly: 0
+    #         daily: 30
+    #         monthly: 1
+    #         yearly: 0
+  # tasks:
+  #   - name: Install packages
+  #     ansible.builtin.package:
+  #       name:
+  #         - zfsutils-linux

@@ -1,0 +1,20 @@
+[general]
+duration = 0
+bufferSecs = 2
+
+[input]
+device = hw:0,0
+sampleRate = 48000
+bitsPerSample = 16
+channel = 2
+
+[icecast2-0]
+name = Turntable
+format = mp3
+bitrateMode = cbr
+bitrate = 320
+quality = 1.0
+server = {{ icecast_server_hostname }}
+port = {{ icecast_server_port }}
+password = {{ icecast_server_password }}
+mountPoint = turntable

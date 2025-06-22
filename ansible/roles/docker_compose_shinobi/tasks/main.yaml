@@ -1,0 +1,22 @@
+---
+- name: debug
+  ansible.builtin.debug:
+    msg: |
+      SHINOBI_DATA_DIRECTORY: "{{ shinobi_data_directory }}"
+      SHINOBI_DB_DIRECTORY: "{{ shinobi_db_directory }}"
+      SHINOBI_DB_NAME: "{{ shinobi_db_name }}"
+      SHINOBI_DB_USERNAME: "{{ shinobi_db_username }}"
+      SHINOBI_DB_PASSWORD: "{{ shinobi_db_password }}"
+      SHINOBI_DB_ROOT_PASSWORD: "{{ shinobi_db_root_password }}"
+- name: Configure shinobi with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-shinobi.yaml
+    docker_compose_envs:
+      SHINOBI_DATA_DIRECTORY: "{{ shinobi_data_directory }}"
+      SHINOBI_DB_DIRECTORY: "{{ shinobi_db_directory }}"
+      SHINOBI_DB_NAME: "{{ shinobi_db_name }}"
+      SHINOBI_DB_USERNAME: "{{ shinobi_db_username }}"
+      SHINOBI_DB_PASSWORD: "{{ shinobi_db_password }}"
+      SHINOBI_DB_ROOT_PASSWORD: "{{ shinobi_db_root_password }}"
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -82,7 +82,7 @@
     daemon_reload: true
     name: "scrutiny-collector.service"
     state: started
-    enabled: true
+    enabled: false
 - name: Enable and start scrutiny-collector.timer
   ansible.builtin.systemd_service:
     daemon_reload: true

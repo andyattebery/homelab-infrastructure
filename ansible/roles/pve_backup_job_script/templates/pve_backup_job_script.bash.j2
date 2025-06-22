@@ -61,18 +61,22 @@ PHASE_PRE_RESTART="pre-restart"
 PHASE_POST_RESTART="post-restart"
 
 if [ $phase = $PHASE_JOB_INIT ]; then
+    echo $PHASE_JOB_INIT
 {% for command in pve_backup_job_script_job_init_commands | default([]) %}
     {{ command }}
 {% endfor %}
 elif [ $phase = $PHASE_JOB_START ]; then
+    echo $PHASE_JOB_START
 {% if pve_backup_job_script_healthchecks_io_uuid is defined %}
     update_healthchecks_io start
 {% endif %}
 elif [ $phase = $PHASE_JOB_ABORT ]; then
+    echo $PHASE_JOB_ABORT
 {% if pve_backup_job_script_healthchecks_io_uuid is defined %}
     update_healthchecks_io fail
 {% endif %}
 elif [ $phase = $PHASE_JOB_END ]; then
+    echo $PHASE_JOB_END
 {% if pve_backup_job_script_healthchecks_io_uuid is defined %}
     update_healthchecks_io success
 {% endif %}

@@ -1,0 +1,2 @@
+---
+frigate_relative_config_directory: "{{ ('frigate', 'config') | path_join }}"

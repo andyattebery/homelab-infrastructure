@@ -1,0 +1,2 @@
+---
+rtsp_recorder_service_name: "rtsp_recorder_{{ rtsp_stream_name }}.service"

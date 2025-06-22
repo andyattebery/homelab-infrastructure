@@ -1,0 +1,12 @@
+[Unit]
+Description=Run DarkIce
+Requires={{ darkice_systemd_requires }}
+After={{ darkice_systemd_after }}
+
+[Service]
+ExecStart={{ darkice_service_exec_command }}
+Type=exec
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

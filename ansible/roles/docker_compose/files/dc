@@ -7,6 +7,8 @@ docker_compose_files_parameter=""
 # # If set, Bash allows filename patterns which match no files to expand to a null string, rather than themselves.
 # # shopt -s nullglob
 
+#https://stackoverflow.com/questions/9612090/how-to-loop-through-file-names-returned-by-find
+
 # Look for docker-compose files in current directory
 for f in docker-compose-*.y*ml; do
     docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"

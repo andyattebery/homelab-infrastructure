@@ -1,0 +1,10 @@
+[Unit]
+Description=snapraid-btrfs-runner
+OnFailure=healthchecks@%N:f0c3f38e-6752-40d1-a42c-e23dd82ae967:failure.service
+OnSuccess=healthchecks@%N:f0c3f38e-6752-40d1-a42c-e23dd82ae967:success.service
+Wants=healthchecks@%N:f0c3f38e-6752-40d1-a42c-e23dd82ae967:start.service
+
+[Service]
+Type=oneshot
+User={{ snapraid_btrfs_runner_user }}
+ExecStart=/usr/local/bin/snapraid-btrfs-runner.py -c /etc/snapraid-btrfs-runner.conf

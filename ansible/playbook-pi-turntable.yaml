@@ -1,0 +1,41 @@
+---
+- name: Configure pi-turntable
+  hosts: pi-turntable
+  become: true
+
+  # roles:
+  #   - role: configure_server
+  #   - role: geerlingguy.docker
+  #   - role: docker_compose_owntone
+
+  tasks:
+    # - name: Install packages
+    #   ansible.builtin.package:
+    #     name:
+    #       - alsa-utils
+    #       - ffmpeg
+    #       - icecast2
+    # - name: Enable and start icecast2.service
+    #   ansible.builtin.systemd_service:
+    #     daemon_reload: true
+    #     name: icecast2.service
+    #     state: started
+    #     enabled: true
+    - name: Create ffmpeg-to-icecast.service
+      ansible.builtin.template:
+        src: files/pi-turntable/ffmpeg-to-icecast2.service.j2
+        dest: /etc/systemd/system/ffmpeg-to-icecast2.service
+        mode: "0644"
+        owner: root
+    - name: Enable and start ffmpeg-to-icecast2.service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: ffmpeg-to-icecast2.service
+        state: started
+        enabled: true
+    # - name: Create darkice M3U file
+    #   ansible.builtin.template:
+    #     src: files/pi-turntable/turntable.m3u.j2
+    #     dest: 
+
+# Run sudo dpkg-reconfigure icecast2

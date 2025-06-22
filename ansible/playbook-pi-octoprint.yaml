@@ -1,0 +1,23 @@
+---
+- name: Configure pi-octoprint
+  hosts: pi-octoprint
+  become: true
+
+  pre_tasks:
+    - name: Remove packages
+      ansible.builtin.package:
+        name: rpicam-apps-lite
+        state: absent
+    - name: Install packages
+      ansible.builtin.package:
+        name: rpicam-apps
+
+  roles:
+    # - configure_server
+    - role: certbot_dns_cloudflare
+      vars:
+        certbot_dns_cloudflare_domain_name: "pi-octoprint.{{ domain_name }}"
+    - role: go2rtc
+      vars:
+        # go2rtc_config_file: files/pi-octoprint/go2rtc-rpi4.yaml.j2
+        go2rtc_config_file: files/pi-octoprint/go2rtc-rpi5.yaml.j2

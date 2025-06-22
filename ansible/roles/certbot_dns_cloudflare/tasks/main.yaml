@@ -22,7 +22,7 @@
         mode: "0755"
     - name: Create renewal_deploy_script.sh
       ansible.builtin.template:
-        dest: "{{ (certbot_renewal_hooks_deploy_path, 'renewal_deploy_script.sh') | path_join }}"
+        dest: "{{ certbot_renewal_hooks_deploy_script_path }}"
         src: renewal_deploy_script.sh.j2
         mode: "0755"
 - name: Create certificate

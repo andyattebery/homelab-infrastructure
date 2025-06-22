@@ -1,4 +1,4 @@
-version: '3'
+---
 services:
   omnivore-api:
     build:
@@ -35,9 +35,6 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.omnivore-api.rule=Host(`$OMNIVORE_API_DOMAIN_NAME`)
-      - traefik.http.routers.omnivore-api.entrypoints=websecure
-      - traefik.http.routers.omnivore-api.tls.certresolver=cloudflare
-      - traefik.http.services.omnivore-api.loadbalancer.server.port=8080
       - dsm.ignore=true
   omnivore-content-fetch:
     build:
@@ -98,12 +95,10 @@ services:
     container_name: "omnivore-tts"
     networks:
       - omnivore
+      - traefik
     labels:
       - traefik.enable=true
       - traefik.http.routers.omnivore-tts.rule=Host(`$OMNIVORE_TTS_DOMAIN_NAME`)
-      - traefik.http.routers.omnivore-tts.entrypoints=websecure
-      - traefik.http.routers.omnivore-tts.tls.certresolver=cloudflare
-      - traefik.http.services.omnivore-tts.loadbalancer.server.port=8080
       - dsm.ignore=true
   # omnivore-api:
   #   build:
@@ -163,9 +158,6 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.omnivore.rule=Host(`$OMNIVORE_DOMAIN_NAME`)
-      - traefik.http.routers.omnivore.entrypoints=websecure
-      - traefik.http.routers.omnivore.tls.certresolver=cloudflare
-      - traefik.http.services.omnivore.loadbalancer.server.port=8080
       - dsm.name=Omnivore
 
 networks:

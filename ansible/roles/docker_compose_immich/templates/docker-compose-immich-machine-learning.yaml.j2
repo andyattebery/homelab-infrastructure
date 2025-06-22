@@ -12,9 +12,8 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
-              capabilities:
-                - gpu
+              count: all
+              capabilities: [gpu]
 {% endif %}
 {% if immich_only_machine_learning %}
     ports:

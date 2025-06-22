@@ -1,0 +1,3 @@
+---
+keepalived_router_id: 51
+keepalived_container_name: keepalived

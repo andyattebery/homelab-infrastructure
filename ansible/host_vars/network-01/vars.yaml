@@ -5,6 +5,10 @@ adguardhome_username: "{{ network_01_adguardhome_username }}"
 adguardhome_password: "{{ network_01_adguardhome_password }}"
 adguardhome_config_directory: /home/services/settings/applications/adguardhome/config/conf/
 
+# docker_compose_keepalived
+keepalived_is_master: true
+keepalived_priority: 200
+
 # docker_compose_wireguard
 wireguard_external_domain: "{{ vault_wireguard_external_domain }}"
 wireguard_port: "{{ vault_wireguard_port }}"

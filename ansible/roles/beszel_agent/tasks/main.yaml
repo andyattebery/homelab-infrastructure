@@ -1,0 +1,27 @@
+- name: Install
+  ansible.builtin.include_tasks:
+    file: install.yaml
+- name: Create user
+  ansible.builtin.include_tasks:
+    file: user.yaml
+- name: Enable service
+  ansible.builtin.include_tasks:
+    file: service.yaml
+
+# - name: Create Beszel agent installer directory
+#   ansible.builtin.file:
+#     state: directory
+#     mode: "0755"
+#     dest: "{{ beszel_agent_installer_path | dirname }}"
+# - name: Download Beszel agent installer
+#   ansible.builtin.uri:
+#     url: https://raw.githubusercontent.com/henrygd/beszel/main/supplemental/scripts/install-agent.sh
+#     mode: "0755"
+#     dest: "{{ beszel_agent_installer_path }}"
+#     creates: "{{ beszel_agent_installer_path }}"
+# - name: Install Beszel # noqa command-instead-of-shell
+#   environment:
+#     AUTO_UPDATE: "y"
+#   ansible.builtin.command:
+#     cmd: "{{ beszel_agent_installer_path }} -k '{{ beszel_key }}'"
+#     creates: /opt/beszel-agent/beszel-agent

@@ -1,0 +1,6 @@
+---
+go2rtc_bin_path: /usr/local/bin/go2rtc
+go2rtc_config_path: /etc/go2rtc.yaml
+go2rtc_systemd_requires: network-online.target
+go2rtc_systemd_after: network-online.target
+go2rtc_service_exec_command: "{{ go2rtc_bin_path }} --config {{ go2rtc_config_path }} --daemon"

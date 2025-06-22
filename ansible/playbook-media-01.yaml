@@ -6,41 +6,56 @@
   vars:
     docker_compose_dst_data_directory_path: /mnt/data
 
+  pre_tasks:
+    - name: Install packages
+      ansible.builtin.package:
+        name:
+          - linux-image-generic # Install linux-modules-extra for the CIFS module
+          - zfsutils-linux
+          - cifs-utils
+          - nvtop
+
   roles:
-    - configure_server
-    - geerlingguy.docker
-    - role: nvidia.nvidia_driver
-      vars:
-        nvidia_driver_skip_reboot: true
-        nvidia_driver_branch: "535"
-        nvidia_driver_ubuntu_install_from_cuda_repo: true
-        nvidia_driver_add_repos: false
-    - nvidia.nvidia_docker
-    - role: power_saving
-      vars:
-        power_saving_configure_cpu: false
-        power_saving_pci_runtime_devices:
-          # Nvidia T600 Video
-          - vendor_id: "0x10de"
-            device_id: "0x1fb1"
-          # Nvidia T600 Audio
-          - vendor_id: "0x10de"
-            device_id: "0x10fa"
-    - role: docker_compose_traefik
-      vars:
-        docker_compose_traefik_enable_dashboard: true
-        docker_compose_traefik_enable_host_network: true
-    - docker_compose_dashboard_services_manager_provider
-    - docker_compose_diun
-    - role: docker_compose_immich
-      vars:
-        immich_only_machine_learning: true
-        immich_machine_learning_cuda: true
-        immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"
+    # - configure_server
+    # - geerlingguy.docker
+    # - role: nvidia.nvidia_driver
+    #   vars:
+    #     nvidia_driver_branch: "550"
+    #     nvidia_driver_ubuntu_cuda_keyring_package: cuda-keyring_1.1-1_all.deb
+    #     nvidia_driver_ubuntu_install_from_cuda_repo: false
+    #     nvidia_driver_add_repos: false
+    #     nvidia_driver_skip_reboot: true
+    # - role: nvidia_container_toolkit
+    # - role: power_saving
+    #   vars:
+    #     power_saving_configure_cpu: false
+    # - role: beszel_agent
+    # - role: prometheus.prometheus.node_exporter
+    # - role: docker_compose_traefik
+    #   vars:
+    #     docker_compose_traefik_enable_dashboard: true
+    #     docker_compose_traefik_enable_host_network: true
+    # - docker_compose_dashboard_services_manager_provider
+    # - docker_compose_diun
+    # - role: docker_compose_docker_monitoring
+    # - role: docker_compose_immich
+    #   vars:
+    #     immich_only_machine_learning: true
+    #     immich_machine_learning_cuda: true
+    #     immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"
+    # - role: docker_compose_obico
+    #   vars:
+    #     obico_only_machine_learning: true
+    #     obico_machine_learning_cuda: true
+    #     docker_compose_envs:
+    #       OBICO_ML_API_TOKEN: "{{ obico_ml_api_token }}"
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
     - role: docker_compose
       vars:
         docker_compose_copy_scripts: true
-        docker_compose_src_file_path: files/media-01/docker-compose-media-01.yml
+        docker_compose_src_file_path: files/media-01/docker-compose-media.yml
         docker_compose_envs:
           PLEX_CLAIM_TOKEN: "{{ plex_claim_token }}"
           SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"

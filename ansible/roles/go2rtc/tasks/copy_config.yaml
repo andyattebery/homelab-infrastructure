@@ -1,0 +1,7 @@
+---
+- name: Copy config
+  ansible.builtin.template:
+    src: "{{ go2rtc_config_file }}"
+    dest: "{{ go2rtc_config_path }}"
+    mode: "0644"
+  notify: Restart go2rtc

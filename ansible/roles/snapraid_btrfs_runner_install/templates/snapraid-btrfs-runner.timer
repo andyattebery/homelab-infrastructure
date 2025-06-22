@@ -1,0 +1,9 @@
+[Unit]
+Description=Run snapraid-btrfs-runner every night
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

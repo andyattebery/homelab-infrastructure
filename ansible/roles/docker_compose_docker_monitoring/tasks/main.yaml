@@ -1,0 +1,5 @@
+- name: Configure docker monitoring with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-docker-monitoring.yml
+  ansible.builtin.include_role:
+    name: docker_compose

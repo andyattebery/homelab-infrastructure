@@ -1,10 +1,11 @@
 ---
 # ansible
 ansible_user: "{{ vault_ansible_user }}"
-ansible_host: "{{ inventory_hostname }}.{{ domain_name }}"
+# ansible_host: "{{ inventory_hostname }}.{{ domain_name }}"
 
 locale: en_US.UTF-8
 lang_two_letter: en
+language_region_with_underscore: en_US
 timezone: "{{ vault_timezone }}"
 
 # ssh keys
@@ -22,6 +23,10 @@ work_laptop_01_ssh_public_key: "{{ vault_work_laptop_01_ssh_public_key }}"
 
 # hosts
 backup_01_mac_address: "{{ vault_backup_01_mac_address }}"
+
+backup_01_timemachine_path: "{{ vault_backup_01_timemachine_path }}"
+backup_01_timemachine_username: "{{ vault_backup_01_timemachine_username }}"
+backup_01_timemachine_password: "{{ vault_backup_01_timemachine_password }}"
 
 smb_nas_01_username: "{{ vault_smb_nas_01_username }}"
 smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
@@ -69,7 +74,22 @@ vm_host_03_mac_address: "{{ vault_vm_host_03_mac_address }}"
 # groups
 homelab_domain_name: "{{ vault_homelab_domain_name }}"
 
+# proxmox cluster
+# pve_cluster_ceph
+pve_ceph_network: 192.168.1.0/24
+
+# pve_cluster_install
+pve_cluster_name: homelab
+pve_cluster_main_node_root_password: "{{ vault_pve_cluster_main_node_root_password }}"
+
+# pve_cluster_add_node
+pve_cluster_main_node: vm-host-01
+pve_main_node_ip: "192.168.1.241"
+pve_cluster_fingerprint: "{{ vault_pve_cluster_fingerprint }}"
+
 # applications
+beszel_key: "{{ vault_beszel_key }}"
+
 diun_pushover_token: "{{ vault_diun_pushover_token }}"
 
 esphome_api_encryption_key_backup_01_outlet: "{{ vault_esphome_api_encryption_key_backup_01_outlet }}"
@@ -94,8 +114,17 @@ healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 
+icecast_server_hostname: "{{ vault_icecast_server_hostname }}"
+icecast_server_port: "{{ vault_icecast_server_port }}"
+icecast_server_password: "{{ vault_icecast_server_password }}"
+
 immich_db_username: "{{ vault_immich_db_username }}"
 immich_db_password: "{{ vault_immich_db_password }}"
+
+influxdb_init_username: "{{ vault_influxdb_init_username }}"
+influxdb_init_password: "{{ vault_influxdb_init_password }}"
+influxdb_init_org: "{{ vault_influxdb_init_org }}"
+influxdb_init_bucket: "{{ vault_influxdb_init_bucket }}"
 
 jellystat_db_name: "{{ vault_jellystat_db_name }}"
 jellystat_db_username: "{{ vault_jellystat_db_username }}"
@@ -108,6 +137,11 @@ linkding_superuser_password: "{{ vault_linkding_superuser_password }}"
 linkwarden_postgres_user: "{{ vault_linkwarden_postgres_user }}"
 linkwarden_postgres_password: "{{ vault_linkwarden_postgres_password }}"
 linkwarden_nextauth_secret: "{{ vault_linkwarden_nextauth_secret }}"
+
+manyfold_db_name: "{{ vault_manyfold_db_name }}"
+manyfold_db_username: "{{ vault_manyfold_db_username }}"
+manyfold_db_password: "{{ vault_manyfold_db_password }}"
+manyfold_secret_key_base: "{{ vault_manyfold_secret_key_base }}"
 
 miniflux_admin_username: "{{ vault_miniflux_admin_username }}"
 miniflux_admin_password: "{{ vault_miniflux_admin_password }}"
@@ -130,18 +164,8 @@ nextcloud_mysql_database: "{{ vault_nextcloud_mysql_database }}"
 
 nut_pushover_token: "{{ vault_nut_pushover_token }}"
 
-ups_monitor_rack_nut_ups_name: rack-ups
-ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ homelab_domain_name }}"
-ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
-ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
-ups_monitor_rack_nut_nas_host_01_username: "nas-host-01"
-ups_monitor_rack_nut_nas_host_01_password: "{{ vault_ups_monitor_rack_nut_nas_host_01_password }}"
-ups_monitor_rack_nut_vm_host_01_username: "vm-host-01"
-ups_monitor_rack_nut_vm_host_01_password: "{{ vault_ups_monitor_rack_nut_vm_host_01_password }}"
-ups_monitor_rack_nut_vm_host_02_username: "vm-host-02"
-ups_monitor_rack_nut_vm_host_02_password: "{{ vault_ups_monitor_rack_nut_vm_host_02_password }}"
-ups_monitor_rack_nut_network_02_username: "network-02"
-ups_monitor_rack_nut_network_02_password: "{{ vault_ups_monitor_rack_nut_network_02_password }}"
+obico_django_secret_key: "{{ vault_obico_django_secret_key }}"
+obico_ml_api_token: "{{ vault_obico_ml_api_token }}"
 
 omnivore_content_fetch_verification_token: "{{ vault_omnivore_content_fetch_verification_token }}"
 omnivore_image_proxy_secret: "{{ vault_omnivore_image_proxy_secret }}"
@@ -150,6 +174,13 @@ omnivore_sso_jwt_secret: "{{ vault_omnivore_sso_jwt_secret }}"
 omnivore_postgres_user: "{{ vault_omnivore_postgres_user }}"
 omnivore_postgres_password: "{{ vault_omnivore_postgres_password }}"
 omnivore_postgres_db: "{{ vault_omnivore_postgres_db }}"
+
+paperless_admin_user: "{{ vault_paperless_admin_user }}"
+paperless_admin_password: "{{ vault_paperless_admin_password }}"
+paperless_db_name: "{{ vault_paperless_db_name }}"
+paperless_db_user: "{{ vault_paperless_db_user }}"
+paperless_db_password: "{{ vault_paperless_db_password }}"
+paperless_secret_key: "{{ vault_paperless_secret_key }}"
 
 plex_token: "{{ vault_plex_token }}"
 plex_claim_token: "{{ vault_plex_claim_token }}"
@@ -164,6 +195,8 @@ remote_power_control_pikvm_password: "{{ pikvm_api_password }}"
 remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}"
 remote_power_control_homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"
 
+searxng_secret_key: "{{ vault_searxng_secret_key }}"
+
 smtp_host: "{{ vault_smtp_host }}"
 smtp_port: "{{ vault_smtp_port }}"
 smtp_username: "{{ vault_smtp_username }}"
@@ -172,11 +205,36 @@ smtp_password: "{{ vault_smtp_password }}"
 scrutiny_api_url: "https://scrutiny.{{ domain_name }}"
 scrutiny_pushover_token: "{{ vault_scrutiny_pushover_token }}"
 
+shinobi_db_name: "{{ vault_shinobi_db_name }}"
+shinobi_db_username: "{{ vault_shinobi_db_username }}"
+shinobi_db_password: "{{ vault_shinobi_db_password }}"
+shinobi_db_root_password: "{{ vault_shinobi_db_root_password }}"
+
 snapraid_btrfs_runner_user: "{{ ansible_user }}"
 snapraid_btrfs_runner_from_email: "{{ vault_snapraid_btrfs_runner_from_email }}"
 snapraid_btrfs_runner_to_email: "{{ vault_snapraid_btrfs_runner_to_email }}"
 
 tailscale_tailnet: "{{ vault_tailscale_tailnet }}"
+
+ups_monitor_rack_nut_ups_name: rack-ups
+ups_monitor_rack_nut_pdu_name: rack-pdu
+ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ homelab_domain_name }}"
+ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
+ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
+ups_monitor_rack_nut_nas_host_01_username: "nas-host-01"
+ups_monitor_rack_nut_nas_host_01_password: "{{ vault_ups_monitor_rack_nut_nas_host_01_password }}"
+ups_monitor_rack_nut_vm_host_01_username: "vm-host-01"
+ups_monitor_rack_nut_vm_host_01_password: "{{ vault_ups_monitor_rack_nut_vm_host_01_password }}"
+ups_monitor_rack_nut_vm_host_02_username: "vm-host-02"
+ups_monitor_rack_nut_vm_host_02_password: "{{ vault_ups_monitor_rack_nut_vm_host_02_password }}"
+ups_monitor_rack_nut_network_02_username: "network-02"
+ups_monitor_rack_nut_network_02_password: "{{ vault_ups_monitor_rack_nut_network_02_password }}"
+
+pdu_rack_network_snmp_address: "{{ vault_pdu_rack_network_snmp_address }}"
+pdu_rack_network_snmp_read_write_community: "{{ vault_pdu_rack_network_snmp_read_write_community }}"
+
+ups_rack_snmp_address: "{{ vault_ups_rack_snmp_address }}"
+ups_rack_snmp_read_write_community: "{{ vault_ups_rack_snmp_read_write_community }}"
 
 zed_pushover_token: "{{ vault_zed_pushover_token }}"
 

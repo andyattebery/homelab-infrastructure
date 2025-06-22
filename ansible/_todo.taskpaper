@@ -1,5 +1,6 @@
 _overall:
     - [] update role READMEs
+    - [] refactor power control role for ssh power commands
 
 ansible_non_become_user_facts:
     - [x] only run when ansible_non_become_user_gathered_facts is false
@@ -19,5 +20,8 @@ snapraid-btrfs-runner:
     - [] move conf, service, and timer to role
 
 sanoid:
-    - [] configure for source
-    - [] syncoid no snap
+    - [x] configure for source
+    - [x] syncoid no snap
+
+Archive:
+    

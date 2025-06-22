@@ -4,18 +4,21 @@
   become: true
 
   vars:
-    syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-    syncoid_source_ssh_public_key: "{{ nas_01_syncoid_ssh_public_key }}"
-    syncoid_destination_dataset: backups
     scrutiny_nas_01_tailnet_url: "scrutiny.{{ homelab_domain_name }}"
-    scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
-    scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
-    scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
 
   roles:
     - configure_server
     - artis3n.tailscale
-    - backup_destination
+    - role: backup_destination
+      vars:
+        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+        syncoid_source_ssh_public_keys:
+          - "{{ nas_01_syncoid_ssh_public_key }}"
+          - "{{ backup_01_syncoid_ssh_public_key }}"
+        syncoid_destination_dataset: backups
+        scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
+        scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+        scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
 
   tasks:
     - name: Add to hosts file

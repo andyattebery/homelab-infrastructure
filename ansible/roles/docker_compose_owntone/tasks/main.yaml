@@ -1,0 +1,5 @@
+- name: Initial owntone docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-owntone.yaml
+  ansible.builtin.include_role:
+    name: docker_compose

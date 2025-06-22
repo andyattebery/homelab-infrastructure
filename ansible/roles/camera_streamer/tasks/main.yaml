@@ -1,0 +1,11 @@
+---
+- name: Install
+  when: ansible_distribution == 'Debian'
+  ansible.builtin.include_tasks:
+    file: install_debian.yaml
+- name: Configure camera_streamer_cameras services
+  loop: "{{ camera_streamer_cameras }}"
+  loop_control:
+    loop_var: camera_streamer_camera
+  ansible.builtin.include_tasks:
+    file: service.yaml

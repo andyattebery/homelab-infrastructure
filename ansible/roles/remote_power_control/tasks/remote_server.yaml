@@ -1,24 +1,23 @@
 ---
-- name: Copy remote_power_control
+- name: Copy ssh_power_control script
   ansible.builtin.copy:
-    src: remote_power_control
-    dest: "{{ remote_power_control_script_path }}"
+    src: ssh_power_control
+    dest: "{{ remote_power_control_ssh_power_control_script_path }}"
     mode: "0755"
-- name: Add pikvm user
+- name: Add remote_power_control user
   ansible.builtin.user:
-    name: "{{ remote_power_control_username }}"
+    name: "{{ remote_power_control_ssh_username }}"
     password: '!'
-- name: Authorize remote pikvm ssh key for pikvm user
+- name: Authorize ssh key for remote_power_control user
   ansible.posix.authorized_key:
-    user: "{{ remote_power_control_username }}"
+    user: "{{ remote_power_control_ssh_username }}"
     state: present
     key: "{{ remote_power_control_ssh_public_key }}"
-    key_options: 'command="{{ remote_power_control_script_path }}"'
-- name: Allow pikvm user to reboot
+    key_options: 'command="{{ remote_power_control_ssh_power_control_script_path }}"'
+- name: Allow remote_power_control user to execute remote_power_control_ssh_sudo_commands
   ansible.builtin.lineinfile:
     path: /etc/sudoers
-    line: "{{ remote_power_control_username }} ALL=NOPASSWD: /usr/sbin/reboot"
-- name: Allow pikvm user to shutdown
-  ansible.builtin.lineinfile:
-    path: /etc/sudoers
-    line: "{{ remote_power_control_username }} ALL=NOPASSWD: /usr/sbin/shutdown"
+    line: "{{ remote_power_control_ssh_username }} ALL=NOPASSWD: {{ ssh_sudo_command }}"
+  loop: "{{ remote_power_control_ssh_sudo_commands }}"
+  loop_control:
+    loop_var: ssh_sudo_command

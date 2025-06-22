@@ -1,0 +1,10 @@
+---
+- name: Install
+  ansible.builtin.include_tasks:
+    file: install.yaml
+- name: Copy config
+  ansible.builtin.include_tasks:
+    file: copy_config.yaml
+- name: Enable service
+  ansible.builtin.include_tasks:
+    file: service.yaml

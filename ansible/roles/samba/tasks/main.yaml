@@ -1,8 +1,26 @@
 ---
-- name: Install samba
+- name: Install packages
   ansible.builtin.package:
-    name: samba
+    name:
+      - samba
+      - avahi-daemon
 # https://stackoverflow.com/a/71050848
+- name: Create system users
+  when: samba_timemachine.username is defined
+  ansible.builtin.user:
+    name: "{{ samba_timemachine.username }}"
+    password: '!'
+    update_password: 'on_create'
+    create_home: false
+    system: true
+- name: Set samba_users_to_create
+  when: samba_timemachine.username is defined and samba_timemachine.password is defined
+  ansible.builtin.set_fact:
+    samba_users_to_create: "{{ samba_users | default([]) + [{'username': samba_timemachine.username, 'password': samba_timemachine.password}] }}"
+- name: Set samba_users_to_create
+  when: not samba_timemachine.username is defined or not samba_timemachine.password is defined
+  ansible.builtin.set_fact:
+    samba_users_to_create: "{{ samba_users | default([]) }}"
 - name: Create samba users
   ansible.builtin.shell: >
     set -e -o pipefail
@@ -13,7 +31,7 @@
     executable: /bin/bash
   register: samba_create_users
   changed_when: "'Added user' in samba_create_users.stdout"
-  loop: "{{ samba_users }}"
+  loop: "{{ samba_users_to_create }}"
   loop_control:
     loop_var: samba_users_item
   no_log: true
@@ -29,4 +47,17 @@
   when: copy_smb_conf_result.changed
   ansible.builtin.systemd:
     name: smbd
+    state: restarted
+- name: Configure Avahi
+  ansible.builtin.template:
+    src: "templates/avahi-smb.service.j2"
+    dest: "/etc/avahi/services/smb.service"
+    owner: root
+    group: root
+    mode: '0644'
+  register: copy_avahi_smb_conf_result
+- name: Restart avahi # noqa no-handler
+  when: copy_avahi_smb_conf_result.changed
+  ansible.builtin.systemd:
+    name: avahi-daemon
     state: restarted

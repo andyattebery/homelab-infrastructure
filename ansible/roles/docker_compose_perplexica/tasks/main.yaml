@@ -1,0 +1,13 @@
+---
+- name: Initial perplexica docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-perplexica.yml
+    docker_compose_new_envs:
+      PERPLEXICA_SEARXNG_API_URL: "https://searxng.{{ domain_name }}"
+    docker_compose_src_config_files:
+      - src_file_path: files/app.dockerfile
+        dst_relative_file_path: "{{ docker_compose_dst_directory_path }}/perplexica/app.dockerfile"
+      - src_file_path: templates/config.toml.j2
+        dst_relative_file_path: perplexica/config.toml
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -8,7 +8,33 @@
     dest: "{{ sanoid_conf_path | dirname }}"
     state: directory
     mode: "0755"
+- name: Get sanoid.conf stat
+  ansible.builtin.stat:
+    path: "{{ sanoid_conf_path }}"
+  register: sanoid_conf_stat
+- name: Existing sanoid.conf
+  when: sanoid_conf_stat.stat.exists
+  block:
+    - name: Read sanoid.conf
+      ansible.builtin.slurp:
+        src: "{{ sanoid_conf_path }}"
+      register: sanoid_conf_slurp_result
+    - name: Set existing_sanoid_dataset_configs
+      ansible.builtin.set_fact:
+        existing_sanoid_dataset_configs: "{{ sanoid_conf_slurp_result.content | b64decode | community.general.jc('ini', raw=true) }}"
+- name: Set __sanoid_dataset_configs_dictionary when mapping
+  when: sanoid_dataset_configs is mapping
+  ansible.builtin.set_fact:
+    __sanoid_dataset_configs_dictionary: "{{ sanoid_dataset_configs }}"
+- name: Set __sanoid_dataset_configs_dictionary when not mapping
+  when: not sanoid_dataset_configs is mapping # assume dict2items key/value array
+  ansible.builtin.set_fact:
+    __sanoid_dataset_configs_dictionary: "{{ sanoid_dataset_configs | items2dict }}"
 - name: Copy sanoid.conf
+  vars:
+    combined_sanoid_dataset_configs: "{{ existing_sanoid_dataset_configs | default([]) | combine(__sanoid_dataset_configs_dictionary) }}"
+  # ansible.builtin.debug:
+  #   var: combined_sanoid_dataset_configs
   ansible.builtin.template:
     src: sanoid.conf.j2
     dest: "{{ sanoid_conf_path }}"

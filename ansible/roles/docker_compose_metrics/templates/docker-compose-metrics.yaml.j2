@@ -1,0 +1,54 @@
+---
+services:
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: grafana
+    restart: unless-stopped
+    user: ${PUID}:${PGID}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/grafana:/var/lib/grafana
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.grafana.rule=Host(`grafana.$DOMAIN_NAME`)
+      - traefik.http.services.grafana.loadbalancer.server.port=3000
+  influxdb:
+    image: influxdb:2
+    container_name: influxdb
+    restart: unless-stopped
+    user: ${PUID}:${PGID}
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUXDB_INIT_USERNAME}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUXDB_INIT_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUXDB_INIT_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUXDB_INIT_BUCKET}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/influxdb/data:/var/lib/influxdb2"
+      - ${DOCKER_DATA_DIRECTORY}/influxdb/config:/etc/influxdb2"
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.influxdb.rule=Host(`influxdb.$DOMAIN_NAME`)
+      - traefik.http.services.influxdb.loadbalancer.server.port=8086
+  prometheus:
+    image: quay.io/prometheus/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    user: ${PUID}:${PGID}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/prometheus/config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ${DOCKER_DATA_DIRECTORY}/prometheus/data:/prometheus
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.prometheus.rule=Host(`prometheus.$DOMAIN_NAME`)
+      - traefik.http.services.prometheus.loadbalancer.server.port=9090
+
+networks:
+  traefik:
+    name: traefik
+    external: true

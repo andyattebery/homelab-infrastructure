@@ -1,0 +1,80 @@
+---
+services:
+  paperless-ngx:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless-ngx
+    restart: unless-stopped
+    depends_on:
+      - paperless-ngx-db
+      - paperless-ngx-broker
+      - paperless-ngx-gotenberg
+      - paperless-ngx-tika
+    networks:
+      - paperless-ngx
+      - traefik
+    volumes:
+      - ${PAPERLESS_DIRECTORY}/data:/usr/src/paperless/data
+      - ${PAPERLESS_DIRECTORY}/media:/usr/src/paperless/media
+      - ${PAPERLESS_DIRECTORY}/export:/usr/src/paperless/export
+      - ${PAPERLESS_DIRECTORY}/consume:/usr/src/paperless/consume
+    environment:
+      PAPERLESS_REDIS: redis://paperless-ngx-broker:6379
+      PAPERLESS_DBHOST: paperless-ngx-db
+      PAPERLESS_TIKA_ENABLED: 1
+      PAPERLESS_TIKA_GOTENBERG_ENDPOINT: http://paperless-ngx-gotenberg:3000
+      PAPERLESS_TIKA_ENDPOINT: http://paperless-ngx-tika:9998
+      USERMAP_UID: ${PUID}
+      USERMAP_GID: ${PGID}
+      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY}"
+      PAPERLESS_URL: "https://paperless.${DOMAIN_NAME}"
+      PAPERLESS_TIME_ZONE: ${TZ}
+      PAPERLESS_ADMIN_USER: "${PAPERLESS_ADMIN_USER}"
+      PAPERLESS_ADMIN_PASSWORD: "${PAPERLESS_ADMIN_PASSWORD}"
+      PAPERLESS_DBNAME: "${PAPERLESS_DB_NAME:-paperless}"
+      PAPERLESS_DBUSER: "${PAPERLESS_DB_USER:-paperless}"
+      PAPERLESS_DBPASS: "${PAPERLESS_DB_PASSWORD:-paperless}"
+    labels:
+      - traefik.enable=true
+  paperless-ngx-broker:
+    image: docker.io/library/redis:7
+    container_name: paperless-ngx-broker
+    restart: unless-stopped
+    networks:
+      - paperless-ngx
+    volumes:
+      - ${PAPERLESS_DIRECTORY}/redis:/data
+  paperless-ngx-db:
+    image: docker.io/library/postgres:16
+    container_name: paperless-ngx-db
+    restart: unless-stopped
+    networks:
+      - paperless-ngx
+    volumes:
+      - ${PAPERLESS_DIRECTORY}/postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: "${PAPERLESS_DB_NAME:-paperless}"
+      POSTGRES_USER: "${PAPERLESS_DB_USER:-paperless}"
+      POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD:-paperless}"
+  paperless-ngx-gotenberg:
+    image: docker.io/gotenberg/gotenberg:7.10
+    container_name: paperless-ngx-gotenberg
+    restart: unless-stopped
+    # The gotenberg chromium route is used to convert .eml files. We do not
+    # want to allow external content like tracking pixels or even javascript.
+    command:
+      - "gotenberg"
+      - "--chromium-disable-javascript=true"
+      - "--chromium-allow-list=file:///tmp/.*"
+    networks:
+      - paperless-ngx
+  paperless-ngx-tika:
+    image: ghcr.io/paperless-ngx/tika:latest
+    container_name: paperless-ngx-tika
+    restart: unless-stopped
+    networks:
+      - paperless-ngx
+
+networks:
+  paperless-ngx:
+  traefik:
+    external: true

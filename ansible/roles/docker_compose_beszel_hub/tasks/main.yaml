@@ -1,0 +1,6 @@
+---
+- name: Configure beszel docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-beszel.yml
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -3,5 +3,6 @@ syncoid_destination_hostname: "{{ syncoid_destination_host | regex_search('^.*?(
 syncoid_all_service_name: "syncoid-{{ syncoid_destination_hostname }}-all"
 syncoid_all_service: "{{ syncoid_all_service_name }}.service"
 syncoid_all_timer: "{{ syncoid_all_service_name }}.timer"
-syncoid_dataset_service_name: "syncoid-{{ syncoid_destination_hostname }}-{{ syncoid_source_dataset }}"
+syncoid_dataset_service_name: "syncoid-{{ syncoid_destination_hostname }}-{{  syncoid_source_dataset | replace('/', '-') }}"
 syncoid_dataset_service: "{{ syncoid_dataset_service_name }}.service"
+syncoid_ssh_key_path: "{{ (user_syncoid_source_username_result.home, '.ssh', syncoid_source_ssh_private_key_name) | path_join }}"

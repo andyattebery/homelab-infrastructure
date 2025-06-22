@@ -1,0 +1,20 @@
+---
+- name: Create temp dir
+  ansible.builtin.tempfile:
+    state: directory
+  register: waveshare_cm4_io_base_dt_blob_directory
+- name: Download archive # noqa jinja[invalid]
+  ansible.builtin.get_url:
+    url: "https://files.waveshare.com/upload/7/75/CM4_dt_blob.7z"
+    dest: "{{ waveshare_cm4_io_base_dt_blob_directory.path }}"
+    mode: "0644"
+- name: Extract archive
+  ansible.builtin.command:
+    chdir: "{{ waveshare_cm4_io_base_dt_blob_directory.path }}"
+    creates: "{{ waveshare_cm4_io_base_dt_blob_directory.path }}/CM4_dt_blob"
+    cmd: "7z x CM4_dt_blob.7z -O./CM4_dt_blob"
+- name: Install dt blob
+  ansible.builtin.command:
+    chdir: "{{ waveshare_cm4_io_base_dt_blob_directory.path }}/CM4_dt_blob"
+    creates: "/boot/firmware/dt-blob.bin"
+    cmd: "dtc -I dts -O dtb -o /boot/firmware/dt-blob.bin dt-blob-disp0-double_cam.dts"

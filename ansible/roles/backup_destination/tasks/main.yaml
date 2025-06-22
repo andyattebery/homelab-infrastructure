@@ -3,42 +3,6 @@
   ansible.builtin.apt:
     name:
       - zfsutils-linux
-# - name: Add mnt group
-#   ansible.builtin.group:
-#     name: mnt
-- name: Add syncoid user
-  ansible.builtin.user:
-    name: "{{ syncoid_destination_username }}"
-    password: '!'
-- name: Authorize source syncoid ssh key for syncoid user
-  ansible.posix.authorized_key:
-    user: "{{ syncoid_destination_username }}"
-    state: present
-    key: "{{ syncoid_source_ssh_public_key }}"
-- name: Allow syncoid user to shutdown
-  ansible.builtin.lineinfile:
-    path: /etc/sudoers
-    line: "{{ syncoid_destination_username }} ALL=NOPASSWD: /usr/sbin/shutdown"
-# - name: Add users to mnt group
-#   ansible.builtin.user:
-#     name: "{{ item }}"
-#     append: true
-#     groups:
-#       - mnt
-#   loop:
-#     - "{{ ansible_user }}"
-#     - "{{ syncoid_destination_username }}"
-# - name: Get direct children of /mnt
-#   ansible.builtin.command:
-#     cmd: find /mnt -mindepth 1 -maxdepth 1
-#   register: mnt_children_result
-#   changed_when: false
-# - name: Change /mnt group ownership
-#   ansible.builtin.command:
-#     cmd: "chmod A+user:{{ syncoid_destination_username }}:add_subdirectory:allow {{ mnt_child }}"
-#   loop: "{{ mnt_children_result.stdout_lines }}"
-#   loop_control:
-#     loop_var: mnt_child
 - name: Configure zed notifications
   ansible.builtin.include_role:
     name: zed_notifications

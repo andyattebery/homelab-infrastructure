@@ -1,11 +1,10 @@
-{% for dataset in sanoid_datasets | default([]) %}
-[{{ dataset }}]
-{% for option in sanoid_datasets[dataset] %}
-{% if sanoid_datasets[dataset][option] is boolean %}
-{{ option }} = {% if sanoid_datasets[dataset][option] %}yes{% else %}no{% endif %}
-
+{% for dataset_config_key in combined_sanoid_dataset_configs | default([]) %}
+[{{ dataset_config_key }}]
+{% for option_key in combined_sanoid_dataset_configs[dataset_config_key] %}
+{% if combined_sanoid_dataset_configs[dataset_config_key][option_key] is boolean %}
+{{ option_key }} = {% if combined_sanoid_dataset_configs[dataset_config_key][option_key] %}yes{% else %}no{% endif +%}
 {% else %}
-{{ option }} = {{ sanoid_datasets[dataset][option] }}
+{{ option_key }} = {{ combined_sanoid_dataset_configs[dataset_config_key][option_key] }}
 {% endif %}
 {% endfor %}
 

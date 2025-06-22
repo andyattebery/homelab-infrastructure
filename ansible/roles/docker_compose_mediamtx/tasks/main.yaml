@@ -1,0 +1,12 @@
+---
+- name: Initial mediamtx docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-mediamtx.yaml
+    docker_compose_envs:
+      MEDIAMTX_IMAGE_TAG: "{{ mediamtx_image_tag }}"
+    docker_compose_src_config_files:
+      - src_file_path: "{{ mediamtx_config_file_src_path }}"
+        dst_relative_file_path: mediamtx/mediamtx.yml
+        service_name_to_restart: mediamtx
+  ansible.builtin.include_role:
+    name: docker_compose

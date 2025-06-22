@@ -1,0 +1,13 @@
+---
+- name: Initial miniflux docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-miniflux.yaml
+    docker_compose_envs:
+      MINIFLUX_DOMAIN_NAME: "miniflux.{{ domain_name }}"
+      MINIFLUX_ADMIN_USERNAME: "{{ miniflux_admin_username }}"
+      MINIFLUX_ADMIN_PASSWORD: "{{ miniflux_admin_password }}"
+      MINIFLUX_DB_NAME: "{{ miniflux_db_name }}"
+      MINIFLUX_DB_USERNAME: "{{ miniflux_db_username }}"
+      MINIFLUX_DB_PASSWORD: "{{ miniflux_db_password }}"
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -1,0 +1,19 @@
+---
+- name: Configure pi-01
+  hosts: pi-01
+  become: true
+
+  roles:
+    # - configure_server
+    - role: go2rtc
+      vars:
+        go2rtc_config_file: files/pi-camera/go2rtc-rpi5.yaml
+
+  tasks:
+    - name: Remove packages
+      ansible.builtin.package:
+        name: rpicam-apps-lite
+        state: absent
+    - name: Install packages
+      ansible.builtin.package:
+        name: rpicam-apps

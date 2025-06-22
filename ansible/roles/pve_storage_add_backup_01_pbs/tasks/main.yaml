@@ -31,5 +31,4 @@
       --namespace {{ pve_storage_pbs_namespace }}
       --username {{ pbs_backup_01_username }}@pbs
       --password {{ pbs_backup_01_password }}
-      --fingerprint {{ pve_storage_pbs_fingerprint }}
   changed_when: true

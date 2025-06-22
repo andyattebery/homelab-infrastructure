@@ -21,6 +21,3 @@ power_saving_cpu_kernel_parameters_amd_ge_6_1:
 power_saving_cpu_kernel_parameters_amd_ge_6_3:
   amd_pstate: active
   cpufreq.default_governor: powersave
-
-# power_saving_pcie_kernel_parameters:
-#   pcie_aspm.policy: powersave

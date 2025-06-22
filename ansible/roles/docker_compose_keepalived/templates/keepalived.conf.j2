@@ -1,0 +1,13 @@
+global_defs {
+    max_auto_priority -1
+}
+
+vrrp_instance {{ keepalived_instance_name }} {
+    state {{ 'MASTER' if keepalived_is_master else 'BACKUP' }}
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ keepalived_router_id }}
+    priority {{ keepalived_priority }}
+    virtual_ipaddress {
+        {{ keepalived_virtual_ipaddress }}
+    }
+}

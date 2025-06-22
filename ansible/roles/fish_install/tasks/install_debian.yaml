@@ -5,14 +5,14 @@
   changed_when: false
 - name: Add fish apt repository key
   ansible.builtin.get_url:
-    url: "https://download.opensuse.org/repositories/shells:fish:release:3/Debian_{{ ansible_distribution_major_version }}/Release.key"
-    dest: /etc/apt/trusted.gpg.d/shells_fish_release_3.asc
+    url: "https://download.opensuse.org/repositories/shells:fish:release:4/Debian_{{ ansible_distribution_major_version }}/Release.key"
+    dest: /etc/apt/trusted.gpg.d/shells_fish_release_4.asc
     mode: '0644'
     force: true
 - name: Add fish apt repository
   ansible.builtin.apt_repository:
-    repo: "deb http://download.opensuse.org/repositories/shells:/fish:/release:/3/Debian_{{ ansible_distribution_major_version }}/ /"
-    filename: shells_fish_release_3
+    repo: "deb http://download.opensuse.org/repositories/shells:/fish:/release:/4/Debian_{{ ansible_distribution_major_version }}/ /"
+    filename: shells_fish_release_4
     state: present
     update_cache: false
 - name: Install fish
