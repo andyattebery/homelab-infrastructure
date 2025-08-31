@@ -1,0 +1,16 @@
+[tools]
+python = '3.13'
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.bootstrap]
+description = 'Bootstrap Ansible environment'
+run = [
+  'pip3 install -r requirements.txt',
+  'ansible-galaxy install -r requirements.yaml'
+]
+
+[tasks.facts]
+description = "Get facts for a host"
+run = 'ansible --module-name ansible.builtin.setup'

@@ -1,3 +1,4 @@
 .DS_Store
-ansible/.lock
+.ansible
+.venv
 ansible/*vars/**/vault.yaml
