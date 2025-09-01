@@ -17,6 +17,7 @@
         pbs_acme_tos_url: "{{ pbs_curl_get_acme_tos_result.stdout | from_json | json_query('data') }}"
       # ansible.builtin.debug:
       #   var: pbs_acme_tos_url
+        # msg: "{{ pbs_curl_get_acme_tos_result.stdout }}"
       ansible.builtin.command:
         cmd: >
           {{ pbs_curl_base_post_command }}/config/acme/account
@@ -28,7 +29,8 @@
       changed_when: true
     # - name: debug
     #   ansible.builtin.debug:
-    #     msg: "{{ pbs_curl_post_acme_account_result.stdout | from_json }}"
+    #     var: pbs_curl_post_acme_account_result
+    #     # msg: "{{ pbs_curl_post_acme_account_result.stdout | from_json }}"
 - name: List ACME plugins
   ansible.builtin.command:
     cmd: "{{ pbs_curl_base_get_command }}/config/acme/plugins"

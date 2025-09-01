@@ -5,7 +5,7 @@
   changed_when: false
 - name: Add fish ppa
   ansible.builtin.command:
-    cmd: add-apt-repository --yes ppa:fish-shell/release-4
+    cmd: add-apt-repository --yes ppa:fish-shell/release-{{ fish_version }}
   changed_when: false
 - name: Install fish
   ansible.builtin.apt:

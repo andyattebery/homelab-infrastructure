@@ -1,0 +1,21 @@
+- name: Create modprobe.d directory
+  ansible.builtin.file:
+    path: /etc/modprobe.d
+    state: directory
+    mode: '0755'
+- name: Configure zfs.conf
+  ansible.builtin.blockinfile:
+    create: true
+    block: |
+      options zfs zfs_arc_max={{ zfs_arc_max_bytes }}
+    path: /etc/modprobe.d/zfs.conf
+    mode: "0644"
+    owner: root
+    group: root
+  notify: Regenerate initramfs
+- name: Set current ARC max
+  ansible.builtin.shell: |
+    echo {{ zfs_arc_max_bytes }} > /sys/module/zfs/parameters/zfs_arc_max
+  register: arc_runtime_result
+  changed_when: false
+  failed_when: false

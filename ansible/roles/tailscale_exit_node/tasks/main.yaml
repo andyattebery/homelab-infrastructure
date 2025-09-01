@@ -26,7 +26,6 @@
     subnet_routes: "{{ ip_routes_result.stdout | regex_search(subnet_route_regex, '\\1', multiline=true) }}"
 - name: Configure Tailscale
   ansible.builtin.include_role:
-    name: artis3n.tailscale
-  vars:
+    name: artis3n.tailscale.machine  vars:
     advertise_routes: "{{ subnet_routes | join(',') }}"
     tailscale_args: "--advertise-exit-node --advertise-routes={{ advertise_routes }}"

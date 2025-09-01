@@ -1,0 +1,14 @@
+---
+- name: Create shutdown_tracker directory
+  ansible.builtin.file:
+    path: "{{ shutdown_tracker_directory }}"
+    state: directory
+    owner: "root"
+    group: "root"
+    mode: "0755"
+- name: Copy shutdown_tracker script
+  ansible.builtin.template:
+    src: "process_monitor_shutdown.bash.j2"
+    dest: "{{ shutdown_tracker_path }}"
+    
+    mode: "0755"

@@ -33,11 +33,11 @@
     #     dest: /etc/apt/sources.list
     #     regexp: '^(deb.+main).*$'
     #     replace: '\1 contrib non-free non-free-firmware'
-    # - name: Install NIC DKMS modules
+    # - name: Install packages
     #   ansible.builtin.apt:
     #     name:
-    #       - proxmox-headers-6.8
-            # - r8168-dkms
+    #       - intel-microcode
+    #       - pve-headers
     #       - r8125-dkms
     #     update_cache: true
     # - name: Add udev rule for r8125

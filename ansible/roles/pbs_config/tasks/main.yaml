@@ -1,11 +1,20 @@
 ---
 - name: Remove PBS enterprise repository
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/pbs-enterprise.list
+    path: /etc/apt/sources.list.d/{{ source_file }}
     state: absent
-- name: Add PBS no-subscription repository
-  ansible.builtin.apt_repository:
-    repo: deb http://download.proxmox.com/debian/pbs {{ ansible_distribution_release }} pbs-no-subscription
-    filename: pbs-no-subscription
-    state: present
+  loop:
+    - pbs-enterprise.list
+    - pbs-enterprise.sources
+  loop_control:
+    loop_var: source_file
+- name: Add PBS no subscription repository
+  ansible.builtin.template:
+    src: templates/pbs-no-subscription.sources.j2
+    path: /etc/apt/sources.list.d/pbs-no-subscription.sources
+    mode: "0644"
+    owner: root
+    group: root
+- name: Update apt
+  ansible.builtin.apt:
     update_cache: true

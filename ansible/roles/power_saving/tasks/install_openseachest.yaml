@@ -18,43 +18,43 @@
 # For some reason the deb installs the binaries and man files into /usr/bin/openSeaChest which won't be in your PATH or where `man` searches, so link them to standard locations.
 # For the bin files the default is `/usr/bin`
 # For the man files the default is `/usr/share/man`
-- name: Link bin and man files to standard locations # noqa no-handler
-  when: openseachest_deb_install_result.changed
-  block:
-    - name: Find bin files
-      ansible.builtin.find:
-        path: "{{ openseachest_deb_install_dir }}"
-        pattern: "openSeaChest_*"
-        file_type: file
-        mode: "0755"
-      register: openseachest_bin_files_result
-    - name: Link bin files to {{ openseachest_bin_dir }}
-      ansible.builtin.file:
-        src: "{{ openseachest_bin_file.path }}"
-        dest: "{{ (openseachest_bin_dir, openseachest_bin_file.path | basename) | path_join }}"
-        state: link
-      # ansible.builtin.debug:
-      #   msg: "{{ openseachest_bin_file.path }}"
-      loop: "{{ openseachest_bin_files_result.files }}"
-      loop_control:
-        loop_var: openseachest_bin_file
-        label: "{{ openseachest_bin_file.path }}"
-    - name: Find man files
-      ansible.builtin.find:
-        path: "{{ (openseachest_deb_install_dir, 'man', 'man8') | path_join }}"
-        file_type: file
-      register: openseachest_man_files_result
-    - name: Link man files to {{ openseachest_man_dir }}
-      ansible.builtin.file:
-        src: "{{ openseachest_man_file.path }}"
-        dest: "{{ (openseachest_man_dir, 'man8', openseachest_man_file.path | basename) | path_join }}"
-        state: link
-      # ansible.builtin.debug:
-      #   msg: "{{ openseachest_man_file.path }}"
-      loop: "{{ openseachest_man_files_result.files }}"
-      loop_control:
-        loop_var: openseachest_man_file
-        label: "{{ openseachest_man_file.path }}"
+# - name: Link bin and man files to standard locations # noqa no-handler
+#   when: openseachest_deb_install_result.changed
+#   block:
+#     - name: Find bin files
+#       ansible.builtin.find:
+#         path: "{{ openseachest_deb_install_dir }}"
+#         pattern: "openSeaChest_*"
+#         file_type: file
+#         mode: "0755"
+#       register: openseachest_bin_files_result
+#     - name: Link bin files to {{ openseachest_bin_dir }}
+#       ansible.builtin.file:
+#         src: "{{ openseachest_bin_file.path }}"
+#         dest: "{{ (openseachest_bin_dir, openseachest_bin_file.path | basename) | path_join }}"
+#         state: link
+#       # ansible.builtin.debug:
+#       #   msg: "{{ openseachest_bin_file.path }}"
+#       loop: "{{ openseachest_bin_files_result.files }}"
+#       loop_control:
+#         loop_var: openseachest_bin_file
+#         label: "{{ openseachest_bin_file.path }}"
+#     - name: Find man files
+#       ansible.builtin.find:
+#         path: "{{ (openseachest_deb_install_dir, 'man', 'man8') | path_join }}"
+#         file_type: file
+#       register: openseachest_man_files_result
+#     - name: Link man files to {{ openseachest_man_dir }}
+#       ansible.builtin.file:
+#         src: "{{ openseachest_man_file.path }}"
+#         dest: "{{ (openseachest_man_dir, 'man8', openseachest_man_file.path | basename) | path_join }}"
+#         state: link
+#       # ansible.builtin.debug:
+#       #   msg: "{{ openseachest_man_file.path }}"
+#       loop: "{{ openseachest_man_files_result.files }}"
+#       loop_control:
+#         loop_var: openseachest_man_file
+#         label: "{{ openseachest_man_file.path }}"
 
 ## Copying from tar
 # - name: Check if openSeaChest_PowerControl is installed

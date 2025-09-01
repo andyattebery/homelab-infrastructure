@@ -27,14 +27,14 @@
     #       OBICO_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
     #       OBICO_DEFAULT_FROM_EMAIL: "obico@{{ domain_name }}"
     #       OBICO_DJANGO_SECRET_KEY: "{{ obico_django_secret_key }}"
-    # - role: docker_compose_beszel_hub
+    - role: docker_compose_beszel_hub
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
-    - role: docker_compose_certbot_asrock_ipmi
-      vars:
-        certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
-        certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
-        certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
+    # - role: docker_compose_certbot_asrock_ipmi
+    #   vars:
+    #     certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
+    #     certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
+    #     certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
     # - role: docker_compose_docker_monitoring
     # - role: docker_compose_perplexica
     #   vars:

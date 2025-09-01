@@ -1,0 +1,2 @@
+---
+shutdown_tracker_path: "{{ (shutdown_tracker_directory, shutdown_tracker_script_name) | path_join }}"

@@ -1,0 +1,10 @@
+- name: Regenerate initramfs
+  ansible.builtin.command: update-initramfs -u -k all
+  register: initramfs_result
+  changed_when: >
+    initramfs_result.stdout is search("update-initramfs: Generating") or
+    initramfs_result.stdout is search("Generating /boot/initrd")
+  failed_when: >
+    initramfs_result.rc != 0 or
+    initramfs_result.stderr is search("Error") or
+    initramfs_result.stderr is search("FATAL")

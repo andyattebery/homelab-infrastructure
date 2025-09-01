@@ -4,27 +4,28 @@
   become: true
 
   roles:
-    - role: configure_server
-      vars:
-        security_ssh_permit_root_login: "prohibit-password"
+    # - role: configure_server
+    #   vars:
+    #     security_ssh_permit_root_login: "prohibit-password"
+    - role: scrutiny_collector
     - role: nut
       vars:
         nut_enable_server: true
         nut_enable_server_remote_access: true
         nut_enable_snmp: true
         nut_upses:
-          # - name: "{{ ups_monitor_rack_nut_ups_name }}"
-          #   driver: usbhid-ups # required
-          #   port: auto # required
-          #   desc: APC Smart-UPS SMT1500RM2U
-          #   vendorid: "051D"
-          #   productid: "0003"
           - name: "{{ ups_monitor_rack_nut_ups_name }}"
             driver: snmp-ups
             port: "{{ ups_rack_snmp_address }}"
             desc: APC Smart-UPS SMT1500RM2U via AP9630 (NMC2)
             snmp_version: v1
             community: "{{ ups_rack_snmp_read_write_community }}"
+          # - name: "{{ ups_monitor_rack_nut_ups_name }}"
+          #   driver: usbhid-ups # required
+          #   port: auto # required
+          #   desc: APC Smart-UPS SMT1500RM2U
+          #   vendorid: "051D"
+          #   productid: "0003"
           # - name: "{{ ups_monitor_rack_nut_pdu_name }}"
           #   driver: snmp-ups
           #   mibs: cyberpower

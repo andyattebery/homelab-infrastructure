@@ -6,4 +6,8 @@ Wants=beszel-agent.service
 Type=oneshot
 Environment="PORT={{ beszel_agent_port }}"
 Environment="KEY={{ beszel_key }}"
+{% if pikvm_os is defined and pikvm_os is true %}
+ExecStartPre=/usr/bin/rw
+ExecStartPost=/usr/bin/ro
+{% endif %}
 ExecStart=/bin/sh -c '{{ beszel_agent_bin_path }}/beszel-agent update | grep -q "Successfully updated" && systemctl restart beszel-agent'

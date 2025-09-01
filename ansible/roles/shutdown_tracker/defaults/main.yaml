@@ -1,0 +1,3 @@
+---
+shutdown_tracker_directory: "/opt/shutdown_tracker"
+shutdown_tracker_script_name: "shutdown_tracker.bash"

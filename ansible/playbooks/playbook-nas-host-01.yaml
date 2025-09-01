@@ -39,6 +39,16 @@
 
 # # Make sure the Proxmox VM video output is VGA
   # tasks:
+  # - name: Add contrib, non-free, and non-free-firmware repository
+  #   ansible.builtin.replace:
+  #     dest: /etc/apt/sources.list
+  #     regexp: '^(deb.+main).*$'
+  #     replace: '\1 contrib non-free non-free-firmware'
+  # - name: Install packages
+  #   ansible.builtin.apt:
+  #     name:
+  #       - amd-microcode
+  #     update_cache: true
   #   - name: Configure network interfaces
   #     ansible.builtin.copy:
   #       src: files/nas-host-01/interfaces

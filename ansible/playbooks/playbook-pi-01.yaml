@@ -4,7 +4,7 @@
   become: true
 
   roles:
-    # - configure_server
+    - configure_server
     - role: go2rtc
       vars:
         go2rtc_config_file: files/pi-camera/go2rtc-rpi5.yaml

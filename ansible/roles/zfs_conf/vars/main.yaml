@@ -1,0 +1,2 @@
+zfs_arc_max_bytes: "{{ (zfs_arc_max_gb * 1024 * 1024 * 1024) | int }}"
+# zfs_arc_min_bytes: "{{ (zfs_arc_min_gb * 1024 * 1024 * 1024) | int }}"

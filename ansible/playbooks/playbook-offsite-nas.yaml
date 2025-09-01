@@ -8,7 +8,7 @@
 
   roles:
     - configure_server
-    - artis3n.tailscale
+    - artis3n.tailscale.machine
     - role: backup_destination
       vars:
         syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"

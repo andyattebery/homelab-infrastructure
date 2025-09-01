@@ -3,10 +3,12 @@
   hosts: pi-turntable
   become: true
 
-  # roles:
+  roles:
   #   - role: configure_server
   #   - role: geerlingguy.docker
-  #   - role: docker_compose_owntone
+    - role: docker_compose_owntone
+      vars:
+        docker_compose_copy_scripts: true
 
   tasks:
     # - name: Install packages
@@ -21,18 +23,18 @@
     #     name: icecast2.service
     #     state: started
     #     enabled: true
-    - name: Create ffmpeg-to-icecast.service
-      ansible.builtin.template:
-        src: files/pi-turntable/ffmpeg-to-icecast2.service.j2
-        dest: /etc/systemd/system/ffmpeg-to-icecast2.service
-        mode: "0644"
-        owner: root
-    - name: Enable and start ffmpeg-to-icecast2.service
-      ansible.builtin.systemd_service:
-        daemon_reload: true
-        name: ffmpeg-to-icecast2.service
-        state: started
-        enabled: true
+    # - name: Create ffmpeg-to-icecast.service
+    #   ansible.builtin.template:
+    #     src: files/pi-turntable/ffmpeg-to-icecast2.service.j2
+    #     dest: /etc/systemd/system/ffmpeg-to-icecast2.service
+    #     mode: "0644"
+    #     owner: root
+    # - name: Enable and start ffmpeg-to-icecast2.service
+    #   ansible.builtin.systemd_service:
+    #     daemon_reload: true
+    #     name: ffmpeg-to-icecast2.service
+    #     state: started
+    #     enabled: true
     # - name: Create darkice M3U file
     #   ansible.builtin.template:
     #     src: files/pi-turntable/turntable.m3u.j2

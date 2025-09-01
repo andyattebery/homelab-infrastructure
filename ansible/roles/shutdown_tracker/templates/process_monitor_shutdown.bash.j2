@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+
+# Systemd Service Exit Handler and Auto-Shutdown Script
+# Called by systemd services via ExecStopPost to track completion
+# Usage: ./shutdown_tracker.sh --register [service_name]
+#        ./shutdown_tracker.sh --completed [service_name]
+#        ./shutdown_tracker.sh --status
+
+# Configuration
+TRACKER_DIR="{{ shutdown_tracker_directory }}"
+SERVICES_FILE="$TRACKER_DIR/services.list"
+COMPLETED_FILE="$TRACKER_DIR/completed.list"
+LOG_FILE="$TRACKER_DIR/shutdown_tracker.log"
+SHUTDOWN_DELAY=30  # Wait 30 seconds before shutdown
+LOCK_FILE="$TRACKER_DIR/tracker.lock"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Ensure tracker directory exists
+mkdir -p "$TRACKER_DIR"
+
+# Function to log messages
+log_message() {
+    local message="$1"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo -e "${BLUE}[$timestamp]${NC} $message" >&2
+    echo "[$timestamp] $message" >> "$LOG_FILE"
+}
+
+# Function to acquire lock
+acquire_lock() {
+    local timeout=10
+    local count=0
+    
+    while ! (set -C; echo $$ > "$LOCK_FILE") 2>/dev/null; do
+        if [ $count -ge $timeout ]; then
+            log_message "Failed to acquire lock after ${timeout} seconds"
+            exit 1
+        fi
+        sleep 1
+        count=$((count + 1))
+    done
+    
+    # Set up trap to remove lock on exit
+    trap 'rm -f "$LOCK_FILE"' EXIT
+}
+
+# Function to display usage
+usage() {
+    echo "Systemd Service Exit Handler and Auto-Shutdown Script"
+    echo ""
+    echo "Usage:"
+    echo "  $0 --register [service1] [service2] ... [serviceN]"
+    echo "  $0 --completed [service_name]"
+    echo "  $0 --status"
+    echo "  $0 --reset"
+    echo ""
+    echo "Commands:"
+    echo "  --register    Register services to monitor for completion"
+    echo "  --completed   Mark a service as completed (called by systemd ExecStopPost)"
+    echo "  --status      Show current status of monitored services"
+    echo "  --reset       Clear all registered services and completed status"
+    echo "  --help        Show this help message"
+    echo ""
+    echo "Example systemd service configuration:"
+    echo "  [Unit]"
+    echo "  Description=My Long Running Task"
+    echo "  "
+    echo "  [Service]"
+    echo "  Type=oneshot"
+    echo "  ExecStart=/path/to/my/script.sh"
+    echo "  ExecStopPost=$0 --completed %i"
+    echo "  "
+    echo "  [Install]"
+    echo "  WantedBy=multi-user.target"
+}
+
+# Function to register services to monitor
+register_services() {
+    local services=("$@")
+    
+    acquire_lock
+    
+    log_message "Registering services for monitoring: ${services[*]}"
+    
+    # Clear existing files
+    > "$SERVICES_FILE"
+    > "$COMPLETED_FILE"
+    
+    # Register each service
+    for service in "${services[@]}"; do
+        echo "$service" >> "$SERVICES_FILE"
+    done
+    
+    log_message "Registered ${#services[@]} services for shutdown monitoring"
+    log_message "Services will be monitored: $(cat "$SERVICES_FILE" | tr '\n' ' ')"
+}
+
+# Function to mark a service as completed
+mark_completed() {
+    local service_name="$1"
+    
+    if [[ -z "$service_name" ]]; then
+        log_message "Error: No service name provided"
+        exit 1
+    fi
+    
+    acquire_lock
+    
+    # Check if this service was registered
+    if ! grep -q "^${service_name}$" "$SERVICES_FILE" 2>/dev/null; then
+        log_message "Warning: Service '$service_name' was not registered for monitoring"
+        exit 0
+    fi
+    
+    # Check if already completed
+    if grep -q "^${service_name}$" "$COMPLETED_FILE" 2>/dev/null; then
+        log_message "Service '$service_name' already marked as completed"
+        exit 0
+    fi
+    
+    # Mark as completed
+    echo "$service_name" >> "$COMPLETED_FILE"
+    log_message "Marked service '$service_name' as completed"
+    
+    # Check if all services are completed
+    check_all_completed
+}
+
+# Function to check if all services are completed
+check_all_completed() {
+    if [[ ! -f "$SERVICES_FILE" ]]; then
+        log_message "No services registered for monitoring"
+        return
+    fi
+    
+    local total_services=$(wc -l < "$SERVICES_FILE")
+    local completed_services=0
+    
+    if [[ -f "$COMPLETED_FILE" ]]; then
+        completed_services=$(wc -l < "$COMPLETED_FILE")
+    fi
+    
+    log_message "Progress: $completed_services/$total_services services completed"
+    
+    if [[ $completed_services -eq $total_services ]] && [[ $total_services -gt 0 ]]; then
+        log_message "${GREEN}All monitored services have completed!${NC}"
+        perform_shutdown
+    else
+        local remaining=$((total_services - completed_services))
+        local pending_services=$(comm -23 <(sort "$SERVICES_FILE") <(sort "$COMPLETED_FILE" 2>/dev/null || echo ""))
+        log_message "Waiting for $remaining more services: $(echo "$pending_services" | tr '\n' ' ')"
+    fi
+}
+
+# Function to show current status
+show_status() {
+    echo "=== Shutdown Tracker Status ==="
+    echo ""
+    
+    if [[ ! -f "$SERVICES_FILE" ]]; then
+        echo "No services registered for monitoring."
+        return
+    fi
+    
+    local total_services=$(wc -l < "$SERVICES_FILE")
+    local completed_services=0
+    
+    if [[ -f "$COMPLETED_FILE" ]]; then
+        completed_services=$(wc -l < "$COMPLETED_FILE")
+    fi
+    
+    echo "Registered Services ($total_services):"
+    while IFS= read -r service; do
+        if grep -q "^${service}$" "$COMPLETED_FILE" 2>/dev/null; then
+            echo -e "  ${GREEN}✓${NC} $service (completed)"
+        else
+            echo -e "  ${YELLOW}○${NC} $service (pending)"
+        fi
+    done < "$SERVICES_FILE"
+    
+    echo ""
+    echo "Progress: $completed_services/$total_services completed"
+    
+    if [[ $completed_services -eq $total_services ]] && [[ $total_services -gt 0 ]]; then
+        echo -e "${GREEN}All services completed - ready for shutdown${NC}"
+    fi
+}
+
+# Function to reset tracker state
+reset_tracker() {
+    acquire_lock
+    
+    log_message "Resetting shutdown tracker state"
+    rm -f "$SERVICES_FILE" "$COMPLETED_FILE"
+    echo "Tracker state reset."
+}
+
+# Function to perform shutdown
+perform_shutdown() {
+    log_message "${GREEN}All monitored services have completed!${NC}"
+    log_message "${YELLOW}System will shutdown in $SHUTDOWN_DELAY seconds...${NC}"
+    
+    # Create a background process to handle the shutdown
+    # This allows the current process to exit cleanly
+    (
+        sleep "$SHUTDOWN_DELAY"
+        logger "Shutdown Tracker: Initiating system shutdown - all services completed"
+        
+        # Try different shutdown commands based on the system
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl poweroff
+        elif command -v shutdown >/dev/null 2>&1; then
+            shutdown -h now
+        elif command -v halt >/dev/null 2>&1; then
+            halt
+        else
+            logger "Shutdown Tracker: Error - No shutdown command found"
+        fi
+    ) &
+    
+    log_message "${RED}Shutdown initiated (PID: $!)${NC}"
+}
+
+# Main function
+main() {
+    case "${1:-}" in
+        "--register")
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo "Error: No services specified for registration."
+                echo ""
+                usage
+                exit 1
+            fi
+            register_services "$@"
+            ;;
+        "--completed")
+            shift
+            if [[ $# -ne 1 ]]; then
+                echo "Error: Exactly one service name required."
+                usage
+                exit 1
+            fi
+            mark_completed "$1"
+            ;;
+        "--status")
+            show_status
+            ;;
+        "--reset")
+            reset_tracker
+            ;;
+        "--help"|"")
+            usage
+            ;;
+        *)
+            echo "Error: Unknown option '$1'"
+            echo ""
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+# Initialize log
+if [[ ! -f "$LOG_FILE" ]]; then
+    echo "Shutdown Tracker Log - Started $(date)" > "$LOG_FILE"
+fi
+
+# Run main function
+main "$@"

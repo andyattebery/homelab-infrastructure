@@ -7,7 +7,7 @@
     # - configure_server
     # - geerlingguy.docker
     - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
-    - tailscale_exit_node
+    - artis3n.tailscale.machine
     - role: docker_compose_adguardhome
       when: inventory_hostname != 'network-01'
     - docker_compose_dashboard_services_manager_provider

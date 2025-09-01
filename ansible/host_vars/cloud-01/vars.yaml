@@ -1,4 +1,6 @@
 ---
+ansible_port: "{{ sshd_port }}"
+
 # docker_compose_wireguard
 wireguard_external_domain: "{{ vault_wireguard_external_domain }}"
 wireguard_port: "{{ vault_wireguard_port }}"

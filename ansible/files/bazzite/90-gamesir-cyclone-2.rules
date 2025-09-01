@@ -1,0 +1,4 @@
+ACTION=="add", SUBSYSTEM=="usb", DRIVERS=="usb", \
+    ATTR{idProduct}=="0101", \
+    ATTR{idVendor}=="1a40", \
+ATTR{power/wakeup}="enabled"

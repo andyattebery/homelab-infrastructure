@@ -87,6 +87,3 @@
     - name: Load module # noqa no-changed-when
       ansible.builtin.command:
         cmd: modprobe r8152
-# - name: Add udev rule to use r8152 module for specific devices
-#   ansible.builtin.include_tasks:
-#     file: add_udev_rule.yaml

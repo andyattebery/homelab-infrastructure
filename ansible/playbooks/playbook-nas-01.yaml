@@ -6,6 +6,11 @@
   vars:
     docker_compose_dst_data_directory_path: "/mnt/docker"
     power_saving_hard_drives:
+      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
       - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDGZ-11_9LH51ZBG
         epc_idle_a: enable
         epc_idle_b: 300000
@@ -16,11 +21,11 @@
         epc_idle_b: 300000
         epc_idle_c: 600000
         epc_standby_z: 900000
-      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL
+      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM000J-2T_ZR516PR9
         epc_idle_a: enable
-        epc_idle_b: 300000
-        epc_idle_c: 600000
-        epc_standby_z: 900000
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
       - dev: /dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4SA5
         epc_idle_a: enable
         epc_idle_b: enable
@@ -31,42 +36,7 @@
         epc_idle_b: 300000
         epc_idle_c: 600000
         epc_standby_z: 900000
-      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD120EMAZ-11_5PGJT29C
-        epc_idle_a: enable
-        epc_idle_b: 300000
-        epc_idle_c: 600000
-        epc_standby_z: 900000
-      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD120EMFZ-11_Z2H8HE0T
-        epc_idle_a: enable
-        epc_idle_b: 300000
-        epc_idle_c: 600000
-        epc_standby_z: 900000
       - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_9LGA6YWA
-        epc_idle_a: enable
-        epc_idle_b: 300000
-        epc_idle_c: 600000
-        epc_standby_z: 900000
-      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D3HY7
-        epc_idle_a: enable
-        epc_idle_b: enable
-        epc_idle_c: enable
-        epc_standby_z: enable
-      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D12AX
-        epc_idle_a: enable
-        epc_idle_b: enable
-        epc_idle_c: enable
-        epc_standby_z: enable
-      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM000J-2T_ZR516PR9
-        epc_idle_a: enable
-        epc_idle_b: enable
-        epc_idle_c: enable
-        epc_standby_z: enable
-      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5
-        epc_idle_a: enable
-        epc_idle_b: enable
-        epc_idle_c: enable
-        epc_standby_z: enable
-      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3LGHSB2U
         epc_idle_a: enable
         epc_idle_b: 300000
         epc_idle_c: 600000
@@ -76,6 +46,41 @@
         epc_idle_b: 300000
         epc_idle_c: 600000
         epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_ST14000NM001G-2K_ZL2D3HY7
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD140EDFZ-11_X1GH3GLL
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_ST18000NM003D-3D_ZVTB4MXV
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_WDC_WD180EDGZ-11_3LGHSB2U
+        epc_idle_a: enable
+        epc_idle_b: 300000
+        epc_idle_c: 600000
+        epc_standby_z: 900000
+      - dev: /dev/disk/by-id/scsi-SATA_ST24000DM001-3Y7_ZXA0KZXF
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
+      - dev: /dev/disk/by-id/scsi-SATA_ST22000NM000C-3W_ZXA0C5CR
+        epc_idle_a: enable
+        epc_idle_b: enable
+        epc_idle_c: enable
+        epc_standby_z: enable
 
   roles:
     - ansible_non_become_user_facts
@@ -86,11 +91,10 @@
     #     mergerfs_install_tools: true
     # # - snapper_install
     # # - snapraid_btrfs_install
-    # # - artis3n.tailscale
-    # # - geerlingguy.postfix
-    # - role: power_saving
-    #   vars:
-    #     power_saving_configure_cpu: false
+    # # - artis3n.tailscale.machine    # # - geerlingguy.postfix
+    - role: power_saving
+      vars:
+        power_saving_configure_cpu: false
     # - zed_notifications
     # - healthchecks_service
     # - role: scrutiny_collector
@@ -116,23 +120,23 @@
     #       sink:
     #         use_template: template
     #         recursive: true
-    - role: samba
-      vars:
-        samba_users:
-          - username: "{{ smb_nas_01_username }}"
-            password: "{{ smb_nas_01_password }}"
-        samba_homes_enabled: true
-        samba_shares:
-          - name: depot
-            path: /mnt/depot
-          - name: proxmox
-            path: /mnt/tank/proxmox
-          - name: sink
-            path: /mnt/sink
-          - name: storage
-            path: /mnt/storage
-          - name: tank
-            path: /mnt/tank
+    # - role: samba
+    #   vars:
+    #     samba_users:
+    #       - username: "{{ smb_nas_01_username }}"
+    #         password: "{{ smb_nas_01_password }}"
+    #     samba_homes_enabled: true
+    #     samba_shares:
+    #       - name: depot
+    #         path: /mnt/depot
+    #       - name: proxmox
+    #         path: /mnt/tank/proxmox
+    #       - name: sink
+    #         path: /mnt/sink
+    #       - name: storage
+    #         path: /mnt/storage
+    #       - name: tank
+    #         path: /mnt/tank
     # - role: docker_compose_traefik
     #   vars:
     #     docker_compose_traefik_enable_dashboard: true
@@ -345,47 +349,47 @@
     #         syncoid_destination_dataset: backups/sink
     #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
     #         syncoid_healthchecks_uuid: 379c392b-04f5-42ef-bbc7-1afdd850d863
-    - name: Configure syncoid to backup-01
-      ansible.builtin.include_role:
-        name: syncoid_source
-      vars:
-        syncoid_source_username: "{{ ansible_user }}"
-        syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
-        syncoid_destination_username: "syncoid"
-        syncoid_destination_host: "backup-01.{{ domain_name }}"
-        syncoid_timer_on_calendar: "*-*-* 02:00:00"
-        syncoid_datasets:
-          - syncoid_source_dataset: tank
-            syncoid_destination_dataset: backups/tank
-            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
-            syncoid_healthchecks_uuid: 8493a848-6cfd-4ab9-9931-c94a6b053b21
-          - syncoid_source_dataset: sink
-            syncoid_destination_dataset: backups/sink
-            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
-            syncoid_healthchecks_uuid: b5eaeb0d-e04c-49da-bf13-020e82560a2a
-    - name: Configure syncoid to offsite-nas
-      ansible.builtin.include_role:
-        name: syncoid_source
-      vars:
-        syncoid_source_username: "{{ ansible_user }}"
-        syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
-        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-        syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
-        syncoid_pre_sync_commands:
-          - "/usr/bin/echo 'Powering on via PiKVM' ; /usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
-          - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
-        # syncoid_post_sync_commands:
-        #   - "/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"`
-        syncoid_timer_on_calendar: "*-*-* 03:00:00"
-        syncoid_datasets:
-          - syncoid_source_dataset: tank
-            syncoid_destination_dataset: backups/tank
-            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
-            syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
-          - syncoid_source_dataset: sink
-            syncoid_destination_dataset: backups/sink
-            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
-            syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
+    # - name: Configure syncoid to backup-01
+    #   ansible.builtin.include_role:
+    #     name: syncoid_source
+    #   vars:
+    #     syncoid_source_username: "{{ ansible_user }}"
+    #     syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
+    #     syncoid_destination_username: "syncoid"
+    #     syncoid_destination_host: "backup-01.{{ domain_name }}"
+    #     syncoid_timer_on_calendar: "*-*-* 02:00:00"
+    #     syncoid_datasets:
+    #       - syncoid_source_dataset: tank
+    #         syncoid_destination_dataset: backups/tank
+    #         syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+    #         syncoid_healthchecks_uuid: 8493a848-6cfd-4ab9-9931-c94a6b053b21
+    #       - syncoid_source_dataset: sink
+    #         syncoid_destination_dataset: backups/sink
+    #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+    #         syncoid_healthchecks_uuid: b5eaeb0d-e04c-49da-bf13-020e82560a2a
+    # - name: Configure syncoid to offsite-nas
+    #   ansible.builtin.include_role:
+    #     name: syncoid_source
+    #   vars:
+    #     syncoid_source_username: "{{ ansible_user }}"
+    #     syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
+    #     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+    #     syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
+    #     syncoid_pre_sync_commands:
+    #       - "/usr/bin/echo 'Powering on via PiKVM' ; /usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
+    #       - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
+    #     # syncoid_post_sync_commands:
+    #     #   - "/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"`
+    #     syncoid_timer_on_calendar: "*-*-* 03:00:00"
+    #     syncoid_datasets:
+    #       - syncoid_source_dataset: tank
+    #         syncoid_destination_dataset: backups/tank
+    #         syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+    #         syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
+    #       - syncoid_source_dataset: sink
+    #         syncoid_destination_dataset: backups/sink
+    #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+    #         syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
     # - name: Configure samba
     #   ansible.builtin.copy:
     #     src: "files/nas-01/smb.conf"

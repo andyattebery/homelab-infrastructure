@@ -1,3 +1,5 @@
 ---
+# ansible_host: "offsite-pikvm.{{ domain_name }}"
+ansible_user: "{{ vault_pikvm_username }}"
 pikvm_root_password: "{{ vault_pikvm_root_password }}"
 pikvm_web_admin_password: "{{ vault_pikvm_web_admin_password }}"

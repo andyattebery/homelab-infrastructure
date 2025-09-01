@@ -1,5 +1,6 @@
 ---
 collections:
+  - name: artis3n.tailscale
   - name: community.general
   - name: community.docker
   - name: gluster.gluster
@@ -8,7 +9,6 @@ collections:
   - name: vladgh.samba
 
 roles:
-  - name: artis3n.tailscale
   - name: geerlingguy.docker
   - name: geerlingguy.glusterfs
   - name: geerlingguy.nfs

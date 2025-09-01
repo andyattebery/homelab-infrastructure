@@ -13,4 +13,4 @@ run = [
 
 [tasks.facts]
 description = "Get facts for a host"
-run = 'ansible --module-name ansible.builtin.setup'
+run = 'ansible --module-name ansible.builtin.setup {{arg(name="hostname")}}'
