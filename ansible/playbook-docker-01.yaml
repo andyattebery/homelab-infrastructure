@@ -8,6 +8,7 @@
 
   roles:
     # - configure_server
+    - artis3n.tailscale.machine
     # - geerlingguy.docker
     # - role: docker_compose_traefik
     #   vars:
@@ -27,7 +28,7 @@
     #       OBICO_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
     #       OBICO_DEFAULT_FROM_EMAIL: "obico@{{ domain_name }}"
     #       OBICO_DJANGO_SECRET_KEY: "{{ obico_django_secret_key }}"
-    - role: docker_compose_beszel_hub
+    # - role: docker_compose_beszel_hub
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
     # - role: docker_compose_certbot_asrock_ipmi
@@ -47,23 +48,23 @@
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-finance.yml
-    # - role: docker_compose
-    #   vars:
-    #     docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
-    #     docker_compose_envs:
-    #       HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
-    #       HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
-    #       HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
-    #       HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
-    #       HEALTHCHECKS_EMAIL_USE_TLS: "True"
-    #       HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
-    #       HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
-    #       HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
-    #       HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
-    #       INFLUXDB_INIT_USERNAME: "{{ influxdb_init_username }}"
-    #       INFLUXDB_INIT_PASSWORD: "{{ influxdb_init_password }}"
-    #       INFLUXDB_INIT_ORG: "{{ influxdb_init_org }}"
-    #       INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
+        docker_compose_envs:
+          HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
+          HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
+          HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
+          HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
+          HEALTHCHECKS_EMAIL_USE_TLS: "True"
+          HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
+          HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
+          HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
+          HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
+          INFLUXDB_INIT_USERNAME: "{{ influxdb_init_username }}"
+          INFLUXDB_INIT_PASSWORD: "{{ influxdb_init_password }}"
+          INFLUXDB_INIT_ORG: "{{ influxdb_init_org }}"
+          INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
@@ -79,8 +80,3 @@
     #         daily: 30
     #         monthly: 1
     #         yearly: 0
-  # tasks:
-  #   - name: Install packages
-  #     ansible.builtin.package:
-  #       name:
-  #         - zfsutils-linux
