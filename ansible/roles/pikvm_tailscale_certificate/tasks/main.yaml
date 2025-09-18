@@ -1,0 +1,50 @@
+---
+- name: Get tailscale domain
+  ansible.builtin.command:
+    cmd: tailscale cert
+  register: tailscale_cert_domain_result
+  changed_when: false
+  failed_when: false
+- name: Set pikvm_tailscale_certificate_command fact
+  vars:
+    tailscale_domain_regex: For domain, use \"(.+)\"
+  ansible.builtin.set_fact:
+    pikvm_tailscale_certificate_domain: "{{ tailscale_cert_domain_result.stderr | regex_search(tailscale_domain_regex, '\\1', multiline=true) | first }}"
+- name: Create {{ pikvm_tailscale_certificate_dir_path }}
+  ansible.builtin.command:
+    cmd: kvmd-pstrun -- mkdir -p {{ pikvm_tailscale_certificate_dir_path }}
+  changed_when: false
+- name: Copy tailscale-certificate.sh
+  ansible.builtin.template:
+    src: tailscale-certificate.sh.j2
+    dest: "{{ pikvm_tailscale_certificate_script_path }}"
+    mode: "0755"
+  changed_when: false
+- name: Link SSL cert and key
+  ansible.builtin.include_tasks:
+    file: link_ssl_file.yaml
+  loop:
+    - server.crt
+    - server.key
+- name: Copy tailscale-certificate.service
+  ansible.builtin.template:
+    src: templates/tailscale-certificate.service.j2
+    dest: /etc/systemd/system/tailscale-certificate.service
+    mode: "0644"
+- name: Copy tailscale-certificate.timer
+  ansible.builtin.template:
+    src: templates/tailscale-certificate.timer.j2
+    dest: /etc/systemd/system/tailscale-certificate.timer
+    mode: "0644"
+- name: Enable and start tailscale-certificate.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "tailscale-certificate.service"
+    state: started
+    enabled: true
+- name: Enable and start tailscale-certificate.timer
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "tailscale-certificate.timer"
+    state: started
+    enabled: true

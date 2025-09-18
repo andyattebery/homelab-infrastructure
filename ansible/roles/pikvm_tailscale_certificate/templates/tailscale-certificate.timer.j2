@@ -1,0 +1,8 @@
+[Unit]
+Description=Run tailscale-certificate.service
+
+[Timer]
+OnCalendar={{ pikvm_tailscale_certificate_timer_on_calendar }}
+
+[Install]
+WantedBy=timers.target

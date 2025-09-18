@@ -1,7 +1,0 @@
-[Unit]
-Description=Run tailscale cert to renew Let's Encrypt certification
-After=network.target
-
-[Service]
-ExecStart={{ pikvm_tailscale_cert_command }}
-Type=oneshot

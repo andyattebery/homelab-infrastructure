@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+
+certificate_modified_time_before=$(stat --format %Z 2>/dev/null || echo "")
+certificate_inode_before=$(stat --format %i 2>/dev/null || echo "")
+
+/usr/bin/kvmd-pstrun -- /usr/bin/tailscale cert --cert-file "{{ pikvm_tailscale_certificate_dir_path }}/server.crt" --key-file "{{ pikvm_tailscale_certificate_dir_path }}/server.key" {{ pikvm_tailscale_certificate_domain }}
+
+certificate_modified_time_after=$(stat --format %Z 2>/dev/null || echo "")
+certificate_inode_after=$(stat --format %i 2>/dev/null || echo "")
+
+if [ "$certificate_modified_time_before" != "$certificate_modified_time_after" ] || [ "$certificate_inode_before" != "$certificate_inode_after" ]; then
+    echo "Certificate for {{ pikvm_tailscale_certificate_domain }} updated."
+    /usr/bin/systemctl restart kvmd-nginx
+fi

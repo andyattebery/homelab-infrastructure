@@ -1,0 +1,5 @@
+---
+pikvm_tailscale_certificate_dir_path: /var/lib/kvmd/pst/data/tailscale_certificate
+pikvm_tailscale_certificate_kvmd_ssl_dir: /etc/kvmd/nginx/ssl/
+pikvm_tailscale_certificate_script_path: /usr/local/bin/tailscale-certificate.sh
+pikvm_tailscale_certificate_timer_on_calendar: "*-*-* 00:00:00"

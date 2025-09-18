@@ -1,8 +1,8 @@
 ---
 - name: Set existing file path
   ansible.builtin.set_fact:
-    item_src_path: "{{ (tailscale_cert_dir, item) | path_join }}"
-    item_dest_path: "{{ (kvmd_ssl_dir, item) | path_join }}"
+    item_src_path: "{{ (pikvm_tailscale_certificate_dir_path, item) | path_join }}"
+    item_dest_path: "{{ (pikvm_tailscale_certificate_kvmd_ssl_dir, item) | path_join }}"
 - name: Get existing file stat
   ansible.builtin.stat:
     path: "{{ item_dest_path }}"
@@ -18,3 +18,4 @@
     src: "{{ item_src_path }}"
     dest: "{{ item_dest_path }}"
     state: link
+    force: true
