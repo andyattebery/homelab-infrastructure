@@ -9,7 +9,7 @@
 - name: Set beszel_agent_asset_name - Linux armv7l
   when: ansible_system == 'Linux' and ansible_architecture == 'armv7l'
   ansible.builtin.set_fact:
-    beszel_agent_asset_name: beszel-beszel-agent_linux_arm.tar.gz
+    beszel_agent_asset_name: beszel-agent_linux_arm.tar.gz
 - name: Set beszel_agent_asset_name - Darwin x86_64
   when: ansible_system == 'Darwin' and ansible_architecture == 'x86_64'
   ansible.builtin.set_fact:
@@ -18,12 +18,20 @@
   when: ansible_system == 'Darwin' and ansible_architecture == 'aarch64'
   ansible.builtin.set_fact:
     beszel_agent_asset_name: beszel-agent_darwin_arm64.tar.gz
+- name: Fact beszel_agent_asset_name not set
+  ansible.builtin.assert:
+    that: "beszel_agent_asset_name is defined"
+    fail_msg: beszel_agent_asset_name is not defined
 - name: Get latest release from GitHub
   ansible.builtin.uri:
     url: https://api.github.com/repos/henrygd/beszel/releases/latest
     return_content: true
   register:
     beszel_latest_release_json_response
+- name: Create temp directory
+  ansible.builtin.tempfile:
+    state: directory
+  register: beszel_download_temp_directory_result
 - name: Download binary # noqa jinja[invalid]
   vars:
     browser_download_url_json_query: "assets[?name == '{{ beszel_agent_asset_name }}'].browser_download_url"
@@ -32,7 +40,14 @@
   ansible.builtin.unarchive:
     remote_src: true
     src: "{{ beszel_asset_url }}"
-    dest: "{{ beszel_agent_bin_path }}"
+    dest: "{{ beszel_download_temp_directory_result.path }}"
     mode: "0755"
     owner: root
   register: beszel_download_unarchive_result
+- name: Copy to {{ beszel_agent_bin_path }}
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ (beszel_download_temp_directory_result.path, 'beszel-agent') | path_join }}"
+    dest: "{{ beszel_agent_bin_path }}"
+    mode: "0755"
+    owner: root

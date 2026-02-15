@@ -1,10 +1,37 @@
 ---
 services:
+  cup:
+    image: ghcr.io/sergi0g/cup
+    container_name: cup
+    command: ["serve"]
+    restart: unless-stopped
+    networks:
+      - traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+  dockwatch:
+    container_name: dockwatch
+    image: ghcr.io/notifiarr/dockwatch:main
+    restart: unless-stopped
+    environment:
+      #-DOCKER_HOST=127.0.0.1:2375 # Uncomment and adjust accordingly if you use a socket proxy
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/dockwatch/config:/config
+      - /var/run/docker.sock:/var/run/docker.sock # Comment this line if you use a socket proxy
+    labels:
+      - traefik.enable=true
   grafana:
     image: grafana/grafana-oss:latest
     container_name: grafana
     restart: unless-stopped
-    user: ${PUID}:${PGID}
+    user: 472:${PGID} # 472:1000  # https://github.com/grafana/grafana/issues/41217
     environment:
      - GF_SERVER_ROOT_URL=https://grafana.$DOMAIN_NAME
     networks:

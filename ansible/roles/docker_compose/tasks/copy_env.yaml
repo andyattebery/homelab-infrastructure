@@ -18,7 +18,12 @@
 #     var: docker_compose_envs
 - name: Copy env file
   vars:
-    docker_compose_new_envs: "{{ docker_compose_default_envs | combine(docker_compose_envs | default({})) }}"
+    docker_compose_optional_envs: >-
+      {{
+        {} |
+        combine({'TAILSCALE_TAILNET': tailscale_tailnet} if tailscale_tailnet is defined else {})
+      }}
+    docker_compose_new_envs: "{{ docker_compose_default_envs | combine(docker_compose_optional_envs) | combine(docker_compose_envs | default({})) }}"
     docker_compose_combined_envs: "{{ docker_compose_existing_envs | default({}) | combine(docker_compose_new_envs) }}"
   ansible.builtin.template:
     src: templates/env.j2

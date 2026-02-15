@@ -1,17 +1,31 @@
 [Unit]
 Description=Beszel Agent Service
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Environment="PORT={{ beszel_agent_port }}"
 Environment="KEY={{ beszel_key }}"
-{% if beszel_extra_filesystems is defined %}
-Environment="EXTRA_FILESYSTEMS={{ beszel_extra_filesystems }}"
-{% endif %}
-ExecStart={{ beszel_agent_bin_path }}/beszel-agent
-User=beszel
-Restart=always
+Environment="TOKEN={{ beszel_token }}"
+Environment="HUB_URL={{ beszel_hub_url }}"
+# Environment="EXTRA_FILESYSTEMS=sdb"
+ExecStart={{ beszel_agent_bin_path }}
+User={{ beszel_agent_username }}
+Restart=on-failure
 RestartSec=5
+StateDirectory=beszel-agent
+
+# Security/sandboxing settings
+KeyringMode=private
+LockPersonality=yes
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectHome=read-only
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectSystem=strict
+RemoveIPC=yes
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

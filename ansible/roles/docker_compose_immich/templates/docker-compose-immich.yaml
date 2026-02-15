@@ -23,6 +23,9 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.immich.rule=Host(`immich.$DOMAIN_NAME`)
+      - traefik.http.routers.immich.tls.certresolver=cloudflare
+      - traefik.http.routers.immich-tailscale.rule=Host(`immich.$TAILSCALE_TAILNET`)
+      - traefik.http.routers.immich-tailscale.tls.certresolver=tailscale
       - dsm.name=Immich
 
   immich-redis:

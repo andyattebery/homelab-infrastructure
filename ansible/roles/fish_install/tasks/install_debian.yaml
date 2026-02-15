@@ -10,9 +10,9 @@
     mode: '0644'
     force: true
 - name: Add fish apt repository
-  ansible.builtin.file:
+  ansible.builtin.template:
     src: templates/shells_fish_release_{{ fish_version }}.sources.j2
-    path: /etc/apt/sources.list.d/shells_fish_release_{{ fish_version }}.sources
+    dest: /etc/apt/sources.list.d/shells_fish_release_{{ fish_version }}.sources
     mode: "0644"
     owner: root
     group: root

@@ -14,7 +14,9 @@
 - [Broadcom 9305-24e](https://docs.broadcom.com/doc/BC00-0392EN)
 - 2x [Asus Hyper M.2 x16 Gen 4](https://www.asus.com/us/motherboards-components/motherboards/accessories/hyper-m-2-x16-gen-4-card/)
 - [Linkreal 4x U.2 to PCIe x16 Adapter](http://www.linkreal.com.cn/en/products/LRNV94NF.html) [[AliExpress]](https://www.aliexpress.us/item/3256803285836696.html?spm=a2g0o.order_list.order_list_main.41.39d11802Y8aRJw&gatewayAdapt=glo2usa)
-- [Nvidia T600](https://www.nvidia.com/en-gb/design-visualization/desktop-graphics/#nv-accordion-014abf56a5-item-7ed9a9ec90)
+- [Nvidia RTX A4000](https://www.nvidia.com/en-us/products/workstations/rtx-a4000/)
+- [Mellenox ConnectX-4 Lx](https://www.nvidia.com/en-in/networking/ethernet/connectx-4-lx/)
+- [PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and 2x M.2 Slots](https://www.aliexpress.us/item/3256805673456043.html?spm=a2g0o.order_list.order_list_main.234.24de1802IAFUoi&gatewayAdapt=glo2usa)
 - U.2 Drives
     - [Intel Optane 905P - 960 GB](https://www.intel.com/content/www/us/en/products/sku/147529/intel-optane-ssd-905p-series-960gb-2-5in-pcie-x4-3d-xpoint/specifications.html) [[Newegg]](https://www.newegg.com/intel-optane-905p-1-5tb/p/N82E16820167505)
     - [Intel Optane 905P - 1.5 TB](https://www.intel.com/content/www/us/en/products/sku/147526/intel-optane-ssd-905p-series-1-5tb-2-5in-pcie-x4-3d-xpoint/specifications.html) [[Newegg]](https://www.newegg.com/intel-optane-ssd-905p-series-960gb/p/N82E16820167463)
@@ -24,14 +26,15 @@
     - 2x [Solidigm P44 Pro - 2 TB](https://www.solidigm.com/products/client/pro-series/p44.html#form=M.2%202280&cap=2%20TB)
     - 2x [Samsung 980 Pro - 2 TB](https://semiconductor.samsung.com/consumer-storage/internal-ssd/980pro/)
 - Hard Drives
-    - 4x WD Red - 8 TB
+    - 1x Seagate BarraCuda - 24 TB
+    - 1x Seagate Exos (Refurbished) - 22 TB
     - 3x WD Easystore shucked - 18 TB
     - 1x Seagate Exos X20 (Refurbished) - 18 TB
     - 1x Seagate Exos X18 (Refurbished) - 18 TB
     - 4x WD Easystore shucked - 14 TB
     - 1x Seagate Exos X18 (Refurbished) - 14 TB
     - 2x Seagate Exos X16 (Refurbished) - 14 TB
-    - 2x WD Easystore shucked - 12 TB
+    - 4x WD Red - 8 TB
 
 ### Motherboard
 
@@ -77,7 +80,7 @@ The end of this had to be trimmed ~0.5 cm to make it fit. I _think_ no traces we
 
 ##### Asus Hyper M.2 x16 Gen 4
 
-- 2x Intel Optane P1600X - 118 GB
+Empty
 
 #### PCIE5
 
@@ -88,15 +91,19 @@ The end of this had to be trimmed ~0.5 cm to make it fit. I _think_ no traces we
 
 #### PCIE4
 
-Empty
+##### Nvidia RTX A4000
 
 #### PCIE3
 
-Empty
+Uses PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and 2x M.2 Slots with:
+
+##### Mellenox ConnectX-4 Lx
+
+##### 2x Intel Optane P1600X - 118 GB
 
 #### PCIE2
 
-This is configured to be x8.
+Configured to be x8.
 
 ##### Broadcom 9305-24e
 
@@ -104,17 +111,18 @@ Connected to the case backplane that all of the hard drives are connected to.
 
 #### PCIE1
 
-##### Nvidia T600
+Empty
 
 ## Use
 
 ### Host
 
 - Proxmox boot drives - ZFS RAID 1
-    - x2 Intel Optane P1600X - 118 GB
+    - 2x Intel Optane P1600X - 118 GB
 - Proxmox storage
-    - Intel Optane 905P - 960 GB
     - Intel Optane 905P - 1.5 TB
+- Proxmox Ceph storage
+    - Intel Optane 905P - 960 GB
 
 ### nas-01 VM Passthrough
 
@@ -128,17 +136,18 @@ Connected to the case backplane that all of the hard drives are connected to.
     - HPE VK003840KWWFP (Rebranded SK Hynix PE6011) - 3.84 TB
 - Snapraid/mergerfs Pool
     - Data Disks
-        - 1x WD Easystore shucked - 18 TB
+        - 3x WD Easystore shucked - 18 TB
         - 1x Seagate Exos X20 (Refurbished) - 18 TB
         - 1x Seagate Exos X18 (Refurbished) - 18 TB
         - 4x WD Easystore shucked - 14 TB
         - 1x Seagate Exos X18 (Refurbished) - 14 TB
         - 2x Seagate Exos X16 (Refurbished) - 14 TB
-        - 2x WD Easystore shucked - 12 TB
     - Parity Disks
-        - 2x WD Easystore shucked - 18 TB
+        - 1x Seagate BarraCuda - 24 TB
+        - 1x Seagate Exos (Refurbished) - 22 TB
 
 ### media-01 VM Passthrough
 
-- Transcoding
-    - Nvidia T600
+- Nvidia RTX A4000
+    - Transcoding
+    - AI Inference

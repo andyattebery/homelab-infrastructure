@@ -3,6 +3,7 @@
   ansible.builtin.package:
     name:
       - sanoid
+      - zfsutils-linux
 - name: Create {{ sanoid_conf_path | dirname }}
   ansible.builtin.file:
     dest: "{{ sanoid_conf_path | dirname }}"

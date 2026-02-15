@@ -1,24 +1,31 @@
 #!/usr/bin/env sh
 
-: "${DOCKER_COMPOSE_DIR:=/opt/docker_compose}"
+: "${DOCKER_COMPOSE_DIR:=/opt/docker-compose}"
 
 docker_compose_files_parameter=""
-
-# # If set, Bash allows filename patterns which match no files to expand to a null string, rather than themselves.
-# # shopt -s nullglob
-
-#https://stackoverflow.com/questions/9612090/how-to-loop-through-file-names-returned-by-find
+docker_compose_files_list=""
+has_files_in_current_dir=false
 
 # Look for docker-compose files in current directory
-for f in docker-compose-*.y*ml; do
-    docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"
+for f in docker-compose*.y*ml; do
+    # Check if file actually exists (glob doesn't match returns pattern itself)
+    if [ -f "$f" ]; then
+        docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"
+        docker_compose_files_list="${docker_compose_files_list}  ${f}\n"
+        has_files_in_current_dir=true
+    fi
 done
 
-# if [ "$docker_compose_files_parameter" == "" ]; then
-#     # Look for docker-compose files in DOCKER_COMPOSE_DIR
-#     for f in "$DOCKER_COMPOSE_DIR"/docker-compose*.y*ml; do
-#         docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"
-#     done
-# fi
+# If no files found in current directory and DOCKER_COMPOSE_DIR is set, check there
+if [ "$has_files_in_current_dir" = false ] && [ -d "$DOCKER_COMPOSE_DIR" ]; then
+    for f in "$DOCKER_COMPOSE_DIR"/docker-compose*.y*ml; do
+        if [ -f "$f" ]; then
+            docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"
+            docker_compose_files_list="${docker_compose_files_list}  ${f}\n"
+        fi
+    done
+fi
 
-docker compose $docker_compose_files_parameter $@
+printf "Running docker compose with files:\n${docker_compose_files_list}"
+
+docker compose $docker_compose_files_parameter "$@"

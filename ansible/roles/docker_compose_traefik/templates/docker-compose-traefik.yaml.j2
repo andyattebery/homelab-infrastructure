@@ -33,7 +33,7 @@ services:
       - --accessLog.bufferingSize=100
 {% endif %}
 {% if docker_compose_traefik_enable_tailscale %}
-      - --certificatesresolvers.tailscale_resolver.tailscale=true
+      - --certificatesresolvers.tailscale.tailscale=true
 {% endif %}
     networks:
       traefik:

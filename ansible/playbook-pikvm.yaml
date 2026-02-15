@@ -20,12 +20,12 @@
       changed_when: false
 
   roles:
-    # - role: pikvm
+    - role: pikvm
     # - pikvm_tailscale_exit_node
-    # - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
-    #   when: inventory_hostname == 'pikvm' or inventory_hostname == 'pikvm-hid'
-    - role: pikvm_tailscale_certificate
-      when: inventory_hostname == 'offsite-pikvm'
+    - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
+      when: inventory_hostname == 'pikvm' or inventory_hostname == 'pikvm-hid'
+    # - role: pikvm_tailscale_certificate
+    #   when: inventory_hostname == 'offsite-pikvm'
     # - role: pikvm_hid_kvm_switch_input # Creating cert for tailscale DNS name
     #   when: inventory_hostname == 'pikvm'
     #   vars:

@@ -89,6 +89,7 @@ pve_cluster_fingerprint: "{{ vault_pve_cluster_fingerprint }}"
 
 # applications
 beszel_key: "{{ vault_beszel_key }}"
+beszel_hub_url: "beszel.{{ homelab_domain_name }}"
 
 diun_pushover_token: "{{ vault_diun_pushover_token }}"
 

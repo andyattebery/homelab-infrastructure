@@ -68,7 +68,7 @@ services:
     networks:
       - paperless-ngx
   paperless-ngx-tika:
-    image: ghcr.io/paperless-ngx/tika:latest
+    image: docker.io/apache/tika:latest
     container_name: paperless-ngx-tika
     restart: unless-stopped
     networks:
