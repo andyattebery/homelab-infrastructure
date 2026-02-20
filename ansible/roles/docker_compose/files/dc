@@ -18,6 +18,8 @@ done
 
 # If no files found in current directory and DOCKER_COMPOSE_DIR is set, check there
 if [ "$has_files_in_current_dir" = false ] && [ -d "$DOCKER_COMPOSE_DIR" ]; then
+    docker_compose_files_parameter="${docker_compose_files_parameter} --env-file ${DOCKER_COMPOSE_DIR}/.env"
+
     for f in "$DOCKER_COMPOSE_DIR"/docker-compose*.y*ml; do
         if [ -f "$f" ]; then
             docker_compose_files_parameter="${docker_compose_files_parameter} --file ${f}"
