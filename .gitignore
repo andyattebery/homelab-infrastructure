@@ -2,3 +2,4 @@
 .ansible
 .venv
 ansible/*vars/**/vault.yaml
+talos/*.raw
