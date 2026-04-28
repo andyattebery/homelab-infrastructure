@@ -1,0 +1,21 @@
+---
+ManagerOptions:
+  DashboardManagers:
+    - DashboardManagerType: Dashy
+      DashboardConfigDirectoryPath: /dashy_config
+    - DashboardManagerType: Homepage
+      DashboardConfigDirectoryPath: /homepage_config
+      EnableStatusMonitoring: true
+      SourceHomepageServiceWidgetsFilePath: /config/homepage-service-widgets.yaml
+  IgnoredServiceNames:
+    - Dashy
+    - Dashboard Services Manager
+    - Homepage
+    - Minio S3
+    - Netbootxyz Assets
+    - Ollama
+
+# Override or extend bundled defaults (see service-defaults.yaml shipped with the app):
+# ServiceDefaultOptions:
+#   Services:
+

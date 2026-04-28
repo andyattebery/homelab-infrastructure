@@ -1,0 +1,42 @@
+---
+- name: ASRock Rack IPMI
+  url: https://ipmi.nas-host-01.{{ domain_name }}
+  hostname: nas-host-01
+  category: infrastructure
+- name: Home Assistant
+  url: https://homeassistant.{{ domain_name }}:8123
+  hostname: homeassistant
+- name: Home Assistant (Offsite)
+  url: https://offsite-homeassistant.{{ tailscale_tailnet }}
+  hostname: offsite-homeassistant
+  service_defaults_name: home assistant
+- name: PiKVM
+  url: https://pikvm.{{ domain_name }}
+  hostname: pikvm
+- name: PiKVM HID
+  url: https://pikvm-hid.{{ domain_name }}
+  hostname: pikvm-hid
+  service_defaults_name: pikvm
+- name: Home Assistant (Offsite)
+  url: https://offsite-pikvm.{{ tailscale_tailnet }}
+  hostname: offsite-pikvm
+  service_defaults_name: pikvm
+- name: Plex
+  url: https://app.plex.tv/
+  hostname: nas-01
+- name: Proxmox
+  url: https://nas-host-01.{{ domain_name }}:8006
+  hostname: nas-host-01
+- name: Proxmox
+  url: https://vm-host-01.{{ domain_name }}:8006
+  hostname: vm-host-01
+- name: Proxmox
+  url: https://vm-host-02.{{ domain_name }}:8006
+  hostname: vm-host-02
+- name: Proxmox Backup Server
+  url: https://backup-01.{{ domain_name }}:8007
+  hostname: backup-01
+  icon: hl-proxmox-light
+- name: UniFi
+  url: https://unifi.ui.com/dashboard
+  hostname: unifi

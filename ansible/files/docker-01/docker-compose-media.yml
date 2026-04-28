@@ -19,12 +19,12 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.http.routers.calibre-gui.rule=Host(`calibre-gui.$DOMAIN_NAME`)
-      - traefik.http.routers.calibre-gui.service=calibre-gui
-      - traefik.http.services.calibre-gui.loadbalancer.server.port=8080
       - traefik.http.routers.calibre.rule=Host(`calibre.$DOMAIN_NAME`)
       - traefik.http.routers.calibre.service=calibre
-      - traefik.http.services.calibre.loadbalancer.server.port=8081
+      - traefik.http.services.calibre.loadbalancer.server.port=8080
+      - traefik.http.routers.calibre-server.rule=Host(`calibre-server.$DOMAIN_NAME`)
+      - traefik.http.routers.calibre-server.service=calibre-server
+      - traefik.http.services.calibre-server.loadbalancer.server.port=8081
   jellystat:
     image: cyfershepard/jellystat:latest
     container_name: jellystat

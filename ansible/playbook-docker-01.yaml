@@ -8,7 +8,7 @@
 
   roles:
     # - configure_server
-    - artis3n.tailscale.machine
+    # - artis3n.tailscale.machine
     # - geerlingguy.docker
     # - role: docker_compose_traefik
     #   vars:
@@ -41,33 +41,55 @@
     #   vars:
     #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
     #     perplexica_ollama_api_url: "https://ollama.{{ domain_name }}"
-    # - role: docker_compose_searxng
+    - role: docker_compose_searxng
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-3d-printing.yml
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-finance.yml
-    - role: docker_compose
-      vars:
-        docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
-        docker_compose_envs:
-          HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
-          HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
-          HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
-          HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
-          HEALTHCHECKS_EMAIL_USE_TLS: "True"
-          HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
-          HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
-          HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
-          HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
-          INFLUXDB_INIT_USERNAME: "{{ influxdb_init_username }}"
-          INFLUXDB_INIT_PASSWORD: "{{ influxdb_init_password }}"
-          INFLUXDB_INIT_ORG: "{{ influxdb_init_org }}"
-          INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
     # - role: docker_compose
     #   vars:
-    #     docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-media.yml
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-monitoring.yml
+    #     docker_compose_envs:
+    #       HEALTHCHECKS_EMAIL_HOST: "{{ smtp_host }}"
+    #       HEALTHCHECKS_EMAIL_PORT: "{{ smtp_port }}"
+    #       HEALTHCHECKS_EMAIL_HOST_USER: "{{ smtp_username }}"
+    #       HEALTHCHECKS_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
+    #       HEALTHCHECKS_EMAIL_USE_TLS: "True"
+    #       HEALTHCHECKS_SUPERUSER_EMAIL: "{{ healthchecks_superuser_email }}"
+    #       HEALTHCHECKS_SUPERUSER_PASSWORD: "{{ healthchecks_superuser_password }}"
+    #       HEALTHCHECKS_PUSHOVER_API_TOKEN: "{{ healthchecks_pushover_token }}"
+    #       HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL: "{{ healthchecks_pushover_subscription_url }}"
+    #       INFLUXDB_INIT_USERNAME: "{{ influxdb_init_username }}"
+    #       INFLUXDB_INIT_PASSWORD: "{{ influxdb_init_password }}"
+    #       INFLUXDB_INIT_ORG: "{{ influxdb_init_org }}"
+    #       INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/docker-01/docker-compose-privacy.yml
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
+        docker_compose_src_config_files:
+          - src_file_path: files/docker-01/dashboard-services-manager/manager-config.yaml
+            dst_relative_file_path: dashboard-services-manager/manager-config.yaml
+            service_name_to_restart: dashboard-services-manager
+          - src_file_path: files/docker-01/dashboard-services-manager/provider-config.yaml.j2
+            dst_relative_file_path: dashboard-services-manager/provider-config.yaml
+            service_name_to_restart: dashboard-services-manager-provider
+          - src_file_path: files/docker-01/dashboard-services-manager/homepage-service-widgets.yaml.j2
+            dst_relative_file_path: dashboard-services-manager/homepage-service-widgets.yaml
+            service_name_to_restart: dashboard-services-manager
+          - src_file_path: files/docker-01/dashboard-services-manager/provider-services.yaml.j2
+            dst_relative_file_path: dashboard-services-manager/provider-services.yaml
+            service_name_to_restart: dashboard-services-manager-provider
+          - src_file_path: files/docker-01/homepage/settings.yaml
+            dst_relative_file_path: homepage/config/settings.yaml
+            service_name_to_restart: homepage
     # - role: sanoid
     #   vars:
     #     sanoid_dataset_configs:

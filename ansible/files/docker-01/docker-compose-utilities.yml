@@ -19,7 +19,9 @@ services:
     container_name: changedetectionio
     restart: unless-stopped
     environment:
+      - USE_X_SETTINGS=1
       - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000
+      - FLASK_ENABLE_COMPRESSION=0
       # - WEBDRIVER_URL=http://browser-chrome:4444/wd/hub
     networks:
       - changedetection
@@ -31,7 +33,12 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/changedetectionio:/datastore
     labels:
       - traefik.enable=true
-      - dsm.name=ChangeDetection.io
+      - traefik.http.routers.changedetection.rule=Host(`changedetection.$DOMAIN_NAME`)
+      - traefik.http.routers.changedetection.service=changedetection
+      - traefik.http.services.changedetection.loadbalancer.server.port=5000
+      - "traefik.http.middlewares.changedetection-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.middlewares.changedetection-headers.headers.customrequestheaders.X-Forwarded-Host=changedetection.${DOMAIN_NAME}"
+      - "traefik.http.routers.changedetection.middlewares=changedetection-headers"
   dashboard-services-manager:
     image: ghcr.io/andyattebery/dashboard-services-manager:api-latest
     container_name: dashboard-services-manager
@@ -42,6 +49,7 @@ services:
       - traefik
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/dashy:/dashy_config
+      - ${DOCKER_DATA_DIRECTORY}/homepage/config:/homepage_config
       - ${DOCKER_DATA_DIRECTORY}/dashboard-services-manager:/config
       - "/var/run/docker.sock:/var/run/docker.sock"
     labels:
@@ -51,14 +59,18 @@ services:
     image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
     container_name: dashboard-services-manager-provider
     restart: unless-stopped
-    environment:
-      - DSM_PROVIDEROPTIONS__HOSTNAME=${HOSTNAME}
-      - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
-      - DSM_PROVIDEROPTIONS__DOCKERLABELPREFIX=dsm
-      - DSM_PROVIDEROPTIONS__ARESERVICEHOSTSHTTPS=true
-      - DSM_PROVIDEROPTIONS__SERVICESPROVIDERTYPES__0=yaml
-      - DSM_PROVIDEROPTIONS__SERVICESPROVIDERTYPES__1=docker
-      - DSM_PROVIDEROPTIONS__SERVICESYAMLFILEPATH=/config/services.yaml
+    # environment:
+    #   - DSM_PROVIDEROPTIONS__HOSTNAME=${HOSTNAME}
+    #   - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__0__SERVICESPROVIDERTYPE=YamlFile
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__0__SERVICESYAMLFILEPATH=/config/provider-services.yaml
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__0__ARESERVICEHOSTSHTTPS=true
+    #   # - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__SERVICESPROVIDERTYPE=Docker
+    #   # - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__DOCKERLABELPREFIX=dsm
+    #   # - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__ARESERVICEHOSTSHTTPS=true
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__SERVICESPROVIDERTYPE=Traefik
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__TRAEFIKAPIURL=https://traefik.docker-01.${DOMAIN_NAME}
+    #   - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__1__ARESERVICEHOSTSHTTPS=true
     networks:
       - traefik
     volumes:
@@ -93,6 +105,7 @@ services:
     environment:
       PUID: ${PUID}
       PGID: ${PGID}
+      HOMEPAGE_ALLOWED_HOSTS: homepage.${DOMAIN_NAME}
     networks:
       - traefik
     volumes:

@@ -1,0 +1,90 @@
+---
+# For configuration options and examples, please see:
+# https://gethomepage.dev/latest/configs/service-widgets
+- adguardhome:
+    server: network-01
+    widget:
+      type: adguard
+      url: https://adguardhome.{{ domain_name }}
+      username: "{{ network_01_adguardhome_username }}"
+      password: "{{ network_01_adguardhome_password }}"
+- adguardhome:
+    server: pi-rack
+    widget:
+      type: adguard
+      url: https://adguardhome-02.{{ domain_name }}
+      username: "{{ network_02_adguardhome_username }}"
+      password: "{{ network_02_adguardhome_password }}"
+- adguardhome:
+    server: network-03
+    widget:
+      type: adguard
+      url: https://adguardhome-03.{{ domain_name }}
+      username: "{{ network_03_adguardhome_username }}"
+      password: "{{ network_03_adguardhome_password }}"
+- beszel:
+    widget:
+      type: beszel
+      url: https://beszel.{{ domain_name }}
+      username: {{ beszel_username }} # email
+      password: {{ beszel_password }}
+      version: 2 # optional, default is 1
+- immich:
+    widget:
+      type: immich
+      url: https://immich.{{ domain_name }}
+      key: {{ immich_api_key_homepage }}
+      version: 2 # optional, default is 1
+- jellyfin:
+    widget:
+      type: jellyfin
+      url: https://jellyfin.{{ domain_name }}
+      key: {{ jellyfin_api_key_homepage }}
+      version: 2 # optional, default is 1
+      enableBlocks: true # optional, defaults to false
+      enableNowPlaying: true # optional, defaults to true
+      enableUser: false # optional, defaults to false
+      enableMediaControl: false # optional, defaults to true
+      showEpisodeNumber: false # optional, defaults to false
+      expandOneStreamToTwoRows: true # optional, defaults to true
+- scrutiny:
+    widget:
+      type: scrutiny
+      url: https://scrutiny.{{ domain_name }}
+- tautulli:
+    widget:
+      type: tautulli
+      url: https://tautulli.{{ domain_name }}
+      key: {{ tautulli_api_key }}
+      enableUser: true # optional, defaults to false
+      showEpisodeNumber: false # optional, defaults to false
+      expandOneStreamToTwoRows: true # optional, defaults to true
+- plex:
+    widget:
+      type: plex
+      url: https://plex.{{ domain_name }}:32400
+      key: {{ plex_token }} # see https://www.plexopedia.com/plex-media-server/general/plex-token/
+- proxmox:
+    server: nas-host-01
+    widget:
+      type: proxmox
+      url: https://nas-host-01.{{ domain_name }}:8006
+      username: {{ proxmox_api_token_id_homepage }}
+      password: {{ proxmox_api_token_secret_homepage }}
+      node: nas-host-01 # optional
+- proxmox:
+    server: vm-host-01
+    widget:
+      type: proxmox
+      url: https://vm-host-01.{{ domain_name }}:8006
+      username: {{ proxmox_api_token_id_homepage }}
+      password: {{ proxmox_api_token_secret_homepage }}
+      node: vm-host-01 # optional
+- proxmox:
+    server: vm-host-02
+    widget:
+      type: proxmox
+      url: https://vm-host-02.{{ domain_name }}:8006
+      username: {{ proxmox_api_token_id_homepage }}
+      password: {{ proxmox_api_token_secret_homepage }}
+      node: vm-host-02 # optional

@@ -1,0 +1,17 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    networks:
+      - traefik
+    environment:
+      DOMAIN: "https://vaultwarden.$DOMAIN_NAME"
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/vaultwarden/:/data/
+    labels:
+      - traefik.enable=true
+networks:
+  changedetection:
+  traefik:
+    external: true

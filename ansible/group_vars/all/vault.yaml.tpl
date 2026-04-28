@@ -7,6 +7,9 @@ vault_backup_01_timemachine_password: {{ op://Personal/backup-01/time machine/pa
 vault_backup_01_timemachine_path: {{ op://Personal/backup-01/time machine/path }}
 vault_backup_01_timemachine_username: {{ op://Personal/backup-01/time machine/username }}
 vault_beszel_key: {{ op://Personal/Beszel/config/key }}
+vault_beszel_universal_token: {{ op://Personal/Beszel/config/universal token }}
+vault_beszel_username: {{ op://Personal/Beszel/email }}
+vault_beszel_password: {{ op://Personal/Beszel/passwordConfirm }}
 vault_blink_ssh_public_key: {{ op://Personal/vn2mbjsxznrduprppa427rlzvm/public key }}
 vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
@@ -33,12 +36,14 @@ vault_icecast_server_hostname: {{ op://Personal/pi-turntable/icecast/hostname }}
 vault_icecast_server_port: {{ op://Personal/pi-turntable/icecast/port }}
 vault_icecast_server_password: {{ op://Personal/pi-turntable/icecast/password }}
 vault_ideapad_3_ssh_public_key: {{ op://Personal/h3ycxizrlk7bsfnt5li3bqlcua/public key}}
+vault_immich_api_key_homepage: "{{ op://Personal/Immich/api keys/homepage}}"
 vault_immich_db_username: "{{ op://Personal/Immich/config/db_username }}"
 vault_immich_db_password: "{{ op://Personal/Immich/config/db_password }}"
 vault_influxdb_init_username: "{{ op://Personal/InfluxDB/username }}"
 vault_influxdb_init_password: "{{ op://Personal/InfluxDB/password }}"
 vault_influxdb_init_org: "{{ op://Personal/InfluxDB/config/org }}"
 vault_influxdb_init_bucket: "{{ op://Personal/InfluxDB/config/bucket }}"
+vault_jellyfin_api_key_homepage: "{{ op://Personal/Jellyfin/api keys/homepage }}"
 vault_jellystat_db_name: "{{ op://Personal/jellystat/database/name }}"
 vault_jellystat_db_username: "{{ op://Personal/jellystat/database/username }}"
 vault_jellystat_db_password: "{{ op://Personal/jellystat/database/password }}"
@@ -96,6 +101,8 @@ vault_omnivore_postgres_password: "{{ op://Personal/Omnivore/config/postgres_pas
 vault_omnivore_postgres_db: "{{ op://Personal/Omnivore/config/postgres_db }}"
 vault_offsite_nas_mac_address: {{ op://Personal/offsite-nas/hardware/mac address }}
 vault_offsite_nas_syncoid_username: {{ op://Personal/offsite-nas/syncoid/username }}
+vault_offsite_nas_smb_username: {{ op://Personal/offsite-nas/smb/username }}
+vault_offsite_nas_smb_password: {{ op://Personal/offsite-nas/smb/password }}
 vault_offsite_pikvm_auth_token: {{ op://Personal/offsite-pikvm/api/auth token }}
 vault_offsite_pikvm_web_username: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/username }}
 vault_offsite_pikvm_web_password: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/password }}
@@ -125,6 +132,8 @@ vault_pikvm_kvmd_ssh_private_key: |
 vault_pikvm_kvmd_ssh_public_key: {{ op://Personal/pikvm - kvmd - SSH Key/public key }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
+vault_proxmox_api_token_id_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/token id }}
+vault_proxmox_api_token_secret_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/secret }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
 vault_pve_cluster_fingerprint: {{ op://Personal/vm-host-01/proxmox/cluster fingerprint }}
 vault_pve_cluster_main_node_root_password: {{ op://Personal/vm-host-01/password }}
@@ -149,6 +158,7 @@ vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add
 vault_steamdeck_ssh_public_key: {{op://Personal/wk2jbsx4hmdhpiaqqr2knbn5bq/public key }}
 vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
 vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
+vault_tautulli_api_key: {{ op://Personal/Tautulli/anxdbqsd7twkt4ia265e4sv2xe/api key }}
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
 vault_ups_monitor_rack_nut_admin_password: {{ op://Personal/ups-monitor-rack/nut/admin password }}
 vault_ups_monitor_rack_nut_upsmon_password: {{ op://Personal/ups-monitor-rack/nut/upsmon password }}

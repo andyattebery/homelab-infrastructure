@@ -1,0 +1,20 @@
+---
+ProviderOptions:
+  ApiUrl: https://dashboard-services-manager.{{ domain_name }}
+  ServicesProviders:
+    - ServicesProviderType: YamlFile
+      ServicesYamlFilePath: /config/provider-services.yaml
+      AreServiceHostsHttps: true
+    - ServicesProviderType: Traefik
+      TraefikApiUrl: https://traefik.docker-01.{{ domain_name }}
+      AreServiceHostsHttps: true
+      Hostname: docker-01
+    - ServicesProviderType: Traefik
+      TraefikApiUrl: https://traefik.media-01.{{ domain_name }}
+      AreServiceHostsHttps: true
+      Hostname: media-01
+    - ServicesProviderType: Traefik
+      TraefikApiUrl: https://traefik.nas-01.{{ domain_name }}
+      AreServiceHostsHttps: true
+      Hostname: nas-01
+
