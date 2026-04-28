@@ -137,11 +137,11 @@
     #         path: /mnt/storage
     #       - name: tank
     #         path: /mnt/tank
-    - role: docker_compose_traefik
-      vars:
-        docker_compose_traefik_enable_dashboard: true
-        docker_compose_traefik_enable_tailscale: true
-        docker_compose_traefik_log_level: ERROR
+    # - role: docker_compose_traefik
+    #   vars:
+    #     docker_compose_traefik_enable_dashboard: true
+    #     docker_compose_traefik_enable_tailscale: true
+    #     docker_compose_traefik_log_level: ERROR
     # - role: docker_compose_dashboard_services_manager_provider
     # - role: docker_compose_diun
     # - role: docker_compose_frigate
@@ -168,23 +168,24 @@
     #   vars:
     #     paperless_directory: "/mnt/tank/paperless-ngx"
 
-    # - role: docker_compose_scrutiny_web
-    #   vars:
-    #     scrutiny_shoutrrr_notify_urls:
-    #       - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
-    # - role: docker_compose
-    #   vars:
-    #     docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
-    #     docker_compose_copy_scripts: true
-    #     docker_compose_envs:
-    #       MINIO_USERNAME: "{{ minio_username }}"
-    #       MINIO_PASSWORD: "{{ minio_password }}"
-    #       LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
-    #       LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
-    #       LINKWARDEN_POSTGRES_DB: "linkwarden"
-    #       LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
-    #       LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
-    #       LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+    - role: docker_compose_scrutiny_web
+      vars:
+        scrutiny_shoutrrr_notify_urls:
+          - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
+    # - role: mise
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
+        docker_compose_copy_scripts: true
+        docker_compose_envs:
+          MINIO_USERNAME: "{{ minio_username }}"
+          MINIO_PASSWORD: "{{ minio_password }}"
+          LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
+          LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
+          LINKWARDEN_POSTGRES_DB: "linkwarden"
+          LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
+          LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
+          LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
     # - role: rtsp_recorder
     #   vars:
     #     rtsp_stream_name: pi-camera-cam1
@@ -193,7 +194,7 @@
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
     # - role: docker_compose_docker_monitoring
-  tasks:
+  # tasks:
     # - name: Copy 90-connectx-4-lx.conf netplan config
     #   ansible.builtin.copy:
     #     src: nas-01/90-connectx-4-lx.yaml
@@ -257,10 +258,10 @@
     #     - "data03"
     #     - "data08"
     #     - "snapraid"
-    - name: Add fstab entries
-      ansible.builtin.blockinfile:
-        block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
-        path: "/etc/fstab"
+    # - name: Add fstab entries
+    #   ansible.builtin.blockinfile:
+    #     block: "{{ lookup('ansible.builtin.file', 'files/nas-01/fstab') }}"
+    #     path: "/etc/fstab"
     # - name: Install snapraid
     #   ansible.builtin.include_role:
     #     name: ironicbadger.snapraid

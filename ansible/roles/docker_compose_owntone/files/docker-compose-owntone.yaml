@@ -11,3 +11,8 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/owntone/etc:/etc/owntone
       - ${DOCKER_DATA_DIRECTORY}/owntone/media:/srv/media
       - ${DOCKER_DATA_DIRECTORY}/owntone/cache:/var/cache/owntone
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.owntone.rule=Host(`owntone.$DOMAIN_NAME`)
+      - traefik.http.routers.owntone.service=owntone
+      - traefik.http.services.owntone.loadbalancer.server.port=3689

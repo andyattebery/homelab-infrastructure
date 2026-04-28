@@ -10,9 +10,9 @@
     # - pve_storage_add_nas_01_proxmox
     # - pve_storage_add_backup_01_pbs
     # - geerlingguy.ntp
-    # - configure_server
+    - configure_server
     # - scrutiny_collector
-    - role: prometheus.prometheus.node_exporter
+    # - role: prometheus.prometheus.node_exporter
     # - role: power_saving
     #   vars:
     #     power_saving_pcie_runtime_devices:

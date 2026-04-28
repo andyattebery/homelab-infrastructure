@@ -7,18 +7,27 @@
     scrutiny_nas_01_tailnet_url: "scrutiny.{{ homelab_domain_name }}"
 
   roles:
-    - configure_server
-    - artis3n.tailscale.machine
-    - role: backup_destination
+    # - configure_server
+    # - artis3n.tailscale.machine
+    # - role: backup_destination
+    #   vars:
+    #     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+    #     syncoid_source_ssh_public_keys:
+    #       - "{{ nas_01_syncoid_ssh_public_key }}"
+    #       - "{{ backup_01_syncoid_ssh_public_key }}"
+    #     syncoid_destination_dataset: backups
+    #     scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
+    #     scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+    #     scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+    - role: samba
       vars:
-        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-        syncoid_source_ssh_public_keys:
-          - "{{ nas_01_syncoid_ssh_public_key }}"
-          - "{{ backup_01_syncoid_ssh_public_key }}"
-        syncoid_destination_dataset: backups
-        scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
-        scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
-        scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+        samba_users:
+          - username: "{{ offsite_nas_smb_username }}"
+            password: "{{ offsite_nas_smb_password }}"
+        samba_homes_enabled: false
+        samba_shares:
+          - name: offsite-homeassistant_backups
+            path: /mnt/backups/offsite-homeassistant/backups
 
   tasks:
     - name: Add to hosts file

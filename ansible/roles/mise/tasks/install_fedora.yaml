@@ -1,0 +1,10 @@
+---
+- name: Add mise rpm repository
+  ansible.builtin.command:
+    cmd: dnf config-manager --add-repo https://mise.jdx.dev/rpm/mise.repo
+  changed_when: false
+- name: Install mise
+  ansible.builtin.dnf:
+    name: mise
+    state: present
+    update_cache: true

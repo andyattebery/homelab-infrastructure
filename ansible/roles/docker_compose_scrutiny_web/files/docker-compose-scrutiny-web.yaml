@@ -32,10 +32,7 @@ services:
       - traefik.enable=true
       - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
       - traefik.http.routers.scrutiny.service=scrutiny
-      - traefik.http.routers.scrutiny-tailscale.rule=Host(`scrutiny.ts.$DOMAIN_NAME`)
-      - traefik.http.routers.scrutiny-tailscale.service=scrutiny
       - traefik.http.services.scrutiny.loadbalancer.server.port=8080
-      - dsm.traefik.router=scrutiny
       - dsm.name=Scrutiny
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]

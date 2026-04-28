@@ -84,13 +84,12 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.routers.minio.rule=Host(`s3.$DOMAIN_NAME`)
+      - traefik.http.routers.minio-s3.rule=Host(`s3.$DOMAIN_NAME`)
+      - traefik.http.routers.minio-s3.service=minio-s3
+      - traefik.http.services.minio-s3.loadbalancer.server.port=9000
+      - traefik.http.routers.minio.rule=Host(`minio.$DOMAIN_NAME`)
       - traefik.http.routers.minio.service=minio
-      - traefik.http.services.minio.loadbalancer.server.port=9000
-      - traefik.http.routers.minio-console.rule=Host(`minio.$DOMAIN_NAME`)
-      - traefik.http.routers.minio-console.service=minio-console
-      - traefik.http.services.minio-console.loadbalancer.server.port=9001
-      - dsm.traefik.router=minio-console
+      - traefik.http.services.minio.loadbalancer.server.port=9001
   netbootxyz:
     image: ghcr.io/netbootxyz/netbootxyz
     container_name: netbootxyz
@@ -130,7 +129,7 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-      - traefik.http.services.reslio-sync.loadbalancer.server.port=8888
+      - traefik.http.services.resilio-sync.loadbalancer.server.port=8888
   syncthing:
     image: lscr.io/linuxserver/syncthing:latest
     container_name: syncthing

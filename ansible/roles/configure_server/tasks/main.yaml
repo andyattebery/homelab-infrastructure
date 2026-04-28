@@ -52,6 +52,7 @@
     - fish_install
     - configure_dotfiles
     - beszel_agent
+    - topgrade
   loop_control:
     loop_var: role_item
   vars:

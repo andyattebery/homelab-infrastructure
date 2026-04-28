@@ -3,7 +3,8 @@
         "pwa-node": "/Users/andy/.local/share/mise/shims/node"
     },
     "python.defaultInterpreterPath": "/Users/andy/.local/share/mise/installs/python/3.13.7/bin/python",
-    "ansible.python.interpreterPath": "/Users/andy/.local/share/mise/installs/python/3.13.7/bin/python",
-    "ansible.ansible.path": "./ansible/.venv/bin/ansible",
-    "ansible.validation.lint.path": "./ansible/.venv/bin/ansible-lint"
+    "ansible.python.interpreterPath": "/Users/andy/.local/share/mise/installs/python/3.14.3/bin/python",
+    "ansible.ansible.path": "ansible",
+    "ansible.validation.lint.path": "ansible-lint",
+    "ansible.python.activationScript": "ansible/.venv/bin/activate"
 }

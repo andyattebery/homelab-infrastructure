@@ -15,8 +15,6 @@ services:
       - traefik.enable=true
       - traefik.http.routers.beszel.rule=Host(`beszel.$DOMAIN_NAME`)
       - traefik.http.routers.beszel.service=beszel
-      - traefik.http.routers.beszel-tailscale.rule=Host(`beszel.ts.$DOMAIN_NAME`)
-      - traefik.http.routers.beszel-tailscale.service=beszel
       - traefik.http.services.beszel.loadbalancer.server.port=8090
 
 networks:

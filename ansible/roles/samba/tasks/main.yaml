@@ -13,7 +13,7 @@
     update_password: 'on_create'
     create_home: false
     system: true
-- name: Set samba_users_to_create
+- name: Set add timemachiine user to samba_users_to_create
   when: samba_timemachine.username is defined and samba_timemachine.password is defined
   ansible.builtin.set_fact:
     samba_users_to_create: "{{ samba_users | default([]) + [{'username': samba_timemachine.username, 'password': samba_timemachine.password}] }}"
@@ -23,10 +23,7 @@
     samba_users_to_create: "{{ samba_users | default([]) }}"
 - name: Create samba users
   ansible.builtin.shell: >
-    set -e -o pipefail
-    && (pdbedit --user={{ samba_users_item.username }} 2>&1 > /dev/null)
-    || (echo '{{ samba_users_item.password }}'; echo '{{ samba_users_item.password }}')
-    | smbpasswd -s -a {{ samba_users_item.username }}
+    set -e -o pipefail; (pdbedit --user={{ samba_users_item.username }} > /dev/null 2>&1) || ((echo '{{ samba_users_item.password }}'; echo '{{ samba_users_item.password }}') | smbpasswd -s -a services)
   args:
     executable: /bin/bash
   register: samba_create_users

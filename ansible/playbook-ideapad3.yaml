@@ -1,0 +1,6 @@
+---
+- name: Configure ideapad3
+  hosts: ideapad3
+  become: true
+  roles:
+    - configure_server

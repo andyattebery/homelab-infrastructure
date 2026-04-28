@@ -7,22 +7,22 @@
     # - pbs_config
     # - pbs_acme_certificate
     # - geerlingguy.ntp
-    # - configure_server
+    - configure_server
     # # - role: power_saving
     # #   vars:
     # #     power_saving_pcie_runtime_all_devices_enabled: true
     # #     power_saving_sata_all_devices: true
-    - role: zfs_conf
-      vars:
-        zfs_arc_max_gb: 24
+    # - role: zfs_conf
+    #   vars:
+    #     zfs_arc_max_gb: 24
     # - role: beszel_agent
-    - role: samba
-      vars:
-        samba_timemachine:
-          path: "{{ backup_01_timemachine_path }}"
-          username: "{{ backup_01_timemachine_username }}"
-          password: "{{ backup_01_timemachine_password }}"
-          max_size: 4T
+    # - role: samba
+    #   vars:
+    #     samba_timemachine:
+    #       path: "{{ backup_01_timemachine_path }}"
+    #       username: "{{ backup_01_timemachine_username }}"
+    #       password: "{{ backup_01_timemachine_password }}"
+    #       max_size: 4T
     # - artis3n.tailscale.machine
     # - role: backup_destination
     #   vars:
@@ -72,14 +72,14 @@
     #         syncoid_destination_dataset_mountpoint: /mnt/backups/pbs
     #         syncoid_healthchecks_uuid: 832862e4-2c1e-4332-a3c4-ecf6ddeba1d3
 
-  tasks:
-    - name: Configure network interfaces
-      ansible.builtin.copy:
-        src: files/backup-01/interfaces
-        dest: /etc/network/interfaces
-        mode: "0644"
-        owner: root
-        group: root
+  # tasks:
+  #   - name: Configure network interfaces
+  #     ansible.builtin.copy:
+  #       src: files/backup-01/interfaces
+  #       dest: /etc/network/interfaces
+  #       mode: "0644"
+  #       owner: root
+  #       group: root
     # - name: Wake on LAN
       # echo 'enabled' > '/sys/class/net/enp4s0/device/power/wakeup'
       # echo 'enabled' > 'sys/class/net/enp5s0/device/power/wakeup'

@@ -9,10 +9,9 @@
     # - pve_node_acme
     # - pve_storage_add_nas_01_proxmox
     # - pve_storage_add_backup_01_pbs
-    - realtek_r8152_dkms
+    # - realtek_r8152_dkms
     # - geerlingguy.ntp
-    # - configure_server
-    # - role: beszel_agent
+    - configure_server
     # - role: prometheus.prometheus.node_exporter
     # - scrutiny_collector
     # - role: kernel_parameters
@@ -43,7 +42,7 @@
     #       - /usr/local/bin/remote_power_control pikvm on
     #     pve_backup_job_script_healthchecks_io_uuid: bcc471ae-d0f3-4e7f-8db5-4b5465721be0
 
-  tasks:
+  # tasks:
     # - name: Add contrib, non-free, and non-free-firmware repository
     #   ansible.builtin.replace:
     #     dest: /etc/apt/sources.list
@@ -60,10 +59,10 @@
     #   ansible.builtin.include_role:
     #     name: realtek_r8125_dkms
     #     tasks_from: add_udev_rule
-    - name: Configure network interfaces
-      ansible.builtin.copy:
-        src: files/vm-host-01/interfaces
-        dest: /etc/network/interfaces
-        mode: "0644"
-        owner: root
-        group: root
+    # - name: Configure network interfaces
+    #   ansible.builtin.copy:
+    #     src: files/vm-host-01/interfaces
+    #     dest: /etc/network/interfaces
+    #     mode: "0644"
+    #     owner: root
+    #     group: root

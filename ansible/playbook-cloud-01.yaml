@@ -8,7 +8,7 @@
 
   roles:
     - configure_server
-    - geerlingguy.docker
+    # - geerlingguy.docker
     - docker_compose_diun
     - docker_compose_wireguard
     - docker_compose_traefik # Needs to be before docker-compose-cloud-01 for the traefik network to be created
@@ -25,11 +25,11 @@
           FRESHRSS_UPDATE_FEEDS_CRON_MIN: 9,39
 
   tasks:
-    - name: Add ssh authorized keys
-      ansible.posix.authorized_key:
-        user: "{{ ansible_user }}"
-        key: "{{ work_laptop_01_ssh_public_key }}"
-        state: present
+    # - name: Add ssh authorized keys
+    #   ansible.posix.authorized_key:
+    #     user: "{{ ansible_user }}"
+    #     key: "{{ work_laptop_01_ssh_public_key }}"
+    #     state: present
     - name: FreshRSS update feeds cron job
       ansible.builtin.cron:
         name: "Run FreshRSS feed updater"

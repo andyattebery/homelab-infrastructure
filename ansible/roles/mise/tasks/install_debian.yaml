@@ -1,0 +1,25 @@
+---
+- name: Set deb architecture
+  ansible.builtin.set_fact:
+    _mise_deb_arch: "{{ mise_arch_map[ansible_architecture] | default(ansible_architecture) }}"
+- name: Create keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+- name: Add mise GPG key
+  ansible.builtin.get_url:
+    url: https://mise.jdx.dev/gpg-key.pub
+    dest: /etc/apt/keyrings/mise.asc
+    mode: '0644'
+    force: true
+- name: Add mise apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/mise.asc arch={{ _mise_deb_arch }}] https://mise.jdx.dev/deb stable main"
+    filename: mise
+    state: present
+    update_cache: false
+- name: Install mise
+  ansible.builtin.apt:
+    name: mise
+    update_cache: true

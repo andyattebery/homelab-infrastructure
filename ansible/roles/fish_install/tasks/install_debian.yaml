@@ -1,8 +1,8 @@
 ---
-- name: Remove repo key from deprecated /etc/apt/trusted.gpg
-  ansible.builtin.command:
-    cmd: "apt-key --keyring /etc/apt/trusted.gpg del '24A6 3B31 CAB4 1B33 EC48  801E 2CE2 AC08 D880 C8E4'"
-  changed_when: false
+# - name: Remove repo key from deprecated /etc/apt/trusted.gpg
+#   ansible.builtin.command:
+#     cmd: "apt-key --keyring /etc/apt/trusted.gpg del '24A6 3B31 CAB4 1B33 EC48  801E 2CE2 AC08 D880 C8E4'"
+#   changed_when: false
 - name: Add fish apt repository key
   ansible.builtin.get_url:
     url: "https://download.opensuse.org/repositories/shells:fish:release:{{ fish_version }}/Debian_{{ ansible_distribution_major_version }}/Release.key"
