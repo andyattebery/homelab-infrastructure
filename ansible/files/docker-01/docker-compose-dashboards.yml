@@ -1,0 +1,68 @@
+---
+services:
+  dashboard-services-manager:
+    image: ghcr.io/andyattebery/dashboard-services-manager:api-latest
+    container_name: dashboard-services-manager
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      HOSTNAME: ${HOSTNAME}
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/dashy:/dashy_config
+      - ${DOCKER_DATA_DIRECTORY}/homepage/config:/homepage_config
+      - ${DOCKER_DATA_DIRECTORY}/dashboard-services-manager:/config
+    labels:
+      - traefik.enable=true
+  dashboard_services_manager_provider:
+    image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
+    container_name: dashboard-services-manager-provider
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      HOSTNAME: ${HOSTNAME}
+      DOCKER_GID: ${DOCKER_GID}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/dashboard-services-manager:/config
+  dashy:
+    image: lissy93/dashy:latest
+    container_name: dashy
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - UID=${PUID}
+      - GID=${PGID}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/dashy:/app/user-data
+    healthcheck:
+      test: ['CMD', 'node', '/app/services/healthcheck']
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - traefik.enable=true
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      HOMEPAGE_ALLOWED_HOSTS: homepage.${DOMAIN_NAME}
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/homepage/config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      - traefik.enable=true
+
+networks:
+  traefik:
+    external: true

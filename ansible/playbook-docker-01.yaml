@@ -73,7 +73,7 @@
     #     docker_compose_src_file_path: files/docker-01/docker-compose-privacy.yml
     - role: docker_compose
       vars:
-        docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
+        docker_compose_src_file_path: files/docker-01/docker-compose-dashboards.yml
         docker_compose_src_config_files:
           - src_file_path: files/docker-01/dashboard-services-manager/manager-config.yaml
             dst_relative_file_path: dashboard-services-manager/manager-config.yaml
@@ -90,6 +90,9 @@
           - src_file_path: files/docker-01/homepage/settings.yaml
             dst_relative_file_path: homepage/config/settings.yaml
             service_name_to_restart: homepage
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/docker-01/docker-compose-utilities.yml
     # - role: sanoid
     #   vars:
     #     sanoid_dataset_configs:

@@ -15,6 +15,7 @@ docker_compose_up_command: "{{ docker_compose_base_command }} up --detach"
 docker_compose_default_envs:
   PUID: "{{ docker_compose_uid }}"
   PGID: "{{ docker_compose_gid }}"
+  DOCKER_GID: "{{ docker_compose_docker_gid }}"
   TZ: "{{ timezone }}"
   LANGUAGE_TWO_LETTER: "{{ lang_two_letter }}"
   LANGUAGE_REGION_WITH_UNDERSCORE: "{{ language_region_with_underscore }}"

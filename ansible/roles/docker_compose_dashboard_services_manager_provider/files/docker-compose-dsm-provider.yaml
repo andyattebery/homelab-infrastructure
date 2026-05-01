@@ -4,6 +4,10 @@ services:
     container_name: dashboard-services-manager-provider
     image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - DOCKER_GID=${DOCKER_GID}
+      - HOSTNAME=${HOSTNAME}
       - DSM_PROVIDEROPTIONS__APIURL=https://dashboard-services-manager.${DOMAIN_NAME}
       - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__0__SERVICESPROVIDERTYPE=Docker
       - DSM_PROVIDEROPTIONS__SERVICESPROVIDERS__0__DOCKERLABELPREFIX=dsm
