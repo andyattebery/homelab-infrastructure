@@ -35,6 +35,10 @@ services:
 {% if docker_compose_traefik_enable_tailscale %}
       - --certificatesresolvers.tailscale.tailscale=true
 {% endif %}
+{% if docker_compose_traefik_file_provider_path %}
+      - --providers.file.filename=/etc/traefik/file_provider.yml
+      - --providers.file.watch=true
+{% endif %}
     networks:
       traefik:
 {% if docker_compose_traefik_enable_host_network %}
@@ -51,6 +55,9 @@ services:
       - "${DOCKER_DATA_DIRECTORY}/traefik/logs:/logs"
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
       - "/var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock"
+{% if docker_compose_traefik_file_provider_path %}
+      - "${DOCKER_DATA_DIRECTORY}/traefik/file_provider.yml:/etc/traefik/file_provider.yml:ro"
+{% endif %}
 {% if docker_compose_traefik_enable_dashboard %}
     labels:
       - traefik.enable=true

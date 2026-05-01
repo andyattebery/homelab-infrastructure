@@ -9,8 +9,18 @@
       TRAEFIK_LOG_LEVEL: "{{ docker_compose_traefik_log_level | upper }}"
       CERTBOT_EMAIL: "{{ certbot_email }}"
       CLOUDFLARE_API_TOKEN: "{{ cloudflare_api_token }}"
-    docker_compose_src_config_files:
-      - src_file_path: templates/traefik.yml.j2
-        dst_relative_file_path: templates/traefik.yml
+    docker_compose_src_config_files: >-
+      {{
+        [
+          {'src_file_path': 'templates/traefik.yml.j2',
+           'dst_relative_file_path': 'templates/traefik.yml'}
+        ]
+        + (
+          [{'src_file_path': docker_compose_traefik_file_provider_path,
+            'dst_relative_file_path': 'traefik/file_provider.yml',
+            'service_name_to_restart': 'traefik'}]
+          if docker_compose_traefik_file_provider_path else []
+        )
+      }}
   ansible.builtin.include_role:
     name: docker_compose

@@ -5,3 +5,4 @@ docker_compose_traefik_enable_dashboard: false
 docker_compose_traefik_enable_host_network: false
 docker_compose_traefik_enable_access_log: false
 docker_compose_traefik_enable_tailscale: false
+docker_compose_traefik_file_provider_path: ""
