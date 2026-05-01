@@ -4,22 +4,37 @@
   become: true
 
   roles:
-    - role: configure_server
+    # - role: configure_server
   #   - role: geerlingguy.docker
     - role: docker_compose_traefik
       vars:
         docker_compose_copy_scripts: true
         docker_compose_traefik_enable_dashboard: true
+        docker_compose_traefik_enable_host_network: true
+        # docker_compose_traefik_file_provider_path: files/pi-turntable/file_provider.yml
     - role: docker_compose_dashboard_services_manager_provider
     - role: docker_compose_owntone
 
   tasks:
-    # - name: Install packages
-    #   ansible.builtin.package:
-    #     name:
-    #       - alsa-utils
-    #       - ffmpeg
-    #       - icecast2
+    - name: Install packages
+      ansible.builtin.package:
+        name:
+          - alsa-utils
+          - sox
+          # - ffmpeg
+          # - icecast2
+    - name: Copy turntable-pipe.service
+      ansible.builtin.template:
+        src: files/pi-turntable/turntable-pipe.service
+        dest: /etc/systemd/system/turntable-pipe.service
+        mode: "0644"
+        owner: root
+    - name: Enable and start turntable-pipe.service
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+        name: turntable-pipe.service
+        state: started
+        enabled: true
     # - name: Enable and start icecast2.service
     #   ansible.builtin.systemd_service:
     #     daemon_reload: true
@@ -41,6 +56,6 @@
     # - name: Create darkice M3U file
     #   ansible.builtin.template:
     #     src: files/pi-turntable/turntable.m3u.j2
-    #     dest: 
+    #     dest:
 
 # Run sudo dpkg-reconfigure icecast2

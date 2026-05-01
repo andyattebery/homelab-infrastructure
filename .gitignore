@@ -4,3 +4,4 @@
 ansible/*vars/**/vault.yaml
 talos/*.raw
 ansible/.claude/settings.local.json
+.claude/settings.local.json

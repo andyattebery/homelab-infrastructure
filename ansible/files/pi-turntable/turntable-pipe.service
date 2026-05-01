@@ -1,0 +1,18 @@
+[Unit]
+Description=Turntable ALSA capture to OwnTone pipe
+After=sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'mkdir -p /opt/docker-compose/owntone/media && { [ -p /opt/docker-compose/owntone/media/turntable_pipe ] || mkfifo -m 0666 /opt/docker-compose/owntone/media/turntable_pipe; }'
+ExecStart=/bin/sh -c '/usr/bin/arecord -D hw:1,0 -f cd -t raw --buffer-size=192000 2>/dev/null | /usr/bin/sox -t raw -r 44100 -b 16 -e signed-integer -c 2 - -t raw - silence 1 0.1 0.5%% 1 5.0 0.5%% > /opt/docker-compose/owntone/media/turntable_pipe'
+
+Restart=always
+RestartSec=1
+SupplementaryGroups=audio
+User=root
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
