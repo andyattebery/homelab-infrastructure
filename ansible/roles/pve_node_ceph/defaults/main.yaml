@@ -1,0 +1,8 @@
+---
+# OSD provisioning mode for this node.
+#   create            — create a fresh OSD on pve_ceph_osd_device (default).
+#   activate_existing — activate an existing OSD already on disk (used when
+#                       reinstalling the host OS but keeping the OSD drive
+#                       intact). Requires pve_node_ceph_osd_id and
+#                       pve_node_ceph_osd_fsid to be set in host_vars.
+pve_node_ceph_osd_mode: create

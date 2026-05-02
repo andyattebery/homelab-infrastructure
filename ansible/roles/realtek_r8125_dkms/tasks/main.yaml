@@ -14,7 +14,7 @@
   ansible.builtin.apt:
     name:
       - pve-headers
-  when: ansible_facts.packages is search("pve-kernel")
+  when: ansible_facts.packages is search("pve-kernel") or ansible_facts.packages is search("proxmox-kernel")
 - name: Get latest release from GitHub
   ansible.builtin.uri:
     url: https://api.github.com/repos/awesometic/realtek-r8125-dkms/releases/latest

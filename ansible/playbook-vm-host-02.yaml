@@ -3,51 +3,210 @@
   hosts: vm-host-02
   become: true
 
-  roles:
-    # - pve_config
-    # - pve_cluster_acme
-    # - pve_node_acme
-  #   - pve_storage_add_nas_01_proxmox
-    # - realtek_r8152_dkms
-    # - geerlingguy.ntp
-    - configure_server
-  #   - scrutiny_collector
-    # - role: power_saving
-    #   vars:
-    #     power_saving_pcie_runtime_all_devices: true
-    #     power_saving_sata_all_devices: true
-  #   - role: kernel_parameters
-  #     vars:
-  #       kernel_parameters_new_parameters:
-  #         intel_iommu: "on"
-  #   - role: pikvm_remote_command
-  #     vars:
-  #       pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
-    # - role: pve_backup_job_script
-    #   vars:
-    #     pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
-
   tasks:
-    # - name: Add contrib, non-free, and non-free-firmware repository
-    #   ansible.builtin.replace:
-    #     dest: /etc/apt/sources.list
-    #     regexp: '^(deb.+main).*$'
-    #     replace: '\1 contrib non-free non-free-firmware'
-    # - name: Install packages
-    #   ansible.builtin.apt:
-    #     name:
-    #       - intel-microcode
-    #       - pve-headers
-    #       - r8125-dkms
-    #     update_cache: true
-    # - name: Add udev rule for r8125
-    #   ansible.builtin.include_role:
-    #     name: realtek_r8125_dkms
-        # tasks_from: add_udev_rule
-    - name: Configure network interfaces
+    # ---------- Local-only / pre-cluster ----------
+    - name: Configure PVE / Ceph apt sources
+      ansible.builtin.import_role:
+        name: pve_config
+
+    # Add contrib, non-free, non-free-firmware to whichever Debian apt
+    # sources are active on this host. Branch on pve_config_use_deb822
+    # (set as a fact by the pve_config role above) — same content-based
+    # detection rather than hardcoding distribution release names.
+    - name: Find Debian deb822 source files
+      when: pve_config_use_deb822
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns: '*.sources'
+        contains: '(?m)^\s*URIs:.*debian\.org'
+        file_type: file
+      register: pve_debian_deb822_files
+
+    - name: Set Components in Debian deb822 sources to include contrib and non-free
+      when: pve_config_use_deb822
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: '^Components:.*$'
+        replace: 'Components: main contrib non-free non-free-firmware'
+      loop: "{{ pve_debian_deb822_files.files }}"
+
+    - name: Add contrib, non-free, non-free-firmware to legacy /etc/apt/sources.list
+      when: not pve_config_use_deb822
+      ansible.builtin.replace:
+        dest: /etc/apt/sources.list
+        regexp: '^(deb.+main).*$'
+        replace: '\1 contrib non-free non-free-firmware'
+
+    - name: Refresh apt cache after sources changes
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - intel-microcode
+          - pve-headers
+          - r8168-dkms
+          - r8125-dkms
+
+    - name: Add r8125 udev rule
+      ansible.builtin.include_role:
+        name: realtek_r8125_dkms
+        tasks_from: add_udev_rule
+
+    # If the apt run pulled in a newer kernel (e.g. via pve-headers ->
+    # proxmox-default-headers -> proxmox-default-kernel), DKMS builds the
+    # new modules against the newer kernel — not the running one — so
+    # they're useless until we reboot. Detect that case and reboot before
+    # continuing.
+    - name: Find the latest installed kernel under /lib/modules
+      ansible.builtin.command:
+        cmd: bash -c 'ls /lib/modules/ | sort -V | tail -1'
+      register: latest_installed_kernel
+      changed_when: false
+
+    - name: Reboot if a newer kernel is installed but not running
+      when: latest_installed_kernel.stdout != ansible_facts.kernel
+      ansible.builtin.reboot:
+        msg: "Activating newer installed kernel ({{ latest_installed_kernel.stdout }}) so DKMS modules become loadable"
+        reboot_timeout: 600
+
+    # The kernel's generic r8169 driver claims Realtek NICs at boot before
+    # the udev rule (which unbinds r8169 and binds r8125) gets to fire.
+    # On the first run after r8125-dkms is installed, swap any interfaces
+    # still using r8169 over to r8125 so we don't have to reboot.
+    - name: Find interfaces still bound to r8169
+      ansible.builtin.set_fact:
+        r8169_bound_interfaces: >-
+          {{ ansible_facts.interfaces
+             | map('extract', ansible_facts)
+             | selectattr('module', 'defined')
+             | selectattr('module', 'eq', 'r8169')
+             | map(attribute='device')
+             | list }}
+
+    - name: Swap r8169 → r8125 via udev
+      when: r8169_bound_interfaces | length > 0
+      block:
+        - name: Reload udev rules
+          ansible.builtin.command:
+            cmd: udevadm control --reload-rules
+          changed_when: true
+        - name: Re-trigger add events on Realtek PCI devices
+          ansible.builtin.command:
+            cmd: udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor=0x10ec
+          changed_when: true
+        - name: Wait for udev to settle
+          ansible.builtin.command:
+            cmd: udevadm settle
+          changed_when: false
+        - name: Re-gather network facts (drivers may have changed)
+          ansible.builtin.setup:
+            gather_subset:
+              - '!all'
+              - '!min'
+              - network
+
+    - name: Configure NTP
+      # Debian trixie removed the legacy `ntp` package. Use chrony, which
+      # is the modern Debian-recommended NTP daemon.
+      vars:
+        ntp_package: chrony
+        ntp_daemon: chrony
+        ntp_config_file: /etc/chrony/chrony.conf
+      ansible.builtin.import_role:
+        name: geerlingguy.ntp
+
+    - name: Configure server (SSH keys, locale, timezone, security baseline, dotfiles)
+      ansible.builtin.import_role:
+        name: configure_server
+
+    - name: Configure Scrutiny collector
+      ansible.builtin.import_role:
+        name: scrutiny_collector
+
+    - name: Configure power saving
+      vars:
+        power_saving_pcie_runtime_all_devices: true
+        power_saving_sata_all_devices: true
+      ansible.builtin.import_role:
+        name: power_saving
+
+    - name: Configure kernel parameters (intel_iommu)
+      vars:
+        kernel_parameters_new_parameters:
+          intel_iommu: "on"
+      ansible.builtin.import_role:
+        name: kernel_parameters
+
+    - name: Configure PiKVM remote command
+      vars:
+        pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
+      ansible.builtin.import_role:
+        name: pikvm_remote_command
+
+    # The PVE installer owns the management NIC config (vmbr0 + its
+    # bridge port). We only add the Ceph cluster network NIC stanza,
+    # resolving its name from the MAC so we don't depend on whatever the
+    # installer's interface pinning chose (nic1 today, could differ).
+    - name: Resolve Ceph cluster NIC name from MAC
+      ansible.builtin.set_fact:
+        ceph_cluster_nic_name: >-
+          {{ ansible_facts.interfaces
+             | map('extract', ansible_facts)
+             | selectattr('macaddress', 'defined')
+             | selectattr('macaddress', 'eq', ceph_cluster_nic_mac)
+             | map(attribute='device')
+             | first }}
+
+    - name: Fail if no NIC matched the configured MAC
+      ansible.builtin.fail:
+        msg: "No interface found with MAC {{ ceph_cluster_nic_mac }}"
+      when: ceph_cluster_nic_name | length == 0
+
+    - name: Configure Ceph cluster network NIC via /etc/network/interfaces.d
       ansible.builtin.copy:
-        src: files/vm-host-02/interfaces
-        dest: /etc/network/interfaces
-        mode: "0644"
+        dest: /etc/network/interfaces.d/ceph-cluster.cfg
         owner: root
         group: root
+        mode: "0644"
+        content: |
+          auto {{ ceph_cluster_nic_name }}
+          iface {{ ceph_cluster_nic_name }} inet static
+              address {{ ceph_cluster_nic_address }}
+              ethernet-wol pumbg
+      register: ceph_cluster_nic_config
+
+    - name: Apply network configuration changes
+      when: ceph_cluster_nic_config.changed
+      ansible.builtin.command:
+        cmd: ifreload -a
+      changed_when: true
+
+    # ---------- Cluster join ----------
+    - name: Join Proxmox cluster
+      ansible.builtin.import_role:
+        name: pve_cluster_add_node
+
+    # ---------- Cluster-dependent ----------
+    - name: Configure cluster-level ACME
+      ansible.builtin.import_role:
+        name: pve_cluster_acme
+
+    - name: Configure node ACME
+      ansible.builtin.import_role:
+        name: pve_node_acme
+
+    - name: Add nas-01_proxmox storage
+      ansible.builtin.import_role:
+        name: pve_storage_add_nas_01_proxmox
+
+    - name: Configure PVE backup job script
+      vars:
+        pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
+      ansible.builtin.import_role:
+        name: pve_backup_job_script
+
+    - name: Install Ceph and (re)create mon, mgr, mds, OSD on this node
+      ansible.builtin.import_role:
+        name: pve_node_ceph

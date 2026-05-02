@@ -19,10 +19,11 @@
   register: pvesh_backup_job_details_result
 - name: Add script to backup job
   vars:
-    pve_backup_job_detail: "{{ pve_backup_job_detail_item.stdout }}"
+    # `pvesh ... --output-format json` returns a JSON string in stdout;
+    # parse it so we can access fields as a dict rather than treating
+    # the whole blob as a string.
+    pve_backup_job_detail: "{{ pve_backup_job_detail_item.stdout | from_json }}"
   when: pve_backup_job_detail.script is not defined
-  # ansible.builtin.debug:
-  #   msg: "{{ pve_backup_job_detail }}"
   ansible.builtin.command:
     cmd: >
       pvesh set /cluster/backup/{{ pve_backup_job_detail.id }}

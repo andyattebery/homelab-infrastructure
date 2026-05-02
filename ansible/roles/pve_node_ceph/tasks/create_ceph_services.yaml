@@ -24,6 +24,26 @@
   register: pveceph_status_result
   changed_when: false
   failed_when: false
+
+# If /etc/ceph/ceph.conf already exists, the cluster has been configured
+# (we're not on a fresh install), so a non-zero `pveceph status` means
+# the mons aren't reachable from this host — almost always a cluster-
+# network connectivity problem. Surface that clearly instead of falling
+# through to `pveceph mon create` which would fail with the cryptic
+# "Could not connect to ceph cluster despite configured monitors".
+- name: Fail clearly if cluster is configured but mons are unreachable
+  when:
+    - ceph_conf_stat_result.stat.exists
+    - pveceph_status_result.rc != 0
+  ansible.builtin.fail:
+    msg: >-
+      /etc/ceph/ceph.conf exists but `pveceph status` failed (rc={{
+      pveceph_status_result.rc }}). The cluster is configured but mons
+      are not reachable from this host. Check the cluster network: link
+      state on the cluster NIC, ARP/ping to the other mons, and
+      `ceph_mon_address` ({{ ceph_mon_address | default('<unset>') }})
+      reachability. Stderr was: {{ pveceph_status_result.stderr | default('') }}
+
 - name: Set ceph_monitors, ceph_managers
   when: pveceph_status_result.rc == 0
   vars:
@@ -55,10 +75,18 @@
   changed_when: true
   # changed_when: pveceph_mgr_create_result.rc == 0
   # failed_when: pveceph_mgr_create_result.rc != 0 and pveceph_mgr_create_result.rc != 255
+- name: Stat MDS data directory
+  ansible.builtin.stat:
+    path: "/var/lib/ceph/mds/ceph-{{ ansible_hostname }}"
+  register: pve_node_ceph_mds_data_dir_stat
 - name: Create ceph Metadata Server
   vars:
     mds_name: "mds.{{ ansible_hostname }}"
-  when: "mds_name not in ceph_conf"
+  # Recreate the MDS daemon if either the cluster ceph.conf doesn't reference
+  # it, or the local data dir is missing (e.g. after a host reinstall where
+  # the conf section persists in the cluster-shared /etc/pve/priv/ceph.conf
+  # but /var/lib/ceph/mds/ceph-<host> is gone).
+  when: mds_name not in ceph_conf or not pve_node_ceph_mds_data_dir_stat.stat.exists
   ansible.builtin.command:
     cmd: pveceph mds create
   register: pveceph_mds_create_result
@@ -71,9 +99,72 @@
   register: ceph_crush_map_result
   changed_when: false
 - name: Create ceph OSD
-  when: "ansible_hostname not in ceph_crush_map_result.stdout"
+  when:
+    - pve_node_ceph_osd_mode == 'create'
+    - ansible_hostname not in ceph_crush_map_result.stdout
   ansible.builtin.command:
     cmd: pveceph osd create {{ pve_ceph_osd_device }}
   register: pveceph_osd_create_result
   changed_when: pveceph_osd_create_result == 0
   failed_when: pveceph_osd_create_result.rc != 0 # and pveceph_osd_create_result.rc != 25
+- name: Activate existing ceph OSD
+  when:
+    - pve_node_ceph_osd_mode == 'activate_existing'
+    - ansible_hostname not in ceph_crush_map_result.stdout
+  block:
+    - name: List existing ceph-volume LVM OSDs
+      ansible.builtin.command:
+        cmd: ceph-volume lvm list
+      register: pve_node_ceph_volume_list_result
+      changed_when: false
+    - name: Activate existing OSD by id and fsid
+      ansible.builtin.command:
+        cmd: "ceph-volume lvm activate {{ pve_node_ceph_osd_id }} {{ pve_node_ceph_osd_fsid }}"
+      register: pve_node_ceph_volume_activate_result
+      changed_when: true
+    # `ceph-volume lvm activate` enables the unit with --runtime (transient)
+    # and tries to start it. If earlier prestart attempts hit the systemd
+    # restart-rate-limit (e.g. before /var/lib/ceph/osd/ceph-N existed), the
+    # start fails silently and the OSD ends up disabled+inactive. Reset any
+    # rate-limit and bring the unit up persistently.
+    - name: Reset failed state on ceph-osd unit (clears systemd rate-limit)
+      ansible.builtin.command:
+        cmd: "systemctl reset-failed ceph-osd@{{ pve_node_ceph_osd_id }}.service"
+      changed_when: true
+    - name: Enable and start ceph-osd unit
+      ansible.builtin.systemd_service:
+        name: "ceph-osd@{{ pve_node_ceph_osd_id }}.service"
+        enabled: true
+        state: started
+
+# Defensive cleanup: cephfs storage mounts can go zombie when the cluster
+# network flaps mid-mount — `ls /mnt/pve/<storage>` then shows
+# "d?????????" and `pvesm status` reports the storage inactive. Find any
+# such stale mounts under /mnt/pve and force-clear them, then bounce
+# pvestatd so it remounts cleanly.
+- name: Find cephfs entries in /proc/self/mountinfo
+  ansible.builtin.command:
+    cmd: awk '$5 ~ /^\/mnt\/pve\// && $9 == "ceph" { print $5 }' /proc/self/mountinfo
+  register: pve_node_ceph_cephfs_mounts
+  changed_when: false
+
+- name: Stat each cephfs mountpoint to detect stale ones
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ pve_node_ceph_cephfs_mounts.stdout_lines }}"
+  register: pve_node_ceph_cephfs_mount_stats
+  failed_when: false
+
+- name: Force-unmount stale cephfs mounts
+  ansible.builtin.command:
+    cmd: "umount -lf {{ item.item }}"
+  loop: "{{ pve_node_ceph_cephfs_mount_stats.results }}"
+  when: item.failed | default(false) or not (item.stat.exists | default(false))
+  register: pve_node_ceph_cephfs_force_unmounts
+  changed_when: true
+
+- name: Restart pvestatd so it remounts cephfs storages cleanly
+  when: pve_node_ceph_cephfs_force_unmounts.changed | default(false)
+  ansible.builtin.systemd_service:
+    name: pvestatd.service
+    state: restarted

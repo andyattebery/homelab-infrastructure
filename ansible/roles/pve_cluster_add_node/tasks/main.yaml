@@ -1,23 +1,20 @@
 ---
-- name: Get PVE cluster status
-  ansible.builtin.command:
-    cmd: pvecm status
-  failed_when: false
-  changed_when: false
-  register: pvecm_status_result
-- name: Join cluster |
-  when: pvecm_status_result.rc == 2
+# Determine whether this node is already in a PVE cluster.
+# We check for /etc/pve/corosync.conf rather than parsing `pvecm status`'s
+# exit code — its rc semantics have changed across PVE releases (notably
+# PVE 9 doesn't return rc=2 for "not in cluster" the way earlier versions
+# did, which previously caused the join to be silently skipped).
+- name: Check whether node is already in a PVE cluster
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  register: pve_cluster_add_node_corosync_conf_stat
+
+- name: Join cluster
+  when: not pve_cluster_add_node_corosync_conf_stat.stat.exists
   block:
-    - name: Set pve_main_node_ip and host_node_ip
+    - name: Resolve this host's IP for link0
       ansible.builtin.set_fact:
-        # pve_main_node_ip: "{{ lookup('community.general.dig', hostvars[pve_cluster_main_node].ansible_host) }}"
         host_node_ip: "{{ lookup('community.general.dig', ansible_host) }}"
-    # - name: Get host IP
-    #   ansible.builtin.command:
-    #     cmd: hostname -i
-    #   changed_when: false
-    #   register:
-    #     host_ip_result
     - name: Join cluster
       vars:
         node_cluster_network_ip: "{{ host_node_ip }}"

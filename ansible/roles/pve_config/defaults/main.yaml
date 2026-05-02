@@ -1,0 +1,22 @@
+---
+# Files under /etc/apt/sources.list.d/ that pve_config will remove on every
+# run, regardless of which sources format the host is using. This is for
+# repos we never want active (enterprise / older installer leftovers).
+# Note: ceph repository management is left to `pveceph install -repository
+# no-subscription` in the pve_node_ceph role — pve_config does not touch
+# ceph.sources or ceph.list.
+pve_config_remove_files_always:
+  - pve-enterprise.list
+  - pve-enterprise.sources
+  # Older PVE installer default (PVE 7 era). Replaced by pve-no-subscription.list
+  # in modern installs and by proxmox.sources in deb822.
+  - pve-install-repo.list
+
+# Files removed when the host is using deb822 (.sources) format — legacy
+# .list versions of repos that we now manage in deb822 form. This handles
+# the mixed-mode case where deb822 entries are active but a leftover
+# legacy .list file is also active and would create a duplicate source.
+# (When the host is in legacy mode the reverse cleanup isn't needed:
+# detection already implies no active .sources file exists.)
+pve_config_remove_files_when_deb822:
+  - pve-no-subscription.list

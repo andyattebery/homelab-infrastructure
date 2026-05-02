@@ -4,6 +4,7 @@
     cmd: pvesh get /nodes/{{ ansible_hostname }}/config -property acmedomain0 --noborder 1 --noheader 1
   register: pvesh_get_node_config_acmedomain0
   changed_when: false
+
 - name: Add ACME domain to node
   when: 'pvesh_get_node_config_acmedomain0.stdout == ""'
   vars:
@@ -11,15 +12,32 @@
   ansible.builtin.command:
     cmd: pvesh set /nodes/{{ ansible_hostname }}/config -acmedomain0 domain={{ node_fqdn }},plugin=cloudflare
   changed_when: true
+
 - name: Get certificates info for node
   ansible.builtin.command:
     cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
   register: pvesh_get_node_certificates_info
   changed_when: false
+
 - name: Order ACME certificate for node
-  vars:
-    lets_encrypt_search_string: "\"issuer\": \"/C=US/O=Let's Encrypt/CN=R3\""
   when: '"pveproxy-ssl.pem" not in pvesh_get_node_certificates_info.stdout'
   ansible.builtin.command:
     cmd: pvesh create /nodes/{{ ansible_hostname }}/certificates/acme/certificate
+  register: pvesh_create_acme_certificate
   changed_when: true
+
+# `pvesh create .../certificates/acme/certificate` is async — it returns
+# 0 once the order is queued, but the actual DNS-01 challenge and cert
+# issuance happens in pvedaemon afterward. Poll the certs list until
+# pveproxy-ssl.pem appears, so we fail visibly if pvedaemon's async work
+# fails (rate-limit, DNS issue, plugin auth, etc) instead of silently
+# reporting success.
+- name: Wait for ACME certificate to be issued
+  when: pvesh_create_acme_certificate is changed
+  ansible.builtin.command:
+    cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
+  register: pvesh_get_node_certificates_info_after_order
+  changed_when: false
+  until: '"pveproxy-ssl.pem" in pvesh_get_node_certificates_info_after_order.stdout'
+  retries: 30
+  delay: 5

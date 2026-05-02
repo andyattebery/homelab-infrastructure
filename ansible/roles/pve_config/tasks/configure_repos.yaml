@@ -1,22 +1,106 @@
 ---
-- name: Remove PVE enterprise repository
+# Detect which apt sources format the host is actively using by scanning
+# /etc/apt/sources.list.d/ for uncommented entries. We follow whatever
+# the host is actually using rather than guessing from the distribution
+# release — a host upgraded from PVE 8 to PVE 9 may still be on legacy
+# .list files, and a freshly-installed PVE 9 host uses deb822 .sources.
+#
+# This role only manages PVE repos (proxmox.sources / pve-no-subscription.list
+# and the enterprise variants). Ceph repos are managed by `pveceph install
+# -repository no-subscription` in the pve_node_ceph role.
+- name: Find .sources files with active Types entries
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: '*.sources'
+    contains: '(?m)^\s*Types:'
+    file_type: file
+  register: pve_config_deb822_files
+
+- name: Find .list files with active deb entries
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: '*.list'
+    contains: '(?m)^\s*deb\s'
+    file_type: file
+  register: pve_config_list_files
+
+- name: Determine which apt sources format is in use
+  ansible.builtin.set_fact:
+    pve_config_use_deb822: "{{ pve_config_deb822_files.matched > 0 }}"
+    pve_config_has_legacy_active: "{{ pve_config_list_files.matched > 0 }}"
+
+- name: Fail if no active apt source could be detected
+  when:
+    - not pve_config_use_deb822
+    - not pve_config_has_legacy_active
+  ansible.builtin.fail:
+    msg: >-
+      Could not detect any active apt source under
+      /etc/apt/sources.list.d/. No .sources files with uncommented
+      Types: entries and no .list files with uncommented deb entries
+      were found. Verify apt configuration on this host before running
+      pve_config.
+
+- name: Remove unwanted apt source files (always)
   ansible.builtin.file:
-    path: /etc/apt/sources.list.d/pve-enterprise.list
+    path: "/etc/apt/sources.list.d/{{ item }}"
     state: absent
-- name: Remove ceph enterprise repository
-  ansible.builtin.lineinfile:
-    path: /etc/apt/sources.list.d/ceph.list
-    search_string: 'enterprise'
+  loop: "{{ pve_config_remove_files_always }}"
+  notify: Update apt cache
+
+# The PVE installer ships ceph.sources pointing at the enterprise repo,
+# which fails 401 without a subscription and breaks apt update. Remove
+# it here so apt update succeeds; pveceph install -repository
+# no-subscription (in the pve_node_ceph role) will recreate the file
+# with no-subscription components later. Subsequent runs of this role
+# leave the recreated file alone because its URI no longer matches.
+- name: Find enterprise ceph apt source files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: 'ceph.sources,ceph.list'
+    contains: '(?m)^\s*(URIs:|deb\s).*enterprise\.proxmox\.com'
+    file_type: file
+  register: pve_config_enterprise_ceph_files
+
+- name: Remove enterprise ceph apt source files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
     state: absent
-- name: Add PVE no-subscription repository
-  ansible.builtin.apt_repository:
-    repo: deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription
-    filename: pve-no-subscription
-    state: present
-    update_cache: false
-- name: Add ceph no-subscription repository
-  ansible.builtin.apt_repository:
-    repo: deb http://download.proxmox.com/debian/ceph-quincy {{ ansible_distribution_release }} no-subscription
-    filename: ceph
-    state: present
-    update_cache: true
+  loop: "{{ pve_config_enterprise_ceph_files.files }}"
+  notify: Update apt cache
+
+# deb822 path
+- name: Configure deb822 sources
+  when: pve_config_use_deb822
+  block:
+    - name: Write PVE no-subscription deb822 source
+      ansible.builtin.template:
+        src: proxmox.sources.j2
+        dest: /etc/apt/sources.list.d/proxmox.sources
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Update apt cache
+    - name: Remove legacy .list versions of managed repos
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/{{ item }}"
+        state: absent
+      loop: "{{ pve_config_remove_files_when_deb822 }}"
+      notify: Update apt cache
+
+# Legacy .list path
+- name: Configure legacy .list sources
+  when: not pve_config_use_deb822
+  block:
+    - name: Add PVE no-subscription repository
+      ansible.builtin.apt_repository:
+        repo: deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription
+        filename: pve-no-subscription
+        state: present
+        update_cache: false
+      notify: Update apt cache
+
+# Run the apt cache update now (rather than at end of play) so subsequent
+# tasks in this run see the new sources.
+- name: Flush handlers (runs Update apt cache if any source changed)
+  ansible.builtin.meta: flush_handlers

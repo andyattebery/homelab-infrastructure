@@ -2,5 +2,16 @@
 pbs_backup_01_username: "vm-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_950_PRO_512GB_S2GMNCAGB07802W
-ceph_mon_address: "192.168.1.247"
+ceph_mon_address: "10.1.40.12"
+pve_node_ceph_osd_mode: activate_existing
+pve_node_ceph_osd_id: 1
+pve_node_ceph_osd_fsid: "216b3cad-4d7e-4741-a658-b244e040369c"
+# Ceph cluster network NIC — identified by MAC so we don't depend on the
+# pinned name the installer assigned (nic1 today, could be different on a
+# rebuild). No `gateway` is configured: the cluster network is /24 LAN
+# with no router-out, and a second `gateway` directive in
+# /etc/network/interfaces would conflict with vmbr0's default route under
+# ifupdown2 and result in no default route at all.
+ceph_cluster_nic_mac: "1c:fd:08:75:10:24"
+ceph_cluster_nic_address: "10.1.40.12/24"
 security_ssh_permit_root_login: "prohibit-password"
