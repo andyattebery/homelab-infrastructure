@@ -1,0 +1,17 @@
+---
+# Required:
+#   debian_add_network_interface_filename  — drop-in name (without .cfg suffix)
+#   debian_add_network_interface_mac       — MAC of the NIC to configure
+#   debian_add_network_interface_method    — "static" or "dhcp"
+# Required when method=static:
+#   debian_add_network_interface_address_cidr   — IP in CIDR form (e.g. 10.0.0.5/24).
+#                                            Must include the prefix; the role
+#                                            doesn't emit a separate `netmask` line.
+#
+# Optional:
+#   debian_add_network_interface_wol       — ethtool wol flag string (e.g. "g", "pumbg").
+#                                            Omit / leave unset to not emit ethernet-wol.
+#                                            "g" (Magic Packet only) is the most broadly
+#                                            compatible setting.
+debian_add_network_interface_method: dhcp
+debian_add_network_interface_wol: ""

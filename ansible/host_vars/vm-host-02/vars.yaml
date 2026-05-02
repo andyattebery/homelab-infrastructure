@@ -12,6 +12,6 @@ pve_node_ceph_osd_fsid: "216b3cad-4d7e-4741-a658-b244e040369c"
 # with no router-out, and a second `gateway` directive in
 # /etc/network/interfaces would conflict with vmbr0's default route under
 # ifupdown2 and result in no default route at all.
-ceph_cluster_nic_mac: "1c:fd:08:75:10:24"
-ceph_cluster_nic_address: "10.1.40.12/24"
+ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
+ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
 security_ssh_permit_root_login: "prohibit-password"

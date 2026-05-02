@@ -1,0 +1,5 @@
+---
+- name: Reload network
+  ansible.builtin.command:
+    cmd: ifreload -a
+  changed_when: true

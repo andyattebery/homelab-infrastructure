@@ -1,0 +1,8 @@
+auto {{ _resolved_nic_name }}
+iface {{ _resolved_nic_name }} inet {{ debian_add_network_interface_method }}
+{% if debian_add_network_interface_method == 'static' %}
+    address {{ debian_add_network_interface_address_cidr }}
+{% endif %}
+{% if debian_add_network_interface_wol | length > 0 %}
+    ethernet-wol {{ debian_add_network_interface_wol }}
+{% endif %}

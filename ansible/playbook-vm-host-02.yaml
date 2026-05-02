@@ -65,39 +65,15 @@
     # bridge port). We only add the Ceph cluster network NIC stanza,
     # resolving its name from the MAC so we don't depend on whatever the
     # installer's interface pinning chose (nic1 today, could differ).
-    - name: Resolve Ceph cluster NIC name from MAC
-      ansible.builtin.set_fact:
-        ceph_cluster_nic_name: >-
-          {{ ansible_facts.interfaces
-             | map('extract', ansible_facts)
-             | selectattr('macaddress', 'defined')
-             | selectattr('macaddress', 'eq', ceph_cluster_nic_mac)
-             | map(attribute='device')
-             | first }}
-
-    - name: Fail if no NIC matched the configured MAC
-      ansible.builtin.fail:
-        msg: "No interface found with MAC {{ ceph_cluster_nic_mac }}"
-      when: ceph_cluster_nic_name | length == 0
-
-    - name: Configure Ceph cluster network NIC via /etc/network/interfaces.d
-      ansible.builtin.copy:
-        dest: /etc/network/interfaces.d/ceph-cluster.cfg
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          auto {{ ceph_cluster_nic_name }}
-          iface {{ ceph_cluster_nic_name }} inet static
-              address {{ ceph_cluster_nic_address }}
-              ethernet-wol pumbg
-      register: ceph_cluster_nic_config
-
-    - name: Apply network configuration changes
-      when: ceph_cluster_nic_config.changed
-      ansible.builtin.command:
-        cmd: ifreload -a
-      changed_when: true
+    - name: Configure Ceph cluster network NIC
+      vars:
+        debian_add_network_interface_filename: ceph-cluster
+        debian_add_network_interface_mac: "{{ ceph_cluster_nic_mac }}"
+        debian_add_network_interface_method: static
+        debian_add_network_interface_address_cidr: "{{ ceph_cluster_nic_address_cidr }}"
+        debian_add_network_interface_wol: pumbg
+      ansible.builtin.import_role:
+        name: debian_add_network_interface
 
     # ---------- Cluster join ----------
     - name: Join Proxmox cluster

@@ -1,0 +1,82 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - debian_add_network_interface_filename | default('') | length > 0
+      - debian_add_network_interface_mac | default('') | length > 0
+      - debian_add_network_interface_method in ['static', 'dhcp']
+      - debian_add_network_interface_method != 'static'
+        or (debian_add_network_interface_address_cidr | default('') is match('^[0-9.]+/[0-9]+$'))
+    fail_msg: >-
+      debian_add_network_interface requires _filename, _mac, _method
+      (static|dhcp), and (when method=static) _address in CIDR form
+      (e.g. 10.1.40.12/24). The template emits no separate `netmask`
+      line, so the prefix length must be on the address itself.
+
+# Treat /etc/network/interfaces existing as the signal that the host
+# is using ifupdown. If it's missing, the host is on netplan / NM /
+# systemd-networkd and our drop-in would never be read — bail out.
+# (The slurp itself raises a clear error if the file isn't there.)
+- name: Read /etc/network/interfaces
+  ansible.builtin.slurp:
+    src: /etc/network/interfaces
+  register: _interfaces_main
+
+# Ensure the drop-in directory exists, and that the main file
+# sources it. Both are no-ops on a normal Debian host, but a freshly
+# installed minimal image (or a host that's never used a drop-in)
+# may be missing one or both.
+- name: Ensure /etc/network/interfaces.d exists
+  ansible.builtin.file:
+    path: /etc/network/interfaces.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# Both `source` and `source-directory` are documented in ifupdown(5)
+# on Debian 12 (bookworm) and 13 (trixie); `source` has been in
+# ifupdown since well before bookworm. We accept either form when
+# detecting and append the `source ... *` form when neither is present
+# (it's the form the Debian installer itself writes by default).
+- name: Ensure /etc/network/interfaces sources interfaces.d/
+  when: >-
+    (_interfaces_main.content | b64decode)
+    is not search('(?m)^\s*(source\s+/etc/network/interfaces\.d/|source-directory\s+/etc/network/interfaces\.d)')
+  ansible.builtin.lineinfile:
+    path: /etc/network/interfaces
+    line: source /etc/network/interfaces.d/*
+    insertafter: EOF
+    state: present
+
+# Resolve interface name from MAC so we don't hardcode whatever the
+# installer / udev pinning chose (e.g. nic1 today, could differ).
+- name: Resolve NIC name from MAC
+  ansible.builtin.set_fact:
+    _resolved_nic_name: >-
+      {{ ansible_facts.interfaces
+         | map('extract', ansible_facts)
+         | selectattr('macaddress', 'defined')
+         | selectattr('macaddress', 'eq', debian_add_network_interface_mac)
+         | map(attribute='device')
+         | first | default('') }}
+
+- name: Fail if no NIC matched the configured MAC
+  when: _resolved_nic_name | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      No interface found with MAC {{ debian_add_network_interface_mac }}.
+
+- name: Configure NIC via /etc/network/interfaces.d
+  ansible.builtin.template:
+    src: interface.cfg.j2
+    dest: "/etc/network/interfaces.d/{{ debian_add_network_interface_filename }}.cfg"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload network
+
+# Apply now (rather than at end of play) so subsequent tasks in this
+# run see the new interface up.
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
