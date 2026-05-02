@@ -1,0 +1,75 @@
+---
+- name: Install r8125-dkms package
+  ansible.builtin.apt:
+    name:
+      - r8125-dkms
+
+- name: Add udev rule to swap r8169 → r8125 for matching Realtek cards
+  ansible.builtin.template:
+    src: 99-r8169-to-r8125.rules.j2
+    dest: /etc/udev/rules.d/99-r8169-to-r8125.rules
+    owner: root
+    group: root
+    mode: "0644"
+
+# If the apt run pulled in a newer kernel (e.g. via pve-headers ->
+# proxmox-default-headers -> proxmox-default-kernel), DKMS builds the
+# new module against the newer kernel — not the running one — so it's
+# useless until we reboot. Detect that case and reboot before
+# continuing.
+- name: Find the latest installed kernel under /lib/modules
+  ansible.builtin.command:
+    cmd: bash -c 'ls /lib/modules/ | sort -V | tail -1'
+  register: realtek_r8125_dkms_package_latest_installed_kernel
+  changed_when: false
+
+- name: Reboot if a newer kernel is installed but not running
+  when: realtek_r8125_dkms_package_latest_installed_kernel.stdout != ansible_facts.kernel
+  ansible.builtin.reboot:
+    msg: "Activating newer installed kernel ({{ realtek_r8125_dkms_package_latest_installed_kernel.stdout }}) so DKMS modules become loadable"
+    reboot_timeout: 600
+
+# The kernel's generic r8169 driver claims Realtek NICs at boot before
+# the udev rule (which unbinds r8169 and binds r8125) gets to fire. On
+# the first run after r8125-dkms is installed, swap any r8125-eligible
+# PCI devices still using r8169 so we don't have to reboot.
+#
+# Eligibility = PCI device whose subsystem_vendor / subsystem_device
+# match the udev rule above (so we don't accidentally try to swap an
+# unrelated r8169-bound NIC like a built-in 1GbE Realtek).
+- name: Find r8125-eligible PCI devices currently bound to r8169
+  ansible.builtin.shell: |
+    set -o pipefail
+    for d in /sys/bus/pci/devices/*; do
+      [ -e "$d/driver" ] || continue
+      [ "$(basename "$(readlink -f "$d/driver")")" = "r8169" ] || continue
+      [ "$(cat "$d/subsystem_vendor" 2>/dev/null)" = "{{ realtek_r8125_dkms_package_subsystem_vendor }}" ] || continue
+      [ "$(cat "$d/subsystem_device" 2>/dev/null)" = "{{ realtek_r8125_dkms_package_subsystem_device }}" ] || continue
+      basename "$d"
+    done
+  args:
+    executable: /bin/bash
+  register: realtek_r8125_dkms_package_eligible_pci_devices
+  changed_when: false
+
+- name: Swap r8169 → r8125 via udev
+  when: realtek_r8125_dkms_package_eligible_pci_devices.stdout_lines | length > 0
+  block:
+    - name: Reload udev rules
+      ansible.builtin.command:
+        cmd: udevadm control --reload-rules
+      changed_when: true
+    - name: Re-trigger add events on Realtek PCI devices
+      ansible.builtin.command:
+        cmd: "udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor={{ realtek_r8125_dkms_package_subsystem_vendor }}"
+      changed_when: true
+    - name: Wait for udev to settle
+      ansible.builtin.command:
+        cmd: udevadm settle
+      changed_when: false
+    - name: Re-gather network facts (drivers may have changed)
+      ansible.builtin.setup:
+        gather_subset:
+          - '!all'
+          - '!min'
+          - network

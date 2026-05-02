@@ -47,65 +47,10 @@
           - intel-microcode
           - pve-headers
           - r8168-dkms
-          - r8125-dkms
 
-    - name: Add r8125 udev rule
-      ansible.builtin.include_role:
-        name: realtek_r8125_dkms
-        tasks_from: add_udev_rule
-
-    # If the apt run pulled in a newer kernel (e.g. via pve-headers ->
-    # proxmox-default-headers -> proxmox-default-kernel), DKMS builds the
-    # new modules against the newer kernel — not the running one — so
-    # they're useless until we reboot. Detect that case and reboot before
-    # continuing.
-    - name: Find the latest installed kernel under /lib/modules
-      ansible.builtin.command:
-        cmd: bash -c 'ls /lib/modules/ | sort -V | tail -1'
-      register: latest_installed_kernel
-      changed_when: false
-
-    - name: Reboot if a newer kernel is installed but not running
-      when: latest_installed_kernel.stdout != ansible_facts.kernel
-      ansible.builtin.reboot:
-        msg: "Activating newer installed kernel ({{ latest_installed_kernel.stdout }}) so DKMS modules become loadable"
-        reboot_timeout: 600
-
-    # The kernel's generic r8169 driver claims Realtek NICs at boot before
-    # the udev rule (which unbinds r8169 and binds r8125) gets to fire.
-    # On the first run after r8125-dkms is installed, swap any interfaces
-    # still using r8169 over to r8125 so we don't have to reboot.
-    - name: Find interfaces still bound to r8169
-      ansible.builtin.set_fact:
-        r8169_bound_interfaces: >-
-          {{ ansible_facts.interfaces
-             | map('extract', ansible_facts)
-             | selectattr('module', 'defined')
-             | selectattr('module', 'eq', 'r8169')
-             | map(attribute='device')
-             | list }}
-
-    - name: Swap r8169 → r8125 via udev
-      when: r8169_bound_interfaces | length > 0
-      block:
-        - name: Reload udev rules
-          ansible.builtin.command:
-            cmd: udevadm control --reload-rules
-          changed_when: true
-        - name: Re-trigger add events on Realtek PCI devices
-          ansible.builtin.command:
-            cmd: udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor=0x10ec
-          changed_when: true
-        - name: Wait for udev to settle
-          ansible.builtin.command:
-            cmd: udevadm settle
-          changed_when: false
-        - name: Re-gather network facts (drivers may have changed)
-          ansible.builtin.setup:
-            gather_subset:
-              - '!all'
-              - '!min'
-              - network
+    - name: Install r8125 driver via DKMS package + udev swap
+      ansible.builtin.import_role:
+        name: realtek_r8125_dkms_package
 
     - name: Configure NTP
       # Debian trixie removed the legacy `ntp` package. Use chrony, which
