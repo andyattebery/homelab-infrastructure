@@ -5,47 +5,18 @@
 
   tasks:
     # ---------- Local-only / pre-cluster ----------
-    - name: Configure PVE / Ceph apt sources
+    - name: Configure PVE apt sources
       ansible.builtin.import_role:
         name: pve_config
 
-    # Add contrib, non-free, non-free-firmware to whichever Debian apt
-    # sources are active on this host. Branch on pve_config_use_deb822
-    # (set as a fact by the pve_config role above) — same content-based
-    # detection rather than hardcoding distribution release names.
-    - name: Find Debian deb822 source files
-      when: pve_config_use_deb822
-      ansible.builtin.find:
-        paths: /etc/apt/sources.list.d
-        patterns: '*.sources'
-        contains: '(?m)^\s*URIs:.*debian\.org'
-        file_type: file
-      register: pve_debian_deb822_files
-
-    - name: Set Components in Debian deb822 sources to include contrib and non-free
-      when: pve_config_use_deb822
-      ansible.builtin.replace:
-        path: "{{ item.path }}"
-        regexp: '^Components:.*$'
-        replace: 'Components: main contrib non-free non-free-firmware'
-      loop: "{{ pve_debian_deb822_files.files }}"
-
-    - name: Add contrib, non-free, non-free-firmware to legacy /etc/apt/sources.list
-      when: not pve_config_use_deb822
-      ansible.builtin.replace:
-        dest: /etc/apt/sources.list
-        regexp: '^(deb.+main).*$'
-        replace: '\1 contrib non-free non-free-firmware'
-
-    - name: Refresh apt cache after sources changes
-      ansible.builtin.apt:
-        update_cache: true
+    - name: Add contrib, non-free, non-free-firmware to active Debian apt sources
+      ansible.builtin.import_role:
+        name: debian_extra_components
 
     - name: Install base packages
       ansible.builtin.apt:
         name:
           - intel-microcode
-          - pve-headers
           - r8168-dkms
 
     - name: Install r8125 driver via DKMS package + udev swap

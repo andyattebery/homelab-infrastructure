@@ -1,0 +1,7 @@
+---
+# Extra Debian apt components to enable on top of `main`. Applied to any
+# active Debian apt source (deb822 or legacy) whose URIs point at debian.org.
+debian_extra_components_components:
+  - contrib
+  - non-free
+  - non-free-firmware

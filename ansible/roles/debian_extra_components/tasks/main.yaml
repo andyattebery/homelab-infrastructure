@@ -1,0 +1,72 @@
+---
+# Detect which apt sources format the host actively uses by scanning
+# /etc/apt/sources.list.d/ for uncommented entries (content-based, not
+# release-based). Same approach as the pve_config role, but standalone
+# so this role can run on any Debian host.
+- name: Find .sources files with active Types entries
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: '*.sources'
+    contains: '(?m)^\s*Types:'
+    file_type: file
+  register: debian_extra_components_deb822_files
+
+- name: Find .list files with active deb entries
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: '*.list'
+    contains: '(?m)^\s*deb\s'
+    file_type: file
+  register: debian_extra_components_list_files
+
+- name: Determine which apt sources format is in use
+  ansible.builtin.set_fact:
+    debian_extra_components_use_deb822: >-
+      {{ debian_extra_components_deb822_files.matched > 0 }}
+    debian_extra_components_has_legacy_active: >-
+      {{ debian_extra_components_list_files.matched > 0 }}
+
+- name: Fail if no active apt source could be detected
+  when:
+    - not debian_extra_components_use_deb822
+    - not debian_extra_components_has_legacy_active
+  ansible.builtin.fail:
+    msg: >-
+      Could not detect any active apt source under
+      /etc/apt/sources.list.d/. Verify apt configuration on this host.
+
+# deb822 path: only Debian official repos (debian.org URIs); third-party
+# repos don't have these components.
+- name: Find Debian deb822 source files
+  when: debian_extra_components_use_deb822
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: '*.sources'
+    contains: '(?m)^\s*URIs:.*debian\.org'
+    file_type: file
+  register: debian_extra_components_debian_deb822_files
+
+- name: Set Components in Debian deb822 sources
+  when: debian_extra_components_use_deb822
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^Components:.*$'
+    replace: >-
+      Components: main {{ debian_extra_components_components | join(' ') }}
+  loop: "{{ debian_extra_components_debian_deb822_files.files }}"
+  notify: Update apt cache
+
+# Legacy path: only /etc/apt/sources.list, matching the original behavior.
+- name: Add extra components to legacy /etc/apt/sources.list
+  when: not debian_extra_components_use_deb822
+  ansible.builtin.replace:
+    dest: /etc/apt/sources.list
+    regexp: '^(deb.+main).*$'
+    replace: >-
+      \1 {{ debian_extra_components_components | join(' ') }}
+  notify: Update apt cache
+
+# Run the apt cache update now (rather than at end of play) so subsequent
+# tasks in this run see the new sources. Same pattern as pve_config.
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
