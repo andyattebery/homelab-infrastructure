@@ -189,7 +189,7 @@
     # - role: rtsp_recorder
     #   vars:
     #     rtsp_stream_name: pi-camera-cam1
-    #     rtsp_stream_url: rtsp://pi-camera.omegaho.me:8554/cam1
+    #     rtsp_stream_url: rtsp://pi-camera.{{ domain_name }}:8554/cam1
     #     rtsp_stream_recording_directory: /mnt/data/data05/temp/recording
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter

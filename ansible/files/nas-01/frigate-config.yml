@@ -12,7 +12,7 @@ cameras:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://pi-camera.omegaho.me:8554/cam0
+        - path: rtsp://pi-camera.{{ domain_name }}:8554/cam0
           input_args: preset-rtsp-restream
           roles:
             - record
@@ -20,7 +20,7 @@ cameras:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://pi-camera.omegaho.me:8554/cam1
+        - path: rtsp://pi-camera.{{ domain_name }}:8554/cam1
           input_args: preset-rtsp-restream
           roles:
             - record

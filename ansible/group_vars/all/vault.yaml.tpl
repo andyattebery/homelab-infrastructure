@@ -22,7 +22,7 @@ vault_esphome_api_encryption_key_vm_host_01_outlet: {{ op://Personal/ESPHome/vm-
 vault_esphome_api_encryption_key_vm_host_02_outlet: {{ op://Personal/ESPHome/vm-host-02 outlet/api encryption key }}
 vault_esphome_api_encryption_key_vm_host_03_outlet: {{ op://Personal/ESPHome/vm-host-03 outlet/api encryption key }}
 vault_filebot_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/filebot }}
-vault_freshrss_api_password: {{ op://Personal/adguardhome-02/password }}0
+vault_freshrss_api_password: {{ op://Personal/FreshRSS/add more/api password }}
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
 vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}

@@ -71,7 +71,7 @@ services:
     labels:
       - traefik.enable=true
   trakt-for-appletv:
-    image: forgejo.omegaho.me/andy/trakt-for-appletv:latest
+    image: forgejo.{{ domain_name }}/andy/trakt-for-appletv:latest
     container_name: trakt-for-appletv
     network_mode: host
     volumes:

@@ -1,8 +1,8 @@
 api:
   origin: "*"
   tls_listen: ":443"
-  tls_cert: /etc/letsencrypt/live/pi-camera.omegaho.me/fullchain.pem
-  tls_key: /etc/letsencrypt/live/pi-camera.omegaho.me/privkey.pem
+  tls_cert: /etc/letsencrypt/live/pi-camera.{{ domain_name }}/fullchain.pem
+  tls_key: /etc/letsencrypt/live/pi-camera.{{ domain_name }}/privkey.pem
 streams:
   # cam0:
   #   - exec:rpicam-vid --camera 0 --autofocus-range macro --framerate 30 --width 1920 --height 1080 --codec libav --libav-format h264 --libav-video-codec libx264 --libav-video-codec-opts 'profile=high;level=4.2;preset=fast;tune=zerolatency' --timeout 0 --nopreview --inline --verbose 0 --output -
