@@ -13,3 +13,6 @@ wireguard_external_domain: "{{ vault_wireguard_external_domain }}"
 wireguard_port: "{{ vault_wireguard_port }}"
 wireguard_peers: "{{ vault_wireguard_peers }}"
 wireguard_internal_subnet: "{{ vault_wireguard_internal_subnet }}"
+
+nut_client_username: "network-02"
+nut_client_password: "{{ vault_nut_client_password }}"

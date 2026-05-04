@@ -17,14 +17,13 @@
             vendorid: "051D"
             productid: "0003"
         nut_monitor_primary_password: "{{ ups_monitor_rack_nut_upsmon_password }}"
-        nut_monitor_secondary_users:
-          - name: homeassistant
-            password: "{{ ups_monitor_rack_nut_homeassistant_password }}"
-          - name: "{{ ups_monitor_rack_nut_nas_host_01_username }}"
-            password: "{{ ups_monitor_rack_nut_nas_host_01_password }}"
-          - name: "{{ ups_monitor_rack_nut_vm_host_01_username }}"
-            password: "{{ ups_monitor_rack_nut_vm_host_01_password }}"
-          - name: "{{ ups_monitor_rack_nut_network_02_username }}"
-            password: "{{ ups_monitor_rack_nut_network_02_password }}"
+        nut_monitor_secondary_users: >-
+          {{
+            [{'name': 'homeassistant', 'password': ups_monitor_rack_nut_homeassistant_password}]
+            + [
+              {'name': hostvars[h].nut_client_username, 'password': hostvars[h].nut_client_password}
+              for h in groups['ups_monitor_rack_nut_clients']
+            ]
+          }}
         nut_notify_pushover_token: "{{ nut_pushover_token }}"
         nut_notify_pushover_user_key: "{{ pushover_user_key }}"

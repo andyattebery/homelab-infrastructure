@@ -15,3 +15,11 @@ pve_node_ceph_osd_fsid: "216b3cad-4d7e-4741-a658-b244e040369c"
 ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
 ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
 security_ssh_permit_root_login: "prohibit-password"
+
+extra_packages:
+  - r8168-dkms
+
+pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
+
+nut_client_username: "vm-host-02"
+nut_client_password: "{{ vault_nut_client_password }}"

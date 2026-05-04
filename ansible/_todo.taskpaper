@@ -23,5 +23,8 @@ sanoid:
     - [x] configure for source
     - [x] syncoid no snap
 
+power_saving:
+    - [] make pcie runtime PM safe for realtek NICs (r8125/r8168/r8169) — either default power_saving_configure_pcie: false, or change power_saving_pcie_runtime_all_devices to scope rule by vendor/device and exclude vendor 10ec by default. document risk in README.
+
 Archive:
     

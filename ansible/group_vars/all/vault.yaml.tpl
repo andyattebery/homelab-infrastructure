@@ -163,10 +163,6 @@ vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
 vault_ups_monitor_rack_nut_admin_password: {{ op://Personal/ups-monitor-rack/nut/admin password }}
 vault_ups_monitor_rack_nut_upsmon_password: {{ op://Personal/ups-monitor-rack/nut/upsmon password }}
 vault_ups_monitor_rack_nut_homeassistant_password: {{ op://Personal/ups-monitor-rack/nut/homeassistant password }}
-vault_ups_monitor_rack_nut_nas_host_01_password: {{ op://Personal/ups-monitor-rack/nut/nas-host-01 password }}
-vault_ups_monitor_rack_nut_network_02_password: {{ op://Personal/ups-monitor-rack/nut/network-02 password }}
-vault_ups_monitor_rack_nut_vm_host_01_password: {{ op://Personal/ups-monitor-rack/nut/vm-host-01 password }}
-vault_ups_monitor_rack_nut_vm_host_02_password: {{ op://Personal/ups-monitor-rack/nut/vm-host-02 password }}
 vault_ups_rack_snmp_address: {{ op://Personal/ups-rack/config/address }}
 vault_ups_rack_snmp_read_write_community: {{ op://Personal/ups-rack/snmp v1/read write community }}
 vault_vm_host_01_mac_address: {{ op://Personal/vm-host-01/hardware/mac address }}

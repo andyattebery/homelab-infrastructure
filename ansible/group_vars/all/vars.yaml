@@ -235,14 +235,6 @@ ups_monitor_rack_nut_pdu_name: rack-pdu
 ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ homelab_domain_name }}"
 ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
 ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
-ups_monitor_rack_nut_nas_host_01_username: "nas-host-01"
-ups_monitor_rack_nut_nas_host_01_password: "{{ vault_ups_monitor_rack_nut_nas_host_01_password }}"
-ups_monitor_rack_nut_vm_host_01_username: "vm-host-01"
-ups_monitor_rack_nut_vm_host_01_password: "{{ vault_ups_monitor_rack_nut_vm_host_01_password }}"
-ups_monitor_rack_nut_vm_host_02_username: "vm-host-02"
-ups_monitor_rack_nut_vm_host_02_password: "{{ vault_ups_monitor_rack_nut_vm_host_02_password }}"
-ups_monitor_rack_nut_network_02_username: "network-02"
-ups_monitor_rack_nut_network_02_password: "{{ vault_ups_monitor_rack_nut_network_02_password }}"
 
 pdu_rack_network_snmp_address: "{{ vault_pdu_rack_network_snmp_address }}"
 pdu_rack_network_snmp_read_write_community: "{{ vault_pdu_rack_network_snmp_read_write_community }}"
@@ -263,8 +255,15 @@ docker_users:
   - "{{ ansible_user }}"
 
 # geerlingguy.ntp
+# Debian trixie removed the legacy `ntp` package. Chrony is the modern
+# Debian-recommended NTP daemon and is universally available on Debian,
+# Ubuntu, Arch, and RHEL — safe as a global default for any host that
+# pulls in geerlingguy.ntp.
 ntp_timezone: "{{ timezone }}"
 ntp_manage_config: true
+ntp_package: chrony
+ntp_daemon: chrony
+ntp_config_file: /etc/chrony/chrony.conf
 
 # geerlingguy.security
 security_sudoers_passwordless:

@@ -1,7 +1,11 @@
 ---
-- name: Configure Proxmox vm-host-02
-  hosts: vm-host-02
+- name: Configure Proxmox cluster nodes (vm-host-01, vm-host-02)
+  hosts: vm-host-01,vm-host-02
   become: true
+
+  vars:
+    pve_backup_job_script_job_init_commands:
+      - /usr/local/bin/remote_power_control pikvm on
 
   tasks:
     # ---------- Local-only / pre-cluster ----------
@@ -15,21 +19,18 @@
 
     - name: Install base packages
       ansible.builtin.apt:
-        name:
-          - intel-microcode
-          - r8168-dkms
+        name: "{{ ['intel-microcode'] + (extra_packages | default([])) }}"
 
     - name: Install r8125 driver via DKMS package + udev swap
       ansible.builtin.import_role:
         name: realtek_r8125_dkms_package
 
+    - name: Install r8152 driver (USB Realtek)
+      when: inventory_hostname == 'vm-host-01'
+      ansible.builtin.import_role:
+        name: realtek_r8152_dkms
+
     - name: Configure NTP
-      # Debian trixie removed the legacy `ntp` package. Use chrony, which
-      # is the modern Debian-recommended NTP daemon.
-      vars:
-        ntp_package: chrony
-        ntp_daemon: chrony
-        ntp_config_file: /etc/chrony/chrony.conf
       ansible.builtin.import_role:
         name: geerlingguy.ntp
 
@@ -40,6 +41,10 @@
     - name: Configure Scrutiny collector
       ansible.builtin.import_role:
         name: scrutiny_collector
+
+    - name: Configure prometheus node_exporter
+      ansible.builtin.import_role:
+        name: prometheus.prometheus.node_exporter
 
     - name: Configure power saving
       vars:
@@ -55,6 +60,23 @@
       ansible.builtin.import_role:
         name: kernel_parameters
 
+    - name: Configure NUT (UPS) client
+      vars:
+        nut_enable_client: true
+        nut_client_servers:
+          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
+            server_address: "{{ ups_monitor_rack_nut_server_address }}"
+            username: "{{ nut_client_username }}"
+            password: "{{ nut_client_password }}"
+      ansible.builtin.import_role:
+        name: nut
+
+    - name: Configure remote power control client
+      vars:
+        remote_power_control_client: true
+      ansible.builtin.import_role:
+        name: remote_power_control
+
     - name: Configure PiKVM remote command
       vars:
         pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
@@ -62,9 +84,8 @@
         name: pikvm_remote_command
 
     # The PVE installer owns the management NIC config (vmbr0 + its
-    # bridge port). We only add the Ceph cluster network NIC stanza,
-    # resolving its name from the MAC so we don't depend on whatever the
-    # installer's interface pinning chose (nic1 today, could differ).
+    # bridge port). We add the Ceph cluster network NIC stanza, plus any
+    # additional NICs declared in `extra_network_interfaces` (host_var).
     - name: Configure Ceph cluster network NIC
       vars:
         debian_add_network_interface_filename: ceph-cluster
@@ -74,6 +95,17 @@
         debian_add_network_interface_wol: pumbg
       ansible.builtin.import_role:
         name: debian_add_network_interface
+
+    - name: Configure additional network interfaces
+      vars:
+        debian_add_network_interface_filename: "{{ item.filename }}"
+        debian_add_network_interface_mac: "{{ item.mac }}"
+        debian_add_network_interface_method: "{{ item.method | default('static') }}"
+        debian_add_network_interface_address_cidr: "{{ item.address_cidr }}"
+        debian_add_network_interface_wol: "{{ item.wol | default(omit) }}"
+      ansible.builtin.include_role:
+        name: debian_add_network_interface
+      loop: "{{ extra_network_interfaces | default([]) }}"
 
     # ---------- Cluster join ----------
     - name: Join Proxmox cluster
@@ -93,9 +125,11 @@
       ansible.builtin.import_role:
         name: pve_storage_add_nas_01_proxmox
 
+    - name: Add backup-01 PBS storage
+      ansible.builtin.import_role:
+        name: pve_storage_add_backup_01_pbs
+
     - name: Configure PVE backup job script
-      vars:
-        pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
       ansible.builtin.import_role:
         name: pve_backup_job_script
 
