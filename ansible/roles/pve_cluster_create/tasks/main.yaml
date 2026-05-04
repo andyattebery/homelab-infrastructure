@@ -5,14 +5,17 @@
   changed_when: false
   register:
     host_ip_result
-- name: Get PVE cluster status
-  ansible.builtin.command:
-    cmd: pvecm status
-  changed_when: false
-  failed_when: false
-  register: pvecm_status_result
+# Determine whether this node is already in a PVE cluster.
+# We check for /etc/pve/corosync.conf rather than parsing `pvecm status`'s
+# exit code — its rc semantics have changed across PVE releases (notably
+# PVE 9 doesn't return rc=2 for "not in cluster" the way earlier versions
+# did, which previously caused the create to be silently skipped).
+- name: Check whether node is already in a PVE cluster
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  register: pve_cluster_create_corosync_conf_stat
 - name: Get cluster fingerprint
-  when: pvecm_status_result.rc == 0
+  when: pve_cluster_create_corosync_conf_stat.stat.exists
   block:
     - name: Get cluster join info
       ansible.builtin.command:
@@ -25,6 +28,6 @@
       ansible.builtin.set_fact:
         pve_cluster_fingerprint: "{{ pve_cluster_join_info_json.nodelist[0].pve_fp }}"
 - name: Create PVE cluster # noqa no-changed-when
-  when: pvecm_status_result.rc == 2
+  when: not pve_cluster_create_corosync_conf_stat.stat.exists
   ansible.builtin.command:
     cmd: pvecm create {{ pve_cluster_name }} --link0 {{ pve_main_node_ip }}

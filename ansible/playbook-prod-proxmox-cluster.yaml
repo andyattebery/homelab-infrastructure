@@ -1,5 +1,5 @@
 ---
-- name: Configure Proxmox cluster nodes (vm-host-01, vm-host-02)
+- name: Configure prod Proxmox cluster nodes (vm-host-01, vm-host-02)
   hosts: vm-host-01,vm-host-02
   become: true
 
@@ -107,32 +107,59 @@
         name: debian_add_network_interface
       loop: "{{ extra_network_interfaces | default([]) }}"
 
-    # ---------- Cluster join ----------
+    # ---------- Cluster bootstrap + cluster-wide config (founder only) ----------
+    # Creates the cluster (idempotent — pve_cluster_create checks
+    # /etc/pve/corosync.conf and skips if a cluster already exists), then
+    # writes cluster-shared state to /etc/pve (ACME account + DNS plugin,
+    # storage definitions). All of it propagates to other nodes via pmxcfs
+    # once they join — run once on the founder.
+    - name: Bootstrap and configure cluster-wide PVE state
+      when: pve_cluster_founder | default(false)
+      block:
+        - name: Create Proxmox cluster
+          ansible.builtin.import_role:
+            name: pve_cluster_create
+
+        - name: Configure cluster-level ACME
+          ansible.builtin.import_role:
+            name: pve_cluster_acme
+
+        - name: Add nas-01_proxmox storage
+          ansible.builtin.import_role:
+            name: pve_storage_add_nas_01_proxmox
+
+        - name: Add backup-01 PBS storage
+          ansible.builtin.import_role:
+            name: pve_storage_add_backup_01_pbs
+
+    # ---------- Per-node cluster-dependent config ----------
+    # pve_cluster_add_node also checks /etc/pve/corosync.conf, so it's a no-op
+    # on the founder.
     - name: Join Proxmox cluster
       ansible.builtin.import_role:
         name: pve_cluster_add_node
-
-    # ---------- Cluster-dependent ----------
-    - name: Configure cluster-level ACME
-      ansible.builtin.import_role:
-        name: pve_cluster_acme
 
     - name: Configure node ACME
       ansible.builtin.import_role:
         name: pve_node_acme
 
-    - name: Add nas-01_proxmox storage
-      ansible.builtin.import_role:
-        name: pve_storage_add_nas_01_proxmox
-
-    - name: Add backup-01 PBS storage
-      ansible.builtin.import_role:
-        name: pve_storage_add_backup_01_pbs
-
     - name: Configure PVE backup job script
       ansible.builtin.import_role:
         name: pve_backup_job_script
 
-    - name: Install Ceph and (re)create mon, mgr, mds, OSD on this node
+    # ---------- Ceph ----------
+    # Per-node ceph runs on every host: install → init (founder-gated inside
+    # the role, idempotent) → mon/mgr/mds/OSD. Order is preserved by Ansible's
+    # task-by-task scheduling: the founder's `pveceph init` task completes on
+    # all hosts (founder runs it, others skip via the when-gate) before any
+    # host moves on to `pveceph mon create`.
+    - name: Configure per-node Ceph (install, init on founder, services)
       ansible.builtin.import_role:
         name: pve_node_ceph
+
+    # Cluster-wide ceph storage — pool + cephfs. Founder only; propagates via
+    # pmxcfs. Runs after pve_node_ceph so at least one MDS exists.
+    - name: Configure cluster-wide Ceph storage (founder only)
+      when: pve_cluster_founder | default(false)
+      ansible.builtin.import_role:
+        name: pve_cluster_ceph

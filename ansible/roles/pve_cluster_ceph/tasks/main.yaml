@@ -1,24 +1,8 @@
 ---
-- name: Install ceph
-  ansible.builtin.include_role:
-    name: pve_node_ceph
-    tasks_from: install_ceph
-- name: Get ceph status
-  ansible.builtin.command:
-    cmd: pveceph status
-  register: pveceph_status_result
-  changed_when: false
-  ignore_errors: true
-- name: Initialize ceph
-  when: pveceph_status_result.rc != 0
-  ansible.builtin.command:
-    cmd: pveceph init --network {{ pve_ceph_network }}
-  register: pveceph_init_result
-  changed_when: pveceph_init_result.rc == 0
-- name: Create ceph manager, monitor, metadata server, and OSD
-  ansible.builtin.include_role:
-    name: pve_node_ceph
-    tasks_from: create_ceph_services
+# Cluster-wide ceph storage. Run on the founder after pve_node_ceph has
+# created mon/mgr/mds/OSD on at least one node (the founder itself is enough,
+# but in practice you'd want all nodes' OSDs online before the pool's PGs
+# settle). `pveceph init` and the per-node services live in pve_node_ceph.
 - name: Create ceph pool
   ansible.builtin.command:
     cmd: pveceph pool create pve_pool --pg_num 32 --add_storages

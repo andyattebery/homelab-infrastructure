@@ -85,8 +85,9 @@ pve_cluster_name: homelab
 pve_cluster_main_node_root_password: "{{ vault_pve_cluster_main_node_root_password }}"
 
 # pve_cluster_add_node
-pve_cluster_main_node: vm-host-01
-pve_main_node_ip: "192.168.1.241"
+# Resolved from the host marked with `pve_cluster_founder: true` in host_vars.
+pve_cluster_main_node: "{{ groups['all'] | map('extract', hostvars) | selectattr('pve_cluster_founder', 'defined') | selectattr('pve_cluster_founder') | map(attribute='inventory_hostname') | first }}"
+pve_main_node_ip: "{{ lookup('community.general.dig', pve_cluster_main_node) }}"
 pve_cluster_fingerprint: "{{ vault_pve_cluster_fingerprint }}"
 
 # applications
