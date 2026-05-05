@@ -8,7 +8,7 @@ pve_node_ceph_osd_mode: activate_existing
 # TODO: look up on the live host before running pve_node_ceph:
 #   ceph osd tree                                 → osd_id
 #   cat /var/lib/ceph/osd/ceph-<id>/fsid          → osd_fsid
-# pve_node_ceph_osd_id:
+pve_node_ceph_osd_id: 0
 # pve_node_ceph_osd_fsid:
 
 # Ceph cluster network NIC — identified by MAC so we don't depend on the

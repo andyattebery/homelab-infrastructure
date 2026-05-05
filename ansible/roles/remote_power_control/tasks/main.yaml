@@ -3,7 +3,7 @@
   when: remote_power_control_client
   ansible.builtin.include_tasks:
     file: "client.yaml"
-- name: Configure remote server
-  when: remote_power_control_remote_server
+- name: Configure target
+  when: remote_power_control_target
   ansible.builtin.include_tasks:
-    file: "remote_server.yaml"
+    file: "target.yaml"

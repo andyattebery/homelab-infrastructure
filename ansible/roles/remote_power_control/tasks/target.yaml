@@ -1,0 +1,26 @@
+---
+- name: Download power_command_target script
+  ansible.builtin.get_url:
+    url: https://github.com/andyattebery/remote_power_control/raw/main/remote/power_command_target
+    dest: "{{ remote_power_control_power_command_target_path }}"
+    mode: "0755"
+    owner: root
+    group: root
+- name: Add remote_power_control target user
+  ansible.builtin.user:
+    name: "{{ remote_power_control_target_username }}"
+    password: '!'
+- name: Authorize ssh key for remote_power_control target user
+  ansible.posix.authorized_key:
+    user: "{{ remote_power_control_target_username }}"
+    state: present
+    key: "{{ remote_power_control_target_authorized_key }}"
+    key_options: 'command="{{ remote_power_control_power_command_target_path }}",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding'
+- name: Allow remote_power_control target user to run reboot/shutdown
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/remote_power_control
+    content: "{{ remote_power_control_target_username }} ALL=(root) NOPASSWD: /usr/sbin/reboot, /usr/sbin/shutdown\n"
+    mode: "0440"
+    owner: root
+    group: root
+    validate: /usr/sbin/visudo -cf %s

@@ -205,7 +205,7 @@ pve_backup_job_script_healthchecks_io_url: "{{ healthchecks_server_url }}"
 remote_power_control_pikvm_url: "https://pikvm.{{ domain_name }}"
 remote_power_control_pikvm_username: "{{ pikvm_api_username }}"
 remote_power_control_pikvm_password: "{{ pikvm_api_password }}"
-remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}"
+remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}:8123"
 remote_power_control_homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"
 
 searxng_secret_key: "{{ vault_searxng_secret_key }}"

@@ -27,14 +27,16 @@
 #             server_address: "{{ ups_monitor_rack_nut_server_address }}"
 #             username: "{{ ups_monitor_rack_nut_nas_host_01_username }}"
 #             password: "{{ ups_monitor_rack_nut_nas_host_01_password }}"
-#     - role: pikvm_remote_command
-#       vars:
-#         pikvm_remote_command_ssh_public_key: "{{ pikvm_kvmd_ssh_public_key }}"
 #     - role: remote_power_control
+#       vars:
+#         remote_power_control_client: true
+#         remote_power_control_target: true
+#         remote_power_control_target_username: kvmd
+#         remote_power_control_target_authorized_key: "{{ pikvm_kvmd_ssh_public_key }}"
     # - role: pve_backup_job_script
     #   vars:
     #     pve_backup_job_script_job_init_commands:
-    #       - /usr/local/bin/remote_power_control pikvm on
+    #       - /usr/local/bin/remote_power_control backup-01.{{ domain_name }} pikvm on
     #     pve_backup_job_script_healthchecks_io_uuid: f3d49b86-6d6b-410a-a252-299d84f43fd3
 
 # # Make sure the Proxmox VM video output is VGA
