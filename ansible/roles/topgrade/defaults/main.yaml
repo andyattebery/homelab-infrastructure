@@ -1,1 +1,4 @@
-topgrade_bin_path: /usr/local/bin/topgrade
+# topgrade's cargo-deb-built .deb installs the binary at /usr/bin/topgrade
+# (Debian convention), not /usr/local/bin. Pointing at the actual install
+# path so the github_release_install idempotency check finds the binary.
+topgrade_bin_path: /usr/bin/topgrade

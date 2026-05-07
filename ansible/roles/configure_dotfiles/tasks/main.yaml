@@ -20,6 +20,7 @@
     repo: git@github.com:andyattebery/dotfiles.git
     accept_newhostkey: true
     dest: ~/dotfiles
+    recursive: false
 - name: Link dotfiles
   become: false
   ansible.builtin.command:

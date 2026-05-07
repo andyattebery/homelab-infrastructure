@@ -111,33 +111,59 @@
   # No CRUSH-map gate here on purpose: on a reinstalled host the OSD's
   # CRUSH entry persists in the cluster (the OSD was never removed,
   # just down), so a "skip if hostname in CRUSH" check would skip the
-  # very case this block exists to handle. ceph-volume / systemctl are
-  # idempotent on an already-activated host, so always running this is
-  # safe — it's a no-op when nothing needs activating.
+  # very case this block exists to handle. The inner tasks gate
+  # themselves so they don't falsely report `changed` on a fully-
+  # provisioned host.
   when: pve_node_ceph_osd_mode == 'activate_existing'
   block:
+    # /var/lib/ceph/osd/ceph-N is what `ceph-volume lvm activate --all`
+    # creates and populates, so its presence is a reliable proxy for
+    # "already activated." Probe first so we can skip the activate
+    # command when nothing needs doing.
+    - name: Probe for existing local OSD directories
+      ansible.builtin.find:
+        paths: /var/lib/ceph/osd
+        file_type: directory
+        patterns: 'ceph-*'
+      register: pve_node_ceph_local_osd_dirs_probe
     - name: Activate all LVM-backed OSDs on this host
+      when: pve_node_ceph_local_osd_dirs_probe.matched == 0
       ansible.builtin.command:
         cmd: ceph-volume lvm activate --all
       register: pve_node_ceph_volume_activate_result
       changed_when: true
-    # `ceph-volume lvm activate` enables units with --runtime (transient) and
-    # tries to start them. If earlier prestart attempts hit the systemd
-    # restart-rate-limit (e.g. before /var/lib/ceph/osd/ceph-N existed), the
-    # start fails silently and the OSD ends up disabled+inactive. Discover
-    # local OSDs from /var/lib/ceph/osd, then reset any rate-limit and bring
-    # the units up persistently.
+    # Always re-discover (even when probe already found dirs). Doing it
+    # unconditionally avoids a register-on-skipped pitfall where the
+    # variable would otherwise become a "skipped" stub with no .files.
     - name: Discover local OSD directories
       ansible.builtin.find:
         paths: /var/lib/ceph/osd
         file_type: directory
         patterns: 'ceph-*'
       register: pve_node_ceph_local_osd_dirs
-    - name: Reset failed state on ceph-osd units (clears systemd rate-limit)
+
+    # `ceph-volume lvm activate` enables units with --runtime (transient) and
+    # tries to start them. If earlier prestart attempts hit the systemd
+    # restart-rate-limit (e.g. before /var/lib/ceph/osd/ceph-N existed), the
+    # start fails silently and the OSD ends up disabled+inactive. Detect
+    # which units are actually in failed state, then reset only those — so
+    # `changed` is real signal that something was reset, not noise on every
+    # run.
+    - name: Check failed state of ceph-osd units
       ansible.builtin.command:
-        cmd: "systemctl reset-failed ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"
+        cmd: "systemctl is-failed ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"
       loop: "{{ pve_node_ceph_local_osd_dirs.files }}"
+      register: pve_node_ceph_osd_failed_states
+      changed_when: false
+      failed_when: false  # rc=0 means unit IS failed; rc!=0 means not failed
+
+    - name: Reset failed state on ceph-osd units (clears systemd rate-limit)
+      when: item.rc == 0
+      ansible.builtin.command:
+        cmd: "systemctl reset-failed ceph-osd@{{ item.item.path | basename | regex_replace('^ceph-', '') }}.service"
+      loop: "{{ pve_node_ceph_osd_failed_states.results }}"
       changed_when: true
+
     - name: Enable and start ceph-osd units
       ansible.builtin.systemd_service:
         name: "ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"

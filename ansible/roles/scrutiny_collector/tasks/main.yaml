@@ -57,12 +57,19 @@
     mode: "0644"
     owner: root
 
-- name: Enable and start scrutiny-collector.service
+# Enable the service so it runs once at boot (collector populates
+# fresh data immediately after a reboot, useful if the host was off
+# across the timer's schedule). Don't `state: started` it from the
+# playbook — that'd block the playbook for ExecStartPre's 60s sleep
+# every run. systemd serializes activations on a unit, so there's no
+# race if the timer fires during the boot-time run: with
+# Type=oneshot, the second activation is queued and runs after the
+# first completes.
+- name: Enable scrutiny-collector.service (runs once at boot)
   ansible.builtin.systemd_service:
     daemon_reload: true
     name: "scrutiny-collector.service"
-    state: started
-    enabled: false
+    enabled: true
 
 - name: Enable and start scrutiny-collector.timer
   ansible.builtin.systemd_service:
