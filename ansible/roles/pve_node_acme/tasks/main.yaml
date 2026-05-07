@@ -1,28 +1,28 @@
 ---
 - name: Get node config
   ansible.builtin.command:
-    cmd: pvesh get /nodes/{{ ansible_hostname }}/config -property acmedomain0 --noborder 1 --noheader 1
+    cmd: pvesh get /nodes/{{ ansible_facts['hostname'] }}/config -property acmedomain0 --noborder 1 --noheader 1
   register: pvesh_get_node_config_acmedomain0
   changed_when: false
 
 - name: Add ACME domain to node
   when: 'pvesh_get_node_config_acmedomain0.stdout == ""'
   vars:
-    node_fqdn: "{{ ansible_hostname }}.{{ domain_name }}"
+    node_fqdn: "{{ ansible_facts['hostname'] }}.{{ domain_name }}"
   ansible.builtin.command:
-    cmd: pvesh set /nodes/{{ ansible_hostname }}/config -acmedomain0 domain={{ node_fqdn }},plugin=cloudflare
+    cmd: pvesh set /nodes/{{ ansible_facts['hostname'] }}/config -acmedomain0 domain={{ node_fqdn }},plugin=cloudflare
   changed_when: true
 
 - name: Get certificates info for node
   ansible.builtin.command:
-    cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
+    cmd: pvesh get /nodes/{{ ansible_facts['hostname'] }}/certificates/info --output-format json
   register: pvesh_get_node_certificates_info
   changed_when: false
 
 - name: Order ACME certificate for node
   when: '"pveproxy-ssl.pem" not in pvesh_get_node_certificates_info.stdout'
   ansible.builtin.command:
-    cmd: pvesh create /nodes/{{ ansible_hostname }}/certificates/acme/certificate
+    cmd: pvesh create /nodes/{{ ansible_facts['hostname'] }}/certificates/acme/certificate
   register: pvesh_create_acme_certificate
   changed_when: true
 
@@ -35,7 +35,7 @@
 - name: Wait for ACME certificate to be issued
   when: pvesh_create_acme_certificate is changed
   ansible.builtin.command:
-    cmd: pvesh get /nodes/{{ ansible_hostname }}/certificates/info --output-format json
+    cmd: pvesh get /nodes/{{ ansible_facts['hostname'] }}/certificates/info --output-format json
   register: pvesh_get_node_certificates_info_after_order
   changed_when: false
   until: '"pveproxy-ssl.pem" in pvesh_get_node_certificates_info_after_order.stdout'

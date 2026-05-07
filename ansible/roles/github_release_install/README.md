@@ -11,7 +11,7 @@ Required:
 
 - `github_release_install_repo` — `owner/repo` (e.g. `henrygd/beszel`).
 - `github_release_install_asset_patterns` — dict keyed by
-  `ansible_architecture`, value is a substring used to identify the
+  `ansible_facts['architecture']`, value is a substring used to identify the
   desired asset filename in the release's `assets[*].name` list.
   Substring match handles assets whose names contain the version
   number (you don't need to predict it).

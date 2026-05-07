@@ -16,7 +16,7 @@
         state: present
     # - name: Add no subscription repository
     #   ansible.builtin.apt_repository:
-    #     repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_distribution_release }} port"
+    #     repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_facts['distribution_release'] }} port"
     #     filename: pve-arm
     #     update_cache: false
     #     state: present
@@ -44,12 +44,12 @@
     #     host_ip_result
     - name: Add "static" IP entry
       vars:
-        proxmox_host_ip: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}"
+        proxmox_host_ip: "{{ hostvars[inventory_hostname]['ansible_facts']['default_ipv4']['address'] }}"
       ansible.builtin.lineinfile:
         path: /etc/hosts
         insertafter: '^127\.0\.0\.1'
         regex: "^{{ proxmox_host_ip }}"
-        line: "{{ proxmox_host_ip }}    {{ ansible_hostname }}  {{ ansible_hostname }}.{{ domain_name }}"
+        line: "{{ proxmox_host_ip }}    {{ ansible_facts['hostname'] }}  {{ ansible_facts['hostname'] }}.{{ domain_name }}"
         owner: root
         group: root
         mode: '0644'

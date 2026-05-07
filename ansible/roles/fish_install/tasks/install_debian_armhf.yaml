@@ -1,10 +1,10 @@
 ---
 # - name: Set _install_fish_ubuntu_release_for_debian for Debian 11 (bullseye)
-#   when: ansible_distribution_major_version == '11'
+#   when: ansible_facts['distribution_major_version'] == '11'
 #   ansible.builtin.set_fact:
 #     _install_fish_ubuntu_release_for_debian: focal
 # - name: Set _install_fish_ubuntu_release_for_debian for Debian 12 (bookworm)
-#   when: ansible_distribution_major_version == '12'
+#   when: ansible_facts['distribution_major_version'] == '12'
 #   ansible.builtin.set_fact:
 #     _install_fish_ubuntu_release_for_debian: jammy
 # - name: Add fish Launchpad PPA
@@ -34,25 +34,25 @@
 #     mode: "0644"
 # - name: Add backports repository key
 #   ansible.builtin.get_url:
-#     url: "https://ftp-master.debian.org/keys/archive-key-{{ ansible_distribution_major_version }}.asc"
-#     dest: "/etc/apt/trusted.gpg.d/{{ ansible_distribution_release }}-backports.asc"
+#     url: "https://ftp-master.debian.org/keys/archive-key-{{ ansible_facts['distribution_major_version'] }}.asc"
+#     dest: "/etc/apt/trusted.gpg.d/{{ ansible_facts['distribution_release'] }}-backports.asc"
 #     mode: '0644'
 #     force: true
 # - name: Add backports repository
 #   ansible.builtin.apt_repository:
-#     repo: "deb http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main"
-#     filename: "{{ ansible_distribution_release }}_backports"
+#     repo: "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main"
+#     filename: "{{ ansible_facts['distribution_release'] }}_backports"
 #     state: present
 #     update_cache: false
 # - name: Pin backports repository for fish
 #   ansible.builtin.copy:
 #     content: |
 #       Package: fish
-#       Pin: release a={{ ansible_distribution_release }}-backports
+#       Pin: release a={{ ansible_facts['distribution_release'] }}-backports
 #       Pin-Priority: 900
 
 #       Package: fish-common
-#       Pin: release a={{ ansible_distribution_release }}-backports
+#       Pin: release a={{ ansible_facts['distribution_release'] }}-backports
 #       Pin-Priority: 900
 #     dest: /etc/apt/preferences.d/900-fish-backports
 #     mode: "0644"

@@ -64,7 +64,7 @@
 - name: Resolve NIC name from MAC
   ansible.builtin.set_fact:
     _resolved_nic_name: >-
-      {{ ansible_facts.interfaces
+      {{ ansible_facts['interfaces']
          | map('extract', ansible_facts)
          | selectattr('macaddress', 'defined')
          | selectattr('macaddress', 'eq', debian_add_network_interface_mac)

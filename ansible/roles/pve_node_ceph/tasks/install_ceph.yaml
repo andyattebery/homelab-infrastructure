@@ -2,7 +2,7 @@
 - name: Set package facts
   ansible.builtin.package_facts:
 - name: Install ceph # noqa risky-shell-pipe
-  when: "'ceph' not in ansible_facts.packages"
+  when: "'ceph' not in ansible_facts['packages']"
   ansible.builtin.shell:
     cmd: yes | sudo pveceph install -repository no-subscription
   changed_when: true

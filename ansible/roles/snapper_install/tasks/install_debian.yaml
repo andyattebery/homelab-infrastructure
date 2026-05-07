@@ -5,13 +5,13 @@
   changed_when: false
 - name: Add fish apt repository key
   ansible.builtin.get_url:
-    url: "https://download.opensuse.org/repositories/filesystems:/snapper/Debian_{{ ansible_distribution_major_version }}/Release.key"
+    url: "https://download.opensuse.org/repositories/filesystems:/snapper/Debian_{{ ansible_facts['distribution_major_version'] }}/Release.key"
     dest: /etc/apt/trusted.gpg.d/filesystems_snapper.asc
     mode: '0644'
     force: true
 - name: Add fish apt repository
   ansible.builtin.apt_repository:
-    repo: "deb http://download.opensuse.org/repositories/filesystems:/snapper/Debian_{{ ansible_distribution_major_version }}/ /"
+    repo: "deb http://download.opensuse.org/repositories/filesystems:/snapper/Debian_{{ ansible_facts['distribution_major_version'] }}/ /"
     filename: filesystems_snapper.list
     state: present
     update_cache: false

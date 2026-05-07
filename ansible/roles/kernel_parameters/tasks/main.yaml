@@ -3,7 +3,7 @@
   when: kernel_parameters_new_parameters is defined
   block:
     - name: Proxmox
-      when: ansible_kernel.endswith('-pve')
+      when: ansible_facts['kernel'].endswith('-pve')
       block:
         - name: Get efibootmgr
           ansible.builtin.command:
@@ -29,7 +29,7 @@
             __kernel_parameters_is_proxmox_systemd_boot: true
     # Assume Ubuntu is using grub
     - name: Ubuntu or Fedora
-      when: ansible_distribution == 'Ubuntu' or ansible_distribution == 'Fedora'
+      when: ansible_facts['distribution'] == 'Ubuntu' or ansible_facts['distribution'] == 'Fedora'
       ansible.builtin.set_fact:
         __kernel_parameters_is_grub: true
     - name: Throw unsupported distribution error

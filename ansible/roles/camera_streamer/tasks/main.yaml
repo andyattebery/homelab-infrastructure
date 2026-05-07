@@ -1,6 +1,6 @@
 ---
 - name: Install
-  when: ansible_distribution == 'Debian'
+  when: ansible_facts['distribution'] == 'Debian'
   ansible.builtin.include_tasks:
     file: install_debian.yaml
 - name: Configure camera_streamer_cameras services

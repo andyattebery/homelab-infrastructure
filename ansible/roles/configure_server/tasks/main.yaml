@@ -41,7 +41,7 @@
   community.general.timezone:
     name: "{{ timezone }}"
 - name: Disable ubuntu ads
-  when: ansible_distribution == 'Ubuntu'
+  when: ansible_facts['distribution'] == 'Ubuntu'
   ansible.builtin.include_role:
     name: ubuntu_disable_ads
 - name: Run roles

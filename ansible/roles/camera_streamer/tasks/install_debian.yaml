@@ -10,11 +10,11 @@
   ansible.builtin.set_fact:
     camera_streamer_version: "{{ tag | regex_replace('^v(.*)$', '\\1') }}"
 - name: Set camera_streamer_variant - generic
-  when: not (('-rpi-' in ansible_kernel) or ('-raspi' in ansible_kernel))
+  when: not (('-rpi-' in ansible_facts['kernel']) or ('-raspi' in ansible_facts['kernel']))
   ansible.builtin.set_fact:
     camera_streamer_variant: generic
 - name: Set camera_streamer_variant - raspi
-  when: ('-rpi-' in ansible_kernel) or ('-raspi' in ansible_kernel)
+  when: ('-rpi-' in ansible_facts['kernel']) or ('-raspi' in ansible_facts['kernel'])
   ansible.builtin.set_fact:
     camera_streamer_variant: raspi
 - name: Get architecture
@@ -27,7 +27,7 @@
     camera_streamer_architecture: "{{ dpkg_architecture_result.stdout }}"
 - name: Set camera_streamer_deb_name
   ansible.builtin.set_fact:
-    camera_streamer_deb_name: "camera-streamer-{{ camera_streamer_variant }}_{{ camera_streamer_version }}.{{ ansible_lsb.codename }}_{{ camera_streamer_architecture }}.deb"
+    camera_streamer_deb_name: "camera-streamer-{{ camera_streamer_variant }}_{{ camera_streamer_version }}.{{ ansible_facts['lsb'].codename }}_{{ camera_streamer_architecture }}.deb"
 - name: Create temp dir
   ansible.builtin.tempfile:
     state: directory

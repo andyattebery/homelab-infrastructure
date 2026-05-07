@@ -69,11 +69,11 @@
 #   when: not openSeaChest_PowerControl.stat.exists
 #   block:
     # - name: Set openseachest_tar_pattern - x86_64
-    #   when: ansible_architecture == 'x86_64'
+    #   when: ansible_facts['architecture'] == 'x86_64'
     #   ansible.builtin.set_fact:
     #     openseachest_tar_ends_with: -linux-x86_64-portable.tar.xz
     # - name: Set openseachest_tar_pattern - aarch64
-    #   when: ansible_architecture == 'aarch64'
+    #   when: ansible_facts['architecture'] == 'aarch64'
     #   ansible.builtin.set_fact:
     #     openseachest_tar_ends_with: -linux-aarch64-portable.tar.xz
     # - name: Create temp download directory

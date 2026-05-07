@@ -1,9 +1,9 @@
 - name: Set go2rtc_bin_name - x86_64
-  when: ansible_architecture == 'x86_64'
+  when: ansible_facts['architecture'] == 'x86_64'
   ansible.builtin.set_fact:
     go2rtc_bin_name: go2rtc_linux_amd64
 - name: Set go2rtc_bin_name - aarch64
-  when: ansible_architecture == 'aarch64'
+  when: ansible_facts['architecture'] == 'aarch64'
   ansible.builtin.set_fact:
     go2rtc_bin_name: go2rtc_linux_arm64
 - name: Get latest release from GitHub

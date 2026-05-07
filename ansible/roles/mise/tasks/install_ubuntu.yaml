@@ -1,6 +1,6 @@
 ---
 - name: Install via PPA on Ubuntu 26.04+
-  when: ansible_distribution_major_version | int >= 26
+  when: ansible_facts['distribution_major_version'] | int >= 26
   block:
     - name: Add mise PPA
       ansible.builtin.command:
@@ -11,11 +11,11 @@
         name: mise
         update_cache: true
 - name: Install via apt repository on Ubuntu < 26.04
-  when: ansible_distribution_major_version | int < 26
+  when: ansible_facts['distribution_major_version'] | int < 26
   block:
     - name: Set deb architecture
       ansible.builtin.set_fact:
-        _mise_deb_arch: "{{ mise_arch_map[ansible_architecture] | default(ansible_architecture) }}"
+        _mise_deb_arch: "{{ mise_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
     - name: Create keyrings directory
       ansible.builtin.file:
         path: /etc/apt/keyrings

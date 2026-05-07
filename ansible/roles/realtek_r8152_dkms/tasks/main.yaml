@@ -9,12 +9,12 @@
   ansible.builtin.apt:
     name:
       - raspberrypi-kernel-headers
-  when: "'raspberrypi-kernel' in ansible_facts.packages"
+  when: "'raspberrypi-kernel' in ansible_facts['packages']"
 - name: Install PVE kernel headers
   ansible.builtin.apt:
     name:
       - pve-headers
-  when: ansible_facts.packages is search("pve-kernel") or ansible_facts.packages is search("proxmox-kernel")
+  when: ansible_facts['packages'] is search("pve-kernel") or ansible_facts['packages'] is search("proxmox-kernel")
 - name: Get latest release from GitHub
   ansible.builtin.uri:
     url: https://api.github.com/repos/awesometic/realtek-r8152-dkms/releases/latest

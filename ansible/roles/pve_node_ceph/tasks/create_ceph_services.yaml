@@ -59,8 +59,8 @@
     ceph_managers: []
 - name: Create ceph monitor
   # vars:
-  #   monitor_name: "mon.{{ ansible_hostname }}"
-  when: "ansible_hostname not in ceph_monitors"
+  #   monitor_name: "mon.{{ ansible_facts['hostname'] }}"
+  when: "ansible_facts['hostname'] not in ceph_monitors"
   ansible.builtin.command:
     cmd: "pveceph mon create --mon-address {{ ceph_mon_address }}"
   register: pveceph_mon_create_result
@@ -68,7 +68,7 @@
   # changed_when: pveceph_mon_create_result.rc == 0
   # failed_when: pveceph_mon_create_result.rc != 0 and pveceph_mon_create_result.rc != 255
 - name: Create ceph manager
-  when: "ansible_hostname not in ceph_managers"
+  when: "ansible_facts['hostname'] not in ceph_managers"
   ansible.builtin.command:
     cmd: pveceph mgr create
   register: pveceph_mgr_create_result
@@ -77,11 +77,11 @@
   # failed_when: pveceph_mgr_create_result.rc != 0 and pveceph_mgr_create_result.rc != 255
 - name: Stat MDS data directory
   ansible.builtin.stat:
-    path: "/var/lib/ceph/mds/ceph-{{ ansible_hostname }}"
+    path: "/var/lib/ceph/mds/ceph-{{ ansible_facts['hostname'] }}"
   register: pve_node_ceph_mds_data_dir_stat
 - name: Create ceph Metadata Server
   vars:
-    mds_name: "mds.{{ ansible_hostname }}"
+    mds_name: "mds.{{ ansible_facts['hostname'] }}"
   # Recreate the MDS daemon if either the cluster ceph.conf doesn't reference
   # it, or the local data dir is missing (e.g. after a host reinstall where
   # the conf section persists in the cluster-shared /etc/pve/priv/ceph.conf
@@ -101,7 +101,7 @@
 - name: Create ceph OSD
   when:
     - pve_node_ceph_osd_mode == 'create'
-    - ansible_hostname not in ceph_crush_map_result.stdout
+    - ansible_facts['hostname'] not in ceph_crush_map_result.stdout
   ansible.builtin.command:
     cmd: pveceph osd create {{ pve_ceph_osd_device }}
   register: pveceph_osd_create_result

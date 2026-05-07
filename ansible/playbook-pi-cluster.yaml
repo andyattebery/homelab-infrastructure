@@ -43,7 +43,7 @@
         state: mounted
     - name: Set facts
       ansible.builtin.set_fact:
-        control_plane_01_ip: "{{ hostvars[groups['pi_cluster'][0]]['ansible_default_ipv4']['address'] }}"
+        control_plane_01_ip: "{{ hostvars[groups['pi_cluster'][0]]['ansible_facts']['default_ipv4']['address'] }}"
     - name: Enable SSH forwarding for sudo
       ansible.builtin.lineinfile:
         dest: /etc/sudoers

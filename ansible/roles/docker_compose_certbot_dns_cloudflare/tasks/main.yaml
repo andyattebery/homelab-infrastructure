@@ -1,10 +1,10 @@
 ---
 - name: Set x86_64 facts
-  when: ansible_architecture == 'x86_64'
+  when: ansible_facts['architecture'] == 'x86_64'
   ansible.builtin.set_fact:
     certbot_dns_cloudflare_image_tag: amd64-latest
 - name: Set aarch64 facts
-  when: ansible_architecture == 'aarch64'
+  when: ansible_facts['architecture'] == 'aarch64'
   ansible.builtin.set_fact:
     certbot_dns_cloudflare_image_tag: arm64v8-latest
 - name: Initial docker compose setup

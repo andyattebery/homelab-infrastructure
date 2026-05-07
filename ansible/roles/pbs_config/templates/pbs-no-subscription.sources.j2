@@ -1,5 +1,5 @@
 Types: deb
 URIs: http://download.proxmox.com/debian/pbs
-Suites: {{ ansible_distribution_release }}
+Suites: {{ ansible_facts['distribution_release'] }}
 Components: pbs-no-subscription
 Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg

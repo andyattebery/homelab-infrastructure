@@ -28,7 +28,7 @@
   changed_when: false
 
 - name: Reboot if a newer kernel is installed but not running
-  when: realtek_r8125_dkms_package_latest_installed_kernel.stdout != ansible_facts.kernel
+  when: realtek_r8125_dkms_package_latest_installed_kernel.stdout != ansible_facts['kernel']
   ansible.builtin.reboot:
     msg: "Activating newer installed kernel ({{ realtek_r8125_dkms_package_latest_installed_kernel.stdout }}) so DKMS modules become loadable"
     reboot_timeout: 600

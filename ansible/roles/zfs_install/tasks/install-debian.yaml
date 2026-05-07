@@ -2,12 +2,12 @@
 - name: Add backports repositories
   ansible.builtin.apt_repository:
     repo: "{{ item }}"
-    filename: "{{ ansible_distribution_release }}-backports"
+    filename: "{{ ansible_facts['distribution_release'] }}-backports"
     update_cache: false
     state: present
   loop:
-    - "deb http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main contrib"
-    - "deb-src http://deb.debian.org/debian {{ ansible_distribution_release }}-backports main contrib"
+    - "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib"
+    - "deb-src http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib"
 - name: Make backports repo higher priority
   ansible.builtin.template:
     src: apt_preferences_zfs.j2

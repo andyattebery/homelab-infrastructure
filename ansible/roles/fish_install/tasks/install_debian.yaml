@@ -5,7 +5,7 @@
 #   changed_when: false
 - name: Add fish apt repository key
   ansible.builtin.get_url:
-    url: "https://download.opensuse.org/repositories/shells:fish:release:{{ fish_version }}/Debian_{{ ansible_distribution_major_version }}/Release.key"
+    url: "https://download.opensuse.org/repositories/shells:fish:release:{{ fish_version }}/Debian_{{ ansible_facts['distribution_major_version'] }}/Release.key"
     dest: /etc/apt/trusted.gpg.d/shells_fish_release_{{ fish_version }}.asc
     mode: '0644'
     force: true

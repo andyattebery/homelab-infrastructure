@@ -15,10 +15,10 @@
 
 - name: Assert this architecture is supported by the caller's pattern dict
   ansible.builtin.assert:
-    that: ansible_architecture in github_release_install_asset_patterns
+    that: ansible_facts['architecture'] in github_release_install_asset_patterns
     fail_msg: >-
       No asset pattern declared for architecture
-      '{{ ansible_architecture }}' in github_release_install_asset_patterns.
+      '{{ ansible_facts['architecture'] }}' in github_release_install_asset_patterns.
       Caller declared: {{ github_release_install_asset_patterns.keys() | list }}.
 
 - name: Get latest release from GitHub
@@ -32,7 +32,7 @@
     github_release_install_asset_name: >-
       {{ github_release_install_release_response.json.assets
          | map(attribute='name')
-         | select('search', github_release_install_asset_patterns[ansible_architecture])
+         | select('search', github_release_install_asset_patterns[ansible_facts['architecture']])
          | first }}
 
 - name: Stat installed binary

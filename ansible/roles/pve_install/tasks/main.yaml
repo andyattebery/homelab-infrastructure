@@ -1,8 +1,8 @@
 ---
 - name: Add apt key
   ansible.builtin.get_url:
-    url: "https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_distribution_release }}.gpg"
-    dest: "/etc/apt/trusted.gpg.d/proxmox-release-{{ ansible_distribution_release }}.gpg"
+    url: "https://enterprise.proxmox.com/debian/proxmox-release-{{ ansible_facts['distribution_release'] }}.gpg"
+    dest: "/etc/apt/trusted.gpg.d/proxmox-release-{{ ansible_facts['distribution_release'] }}.gpg"
     owner: root
     group: root
     mode: '0644'
@@ -34,7 +34,7 @@
         path: /etc/hosts
         insertafter: '^127\.0\.0\.1'
         regex: "^{{ proxmox_host_ip }}"
-        line: "{{ proxmox_host_ip }}    {{ ansible_hostname }}  {{ ansible_hostname }}.{{ domain_name }}"
+        line: "{{ proxmox_host_ip }}    {{ ansible_facts['hostname'] }}  {{ ansible_facts['hostname'] }}.{{ domain_name }}"
         owner: root
         group: root
         mode: '0644'

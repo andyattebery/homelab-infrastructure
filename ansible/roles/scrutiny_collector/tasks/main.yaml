@@ -6,7 +6,7 @@
 
 - name: Resolve scrutiny collector binary name for this architecture
   ansible.builtin.set_fact:
-    scrutiny_collector_bin_name: "{{ ({'x86_64':'scrutiny-collector-metrics-linux-amd64','aarch64':'scrutiny-collector-metrics-linux-arm64'})[ansible_architecture] }}"
+    scrutiny_collector_bin_name: "{{ ({'x86_64':'scrutiny-collector-metrics-linux-amd64','aarch64':'scrutiny-collector-metrics-linux-arm64'})[ansible_facts['architecture']] }}"
 
 - name: Create directories
   ansible.builtin.file:

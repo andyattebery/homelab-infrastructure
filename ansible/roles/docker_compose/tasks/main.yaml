@@ -13,14 +13,14 @@
         fail_key: false
     - name: Assert docker group exists
       ansible.builtin.assert:
-        that: ansible_facts.getent_group['docker'] is not none
+        that: ansible_facts['getent_group']['docker'] is not none
         fail_msg: >-
           The 'docker' group was not found on {{ inventory_hostname }}.
           Install Docker (and ensure the 'docker' group exists) before running
           roles that depend on docker_compose.
     - name: Set docker_compose_docker_gid
       ansible.builtin.set_fact:
-        docker_compose_docker_gid: "{{ ansible_facts.getent_group['docker'][1] }}"
+        docker_compose_docker_gid: "{{ ansible_facts['getent_group']['docker'][1] }}"
 - name: Set docker_compose_dst_directory_path fact
   ansible.builtin.set_fact:
     docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path }}"

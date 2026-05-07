@@ -1,7 +1,7 @@
 ---
 - name: Set deb architecture
   ansible.builtin.set_fact:
-    _mise_deb_arch: "{{ mise_arch_map[ansible_architecture] | default(ansible_architecture) }}"
+    _mise_deb_arch: "{{ mise_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
 - name: Create keyrings directory
   ansible.builtin.file:
     path: /etc/apt/keyrings

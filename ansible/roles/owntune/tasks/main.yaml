@@ -10,7 +10,7 @@
     mode: '0644'
 - name: Add owntune apt repository
   ansible.builtin.apt_repository:
-    repo: "deb http://www.gyfgafguf.dk/raspbian/owntone {{ ansible_distribution_release }} contrib"
+    repo: "deb http://www.gyfgafguf.dk/raspbian/owntone {{ ansible_facts['distribution_release'] }} contrib"
     filename: owntune
     state: present
     update_cache: false
@@ -20,7 +20,7 @@
 #     types: [deb]
 #     uris: http://www.gyfgafguf.dk/raspbian/owntone
 #     suites:
-#       - "{{ ansible_distribution_release }}"
+#       - "{{ ansible_facts['distribution_release'] }}"
 #     components:
 #       - contrib
 #     signed_by: http://www.gyfgafguf.dk/raspbian/owntone.gpg
@@ -28,7 +28,7 @@
 #     enabled: true
 # - name: Add apt repository
 #   ansible.builtin.get_url:
-#     url: "http://www.gyfgafguf.dk/raspbian/owntone-{{ ansible_distribution_release }}.list"
+#     url: "http://www.gyfgafguf.dk/raspbian/owntone-{{ ansible_facts['distribution_release'] }}.list"
 #     dest: "/etc/apt/sources.list.d/owntone.list"
 #     owner: root
 #     group: root
