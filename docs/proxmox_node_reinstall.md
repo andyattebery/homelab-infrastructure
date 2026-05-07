@@ -42,35 +42,19 @@ scripts/pve-pre-wipe-backup.sh <host>
 
 Pulls `/etc/pve`, `/etc/ssh`, `/root/.ssh`, `/etc/network`, apt sources, and a snapshot of cluster state into a tarball. Treat the tarball as a credentials dump.
 
-## Phase 2 — Update host_vars
-
-Edit `ansible/host_vars/<host>/vars.yaml` to set the OSD parameters (from Phase 0):
-
-```yaml
-pve_ceph_osd_device: /dev/disk/by-id/<osd-disk-by-id>
-ceph_mon_address: "<mon-ip>"                 # from `ceph mon dump`, e.g. 10.1.40.12
-pve_node_ceph_osd_mode: activate_existing
-pve_node_ceph_osd_id: <id>                   # e.g. 1
-pve_node_ceph_osd_fsid: "<osd-fsid>"         # from `ceph-volume lvm list`
-ceph_cluster_nic_mac: "<cluster-nic-mac>"    # the Realtek 2.5GbE
-ceph_cluster_nic_address: "<ip>/24"          # e.g. 10.1.40.12/24
-```
-
-No `ceph_cluster_nic_gateway` is needed — the cluster network is L2-only and a gateway directive there breaks the default route under ifupdown2. The playbook's interfaces.d template doesn't include one.
-
-## Phase 3 — Cluster prep
+## Phase 2 — Cluster prep
 
 On a surviving node:
 
 ```
-ceph osd set noout
-ceph osd set norebalance
-ceph -s
+sudo ceph osd set noout
+sudo ceph osd set norebalance
+sudo ceph -s
 ```
 
 These pause rebalancing so the cluster doesn't shuffle data while one node is offline.
 
-## Phase 4 — Drain & remove the node
+## Phase 3 — Drain & remove the node
 
 On `<host>`:
 
@@ -107,11 +91,11 @@ sudo pvecm expected <remaining>      # e.g. 2 if going from 3 → 2 nodes
 sudo pvecm status
 ```
 
-## Phase 5 — Physical swap
+## Phase 4 — Physical swap
 
 Replace the failed boot drive. Leave the OSD drive alone. Boot to BIOS, confirm both drives are detected.
 
-## Phase 6 — PVE installer
+## Phase 5 — PVE installer
 
 Boot the PVE installer USB. Match the cluster's PVE major version (e.g. PVE 9.x).
 
@@ -133,19 +117,7 @@ Boot the PVE installer USB. Match the cluster's PVE major version (e.g. PVE 9.x)
 
 Hostname / IP / gateway / DNS: match the existing host_vars / DNS records.
 
-## Phase 7 — Bootstrap for Ansible
-
-On `<host>`: follow [proxmox_readme.md](proxmox_readme.md) — create the ansible user, install sudo, add to sudo group, copy SSH key, then clear stale known_hosts entries on the control node (also covered there).
-
-On the control node, from `ansible/`:
-
-```
-mise run bootstrap
-```
-
-That installs / refreshes the python deps and galaxy roles/collections per [ansible/mise.toml](../ansible/mise.toml).
-
-## Phase 8 — Run the playbook
+## Phase 7 — Run the playbook
 
 From the control node:
 
@@ -162,23 +134,11 @@ Single end-to-end run. Things the playbook handles automatically that previously
 - After OSD activate-existing, resets-failed and starts `ceph-osd@<id>` so the daemon is up persistently.
 - Force-clears any stale cephfs mounts that went zombie during the rebuild.
 
-## Phase 9 — Manual cluster join (only if needed)
-
-If the playbook reports `pve_cluster_add_node` skipped and `/etc/pve/corosync.conf` is missing on `<host>`, the join didn't happen. Run it manually then re-run the playbook:
-
-```
-sudo pvecm add <main-node-fqdn>     # e.g. vm-host-01.omegaho.me — use FQDN, not IP
-```
-
-Use the FQDN — the cluster's main node serves a Let's Encrypt cert for the FQDN, so connecting by IP fails hostname verification. (`--use_ssh` bypasses HTTPS if the FQDN isn't resolvable for some reason.)
-
-After join, re-run the playbook to fire the cluster-dependent roles (ACME, storage, ceph services).
-
-## Phase 10 — Bring OSD back in and monitor recovery
+## Phase 8 — Bring OSD back in and monitor recovery
 
 ```
 sudo ceph osd in <id>
-watch -n 5 'ceph -s'
+sudo watch -n 5 'ceph -s'
 ```
 
 Watch for:
@@ -197,7 +157,7 @@ sudo ceph osd unset norebalance
 sudo ceph -s                        # HEALTH_OK
 ```
 
-## Phase 11 — Verify
+## Phase 9 — Verify
 
 ```
 sudo pvecm status                                              # 3 nodes quorate

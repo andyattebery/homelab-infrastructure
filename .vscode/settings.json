@@ -6,5 +6,9 @@
     "ansible.python.interpreterPath": "/Users/andy/.local/share/mise/installs/python/3.14.3/bin/python",
     "ansible.ansible.path": "ansible",
     "ansible.validation.lint.path": "ansible-lint",
-    "ansible.python.activationScript": "ansible/.venv/bin/activate"
+    "ansible.python.activationScript": "ansible/.venv/bin/activate",
+    "files.associations": {
+        "ansible/**/*.yaml": "ansible",
+        "ansible/**/*.j2": "ansible-jinja"
+    },
 }

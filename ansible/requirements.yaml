@@ -1,18 +1,13 @@
 ---
 collections:
   - name: artis3n.tailscale
-  - name: community.general
-  - name: community.docker
   - name: gluster.gluster
-  - name: kubernetes.core
   - name: prometheus.prometheus
-  - name: vladgh.samba
 
 roles:
   - name: geerlingguy.docker
   - name: geerlingguy.glusterfs
   - name: geerlingguy.nfs
-  - name: geerlingguy.node_exporter
   - name: geerlingguy.ntp
   - name: geerlingguy.postfix
   - name: geerlingguy.security

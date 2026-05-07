@@ -28,26 +28,47 @@
     return_content: true
   register:
     beszel_latest_release_json_response
-- name: Create temp directory
-  ansible.builtin.tempfile:
-    state: directory
-  register: beszel_download_temp_directory_result
-- name: Download binary # noqa jinja[invalid]
+- name: Stat installed binary
+  ansible.builtin.stat:
+    path: "{{ beszel_agent_bin_path }}"
+  register: beszel_agent_bin_stat
+- name: Get installed binary version
+  when: beszel_agent_bin_stat.stat.exists
+  ansible.builtin.command: "{{ beszel_agent_bin_path }} -v"
+  changed_when: false
+  register: beszel_agent_installed_version_result
+- name: Set version comparison facts
   vars:
-    browser_download_url_json_query: "assets[?name == '{{ beszel_agent_asset_name }}'].browser_download_url"
-    browser_download_urls: "{{ beszel_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
-    beszel_asset_url: "{{ browser_download_urls | first }}"
-  ansible.builtin.unarchive:
-    remote_src: true
-    src: "{{ beszel_asset_url }}"
-    dest: "{{ beszel_download_temp_directory_result.path }}"
-    mode: "0755"
-    owner: root
-  register: beszel_download_unarchive_result
-- name: Copy to {{ beszel_agent_bin_path }}
-  ansible.builtin.copy:
-    remote_src: true
-    src: "{{ (beszel_download_temp_directory_result.path, 'beszel-agent') | path_join }}"
-    dest: "{{ beszel_agent_bin_path }}"
-    mode: "0755"
-    owner: root
+    latest_tag_raw: "{{ beszel_latest_release_json_response.json.tag_name }}"
+    latest_version: "{{ latest_tag_raw | regex_replace('^v', '') }}"
+    installed_version: >-
+      {{ (beszel_agent_installed_version_result.stdout | default('')).split() | last | default('') | regex_replace('^v', '') }}
+  ansible.builtin.set_fact:
+    beszel_agent_latest_version: "{{ latest_version }}"
+    beszel_agent_needs_install: "{{ not beszel_agent_bin_stat.stat.exists or installed_version | trim != latest_version }}"
+- name: Install beszel-agent binary
+  when: beszel_agent_needs_install
+  block:
+    - name: Create temp directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: beszel_download_temp_directory_result
+    - name: Download binary # noqa jinja[invalid]
+      vars:
+        browser_download_url_json_query: "assets[?name == '{{ beszel_agent_asset_name }}'].browser_download_url"
+        browser_download_urls: "{{ beszel_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
+        beszel_asset_url: "{{ browser_download_urls | first }}"
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ beszel_asset_url }}"
+        dest: "{{ beszel_download_temp_directory_result.path }}"
+        mode: "0755"
+        owner: root
+      register: beszel_download_unarchive_result
+    - name: Copy to {{ beszel_agent_bin_path }}
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ (beszel_download_temp_directory_result.path, 'beszel-agent') | path_join }}"
+        dest: "{{ beszel_agent_bin_path }}"
+        mode: "0755"
+        owner: root

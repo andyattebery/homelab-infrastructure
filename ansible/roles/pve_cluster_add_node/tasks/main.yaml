@@ -12,12 +12,112 @@
 - name: Join cluster
   when: not pve_cluster_add_node_corosync_conf_stat.stat.exists
   block:
+    # Pick a peer that's actually in the cluster right now. Stat
+    # corosync.conf on each non-self inventory member and take the
+    # first one that has it. Works for fresh bootstrap (founder just
+    # ran pve_cluster_create, has corosync.conf) and re-provision of
+    # any node, including the would-be founder.
+    - name: Stat corosync.conf on every other inventory peer
+      ansible.builtin.stat:
+        path: /etc/pve/corosync.conf
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['prod_proxmox_cluster'] | difference([inventory_hostname]) }}"
+      register: pve_cluster_add_node_peer_corosync_stats
+
+    - name: Pick a join target from peers that are already in the cluster
+      ansible.builtin.set_fact:
+        pve_cluster_add_node_join_target: >-
+          {{ (pve_cluster_add_node_peer_corosync_stats.results
+              | selectattr('stat.exists')
+              | map(attribute='item')) | first }}
+
+    - name: Resolve join target IP
+      ansible.builtin.set_fact:
+        pve_cluster_add_node_target_ip: "{{ lookup('community.general.dig', pve_cluster_add_node_join_target) }}"
+
+    # `pvecm add --use_ssh` authenticates joining-node-root → target-
+    # node-root via SSH key, so the joining node needs a root keypair.
+    - name: Ensure root has an SSH keypair
+      community.crypto.openssh_keypair:
+        path: /root/.ssh/id_ed25519
+        type: ed25519
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Slurp joining node's root pubkey
+      ansible.builtin.slurp:
+        src: /root/.ssh/id_ed25519.pub
+      register: pve_cluster_add_node_pubkey
+
+    # delegate_to runs this single task on the join target while
+    # keeping the joining node's variable context (so `key:` reads
+    # the just-slurped pubkey from THIS host). After the join,
+    # pmxcfs syncs /root/.ssh/authorized_keys cluster-wide via
+    # /etc/pve/priv/authorized_keys, so this entry propagates.
+    # The `default(inventory_hostname)` on delegate_to is required for
+    # idempotent re-runs on nodes already in the cluster: the block's
+    # `when` skips this task, but `delegate_to` is templated as part
+    # of task header loading *before* the when short-circuit fires —
+    # so without a default, an undefined join_target (because the
+    # Pick task that would set it was skipped) makes templating fail
+    # and the task errors out instead of skipping cleanly.
+    - name: Authorize joining node's root pubkey on the join target
+      delegate_to: "{{ pve_cluster_add_node_join_target | default(inventory_hostname) }}"
+      ansible.posix.authorized_key:
+        user: root
+        key: "{{ pve_cluster_add_node_pubkey.content | b64decode }}"
+        state: present
+
+    # pvecm add's internal ssh would otherwise prompt for host-key
+    # confirmation and abort under StrictHostKeyChecking. Pre-seed
+    # the target's host keys in root's known_hosts.
+    - name: Scan target SSH host keys
+      ansible.builtin.command:
+        cmd: "ssh-keyscan -T 5 {{ pve_cluster_add_node_target_ip }}"
+      register: pve_cluster_add_node_target_keyscan
+      changed_when: false
+
+    - name: Trust target SSH host keys in root's known_hosts
+      ansible.builtin.known_hosts:
+        path: /root/.ssh/known_hosts
+        name: "{{ pve_cluster_add_node_target_ip }}"
+        key: "{{ item }}"
+        state: present
+      # ssh-keyscan emits banner comment lines (`# host:port SSH-2.0-...`)
+      # interleaved with key lines. The known_hosts module rejects the
+      # comments with "Host parameter does not match hashed host field
+      # in supplied key", so filter to only key lines.
+      loop: "{{ pve_cluster_add_node_target_keyscan.stdout_lines | reject('match', '^#') | reject('equalto', '') | list }}"
+
     - name: Resolve this host's IP for link0
       ansible.builtin.set_fact:
         host_node_ip: "{{ lookup('community.general.dig', ansible_host) }}"
+
+    # `pvecm add` runs ON the joining node by definition (it adds the
+    # *current* node to an existing cluster). throttle: 1 serializes
+    # this task across hosts so two new nodes joining in the same run
+    # don't race for the cluster lock — fresh-bootstrap with multiple
+    # peers would otherwise hit the race.
     - name: Join cluster
-      vars:
-        node_cluster_network_ip: "{{ host_node_ip }}"
       ansible.builtin.command:
-        cmd: pvesh create /cluster/config/join -fingerprint {{ pve_cluster_fingerprint }} -hostname {{ pve_main_node_ip }} -password {{ pve_cluster_main_node_root_password }} -link0 address={{ node_cluster_network_ip }} # noqa yaml[line-length]
+        cmd: >-
+          pvecm add {{ pve_cluster_add_node_target_ip }}
+          --use_ssh
+          --link0 address={{ host_node_ip }}
       changed_when: true
+      throttle: 1
+
+# Run unconditionally — catches the case where corosync.conf existed
+# at the top of the role but the cluster isn't actually working
+# (partition, partial state from a prior failed run, etc.). Without
+# this, downstream roles fail with cryptic errors like
+# "plugin 'cloudflare' for domain '...' not found!" five tasks later.
+- name: Verify node is in a healthy, quorate cluster
+  ansible.builtin.command:
+    cmd: pvecm status
+  register: pve_cluster_add_node_status_result
+  changed_when: false
+  failed_when: >-
+    pve_cluster_add_node_status_result.rc != 0
+    or pve_cluster_add_node_status_result.stdout is not search('Quorate:\s+Yes')

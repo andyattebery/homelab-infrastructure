@@ -1,8 +1,8 @@
 ---
-# Cluster-wide ceph storage. Run on the founder after pve_node_ceph has
-# created mon/mgr/mds/OSD on at least one node (the founder itself is enough,
-# but in practice you'd want all nodes' OSDs online before the pool's PGs
-# settle). `pveceph init` and the per-node services live in pve_node_ceph.
+# Cluster-wide ceph storage. Run on the initial node after pve_node_ceph has
+# created mon/mgr/mds/OSD on at least one node (the initial node itself is
+# enough, but in practice you'd want all nodes' OSDs online before the pool's
+# PGs settle). `pveceph init` and the per-node services live in pve_node_ceph.
 - name: Create ceph pool
   ansible.builtin.command:
     cmd: pveceph pool create pve_pool --pg_num 32 --add_storages

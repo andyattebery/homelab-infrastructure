@@ -10,9 +10,19 @@ uv_venv_auto = false
 [tasks.bootstrap]
 description = 'Bootstrap Ansible environment'
 run = [
+  '[ "$(uname)" = "Darwin" ] && { brew list gnu-tar &>/dev/null || brew install gnu-tar; }',
   'python -m ensurepip --upgrade',
   'python -m pip install -r requirements.txt',
   'ansible-galaxy install -r requirements.yaml'
+]
+
+[tasks.upgrade]
+description = 'Bootstrap Ansible environment'
+run = [
+  'pip3 install --upgrade pip',
+  'python -m pip install -r requirements.txt',
+  'ansible-galaxy collection install -r requirements.yaml --upgrade',
+  'ansible-galaxy role install --role-file requirements.yaml --force'
 ]
 
 [tasks.facts]

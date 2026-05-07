@@ -1,22 +1,26 @@
 ---
-- name: Install r8125-dkms package
+# Make sure the PVE kernel and headers metas are current before
+# touching DKMS. `proxmox-default-kernel` is a meta that points at the
+# latest stable kernel binary; if it's installed but stale, no
+# `state: present` apt install will pull a newer kernel in (it's a
+# no-op on already-installed metas), and DKMS will end up trying to
+# build against a running kernel whose headers may not be installed
+# (pve-headers tracks the *latest* kernel, not the running one).
+# `state: latest` forces apt to upgrade the metas and pull any new
+# deps (kernel binary + matching headers).
+- name: Ensure PVE kernel + headers metas are at latest
   ansible.builtin.apt:
     name:
-      - r8125-dkms
+      - proxmox-default-kernel
+      - pve-headers
+    state: latest
+    update_cache: true
 
-- name: Add udev rule to swap r8169 → r8125 for matching Realtek cards
-  ansible.builtin.template:
-    src: 99-r8169-to-r8125.rules.j2
-    dest: /etc/udev/rules.d/99-r8169-to-r8125.rules
-    owner: root
-    group: root
-    mode: "0644"
-
-# If the apt run pulled in a newer kernel (e.g. via pve-headers ->
-# proxmox-default-headers -> proxmox-default-kernel), DKMS builds the
-# new module against the newer kernel — not the running one — so it's
-# useless until we reboot. Detect that case and reboot before
-# continuing.
+# If the meta upgrade pulled in a newer kernel binary, reboot into it
+# before installing r8125-dkms. That way the apt postinst's `dkms
+# autoinstall` runs against the kernel we're actually going to be on,
+# with matching headers in place, and the build/install completes in
+# one step (no follow-up `dkms autoinstall -k` fixup needed).
 - name: Find the latest installed kernel under /lib/modules
   ansible.builtin.command:
     cmd: bash -c 'ls /lib/modules/ | sort -V | tail -1'
@@ -29,20 +33,63 @@
     msg: "Activating newer installed kernel ({{ realtek_r8125_dkms_package_latest_installed_kernel.stdout }}) so DKMS modules become loadable"
     reboot_timeout: 600
 
-# The kernel's generic r8169 driver claims Realtek NICs at boot before
-# the udev rule (which unbinds r8169 and binds r8125) gets to fire. On
-# the first run after r8125-dkms is installed, swap any r8125-eligible
-# PCI devices still using r8169 so we don't have to reboot.
+# Install r8125-dkms now, post-reboot. On a fresh install the apt
+# postinst runs `dkms autoinstall` against the running kernel — but
+# on a re-run where the package is already installed, the postinst
+# does not re-fire, so a previous failed/skipped build leaves DKMS
+# parked at `added` indefinitely. The explicit autoinstall below
+# handles that case.
+- name: Install r8125-dkms package
+  ansible.builtin.apt:
+    name:
+      - r8125-dkms
+
+- name: Get running kernel
+  ansible.builtin.command:
+    cmd: uname -r
+  register: realtek_r8125_dkms_package_running_kernel
+  changed_when: false
+
+# Idempotent: if the module is already built and installed for this
+# kernel, dkms autoinstall is a fast no-op. If DKMS is at `added`
+# (postinst skipped, or earlier build failed) and headers are now in
+# place, this is what actually produces the .ko.
+- name: Ensure r8125 DKMS module is built and installed for the running kernel
+  ansible.builtin.command:
+    cmd: "dkms autoinstall -k {{ realtek_r8125_dkms_package_running_kernel.stdout }}"
+  register: realtek_r8125_dkms_package_autoinstall_result
+  changed_when: "'installed' in realtek_r8125_dkms_package_autoinstall_result.stdout"
+
+# Drop the udev rule. r8169 has already claimed the card at this
+# point (it grabbed it at cold-boot before we had any rule in place),
+# so the swap-dance block below will need to runtime-unbind r8169
+# and rebind r8125 — that's exactly what it's there for.
+- name: Add udev rule to swap r8169 → r8125 for matching Realtek cards
+  ansible.builtin.template:
+    src: 99-r8169-to-r8125.rules.j2
+    dest: /etc/udev/rules.d/99-r8169-to-r8125.rules
+    owner: root
+    group: root
+    mode: "0644"
+
+# The kernel's generic r8169 driver typically claims Realtek NICs at
+# boot before our udev rule has been written, and on some r8125 chip
+# revs no driver claims the card at all (r8169's PCI-ID table doesn't
+# match the newer revision, r8125 isn't loaded yet). In both cases we
+# need to (re)trigger udev so the rule fires and r8125 binds. Skip
+# devices that already have a non-r8169 driver bound — those belong
+# to something else and shouldn't be disturbed.
 #
 # Eligibility = PCI device whose subsystem_vendor / subsystem_device
-# match the udev rule above (so we don't accidentally try to swap an
-# unrelated r8169-bound NIC like a built-in 1GbE Realtek).
-- name: Find r8125-eligible PCI devices currently bound to r8169
+# match the udev rule above, AND that's either unbound or bound to
+# r8169.
+- name: Find r8125-eligible PCI devices to (re)bind
   ansible.builtin.shell: |
     set -o pipefail
     for d in /sys/bus/pci/devices/*; do
-      [ -e "$d/driver" ] || continue
-      [ "$(basename "$(readlink -f "$d/driver")")" = "r8169" ] || continue
+      if [ -e "$d/driver" ]; then
+        [ "$(basename "$(readlink -f "$d/driver")")" = "r8169" ] || continue
+      fi
       [ "$(cat "$d/subsystem_vendor" 2>/dev/null)" = "{{ realtek_r8125_dkms_package_subsystem_vendor }}" ] || continue
       [ "$(cat "$d/subsystem_device" 2>/dev/null)" = "{{ realtek_r8125_dkms_package_subsystem_device }}" ] || continue
       basename "$d"

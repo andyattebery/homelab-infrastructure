@@ -49,6 +49,16 @@
     insertafter: EOF
     state: present
 
+# Refresh network facts so the MAC lookup below sees interfaces that
+# may have been renamed/added earlier in the play (e.g. by udev rules
+# from realtek_r8125_dkms_package after a kernel reboot).
+- name: Refresh network facts
+  ansible.builtin.setup:
+    gather_subset:
+      - '!all'
+      - '!min'
+      - network
+
 # Resolve interface name from MAC so we don't hardcode whatever the
 # installer / udev pinning chose (e.g. nic1 today, could differ).
 - name: Resolve NIC name from MAC

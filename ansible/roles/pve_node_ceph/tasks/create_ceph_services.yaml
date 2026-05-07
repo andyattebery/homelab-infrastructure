@@ -108,34 +108,42 @@
   changed_when: pveceph_osd_create_result == 0
   failed_when: pveceph_osd_create_result.rc != 0 # and pveceph_osd_create_result.rc != 25
 - name: Activate existing ceph OSD
-  when:
-    - pve_node_ceph_osd_mode == 'activate_existing'
-    - ansible_hostname not in ceph_crush_map_result.stdout
+  # No CRUSH-map gate here on purpose: on a reinstalled host the OSD's
+  # CRUSH entry persists in the cluster (the OSD was never removed,
+  # just down), so a "skip if hostname in CRUSH" check would skip the
+  # very case this block exists to handle. ceph-volume / systemctl are
+  # idempotent on an already-activated host, so always running this is
+  # safe — it's a no-op when nothing needs activating.
+  when: pve_node_ceph_osd_mode == 'activate_existing'
   block:
-    - name: List existing ceph-volume LVM OSDs
+    - name: Activate all LVM-backed OSDs on this host
       ansible.builtin.command:
-        cmd: ceph-volume lvm list
-      register: pve_node_ceph_volume_list_result
-      changed_when: false
-    - name: Activate existing OSD by id and fsid
-      ansible.builtin.command:
-        cmd: "ceph-volume lvm activate {{ pve_node_ceph_osd_id }} {{ pve_node_ceph_osd_fsid }}"
+        cmd: ceph-volume lvm activate --all
       register: pve_node_ceph_volume_activate_result
       changed_when: true
-    # `ceph-volume lvm activate` enables the unit with --runtime (transient)
-    # and tries to start it. If earlier prestart attempts hit the systemd
+    # `ceph-volume lvm activate` enables units with --runtime (transient) and
+    # tries to start them. If earlier prestart attempts hit the systemd
     # restart-rate-limit (e.g. before /var/lib/ceph/osd/ceph-N existed), the
-    # start fails silently and the OSD ends up disabled+inactive. Reset any
-    # rate-limit and bring the unit up persistently.
-    - name: Reset failed state on ceph-osd unit (clears systemd rate-limit)
+    # start fails silently and the OSD ends up disabled+inactive. Discover
+    # local OSDs from /var/lib/ceph/osd, then reset any rate-limit and bring
+    # the units up persistently.
+    - name: Discover local OSD directories
+      ansible.builtin.find:
+        paths: /var/lib/ceph/osd
+        file_type: directory
+        patterns: 'ceph-*'
+      register: pve_node_ceph_local_osd_dirs
+    - name: Reset failed state on ceph-osd units (clears systemd rate-limit)
       ansible.builtin.command:
-        cmd: "systemctl reset-failed ceph-osd@{{ pve_node_ceph_osd_id }}.service"
+        cmd: "systemctl reset-failed ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"
+      loop: "{{ pve_node_ceph_local_osd_dirs.files }}"
       changed_when: true
-    - name: Enable and start ceph-osd unit
+    - name: Enable and start ceph-osd units
       ansible.builtin.systemd_service:
-        name: "ceph-osd@{{ pve_node_ceph_osd_id }}.service"
+        name: "ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"
         enabled: true
         state: started
+      loop: "{{ pve_node_ceph_local_osd_dirs.files }}"
 
 # Defensive cleanup: cephfs storage mounts can go zombie when the cluster
 # network flaps mid-mount — `ls /mnt/pve/<storage>` then shows
@@ -160,11 +168,11 @@
     cmd: "umount -lf {{ item.item }}"
   loop: "{{ pve_node_ceph_cephfs_mount_stats.results }}"
   when: item.failed | default(false) or not (item.stat.exists | default(false))
-  register: pve_node_ceph_cephfs_force_unmounts
+  register: pve_node_ceph_cephfs_force_unmounts # noqa no-handler
   changed_when: true
 
 - name: Restart pvestatd so it remounts cephfs storages cleanly
-  when: pve_node_ceph_cephfs_force_unmounts.changed | default(false)
+  when: pve_node_ceph_cephfs_force_unmounts.changed | default(false) # noqa no-handler
   ansible.builtin.systemd_service:
     name: pvestatd.service
     state: restarted

@@ -1,33 +1,39 @@
 ---
-- name: Get host IP
-  ansible.builtin.command:
-    cmd: hostname -i
-  changed_when: false
-  register:
-    host_ip_result
 # Determine whether this node is already in a PVE cluster.
 # We check for /etc/pve/corosync.conf rather than parsing `pvecm status`'s
 # exit code — its rc semantics have changed across PVE releases (notably
 # PVE 9 doesn't return rc=2 for "not in cluster" the way earlier versions
 # did, which previously caused the create to be silently skipped).
-- name: Check whether node is already in a PVE cluster
+- name: Check whether this node is already in a PVE cluster
   ansible.builtin.stat:
     path: /etc/pve/corosync.conf
-  register: pve_cluster_create_corosync_conf_stat
-- name: Get cluster fingerprint
-  when: pve_cluster_create_corosync_conf_stat.stat.exists
-  block:
-    - name: Get cluster join info
-      ansible.builtin.command:
-        cmd: pvesh get /cluster/config/join --output-format json
-      changed_when: false
-      register: pve_cluster_join_info_json_result
-    - name: Register main node fingerprint
-      vars:
-        pve_cluster_join_info_json: "{{ pve_cluster_join_info_json_result.stdout }}"
-      ansible.builtin.set_fact:
-        pve_cluster_fingerprint: "{{ pve_cluster_join_info_json.nodelist[0].pve_fp }}"
+  register: pve_cluster_create_self_corosync_stat
+
+# A re-provisioned would-be founder has no corosync.conf locally but the
+# cluster still exists on the other peers. Stat each peer to find out
+# whether ANY node in the fleet has a cluster — if so, skip the create
+# (pve_cluster_add_node will handle joining instead). The existing
+# self-stat alone would incorrectly trigger a fresh create here, ending
+# up with two split clusters.
+- name: Check whether any other inventory peer is in a cluster
+  ansible.builtin.stat:
+    path: /etc/pve/corosync.conf
+  delegate_to: "{{ item }}"
+  loop: "{{ groups['prod_proxmox_cluster'] | difference([inventory_hostname]) }}"
+  register: pve_cluster_create_peer_corosync_stats
+
+- name: Determine whether a cluster exists anywhere in the fleet
+  ansible.builtin.set_fact:
+    pve_cluster_create_cluster_exists_anywhere: >-
+      {{ pve_cluster_create_self_corosync_stat.stat.exists
+         or (pve_cluster_create_peer_corosync_stats.results
+             | selectattr('stat.exists') | list | length > 0) }}
+
+- name: Resolve this host's IP for link0
+  ansible.builtin.set_fact:
+    host_node_ip: "{{ lookup('community.general.dig', ansible_host) }}"
+
 - name: Create PVE cluster # noqa no-changed-when
-  when: not pve_cluster_create_corosync_conf_stat.stat.exists
+  when: not pve_cluster_create_cluster_exists_anywhere
   ansible.builtin.command:
-    cmd: pvecm create {{ pve_cluster_name }} --link0 {{ pve_main_node_ip }}
+    cmd: "pvecm create {{ pve_cluster_name }} --link0 {{ host_node_ip }}"

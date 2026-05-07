@@ -3,18 +3,18 @@
   ansible.builtin.include_tasks:
     file: install_ceph.yaml
 # Initialize the cluster's ceph config if it hasn't been done yet. Only the
-# founder runs this; non-founders inherit /etc/pve/ceph.conf via pmxcfs after
-# they've joined the PVE cluster. The status-rc check makes this idempotent
-# across re-runs.
+# initial node runs this; other nodes inherit /etc/pve/ceph.conf via pmxcfs
+# after they've joined the PVE cluster. The status-rc check makes this
+# idempotent across re-runs.
 - name: Get ceph status
   ansible.builtin.command:
     cmd: pveceph status
   register: pve_node_ceph_status_result
   changed_when: false
   failed_when: false
-- name: Initialize ceph cluster (founder only)
+- name: Initialize ceph cluster (designated runner only)
   when:
-    - pve_cluster_founder | default(false)
+    - inventory_hostname == pve_cluster_designated_runner
     - pve_node_ceph_status_result.rc != 0
   ansible.builtin.command:
     cmd: pveceph init --network {{ pve_ceph_network }}

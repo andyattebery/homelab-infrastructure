@@ -1,11 +1,7 @@
 ---
-- name: Configure prod Proxmox cluster nodes (vm-host-01, vm-host-02)
-  hosts: vm-host-01,vm-host-02
+- name: Configure prod Proxmox cluster nodes (vm-host-01, vm-host-02, nas-host-01)
+  hosts: prod_proxmox_cluster
   become: true
-
-  vars:
-    pve_backup_job_script_job_init_commands:
-      - /usr/local/bin/remote_power_control backup-01.{{ domain_name }} pikvm on
 
   tasks:
     # ---------- Local-only / pre-cluster ----------
@@ -19,14 +15,20 @@
 
     - name: Install base packages
       ansible.builtin.apt:
-        name: "{{ ['intel-microcode'] + (extra_packages | default([])) }}"
+        name: "{{ extra_packages | default([]) }}"
+
+    - name: Apt dist-upgrade
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
 
     - name: Install r8125 driver via DKMS package + udev swap
+      when: install_realtek_r8125 | default(false)
       ansible.builtin.import_role:
         name: realtek_r8125_dkms_package
 
     - name: Install r8152 driver (USB Realtek)
-      when: inventory_hostname == 'vm-host-01'
+      when: install_realtek_r8152 | default(false)
       ansible.builtin.import_role:
         name: realtek_r8152_dkms
 
@@ -47,16 +49,11 @@
         name: prometheus.prometheus.node_exporter
 
     - name: Configure power saving
-      vars:
-        power_saving_pcie_runtime_all_devices: true
-        power_saving_sata_all_devices: true
       ansible.builtin.import_role:
         name: power_saving
 
-    - name: Configure kernel parameters (intel_iommu)
-      vars:
-        kernel_parameters_new_parameters:
-          intel_iommu: "on"
+    - name: Configure kernel parameters
+      when: kernel_parameters_new_parameters is defined
       ansible.builtin.import_role:
         name: kernel_parameters
 
@@ -71,11 +68,11 @@
       ansible.builtin.import_role:
         name: nut
 
-    - name: Configure remote power control client
-      vars:
-        remote_power_control_client: true
-      ansible.builtin.import_role:
-        name: remote_power_control
+    # - name: Configure remote power control client
+    #   vars:
+    #     remote_power_control_client: true
+    #   ansible.builtin.import_role:
+    #     name: remote_power_control
 
     # Migrate when the pikvm-side playbook is also updated:
     # - name: Configure remote power control target (for PiKVM)
@@ -104,25 +101,40 @@
         debian_add_network_interface_filename: "{{ item.filename }}"
         debian_add_network_interface_mac: "{{ item.mac }}"
         debian_add_network_interface_method: "{{ item.method | default('static') }}"
-        debian_add_network_interface_address_cidr: "{{ item.address_cidr }}"
-        debian_add_network_interface_wol: "{{ item.wol | default(omit) }}"
+        debian_add_network_interface_address_cidr: "{{ item.address_cidr | default('') }}"
+        debian_add_network_interface_wol: "{{ item.wol | default('') }}"
       ansible.builtin.include_role:
         name: debian_add_network_interface
       loop: "{{ extra_network_interfaces | default([]) }}"
 
-    # ---------- Cluster bootstrap + cluster-wide config (founder only) ----------
-    # Creates the cluster (idempotent — pve_cluster_create checks
-    # /etc/pve/corosync.conf and skips if a cluster already exists), then
-    # writes cluster-shared state to /etc/pve (ACME account + DNS plugin,
-    # storage definitions). All of it propagates to other nodes via pmxcfs
-    # once they join — run once on the founder.
-    - name: Bootstrap and configure cluster-wide PVE state
-      when: pve_cluster_founder | default(false)
-      block:
-        - name: Create Proxmox cluster
-          ansible.builtin.import_role:
-            name: pve_cluster_create
+    # ---------- (a) Bootstrap (fresh-cluster only) ----------
+    # pve_cluster_create now self-detects: stats /etc/pve/corosync.conf
+    # on every inventory peer and skips `pvecm create` if any peer has
+    # it. So this is safe to run unconditionally — on re-provision it
+    # no-ops, on fresh bootstrap it creates exactly one cluster.
+    # Gated on the designated runner so only one host attempts the
+    # create.
+    - name: Create Proxmox cluster (fresh bootstrap only)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.import_role:
+        name: pve_cluster_create
 
+    # ---------- (b) Per-node cluster join ----------
+    # Idempotent: short-circuits if /etc/pve/corosync.conf already
+    # exists. Verify-quorate at the end fails the play if any host
+    # didn't end up in a healthy quorate cluster.
+    - name: Join Proxmox cluster
+      ansible.builtin.import_role:
+        name: pve_cluster_add_node
+
+    # ---------- (c) Cluster-wide writes (designated runner only) ----------
+    # Runs after (b) so the runner is provably in the cluster
+    # (linear strategy + the verify-quorate at the end of (b)
+    # together guarantee that). All sub-roles are idempotent against
+    # /etc/pve cluster state, so re-runs are safe.
+    - name: Configure cluster-wide PVE state
+      when: inventory_hostname == pve_cluster_designated_runner
+      block:
         - name: Configure cluster-level ACME
           ansible.builtin.import_role:
             name: pve_cluster_acme
@@ -135,13 +147,7 @@
           ansible.builtin.import_role:
             name: pve_storage_add_backup_01_pbs
 
-    # ---------- Per-node cluster-dependent config ----------
-    # pve_cluster_add_node also checks /etc/pve/corosync.conf, so it's a no-op
-    # on the founder.
-    - name: Join Proxmox cluster
-      ansible.builtin.import_role:
-        name: pve_cluster_add_node
-
+    # ---------- (d) Per-node cluster-dependent config ----------
     - name: Configure node ACME
       ansible.builtin.import_role:
         name: pve_node_acme
@@ -151,18 +157,20 @@
         name: pve_backup_job_script
 
     # ---------- Ceph ----------
-    # Per-node ceph runs on every host: install → init (founder-gated inside
-    # the role, idempotent) → mon/mgr/mds/OSD. Order is preserved by Ansible's
-    # task-by-task scheduling: the founder's `pveceph init` task completes on
-    # all hosts (founder runs it, others skip via the when-gate) before any
-    # host moves on to `pveceph mon create`.
-    - name: Configure per-node Ceph (install, init on founder, services)
+    # Per-node ceph runs on every host: install → init (gated on the
+    # designated runner inside the role, idempotent) → mon/mgr/mds/OSD.
+    # Order is preserved by Ansible's task-by-task scheduling: the
+    # runner's `pveceph init` task completes on all hosts (runner runs
+    # it, others skip via the when-gate) before any host moves on to
+    # `pveceph mon create`.
+    - name: Configure per-node Ceph (install, init on designated runner, services)
       ansible.builtin.import_role:
         name: pve_node_ceph
 
-    # Cluster-wide ceph storage — pool + cephfs. Founder only; propagates via
-    # pmxcfs. Runs after pve_node_ceph so at least one MDS exists.
-    - name: Configure cluster-wide Ceph storage (founder only)
-      when: pve_cluster_founder | default(false)
+    # Cluster-wide ceph storage — pool + cephfs. Designated runner only;
+    # propagates via pmxcfs. Runs after pve_node_ceph so at least one MDS
+    # exists.
+    - name: Configure cluster-wide Ceph storage (designated runner only)
+      when: inventory_hostname == pve_cluster_designated_runner
       ansible.builtin.import_role:
         name: pve_cluster_ceph

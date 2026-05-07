@@ -2,10 +2,7 @@
 pbs_backup_01_username: "vm-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_950_PRO_512GB_S2GMNCAGB07802W
-ceph_mon_address: "10.1.40.12"
 pve_node_ceph_osd_mode: activate_existing
-pve_node_ceph_osd_id: 1
-pve_node_ceph_osd_fsid: "216b3cad-4d7e-4741-a658-b244e040369c"
 # Ceph cluster network NIC — identified by MAC so we don't depend on the
 # pinned name the installer assigned (nic1 today, could be different on a
 # rebuild). No `gateway` is configured: the cluster network is /24 LAN
@@ -17,7 +14,16 @@ ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
 security_ssh_permit_root_login: "prohibit-password"
 
 extra_packages:
+  - intel-microcode
   - r8168-dkms
+
+install_realtek_r8125: true
+
+kernel_parameters_new_parameters:
+  intel_iommu: "on"
+
+# PCIe runtime PM intentionally NOT enabled — see vm-host-01 note.
+power_saving_sata_all_devices: true
 
 pve_backup_job_script_healthchecks_io_uuid: fb415cb4-de93-409e-b274-5249217b17ac
 

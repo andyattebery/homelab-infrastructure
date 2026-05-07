@@ -2,7 +2,34 @@
 pbs_backup_01_username: "nas-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-INTEL_SSDPE21D960GA_PHM2911300BM960CGN
-ceph_mon_address: "192.168.1.231"
+pve_node_ceph_osd_mode: activate_existing
+
+# Ceph cluster network NIC — currently eno1, 10.1.40.13/24. Identified by
+# MAC so we don't depend on the pinned interface name.
+ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
+ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
+
+# Additional NICs beyond vmbr0 + the Ceph cluster NIC. eno2 is the second
+# onboard Intel port; declared dhcp so the playbook owns it.
+extra_network_interfaces:
+  - filename: eno2
+    mac: "{{ vault_eno2_mac }}"
+    method: dhcp
+
+extra_packages:
+  - amd64-microcode
+
+# kernel_parameters intentionally unset — matches the original playbook,
+# which didn't include the kernel_parameters role for nas-host-01.
+
+# power_saving — narrow PCIe runtime PM scope: only the AMD FCH SATA
+# controller. Keeps NICs (Mellanox, Intel onboard) untouched.
+power_saving_pcie_runtime_devices:
+  - vendor_id: "1022"  # AMD
+    device_id: "7901"  # FCH SATA Controller
+power_saving_sata_all_devices: true
+
+pve_backup_job_script_healthchecks_io_uuid: f3d49b86-6d6b-410a-a252-299d84f43fd3
 
 nut_client_username: "nas-host-01"
 nut_client_password: "{{ vault_nut_client_password }}"

@@ -1,0 +1,21 @@
+---
+# pve_backup_job_script_job_init_commands:
+#       - /usr/local/bin/remote_power_control backup-01.{{ domain_name }} pikvm on
+
+# pve_cluster_ceph
+pve_ceph_network: 10.1.40.0/24
+
+# pve_node_ceph — mon binds to the same address as this host's Ceph cluster
+# NIC. Derived from ceph_cluster_nic_address_cidr (set per-host) so the two
+# can never drift apart.
+ceph_mon_address: "{{ ceph_cluster_nic_address_cidr.split('/')[0] }}"
+
+# pve_cluster_install
+pve_cluster_name: homelab
+
+# pve_cluster_designated_runner is the single host that runs idempotent
+# cluster-wide writes (ACME plugin, storage definitions, ceph init).
+# Computed deterministically from inventory — no per-host flag needed.
+# Sorts to nas-host-01 today; any cluster member would work, the choice
+# only matters for "exactly one host runs them."
+pve_cluster_designated_runner: "{{ groups['prod_proxmox_cluster'] | sort | first }}"

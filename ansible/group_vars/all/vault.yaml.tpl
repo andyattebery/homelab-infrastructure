@@ -135,8 +135,6 @@ vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
 vault_proxmox_api_token_id_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/token id }}
 vault_proxmox_api_token_secret_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/secret }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
-vault_pve_cluster_fingerprint: {{ op://Personal/vm-host-01/proxmox/cluster fingerprint }}
-vault_pve_cluster_main_node_root_password: {{ op://Personal/vm-host-01/password }}
 vault_remote_power_control_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/remote_power_control }}
 vault_scrutiny_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/scrutiny }}
 vault_servercat_ssh_public_key: {{ op://Personal/pibtry4hziwtyen2xklu5g2qzy/public key }}

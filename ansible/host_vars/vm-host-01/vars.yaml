@@ -1,15 +1,8 @@
 ---
 pbs_backup_01_username: "vm-host-01"
 pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
-pve_cluster_founder: true
 pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_960_PRO_512GB_S3EWNWAJ311468Z
-ceph_mon_address: "192.168.1.246"
 pve_node_ceph_osd_mode: activate_existing
-# TODO: look up on the live host before running pve_node_ceph:
-#   ceph osd tree                                 → osd_id
-#   cat /var/lib/ceph/osd/ceph-<id>/fsid          → osd_fsid
-pve_node_ceph_osd_id: 0
-# pve_node_ceph_osd_fsid:
 
 # Ceph cluster network NIC — identified by MAC so we don't depend on the
 # pinned name the installer assigned. No `gateway` is configured: the
@@ -22,11 +15,24 @@ ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
 # Additional NICs beyond vmbr0 + the Ceph cluster NIC.
 # vm-host-01 has a USB Realtek r8152 adapter (enx00e04caa0225) on the
 # 10.1.30.x network. Set the MAC once known.
-extra_network_interfaces:
-  - filename: usb-eth
-    mac: "{{ vault_usb_nic_mac }}"
-    method: static
-    address_cidr: "10.1.30.11/24"
+# extra_network_interfaces:
+#   - filename: usb-eth
+#     mac: "{{ vault_usb_nic_mac }}"
+#     method: static
+#     address_cidr: "10.1.30.11/24"
+
+extra_packages:
+  - intel-microcode
+
+install_realtek_r8125: true
+install_realtek_r8152: false
+
+kernel_parameters_new_parameters:
+  intel_iommu: "on"
+
+# PCIe runtime PM intentionally NOT enabled — Realtek r8125/r8169 NICs are
+# documented to flap under aggressive ASPM/runtime-PM. SATA-only is fine.
+power_saving_sata_all_devices: true
 
 pve_backup_job_script_healthchecks_io_uuid: bcc471ae-d0f3-4e7f-8db5-4b5465721be0
 
