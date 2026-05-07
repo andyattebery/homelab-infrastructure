@@ -1,0 +1,114 @@
+---
+- name: Validate required inputs
+  ansible.builtin.assert:
+    that:
+      - github_release_install_repo | default('') | length > 0
+      - github_release_install_asset_patterns | default({}) | length > 0
+      - github_release_install_archive_type in ['deb', 'tarball', 'binary']
+      - github_release_install_binary_path | default('') | length > 0
+      - github_release_install_archive_type != 'tarball'
+        or (github_release_install_binary_in_archive | default('') | length > 0)
+    fail_msg: >-
+      github_release_install requires _repo, _asset_patterns,
+      _archive_type (deb|tarball|binary), and _binary_path. tarball
+      archive_type additionally requires _binary_in_archive.
+
+- name: Assert this architecture is supported by the caller's pattern dict
+  ansible.builtin.assert:
+    that: ansible_architecture in github_release_install_asset_patterns
+    fail_msg: >-
+      No asset pattern declared for architecture
+      '{{ ansible_architecture }}' in github_release_install_asset_patterns.
+      Caller declared: {{ github_release_install_asset_patterns.keys() | list }}.
+
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ github_release_install_repo }}/releases/latest"
+    return_content: true
+  register: github_release_install_release_response
+
+- name: Pick asset name for this architecture
+  ansible.builtin.set_fact:
+    github_release_install_asset_name: >-
+      {{ github_release_install_release_response.json.assets
+         | map(attribute='name')
+         | select('search', github_release_install_asset_patterns[ansible_architecture])
+         | first }}
+
+- name: Stat installed binary
+  ansible.builtin.stat:
+    path: "{{ github_release_install_binary_path }}"
+  register: github_release_install_binary_stat
+
+# Run the version command only if the binary exists. failed_when: false
+# so a binary that lacks --version doesn't kill the run — installed
+# version just stays empty and the install fires (same as a fresh host).
+- name: Get installed binary version
+  when: github_release_install_binary_stat.stat.exists
+  ansible.builtin.command: "{{ github_release_install_version_command }}"
+  changed_when: false
+  failed_when: false
+  register: github_release_install_version_result
+
+- name: Decide whether install is needed
+  vars:
+    latest_version: "{{ github_release_install_release_response.json.tag_name | regex_replace('^v', '') }}"
+    installed_version_match: "{{ (github_release_install_version_result.stdout | default('')) | regex_search(github_release_install_version_regex, '\\1') }}"
+    installed_version: "{{ (installed_version_match | first | default('')) if installed_version_match else '' }}"
+  ansible.builtin.set_fact:
+    github_release_install_needs_install: >-
+      {{ not github_release_install_binary_stat.stat.exists
+         or installed_version != latest_version }}
+
+- name: Install
+  when: github_release_install_needs_install
+  block:
+    - name: Resolve asset URL
+      ansible.builtin.set_fact:
+        github_release_install_asset_url: >-
+          {{ github_release_install_release_response.json.assets
+             | selectattr('name', 'equalto', github_release_install_asset_name)
+             | map(attribute='browser_download_url') | first }}
+
+    - name: Create temp directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: github_release_install_tempdir
+
+    - name: Install (deb)
+      when: github_release_install_archive_type == 'deb'
+      block:
+        - name: Download deb
+          ansible.builtin.get_url:
+            url: "{{ github_release_install_asset_url }}"
+            dest: "{{ github_release_install_tempdir.path }}/{{ github_release_install_asset_name }}"
+            mode: "0644"
+        - name: Install deb
+          ansible.builtin.apt:
+            deb: "{{ github_release_install_tempdir.path }}/{{ github_release_install_asset_name }}"
+
+    - name: Install (tarball)
+      when: github_release_install_archive_type == 'tarball'
+      block:
+        - name: Download and extract tarball
+          ansible.builtin.unarchive:
+            remote_src: true
+            src: "{{ github_release_install_asset_url }}"
+            dest: "{{ github_release_install_tempdir.path }}"
+            mode: "0755"
+            owner: root
+        - name: Copy binary to {{ github_release_install_binary_path }}
+          ansible.builtin.copy:
+            remote_src: true
+            src: "{{ github_release_install_tempdir.path }}/{{ github_release_install_binary_in_archive }}"
+            dest: "{{ github_release_install_binary_path }}"
+            mode: "0755"
+            owner: root
+
+    - name: Install (binary)
+      when: github_release_install_archive_type == 'binary'
+      ansible.builtin.get_url:
+        url: "{{ github_release_install_asset_url }}"
+        dest: "{{ github_release_install_binary_path }}"
+        mode: "0755"
+        owner: root

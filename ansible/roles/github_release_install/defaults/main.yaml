@@ -1,0 +1,11 @@
+---
+# Command run on the installed binary to print its version. Stdout is
+# matched against github_release_install_version_regex below to extract
+# the comparable version string.
+github_release_install_version_command: "{{ github_release_install_binary_path }} --version"
+
+# Capture group 1 is compared (string-equal) against the GitHub release's
+# tag_name with leading 'v' stripped. Default matches "X.Y.Z" anywhere
+# in the version-command output, which covers clap's `<bin> X.Y.Z`,
+# urfave/cli's `<bin> version vX.Y.Z`, and similar.
+github_release_install_version_regex: '([0-9]+\.[0-9]+\.[0-9]+)'

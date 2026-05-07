@@ -1,41 +1,12 @@
-- name: Set topgrade_deb_arch - x86_64
-  when: ansible_architecture == 'x86_64'
-  ansible.builtin.set_fact:
-    topgrade_deb_arch: amd64
-- name: Set topgrade_deb_arch - aarch64
-  when: ansible_architecture == 'aarch64'
-  ansible.builtin.set_fact:
-    topgrade_deb_arch: arm64
-- name: Set topgrade_deb_arch - armv7l
-  when: ansible_architecture == 'armv7l'
-  ansible.builtin.set_fact:
-    topgrade_deb_arch: armhf
-- name: Fact topgrade_deb_arch not set
-  ansible.builtin.assert:
-    that: "topgrade_deb_arch is defined"
-    fail_msg: topgrade_deb_arch is not defined
-- name: Get latest release from GitHub
-  ansible.builtin.uri:
-    url: https://api.github.com/repos/topgrade-rs/topgrade/releases/latest
-    return_content: true
-  register:
-    topgrade_latest_release_json_response
-- name: Create temp directory
-  ansible.builtin.tempfile:
-    state: directory
-  register: topgrade_download_temp_directory_result
-- name: Download deb # noqa jinja[invalid]
+- name: Install topgrade
+  ansible.builtin.include_role:
+    name: github_release_install
   vars:
-    deb_name_pattern: "*_{{ topgrade_deb_arch }}.deb"
-    browser_download_url_json_query: "assets[?contains(name, '_{{ topgrade_deb_arch }}.deb')].browser_download_url"
-    browser_download_urls: "{{ topgrade_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
-    topgrade_deb_url: "{{ browser_download_urls | first }}"
-    topgrade_deb_filename: "topgrade_{{ topgrade_deb_arch }}.deb"
-  ansible.builtin.get_url:
-    url: "{{ topgrade_deb_url }}"
-    dest: "{{ (topgrade_download_temp_directory_result.path, topgrade_deb_filename) | path_join }}"
-    mode: "0644"
-  register: topgrade_download_result
-- name: Install deb
-  ansible.builtin.apt:
-    deb: "{{ topgrade_download_result.dest }}"
+    github_release_install_repo: topgrade-rs/topgrade
+    github_release_install_asset_patterns:
+      x86_64: "_amd64.deb"
+      aarch64: "_arm64.deb"
+      armv7l: "_armhf.deb"
+    github_release_install_archive_type: deb
+    github_release_install_binary_path: "{{ topgrade_bin_path }}"
+    github_release_install_version_command: "{{ topgrade_bin_path }} -V"

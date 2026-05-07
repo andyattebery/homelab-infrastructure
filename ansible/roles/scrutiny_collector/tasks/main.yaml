@@ -1,22 +1,13 @@
 ---
-- name: Install packages
+- name: Install smartmontools
   ansible.builtin.apt:
     name:
       - smartmontools
-- name: Set scrutiny_collector_bin_name - x86_64
-  when: ansible_architecture == 'x86_64'
+
+- name: Resolve scrutiny collector binary name for this architecture
   ansible.builtin.set_fact:
-    scrutiny_collector_bin_name: scrutiny-collector-metrics-linux-amd64
-- name: Set scrutiny_collector_bin_name - aarch64
-  when: ansible_architecture == 'aarch64'
-  ansible.builtin.set_fact:
-    scrutiny_collector_bin_name: scrutiny-collector-metrics-linux-arm64
-- name: Get latest release from GitHub
-  ansible.builtin.uri:
-    url: https://api.github.com/repos/AnalogJ/scrutiny/releases/latest
-    return_content: true
-  register:
-    scrutiny_latest_release_json_response
+    scrutiny_collector_bin_name: "{{ ({'x86_64':'scrutiny-collector-metrics-linux-amd64','aarch64':'scrutiny-collector-metrics-linux-arm64'})[ansible_architecture] }}"
+
 - name: Create directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -26,63 +17,53 @@
   loop:
     - "{{ scrutiny_bin_dir }}"
     - "{{ scrutiny_config_dir }}"
+
 - name: Copy config
   ansible.builtin.template:
     src: templates/collector.yaml.j2
     dest: "{{ (scrutiny_config_dir, 'collector.yaml') | path_join }}"
     mode: "0644"
-- name: Download collector binary # noqa jinja[invalid]
+
+- name: Install scrutiny-collector binary
+  ansible.builtin.include_role:
+    name: github_release_install
   vars:
-    browser_download_url_json_query: "assets[?name == '{{ scrutiny_collector_bin_name }}'].browser_download_url"
-    browser_download_urls: "{{ scrutiny_latest_release_json_response.json | json_query(browser_download_url_json_query) }}"
-    scrutiny_bin_url: "{{ browser_download_urls | first }}"
-  ansible.builtin.get_url:
-    url: "{{ scrutiny_bin_url }}"
-    dest: "{{ scrutiny_bin_dir }}"
-    mode: "0755"
-  register: scrutiny_collector_download_result
-# - name: Set collector_run_command
-#   ansible.builtin.set_fact:
-#     collector_run_command: "{{ (scrutiny_bin_dir, scrutiny_collector_bin_name) | path_join }} run --config {{ scrutiny_config_dir }}"
-# - name: Get smartctl path
-#   ansible.builtin.command:
-#     cmd: which smartctl
-#   register: which_smartctl_result
-#   changed_when: false
-# - name: Add smartctl path to cron PATH env
-#   ansible.builtin.cron:
-#     name: PATH
-#     env: true
-#     job: "{{ which_smartctl_result.stdout | dirname }}"
-# - name: Add cron job
-#   ansible.builtin.cron:
-#     name: "scrutiny collector"
-#     minute: "0"
-#     hour: "0"
-#     user: root
-#     job: "{{ collector_run_command }} >/dev/null 2>&1"
+    github_release_install_repo: AnalogJ/scrutiny
+    github_release_install_asset_patterns:
+      x86_64: "scrutiny-collector-metrics-linux-amd64"
+      aarch64: "scrutiny-collector-metrics-linux-arm64"
+    github_release_install_archive_type: binary
+    github_release_install_binary_path: "{{ (scrutiny_bin_dir, scrutiny_collector_bin_name) | path_join }}"
+    # Default version_command (`{{ binary_path }} --version`) works:
+    # urfave/cli auto-registers --version on the binary and outputs
+    # `<bin> version vX.Y.Z` which the default regex matches.
+
 - name: Remove cron job
   ansible.builtin.cron:
     name: "scrutiny collector"
     state: absent
+
 - name: Copy scrutiny-collector.service
   ansible.builtin.template:
     src: scrutiny-collector.service.j2
     dest: /etc/systemd/system/scrutiny-collector.service
     mode: "0644"
     owner: root
+
 - name: Copy scrutiny-collector.timer
   ansible.builtin.template:
     src: scrutiny-collector.timer.j2
     dest: /etc/systemd/system/scrutiny-collector.timer
     mode: "0644"
     owner: root
+
 - name: Enable and start scrutiny-collector.service
   ansible.builtin.systemd_service:
     daemon_reload: true
     name: "scrutiny-collector.service"
     state: started
     enabled: false
+
 - name: Enable and start scrutiny-collector.timer
   ansible.builtin.systemd_service:
     daemon_reload: true
