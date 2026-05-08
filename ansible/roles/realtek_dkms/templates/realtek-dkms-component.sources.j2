@@ -1,0 +1,10 @@
+# Managed by the realtek_dkms Ansible role.
+# Adds only the {{ realtek_dkms_apt_component }} component so that
+# {{ realtek_dkms_package_name }} is fetchable from apt. Never modifies
+# /etc/apt/sources.list or other entries; apt deduplicates overlapping
+# Suites/URIs, so this is safe alongside an existing main sources file.
+Types: deb
+URIs: {{ realtek_dkms_apt_uri }}
+Suites: {{ realtek_dkms_apt_suites }}
+Components: {{ realtek_dkms_apt_component }}
+Signed-By: {{ realtek_dkms_apt_signed_by }}

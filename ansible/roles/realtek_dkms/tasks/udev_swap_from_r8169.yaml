@@ -1,0 +1,63 @@
+---
+# r8169 typically claims Realtek NICs at boot before the udev rule has
+# been written. On some PCIe Realtek chip revs no driver claims the
+# card at all (r8169's PCI-ID table doesn't match the newer revision,
+# r8125/r8126 isn't loaded yet). In both cases we need to (re)trigger
+# udev so the rule fires and the DKMS driver binds. Skip devices that
+# already have a non-r8169 driver bound — those belong to something
+# else and shouldn't be disturbed.
+
+- name: Render udev rule
+  ansible.builtin.template:
+    src: 99-r8169-swap.rules.j2
+    dest: "/etc/udev/rules.d/99-r8169-to-{{ realtek_dkms_driver }}.rules"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    realtek_dkms_devices: "{{ realtek_dkms_pci_devices[realtek_dkms_driver] }}"
+
+# Eligibility: PCI device whose vendor matches realtek_dkms_pci_vendor,
+# whose device matches one of the driver's chip-level device IDs, AND
+# is either unbound or bound to r8169.
+- name: Find eligible PCI devices to (re)bind
+  ansible.builtin.shell: |
+    set -o pipefail
+    devs="{{ realtek_dkms_pci_devices[realtek_dkms_driver] | join(' ') }}"
+    for d in /sys/bus/pci/devices/*; do
+      if [ -e "$d/driver" ]; then
+        [ "$(basename "$(readlink -f "$d/driver")")" = "r8169" ] || continue
+      fi
+      [ "$(cat "$d/vendor" 2>/dev/null)" = "{{ realtek_dkms_pci_vendor }}" ] || continue
+      did="$(cat "$d/device" 2>/dev/null)"
+      match=0
+      for want in $devs; do [ "$did" = "$want" ] && match=1 && break; done
+      [ "$match" = "1" ] || continue
+      basename "$d"
+    done
+  args:
+    executable: /bin/bash
+  register: realtek_dkms_eligible_devices
+  changed_when: false
+
+- name: Swap eligible cards from r8169 to DKMS driver via udev
+  when: realtek_dkms_eligible_devices.stdout_lines | length > 0
+  block:
+    - name: Reload udev rules
+      ansible.builtin.command:
+        cmd: udevadm control --reload-rules
+      changed_when: true
+    - name: Re-trigger add events on Realtek PCI devices
+      ansible.builtin.command:
+        cmd: "udevadm trigger --action=add --subsystem-match=pci --attr-match=vendor={{ realtek_dkms_pci_vendor }}"
+      changed_when: true
+    - name: Wait for udev to settle
+      ansible.builtin.command:
+        cmd: udevadm settle
+      changed_when: false
+    - name: Re-gather network facts (drivers may have changed)
+      ansible.builtin.setup:
+        gather_subset:
+          - '!all'
+          - '!min'
+          - network

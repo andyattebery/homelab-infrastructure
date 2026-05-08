@@ -51,7 +51,7 @@
 
 # Refresh network facts so the MAC lookup below sees interfaces that
 # may have been renamed/added earlier in the play (e.g. by udev rules
-# from realtek_r8125_dkms_package after a kernel reboot).
+# from realtek_dkms after a kernel reboot).
 - name: Refresh network facts
   ansible.builtin.setup:
     gather_subset:

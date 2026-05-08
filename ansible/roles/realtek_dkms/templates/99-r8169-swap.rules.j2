@@ -1,0 +1,5 @@
+{% for did in realtek_dkms_devices -%}
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="{{ realtek_dkms_pci_vendor }}", ATTR{device}=="{{ did }}", \
+RUN+="/bin/sh -c 'echo $kernel > /sys/bus/pci/drivers/r8169/unbind'", \
+RUN+="/bin/sh -c 'echo $kernel > /sys/bus/pci/drivers/{{ realtek_dkms_driver }}/bind'"
+{% endfor %}

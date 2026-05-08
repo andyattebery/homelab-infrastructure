@@ -1,7 +1,0 @@
----
-# Subsystem IDs of the Realtek RTL8125 cards we want to swap from the
-# kernel's generic r8169 driver onto the r8125 DKMS module.
-# The udev rule and the eligibility-detection task both consume these
-# so they can't drift apart.
-realtek_r8125_dkms_package_subsystem_vendor: "0x10ec"
-realtek_r8125_dkms_package_subsystem_device: "0x0123"

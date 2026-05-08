@@ -1,0 +1,100 @@
+---
+# Make sure the kernel + headers metas are at latest before touching
+# DKMS. A stale meta won't pull a new kernel via state=present (no-op
+# on already-installed metas), and DKMS would end up trying to build
+# against a running kernel whose headers aren't installed. state=latest
+# forces apt to upgrade the metas and pull any new deps. If the meta
+# upgrade brings in a newer kernel binary, we reboot into it before
+# letting DKMS run, so the build sees matching headers.
+
+- name: Detect Raspberry Pi OS kernel variant (bookworm+)
+  ansible.builtin.set_fact:
+    realtek_dkms_rpi_variant: >-
+      {{ (ansible_facts['kernel']
+          | regex_search('-rpi-(v[0-9]+l?|2712)$', '\1')
+          | default([], true)) | first | default('') }}
+
+- name: Set deb arch (x86_64 → amd64, aarch64 → arm64)
+  ansible.builtin.set_fact:
+    realtek_dkms_deb_arch: >-
+      {{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']]
+         | default(ansible_facts['architecture']) }}
+
+- name: Resolve kernel meta packages (caller override)
+  when: realtek_dkms_kernel_metas | length > 0
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas: "{{ realtek_dkms_kernel_metas }}"
+
+- name: Resolve kernel meta packages (Proxmox VE)
+  when:
+    - realtek_dkms_resolved_metas is not defined
+    - ansible_facts['packages'] is search('pve-kernel') or ansible_facts['packages'] is search('proxmox-kernel')
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas:
+      - proxmox-default-kernel
+      - proxmox-default-headers
+
+- name: Resolve kernel meta packages (Raspberry Pi OS bookworm+)
+  when:
+    - realtek_dkms_resolved_metas is not defined
+    - realtek_dkms_rpi_variant | length > 0
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas:
+      - "linux-image-rpi-{{ realtek_dkms_rpi_variant }}"
+      - "linux-headers-rpi-{{ realtek_dkms_rpi_variant }}"
+
+- name: Resolve kernel meta packages (Raspberry Pi OS legacy)
+  when:
+    - realtek_dkms_resolved_metas is not defined
+    - "'raspberrypi-kernel' in ansible_facts['packages']"
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas:
+      - raspberrypi-kernel
+      - raspberrypi-kernel-headers
+
+- name: Resolve kernel meta packages (Debian generic)
+  when:
+    - realtek_dkms_resolved_metas is not defined
+    - ansible_facts['distribution'] == 'Debian'
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas:
+      - "linux-image-{{ realtek_dkms_deb_arch }}"
+      - "linux-headers-{{ realtek_dkms_deb_arch }}"
+
+- name: Resolve kernel meta packages (Ubuntu generic)
+  when:
+    - realtek_dkms_resolved_metas is not defined
+    - ansible_facts['distribution'] == 'Ubuntu'
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas:
+      - linux-generic
+      - linux-headers-generic
+
+- name: Resolve kernel meta packages (no match)
+  when: realtek_dkms_resolved_metas is not defined
+  ansible.builtin.set_fact:
+    realtek_dkms_resolved_metas: []
+
+- name: Ensure kernel + headers metas are at latest  # noqa package-latest
+  when: realtek_dkms_resolved_metas | length > 0
+  ansible.builtin.apt:
+    name: "{{ realtek_dkms_resolved_metas }}"
+    state: latest
+    update_cache: true
+
+- name: Find the latest installed kernel under /lib/modules
+  ansible.builtin.shell:
+    cmd: set -o pipefail && ls /lib/modules/ | sort -V | tail -1
+    executable: /bin/bash
+  register: realtek_dkms_latest_installed_kernel
+  changed_when: false
+
+- name: Reboot if a newer kernel is installed but not running
+  when: realtek_dkms_latest_installed_kernel.stdout != ansible_facts['kernel']
+  ansible.builtin.reboot:
+    msg: "Activating newer installed kernel ({{ realtek_dkms_latest_installed_kernel.stdout }}) so DKMS modules become loadable"
+    reboot_timeout: 600
+
+- name: Re-gather kernel facts post-reboot
+  ansible.builtin.setup:
+    gather_subset: ['!all', '!min', 'kernel']

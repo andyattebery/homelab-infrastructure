@@ -1,0 +1,19 @@
+---
+# Required, no default — caller must set:
+#   realtek_dkms_driver: r8125 | r8126 | r8152
+
+# Chip-level PCI IDs used by the udev r8169→target swap rule (PCIe
+# drivers only — r8125, r8126). Sourced from the realtek driver
+# source PCI tables:
+#   r8125 (src/r8125_n.c): vendor 0x10ec, device 0x8125 / 0x8162 / 0x3000
+#   r8126 (src/r8126_n.c): vendor 0x10ec, device 0x8126 / 0x5000
+realtek_dkms_pci_vendor: "0x10ec"
+realtek_dkms_pci_devices:
+  r8125: ["0x8125", "0x8162", "0x3000"]
+  r8126: ["0x8126", "0x5000"]
+
+# Optional override: kernel meta packages to keep at latest before
+# building DKMS. If unset, role auto-detects (PVE / RPi / Debian /
+# Ubuntu generic). Override for HWE/cloud Ubuntu, e.g.:
+#   realtek_dkms_kernel_metas: [linux-generic-hwe-22.04, linux-headers-generic-hwe-22.04]
+realtek_dkms_kernel_metas: []

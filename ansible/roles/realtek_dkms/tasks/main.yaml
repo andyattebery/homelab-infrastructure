@@ -1,0 +1,67 @@
+---
+- name: Validate driver param
+  ansible.builtin.assert:
+    that: realtek_dkms_driver in ['r8125', 'r8126', 'r8152']
+    fail_msg: "realtek_dkms_driver must be 'r8125', 'r8126', or 'r8152'"
+
+- name: Gather package facts
+  ansible.builtin.package_facts:
+
+- name: Kernel preflight (upgrade + reboot if needed)
+  ansible.builtin.include_tasks: kernel_preflight.yaml
+
+- name: Install kernel headers for the running kernel
+  ansible.builtin.include_tasks: install_kernel_headers.yaml
+
+# Enable for all drivers (not just r8125) so that if r8126-dkms or
+# r8152-dkms ever land in Debian non-free / Ubuntu multiverse, the
+# strategy resolver picks them up automatically. Adding the component
+# is harmless when the package isn't there — just makes more packages
+# visible to apt.
+- name: Enable apt component for official package
+  when: ansible_facts['distribution'] in ['Debian', 'Ubuntu']
+  ansible.builtin.include_tasks: enable_apt_component.yaml
+
+- name: Check whether driver-dkms is available in any enabled apt source
+  ansible.builtin.command:
+    cmd: "apt-cache madison {{ realtek_dkms_package_name }}"
+  register: realtek_dkms_madison
+  changed_when: false
+  failed_when: false
+
+- name: Pick install strategy  # noqa jinja[spacing]
+  ansible.builtin.set_fact:
+    realtek_dkms_strategy: >-
+      {%- if realtek_dkms_madison.stdout | trim | length > 0 -%}official_package
+      {%- elif ansible_facts['architecture'] != 'x86_64' -%}from_source
+      {%- elif ansible_facts['distribution'] == 'Debian' -%}github_deb
+      {%- elif ansible_facts['distribution'] == 'Ubuntu' -%}ppa
+      {%- else -%}from_source
+      {%- endif -%}
+
+# Dynamic dispatch — the strategy fact resolves to one of
+# {official_package, github_deb, ppa, from_source}, which maps 1:1 to
+# tasks/install_<strategy>.yaml. Each strategy file is self-contained
+# and doesn't leak state back to this orchestrator.
+- name: Install via chosen strategy
+  ansible.builtin.include_tasks: "install_{{ realtek_dkms_strategy }}.yaml"
+
+# Defensive: catches the case where DKMS is parked at `added` because a
+# prior install's apt postinst skipped autoinstall (e.g. headers were
+# missing on the first run, or apt was interrupted mid-postinst). On
+# the happy path this is a fast no-op (module already built).
+- name: Ensure DKMS module is built for the running kernel
+  ansible.builtin.command:
+    cmd: "dkms autoinstall -k {{ ansible_facts['kernel'] }}"
+  register: realtek_dkms_autoinstall
+  changed_when: "'installed' in realtek_dkms_autoinstall.stdout"
+
+- name: Apply r8169-swap udev rule (PCIe drivers only)
+  when: realtek_dkms_is_pcie
+  ansible.builtin.include_tasks: udev_swap_from_r8169.yaml
+
+- name: Load r8152 module
+  when: realtek_dkms_driver == 'r8152'
+  ansible.builtin.command:
+    cmd: modprobe r8152
+  changed_when: false

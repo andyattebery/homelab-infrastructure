@@ -1,0 +1,14 @@
+---
+dependencies: []
+
+galaxy_info:
+  role_name: realtek_dkms
+  author: andyattebery
+  description: Install Realtek r8125 / r8126 / r8152 DKMS driver via best available method
+  license: "license (BSD, MIT)"
+  min_ansible_version: "2.4"
+  platforms:
+    - name: Debian
+      versions: [all]
+    - name: Ubuntu
+      versions: [all]

@@ -1,0 +1,9 @@
+---
+# Names derived from the (caller-provided) realtek_dkms_driver. Lazy
+# evaluation — these resolve when first referenced, after the assert
+# at the top of tasks/main.yaml has validated `realtek_dkms_driver`.
+realtek_dkms_package_name: "{{ realtek_dkms_driver }}-dkms"
+realtek_dkms_module_name: "{{ realtek_dkms_driver }}"
+realtek_dkms_awesometic_repo: "awesometic/realtek-{{ realtek_dkms_driver }}-dkms"
+realtek_dkms_awesometic_ppa_pkg: "realtek-{{ realtek_dkms_driver }}-dkms"
+realtek_dkms_is_pcie: "{{ realtek_dkms_driver in ['r8125', 'r8126'] }}"

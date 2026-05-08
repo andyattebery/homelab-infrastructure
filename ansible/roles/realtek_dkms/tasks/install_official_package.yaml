@@ -1,0 +1,5 @@
+---
+- name: Install official driver package from apt
+  ansible.builtin.apt:
+    name: "{{ realtek_dkms_package_name }}"
+    update_cache: true

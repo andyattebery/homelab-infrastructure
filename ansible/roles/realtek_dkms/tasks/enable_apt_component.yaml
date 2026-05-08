@@ -1,0 +1,38 @@
+---
+# Drop a deb822 .sources file enabling exactly one extra component
+# (non-free on Debian, multiverse on Ubuntu) using the standard
+# upstream mirror. Never edits existing sources files. Apt deduplicates
+# overlapping entries automatically, so this is safe alongside an
+# existing main sources file that already has the component enabled.
+#
+# Reason for the drop-file approach (vs. apt-add-repository --component):
+# the latter only edits legacy .list files and silently no-ops on
+# deb822 (.sources) hosts — and trixie / Ubuntu 24.04+ default to
+# deb822. A sibling .sources file works on every release since
+# bullseye / focal regardless of the host's preferred format.
+
+- name: Set component / mirror facts
+  ansible.builtin.set_fact:
+    realtek_dkms_apt_component: "{{ 'non-free' if ansible_facts['distribution'] == 'Debian' else 'multiverse' }}"
+    realtek_dkms_apt_uri: "{{ 'http://deb.debian.org/debian' if ansible_facts['distribution'] == 'Debian' else 'http://archive.ubuntu.com/ubuntu' }}"
+    realtek_dkms_apt_signed_by: "{{ '/usr/share/keyrings/debian-archive-keyring.gpg' if ansible_facts['distribution'] == 'Debian' else '/usr/share/keyrings/ubuntu-archive-keyring.gpg' }}"
+    realtek_dkms_apt_suites: >-
+      {%- if ansible_facts['distribution'] == 'Debian' -%}
+        {{ ansible_distribution_release }} {{ ansible_distribution_release }}-updates
+      {%- else -%}
+        {{ ansible_distribution_release }} {{ ansible_distribution_release }}-updates {{ ansible_distribution_release }}-security
+      {%- endif -%}
+
+- name: Drop deb822 sources file enabling component
+  ansible.builtin.template:
+    src: realtek-dkms-component.sources.j2
+    dest: "/etc/apt/sources.list.d/realtek-dkms-{{ realtek_dkms_apt_component }}.sources"
+    owner: root
+    group: root
+    mode: "0644"
+  register: realtek_dkms_sources_file
+
+- name: Refresh apt cache (only if sources file changed)  # noqa no-handler
+  when: realtek_dkms_sources_file.changed
+  ansible.builtin.apt:
+    update_cache: true

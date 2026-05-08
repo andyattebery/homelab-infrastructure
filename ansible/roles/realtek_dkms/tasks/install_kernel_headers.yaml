@@ -1,0 +1,27 @@
+---
+- name: Install dkms
+  ansible.builtin.apt:
+    name: dkms
+
+# Re-derive the RPi variant from post-reboot facts (the value computed
+# in kernel_preflight is from the pre-reboot kernel and may be stale).
+- name: Re-detect Raspberry Pi OS kernel variant from current kernel
+  ansible.builtin.set_fact:
+    realtek_dkms_rpi_variant: >-
+      {{ (ansible_facts['kernel']
+          | regex_search('-rpi-(v[0-9]+l?|2712)$', '\1')
+          | default([], true)) | first | default('') }}
+
+# Skip when the kernel-meta install above already pulled the matching
+# headers (PVE / RPi). For vanilla Debian/Ubuntu the meta tracks
+# *latest*, not running — after the preflight reboot they're equal,
+# but install linux-headers-$(uname -r) explicitly anyway as a safety
+# net for the rare host where the reboot was skipped.
+- name: Install kernel headers for the running kernel (vanilla Debian/Ubuntu only)
+  when:
+    - ansible_facts['distribution'] in ['Debian', 'Ubuntu']
+    - "'raspberrypi-kernel' not in ansible_facts['packages']"
+    - realtek_dkms_rpi_variant | length == 0
+    - not (ansible_facts['packages'] is search('pve-kernel') or ansible_facts['packages'] is search('proxmox-kernel'))
+  ansible.builtin.apt:
+    name: "linux-headers-{{ ansible_facts['kernel'] }}"

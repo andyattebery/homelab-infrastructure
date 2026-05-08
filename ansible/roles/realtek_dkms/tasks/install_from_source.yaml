@@ -1,0 +1,84 @@
+---
+# Build the awesometic source tarball with dkms-install.sh. Used as a
+# fallback for non-amd64 hosts (the GitHub release deb and the PPA are
+# both amd64-only). Idempotent: only rebuilds if dkms status's installed
+# version differs from upstream's latest tag.
+
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ realtek_dkms_awesometic_repo }}/releases/latest"
+    return_content: true
+  register: realtek_dkms_release
+
+- name: Set latest upstream version (numeric prefix of tag)
+  ansible.builtin.set_fact:
+    realtek_dkms_latest_version: "{{ realtek_dkms_release.json.tag_name | regex_search('^[0-9\\.]+') }}"
+
+# Source-built modules aren't tracked by dpkg, so we parse `dkms
+# status` to discover the installed version. DKMS has no machine-
+# readable output flag (no --json yet); the line-oriented format has
+# stayed stable across dkms 2.x and 3.x but isn't a contract. If a
+# future format change breaks the regex, the parse falls through to
+# "no version detected" and the role rebuilds — degrades gracefully.
+- name: Get dkms status
+  ansible.builtin.command:
+    cmd: dkms status
+  changed_when: false
+  register: realtek_dkms_status_result
+
+- name: Parse currently-installed driver version from dkms status
+  when: realtek_dkms_status_result.stdout
+  ansible.builtin.set_fact:
+    realtek_dkms_installed_versions: "{{ realtek_dkms_status_result.stdout | regex_search('^' ~ realtek_dkms_driver ~ '/(.+?),.+installed$', '\\1') | default([], true) }}"
+  failed_when: false
+
+- name: Set installed version (first match)
+  when: realtek_dkms_installed_versions is defined and realtek_dkms_installed_versions | length > 0
+  ansible.builtin.set_fact:
+    realtek_dkms_installed_version: "{{ realtek_dkms_installed_versions | first }}"
+
+- name: Set installed version empty (none found)
+  when: realtek_dkms_installed_version is not defined
+  ansible.builtin.set_fact:
+    realtek_dkms_installed_version: ""
+
+- name: Build and install if needed
+  when: realtek_dkms_installed_version != realtek_dkms_latest_version
+  block:
+    - name: Uninstall old DKMS version
+      when: realtek_dkms_installed_version != ''
+      block:
+        - name: Remove old dkms entry
+          ansible.builtin.command:
+            cmd: "dkms remove {{ realtek_dkms_driver }}/{{ realtek_dkms_installed_version }} --all"
+          register: realtek_dkms_remove_result
+          changed_when: realtek_dkms_remove_result.stdout != ''
+        - name: Remove old dkms source directory
+          ansible.builtin.file:
+            path: "{{ ('/usr/src', realtek_dkms_driver ~ '-' ~ realtek_dkms_installed_version) | path_join }}"
+            state: absent
+
+    - name: Create temporary build directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: realtek_dkms_tempbuild
+
+    - name: Download and extract latest release source tarball
+      ansible.builtin.unarchive:
+        list_files: true
+        remote_src: true
+        src: "{{ realtek_dkms_release.json.tarball_url }}"
+        dest: "{{ realtek_dkms_tempbuild.path }}"
+      register: realtek_dkms_unarchive_result
+
+    - name: Install via dkms-install.sh
+      ansible.builtin.command:
+        cmd: "./dkms-install.sh"
+        chdir: "{{ (realtek_dkms_tempbuild.path, realtek_dkms_unarchive_result.files[0]) | path_join }}"
+      register: realtek_dkms_install_result
+      changed_when: realtek_dkms_install_result.stdout != ''
+
+    - name: Remove temporary build directory
+      ansible.builtin.file:
+        path: "{{ realtek_dkms_tempbuild.path }}"
+        state: absent

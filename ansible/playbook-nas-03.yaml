@@ -13,6 +13,6 @@
 
   roles:
     # - configure_server
-  #   - realtek_r8125_dkms
+    # - { role: realtek_dkms, vars: { realtek_dkms_driver: r8125 } }
     - zfs_install
     - backup_destination

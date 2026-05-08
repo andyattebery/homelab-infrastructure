@@ -13,15 +13,11 @@
         dest: /etc/apt/sources.list
         regexp: '^(deb.+main).*$'
         replace: '\1 contrib non-free non-free-firmware'
-    - name: Install NIC DKMS modules
-      ansible.builtin.apt:
-        name:
-          - r8125-dkms
-        update_cache: true
-    - name: Add udev rule for r8125
-      ansible.builtin.include_role:
-        name: realtek_r8125_dkms
-        tasks_from: add_udev_rule
+    - name: Install r8125 driver
+      ansible.builtin.import_role:
+        name: realtek_dkms
+      vars:
+        realtek_dkms_driver: r8125
     - name: Configure network interfaces
       ansible.builtin.copy:
         src: files/proxmox-cluster/interfaces

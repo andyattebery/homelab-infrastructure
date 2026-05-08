@@ -1,0 +1,21 @@
+---
+# Use the repo's apt_add_launchpad_ppa role rather than inline
+# apt_repository — that role explicitly fetches the Launchpad PPA's
+# fingerprint and stores the GPG key under /etc/apt/trusted.gpg.d/,
+# which is required on Ubuntu 24.04+ where apt-key is gone and
+# apt_repository's auto-key-import is broken.
+- name: Add awesometic PPA via repo helper role
+  ansible.builtin.include_role:
+    name: apt_add_launchpad_ppa
+  vars:
+    apt_add_launchpad_ppa_user: awesometic
+    apt_add_launchpad_ppa_repository: ppa
+    apt_add_launchpad_ppa_ubuntu_version_name: "{{ ansible_distribution_release }}"
+
+- name: Refresh apt cache after adding PPA
+  ansible.builtin.apt:
+    update_cache: true
+
+- name: Install driver package from PPA
+  ansible.builtin.apt:
+    name: "{{ realtek_dkms_awesometic_ppa_pkg }}"

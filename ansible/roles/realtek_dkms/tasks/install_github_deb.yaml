@@ -1,0 +1,64 @@
+---
+# Awesometic ships a single _amd64.deb per release. Pin the asset to
+# the exact name `realtek-<driver>-dkms_<tag>_amd64.deb` derived from
+# tag_name — deterministic when a release happens to have multiple
+# matching debs (observed once on r8126), and fails fast & loud if the
+# latest release has zero assets (observed once on r8125).
+
+- name: Get latest release from GitHub
+  ansible.builtin.uri:
+    url: "https://api.github.com/repos/{{ realtek_dkms_awesometic_repo }}/releases/latest"
+    return_content: true
+  register: realtek_dkms_release
+
+- name: Compute expected asset name and version
+  ansible.builtin.set_fact:
+    realtek_dkms_latest_tag: "{{ realtek_dkms_release.json.tag_name }}"
+    realtek_dkms_latest_version: "{{ realtek_dkms_release.json.tag_name | regex_replace('^v', '') }}"
+    realtek_dkms_expected_asset_name: "realtek-{{ realtek_dkms_driver }}-dkms_{{ realtek_dkms_release.json.tag_name | regex_replace('^v', '') }}_amd64.deb"
+
+- name: Locate the expected asset (name-pinned, deterministic)
+  ansible.builtin.set_fact:
+    realtek_dkms_deb_asset: "{{ (realtek_dkms_release.json.assets | selectattr('name', 'equalto', realtek_dkms_expected_asset_name) | list | first) | default(None) }}"
+
+- name: Fail clearly if the latest release has no matching deb
+  ansible.builtin.assert:
+    that: realtek_dkms_deb_asset is not none
+    fail_msg: >-
+      Latest release {{ realtek_dkms_latest_tag }} of {{ realtek_dkms_awesometic_repo }}
+      does not have an asset named {{ realtek_dkms_expected_asset_name }}.
+      Available assets: {{ realtek_dkms_release.json.assets | map(attribute='name') | list }}.
+      Pin a working tag manually or wait for upstream to re-upload.
+
+# Use dpkg-query (not dkms status) because the github_deb path produces
+# an apt-tracked package; dpkg's version field is the authoritative
+# answer to "is the latest deb already installed?". Caveat: if a host
+# also has the apt-repo r8125-dkms installed alongside this one, only
+# the realtek-<driver>-dkms package's version is checked here — the
+# strategy resolver upstream picks official_package in that case anyway.
+- name: Get installed version
+  ansible.builtin.command:
+    cmd: "dpkg-query -W -f=${Version} realtek-{{ realtek_dkms_driver }}-dkms"
+  register: realtek_dkms_installed
+  changed_when: false
+  failed_when: false
+
+- name: Install deb if needed
+  when: realtek_dkms_installed.stdout != realtek_dkms_latest_version
+  block:
+    - name: Create temp directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: realtek_dkms_tempdir
+    - name: Download deb
+      ansible.builtin.get_url:
+        url: "{{ realtek_dkms_deb_asset.browser_download_url }}"
+        dest: "{{ realtek_dkms_tempdir.path }}/{{ realtek_dkms_deb_asset.name }}"
+        mode: "0644"
+    - name: Install deb
+      ansible.builtin.apt:
+        deb: "{{ realtek_dkms_tempdir.path }}/{{ realtek_dkms_deb_asset.name }}"
+    - name: Cleanup temp directory
+      ansible.builtin.file:
+        path: "{{ realtek_dkms_tempdir.path }}"
+        state: absent

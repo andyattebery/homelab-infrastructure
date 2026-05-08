@@ -22,15 +22,19 @@
         upgrade: dist
         update_cache: true
 
-    - name: Install r8125 driver via DKMS package + udev swap
+    - name: Install r8125 driver (Realtek 2.5 GbE PCIe interface)
       when: install_realtek_r8125 | default(false)
       ansible.builtin.import_role:
-        name: realtek_r8125_dkms_package
+        name: realtek_dkms
+      vars:
+        realtek_dkms_driver: r8125
 
-    - name: Install r8152 driver (USB Realtek)
+    - name: Install r8152 driver (Realtek 5 GbE USB interface)
       when: install_realtek_r8152 | default(false)
       ansible.builtin.import_role:
-        name: realtek_r8152_dkms
+        name: realtek_dkms
+      vars:
+        realtek_dkms_driver: r8152
 
     - name: Configure NTP
       ansible.builtin.import_role:
