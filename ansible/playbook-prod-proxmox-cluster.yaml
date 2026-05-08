@@ -83,7 +83,6 @@
     #   vars:
     #     remote_power_control_target: true
     #     remote_power_control_target_username: kvmd
-    #     remote_power_control_target_authorized_key: "{{ pikvm_kvmd_ssh_public_key }}"
     #   ansible.builtin.import_role:
     #     name: remote_power_control
 

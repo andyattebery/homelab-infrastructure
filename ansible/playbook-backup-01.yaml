@@ -10,7 +10,6 @@
     - configure_server
     # # - role: power_saving
     # #   vars:
-    # #     power_saving_pcie_runtime_all_devices_enabled: true
     # #     power_saving_sata_all_devices: true
     # - role: zfs_conf
     #   vars:
@@ -42,7 +41,6 @@
     #   vars:
     #     remote_power_control_target: true
     #     remote_power_control_target_username: kvmd
-    #     remote_power_control_target_authorized_key: "{{ pikvm_kvmd_ssh_public_key }}"
     # - healthchecks_service
     # - role: sanoid
     #   vars:

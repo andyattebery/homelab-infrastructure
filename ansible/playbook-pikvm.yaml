@@ -21,20 +21,20 @@
 
   roles:
     - role: pikvm
-    # - pikvm_tailscale_exit_node
+    - pikvm_tailscale_exit_node
     - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
       when: inventory_hostname == 'pikvm' or inventory_hostname == 'pikvm-hid'
-    # - role: pikvm_tailscale_certificate
-    #   when: inventory_hostname == 'offsite-pikvm'
-    # - role: pikvm_hid_kvm_switch_input # Creating cert for tailscale DNS name
-    #   when: inventory_hostname == 'pikvm'
-    #   vars:
-    #     pikvm_hid_username: "{{ pikvm_hid_api_username }}"
-    #     pikvm_hid_password: "{{ pikvm_hid_api_password }}"
-    #     pikvm_hid_hostname: "pikvm-hid.{{ domain_name }}"
-    # - role: esphome_api_cli
-    #   when: inventory_hostname == 'pikvm'
-    # - role: beszel_agent
+    - role: pikvm_tailscale_certificate # Creating cert for tailscale DNS name
+      when: inventory_hostname == 'offsite-pikvm'
+    - role: pikvm_hid_kvm_switch_input
+      when: inventory_hostname == 'pikvm'
+      vars:
+        pikvm_hid_username: "{{ pikvm_hid_api_username }}"
+        pikvm_hid_password: "{{ pikvm_hid_api_password }}"
+        pikvm_hid_hostname: "pikvm-hid.{{ domain_name }}"
+    - role: esphome_api_cli
+      when: inventory_hostname == 'pikvm'
+    - role: beszel_agent
 
   tasks:
     - name: Generate locale

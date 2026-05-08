@@ -38,11 +38,6 @@
     # urfave/cli auto-registers --version on the binary and outputs
     # `<bin> version vX.Y.Z` which the default regex matches.
 
-- name: Remove cron job
-  ansible.builtin.cron:
-    name: "scrutiny collector"
-    state: absent
-
 - name: Copy scrutiny-collector.service
   ansible.builtin.template:
     src: scrutiny-collector.service.j2

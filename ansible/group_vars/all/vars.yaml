@@ -195,6 +195,8 @@ remote_power_control_pikvm_username: "{{ pikvm_api_username }}"
 remote_power_control_pikvm_password: "{{ pikvm_api_password }}"
 remote_power_control_homeassistant_url: "https://homeassistant.{{ domain_name }}:8123"
 remote_power_control_homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"
+remote_power_control_target_authorized_keys_extra: []
+remote_power_control_target_authorized_keys: "{{ [pikvm_kvmd_ssh_public_key] + remote_power_control_target_authorized_keys_extra }}"
 
 searxng_secret_key: "{{ vault_searxng_secret_key }}"
 
