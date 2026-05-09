@@ -1,24 +1,27 @@
 ---
+# No overrides are needed for API endpoints to be the tailnet versions
+# because for the offsite group, domain_name = {{ tailscale_tailnet }}
+# i.e.:
+# - beszel.{{ domain_name }}
+# - scrutiny.{{ domain_name }}
+
 - name: Configure offsite-nas
   hosts: offsite-nas
   become: true
 
-  vars:
-    scrutiny_nas_01_tailnet_url: "scrutiny.{{ homelab_domain_name }}"
-
   roles:
-    # - configure_server
-    # - artis3n.tailscale.machine
-    # - role: backup_destination
-    #   vars:
-    #     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-    #     syncoid_source_ssh_public_keys:
-    #       - "{{ nas_01_syncoid_ssh_public_key }}"
-    #       - "{{ backup_01_syncoid_ssh_public_key }}"
-    #     syncoid_destination_dataset: backups
-    #     scrutiny_api_url: "https://{{ scrutiny_nas_01_tailnet_url }}"
-    #     scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
-    #     scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+    - configure_server
+    - artis3n.tailscale.machine
+    - role: backup_destination
+      vars:
+        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+        syncoid_source_ssh_public_keys:
+          - "{{ nas_01_syncoid_ssh_public_key }}"
+          - "{{ backup_01_syncoid_ssh_public_key }}"
+        syncoid_destination_dataset: backups
+        sanoid_src_conf_file_path: files/offsite-nas/sanoid.conf
+        scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+        scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
     - role: samba
       vars:
         samba_users:
@@ -28,13 +31,3 @@
         samba_shares:
           - name: offsite-homeassistant_backups
             path: /mnt/backups/offsite-homeassistant/backups
-
-  tasks:
-    - name: Add to hosts file
-      ansible.builtin.lineinfile:
-        path: /etc/hosts
-        regexp: "{{ scrutiny_nas_01_tailnet_url }}$"
-        line: "{{ nas_01_tailscale_ip }} {{ scrutiny_nas_01_tailnet_url }}"
-        owner: root
-        group: root
-        mode: '0644'
