@@ -97,12 +97,12 @@
     #     power_saving_configure_cpu: false
     # - zed_notifications
     # - healthchecks_service
-    # - role: scrutiny_collector
-    #   vars:
-    #     scrutiny_ignored_devices:
-    #       - /dev/sda
-    #       - /dev/sdb
-    #       - /dev/sdc
+    - role: scrutiny_collector
+      vars:
+        scrutiny_ignored_devices:
+          - /dev/sda
+          - /dev/sdb
+          - /dev/sdc
     # - role: sanoid
     #   vars:
     #     sanoid_dataset_configs:

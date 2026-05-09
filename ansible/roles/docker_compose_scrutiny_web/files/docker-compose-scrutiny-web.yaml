@@ -13,7 +13,7 @@ services:
       timeout: 10s
       retries: 20
   scrutiny-web:
-    image: ghcr.io/analogj/scrutiny:master-web
+    image: ghcr.io/analogj/scrutiny:latest-web
     container_name: scrutiny-web
     restart: unless-stopped
     environment:
