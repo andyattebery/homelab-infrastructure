@@ -1,0 +1,2 @@
+nut_client_username: "backup-01"
+nut_client_password: "{{ vault_nut_client_password }}"

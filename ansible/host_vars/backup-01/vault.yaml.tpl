@@ -1,0 +1,1 @@
+vault_nut_client_password: {{ op://Personal/ups-monitor-rack/nut/backup-01 password }}

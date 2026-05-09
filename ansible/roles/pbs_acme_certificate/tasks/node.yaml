@@ -1,35 +1,72 @@
 ---
-# - name: Get node config
-#   ansible.builtin.command:
-#     cmd: "{{ pbs_curl_base_get_command }}/nodes/{{ ansible_facts['hostname'] }}/config"
-#   register: pbs_curl_get_node_config_result
-#   changed_when: false
-# - ansible.builtin.debug:
-#     msg: "{{ pbs_curl_get_node_config_result.stdout | from_json | json_query('acmedomain0') }}"
+- name: Get node config
+  ansible.builtin.uri:
+    url: "{{ pbs_api_base_url }}/nodes/{{ ansible_facts['hostname'] }}/config"
+    method: GET
+    headers: "{{ pbs_api_headers }}"
+    validate_certs: false
+    return_content: true
+  register: pbs_node_config_result
+
 - name: Add ACME domain to node
-  # when: "pbs_curl_get_node_config_result.stdout | from_json | json_query('acmedomain0') == ''"
   vars:
     node_fqdn: "{{ ansible_facts['hostname'] }}.{{ domain_name }}"
-  ansible.builtin.command:
-    cmd: >
-      {{ pbs_curl_base_put_command }}/nodes/{{ ansible_facts['hostname'] }}/config
-      --data acmedomain0='domain={{ node_fqdn }},plugin=cloudflare'
-  register: pbs_curl_put_node_config_result
-  changed_when: true
-# - ansible.builtin.debug:
-#     msg: "{{ pbs_curl_put_node_config_result.stdout }}"
+    pbs_node_config_data: "{{ (pbs_node_config_result.content | from_json).data }}"
+  when: >-
+    pbs_node_config_data.acmedomain0 is not defined
+    or pbs_node_config_data.acmedomain0 | length == 0
+  ansible.builtin.uri:
+    url: "{{ pbs_api_base_url }}/nodes/{{ ansible_facts['hostname'] }}/config"
+    method: PUT
+    headers: "{{ pbs_api_headers }}"
+    validate_certs: false
+    body_format: form-urlencoded
+    body:
+      acmedomain0: "domain={{ node_fqdn }},plugin=cloudflare"
+    status_code: [200]
+
 - name: Get certificates info for node
-  ansible.builtin.command:
-    cmd: "{{ pbs_curl_base_get_command }}/nodes/{{ ansible_facts['hostname'] }}/certificates/info"
-  register: pbs_curl_get_node_certificates_info_result
-  changed_when: false
-# - ansible.builtin.debug:
-#     msg: "{{ pbs_curl_get_node_certificates_info_result.stdout }}"
+  ansible.builtin.uri:
+    url: "{{ pbs_api_base_url }}/nodes/{{ ansible_facts['hostname'] }}/certificates/info"
+    method: GET
+    headers: "{{ pbs_api_headers }}"
+    validate_certs: false
+    return_content: true
+  register: pbs_node_certs_info_result
+
 - name: Order ACME certificate for node
-  vars:
-    lets_encrypt_search_string: "\"issuer\": \"/C=US/O=Let's Encrypt/CN=R3\""
-  when: "'s Encrypt,' not in pbs_curl_get_node_certificates_info_result.stdout"
-  ansible.builtin.command:
-    cmd: "{{ pbs_curl_base_post_command }}/nodes/{{ ansible_facts['hostname'] }}/certificates/acme/certificate"
-  register: pbs_curl_post_certificate_acme_certificate_result
-  changed_when: true
+  when:
+    - (pbs_node_certs_info_result.content | from_json).data
+      | selectattr('issuer', 'defined')
+      | selectattr('issuer', 'search', "Let's Encrypt")
+      | list | length == 0
+  ansible.builtin.uri:
+    url: "{{ pbs_api_base_url }}/nodes/{{ ansible_facts['hostname'] }}/certificates/acme/certificate"
+    method: POST
+    headers: "{{ pbs_api_headers }}"
+    validate_certs: false
+    status_code: [200]
+  register: pbs_acme_cert_order_result
+
+# `POST /certificates/acme/certificate` is async — it returns 200 once the
+# task is queued, but the actual DNS-01 challenge and cert issuance happens
+# in proxmox-backup-proxy afterward. Poll the certs list until a Let's
+# Encrypt cert appears so we fail visibly if the async work fails (rate
+# limit, DNS issue, plugin auth, etc) instead of silently reporting success.
+- name: Wait for ACME certificate to be issued
+  when: pbs_acme_cert_order_result is changed
+  ansible.builtin.uri:
+    url: "{{ pbs_api_base_url }}/nodes/{{ ansible_facts['hostname'] }}/certificates/info"
+    method: GET
+    headers: "{{ pbs_api_headers }}"
+    validate_certs: false
+    return_content: true
+  register: pbs_node_certs_info_after_order
+  until: >-
+    (pbs_node_certs_info_after_order.content | from_json).data
+    | selectattr('issuer', 'defined')
+    | selectattr('issuer', 'search', "Let's Encrypt")
+    | list | length > 0
+  retries: 30
+  delay: 5
+  changed_when: false

@@ -58,7 +58,7 @@
   ansible.builtin.known_hosts:
     name: "{{ syncoid_destination_host }}"
     key: "{{ ssh_keyscan_item }}"
-  loop: "{{ syncoid_destination_ssh_keyscan_result.stdout_lines }}"
+  loop: "{{ syncoid_destination_ssh_keyscan_result.stdout_lines | reject('match', '^\\s*(#|$)') | list }}"
   loop_control:
     loop_var: ssh_keyscan_item
 - name: Set empty syncoid_dataset_services

@@ -12,4 +12,3 @@ iface enp2s0 inet dhcp
 auto enp3s0
 iface enp3s0 inet static
     address 192.168.1.249/24
-    gateway 192.168.1.1

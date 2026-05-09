@@ -1,0 +1,19 @@
+---
+# Files under /etc/apt/sources.list.d/ that pbs_config will remove on every
+# run, regardless of which sources format the host is using. This is for
+# repos we never want active (enterprise / older installer leftovers).
+pbs_config_remove_files_always:
+  - pbs-enterprise.list
+  - pbs-enterprise.sources
+  # Older PBS installer default (PBS 2/3 era). Replaced by pbs-no-subscription.list
+  # in modern installs and by proxmox.sources in deb822.
+  - pbs-install-repo.list
+
+# Files removed when the host is using deb822 (.sources) format — legacy
+# .list versions of repos that we now manage in deb822 form, plus the
+# stale pbs-no-subscription.sources from earlier (broken) runs of this
+# role before we standardised on proxmox.sources as the canonical
+# deb822 filename.
+pbs_config_remove_files_when_deb822:
+  - pbs-no-subscription.list
+  - pbs-no-subscription.sources
