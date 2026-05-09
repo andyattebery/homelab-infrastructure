@@ -1,6 +1,21 @@
 global_defs {
     max_auto_priority -1
+{% if keepalived_track_script_command is defined %}
+    enable_script_security
+    script_user root
+{% endif %}
 }
+
+{% if keepalived_track_script_command is defined %}
+vrrp_script chk_{{ keepalived_instance_name }} {
+    script "{{ keepalived_track_script_command }}"
+    interval {{ keepalived_track_script_interval }}
+    timeout  {{ keepalived_track_script_timeout }}
+    rise     {{ keepalived_track_script_rise }}
+    fall     {{ keepalived_track_script_fall }}
+    weight   {{ keepalived_track_script_weight }}
+}
+{% endif %}
 
 vrrp_instance {{ keepalived_instance_name }} {
     state {{ 'MASTER' if keepalived_is_master else 'BACKUP' }}
@@ -10,4 +25,9 @@ vrrp_instance {{ keepalived_instance_name }} {
     virtual_ipaddress {
         {{ keepalived_virtual_ipaddress }}
     }
+{% if keepalived_track_script_command is defined %}
+    track_script {
+        chk_{{ keepalived_instance_name }}
+    }
+{% endif %}
 }

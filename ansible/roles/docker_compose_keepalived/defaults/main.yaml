@@ -1,3 +1,11 @@
 ---
 keepalived_router_id: 51
 keepalived_container_name: keepalived
+
+# Optional health check applied to the vrrp_instance when keepalived_track_script_command is set.
+# These defaults aim for ~10s detection without flapping on transient slowness.
+keepalived_track_script_interval: 5
+keepalived_track_script_timeout: 3
+keepalived_track_script_rise: 2
+keepalived_track_script_fall: 2
+keepalived_track_script_weight: -75

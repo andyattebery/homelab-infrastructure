@@ -22,6 +22,11 @@
         keepalived_instance_name: adguardhome
         keepalived_interface: eth0
         keepalived_virtual_ipaddress: "{{ dns_server_vip }}"
+        # Redirects (>/dev/null 2>&1) intentionally omitted — keepalived parses
+        # the script string by whitespace into argv and exec's directly (no shell),
+        # so redirects would be passed as literal arguments. nslookup output ends
+        # up in keepalived's own log, which is acceptable.
+        keepalived_track_script_command: "/usr/bin/timeout 2 /usr/bin/nslookup healthcheck.adguardhome.test 127.0.0.1"
     - role: docker_compose_wireguard
       vars:
         docker_compose_copy_scripts: true
