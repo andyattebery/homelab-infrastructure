@@ -20,10 +20,10 @@
         nut_monitor_secondary_users: >-
           {{
             [{'name': 'homeassistant', 'password': ups_monitor_rack_nut_homeassistant_password}]
-            + [
-              {'name': hostvars[h].nut_client_username, 'password': hostvars[h].nut_client_password}
-              for h in groups['ups_monitor_rack_nut_clients']
-            ]
+            + (groups['ups_monitor_rack_nut_clients']
+               | map('extract', hostvars)
+               | list
+               | community.general.json_query('[].{name: nut_client_username, password: nut_client_password}'))
           }}
         nut_notify_pushover_token: "{{ nut_pushover_token }}"
         nut_notify_pushover_user_key: "{{ pushover_user_key }}"

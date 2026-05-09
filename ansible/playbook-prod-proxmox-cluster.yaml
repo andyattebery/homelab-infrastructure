@@ -78,13 +78,12 @@
     #   ansible.builtin.import_role:
     #     name: remote_power_control
 
-    # Migrate when the pikvm-side playbook is also updated:
-    # - name: Configure remote power control target (for PiKVM)
-    #   vars:
-    #     remote_power_control_target: true
-    #     remote_power_control_target_username: kvmd
-    #   ansible.builtin.import_role:
-    #     name: remote_power_control
+    - name: Configure remote power control target (for PiKVM)
+      vars:
+        remote_power_control_target: true
+        remote_power_control_target_username: kvmd
+      ansible.builtin.import_role:
+        name: remote_power_control
 
     # The PVE installer owns the management NIC config (vmbr0 + its
     # bridge port). We add the Ceph cluster network NIC stanza, plus any
