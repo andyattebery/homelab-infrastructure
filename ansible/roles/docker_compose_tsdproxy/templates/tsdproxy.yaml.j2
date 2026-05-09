@@ -1,0 +1,11 @@
+tailscale:
+  providers:
+    default:
+      authKeyFile: /config/authkey
+{% if docker_compose_tsdproxy_tags %}
+      tags: "{{ docker_compose_tsdproxy_tags }}"
+{% endif %}
+
+docker:
+  local:
+    tryDockerInternalNetwork: true

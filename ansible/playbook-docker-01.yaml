@@ -6,14 +6,25 @@
   vars:
     docker_compose_dst_data_directory_path: "/mnt/data"
 
+  pre_tasks:
+    - name: Remove legacy tailscale apt sources
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/tailscale.list
+        - /etc/apt/sources.list.d/tailscale.sources
+        - /usr/share/keyrings/tailscale-archive-keyring.gpg
+
   roles:
-    # - configure_server
-    # - artis3n.tailscale.machine
-    # - geerlingguy.docker
-    # - role: docker_compose_traefik
-    #   vars:
-    #     docker_compose_copy_scripts: true
-    #     docker_compose_traefik_enable_dashboard: true
+    - configure_server
+    - artis3n.tailscale.machine
+    - geerlingguy.docker
+    - role: docker_compose_traefik
+      vars:
+        docker_compose_copy_scripts: true
+        docker_compose_traefik_enable_dashboard: true
+    - role: docker_compose_tsdproxy
     # - role: docker_compose_diun
     # - role: docker_compose_obico
     #   vars:
@@ -28,8 +39,8 @@
     #       OBICO_EMAIL_HOST_PASSWORD: "{{ smtp_password }}"
     #       OBICO_DEFAULT_FROM_EMAIL: "obico@{{ domain_name }}"
     #       OBICO_DJANGO_SECRET_KEY: "{{ obico_django_secret_key }}"
-    # - role: docker_compose_beszel_hub
-    # - role: beszel_agent
+    - role: docker_compose_beszel_hub
+    - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
     # - role: docker_compose_certbot_asrock_ipmi
     #   vars:
@@ -41,7 +52,7 @@
     #   vars:
     #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
     #     perplexica_ollama_api_url: "https://ollama.{{ domain_name }}"
-    - role: docker_compose_searxng
+    # - role: docker_compose_searxng
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-3d-printing.yml

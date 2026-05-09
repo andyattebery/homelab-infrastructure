@@ -28,12 +28,16 @@ services:
     networks:
       - scrutiny
       - traefik
+      - tsdproxy
     labels:
       - traefik.enable=true
       - traefik.http.routers.scrutiny.rule=Host(`scrutiny.$DOMAIN_NAME`)
       - traefik.http.routers.scrutiny.service=scrutiny
       - traefik.http.services.scrutiny.loadbalancer.server.port=8080
       - dsm.name=Scrutiny
+      - tsdproxy.enable=true
+      - tsdproxy.name=scrutiny
+      - "tsdproxy.port.1=443/https:8080/http"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 5s
@@ -46,4 +50,7 @@ networks:
     name: scrutiny
   traefik:
     name: traefik
+    external: true
+  tsdproxy:
+    name: tsdproxy
     external: true

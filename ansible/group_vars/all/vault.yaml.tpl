@@ -154,9 +154,11 @@ vault_smtp_username: {{ op://Personal/ansible SMTP/username }}
 vault_snapraid_btrfs_runner_from_email: {{ op://Personal/snapraid-btrfs-runner/add more/from email}}
 vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add more/to email }}
 vault_steamdeck_ssh_public_key: {{op://Personal/wk2jbsx4hmdhpiaqqr2knbn5bq/public key }}
-vault_tailscale_authkey: {{ op://Personal/Tailscale Auth Key/credential }}
+vault_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible artis3n.tailscale.machine }}
 vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
+tsdproxy_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible tsdproxy }}
 vault_tautulli_api_key: {{ op://Personal/Tautulli/anxdbqsd7twkt4ia265e4sv2xe/api key }}
+
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
 vault_ups_monitor_rack_nut_admin_password: {{ op://Personal/ups-monitor-rack/nut/admin password }}
 vault_ups_monitor_rack_nut_upsmon_password: {{ op://Personal/ups-monitor-rack/nut/upsmon password }}

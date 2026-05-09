@@ -79,7 +79,7 @@ dns_server_vip: "{{ vault_dns_server_vip }}"
 # applications
 beszel_key: "{{ vault_beszel_key }}"
 beszel_token: "{{ vault_beszel_universal_token }}"
-beszel_hub_url: "beszel.{{ homelab_domain_name }}"
+beszel_hub_url: "beszel.{{ domain_name }}"
 beszel_username: "{{ vault_beszel_username }}"
 beszel_password: "{{ vault_beszel_password }}"
 
@@ -221,7 +221,7 @@ tautulli_api_key: "{{ vault_tautulli_api_key }}"
 
 ups_monitor_rack_nut_ups_name: rack-ups
 ups_monitor_rack_nut_pdu_name: rack-pdu
-ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ homelab_domain_name }}"
+ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ domain_name }}"
 ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
 ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
 
@@ -236,6 +236,7 @@ zed_pushover_token: "{{ vault_zed_pushover_token }}"
 # artis3n.tailscale
 # pikvm_tailscale
 tailscale_authkey: "{{ vault_tailscale_authkey }}"
+tsdproxy_tailscale_authkey: "{{ vault_tsdproxy_tailscale_authkey }}"
 
 # geerlingguy.docker
 docker_install_compose: false

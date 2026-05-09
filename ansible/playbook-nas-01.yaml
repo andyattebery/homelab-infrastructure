@@ -137,11 +137,12 @@
     #         path: /mnt/storage
     #       - name: tank
     #         path: /mnt/tank
-    # - role: docker_compose_traefik
-    #   vars:
-    #     docker_compose_traefik_enable_dashboard: true
-    #     docker_compose_traefik_enable_tailscale: true
-    #     docker_compose_traefik_log_level: ERROR
+    - role: docker_compose_traefik
+      vars:
+        docker_compose_traefik_enable_dashboard: true
+        docker_compose_traefik_enable_tailscale: true
+        docker_compose_traefik_log_level: ERROR
+    - role: docker_compose_tsdproxy
     # - role: docker_compose_dashboard_services_manager_provider
     # - role: docker_compose_diun
     # - role: docker_compose_frigate

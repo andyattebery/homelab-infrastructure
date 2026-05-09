@@ -9,6 +9,7 @@ services:
     #   - 8090:8090
     networks:
       - traefik
+      - tsdproxy
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/beszel_data:/beszel_data
     labels:
@@ -16,8 +17,14 @@ services:
       - traefik.http.routers.beszel.rule=Host(`beszel.$DOMAIN_NAME`)
       - traefik.http.routers.beszel.service=beszel
       - traefik.http.services.beszel.loadbalancer.server.port=8090
+      - tsdproxy.enable=true
+      - tsdproxy.name=beszel
+      - "tsdproxy.port.1=443/https:8090/http"
 
 networks:
   traefik:
     name: traefik
+    external: true
+  tsdproxy:
+    name: tsdproxy
     external: true

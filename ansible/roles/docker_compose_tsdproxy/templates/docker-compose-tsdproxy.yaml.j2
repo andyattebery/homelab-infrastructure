@@ -1,0 +1,26 @@
+---
+services:
+  tsdproxy:
+    image: "almeidapaulopt/tsdproxy:${TSDPROXY_IMAGE_TAG}"
+    container_name: tsdproxy
+    restart: unless-stopped
+    networks:
+      - traefik
+      - tsdproxy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${DOCKER_DATA_DIRECTORY}/tsdproxy/data:/data"
+      - "${DOCKER_DATA_DIRECTORY}/tsdproxy/config:/config"
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.tsdproxy.rule=Host(`tsdproxy.${HOSTNAME}.${DOMAIN_NAME}`)"
+      - traefik.http.services.tsdproxy.loadbalancer.server.port=8080
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+  tsdproxy:
+    name: tsdproxy

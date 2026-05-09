@@ -16,6 +16,7 @@ services:
       - REDIS_HOSTNAME=immich-redis
     networks:
       - traefik
+      - tsdproxy
       - immich
     volumes:
       - ${IMMICH_PHOTOS_DIRECTORY}:/usr/src/app/upload
@@ -25,6 +26,9 @@ services:
       - traefik.http.routers.immich.rule=Host(`immich.$DOMAIN_NAME`)
       - traefik.http.routers.immich.tls.certresolver=cloudflare
       - dsm.name=Immich
+      - tsdproxy.enable=true
+      - tsdproxy.name=immich
+      - "tsdproxy.port.1=443/https:2283/http"
 
   immich-redis:
     container_name: immich-redis
@@ -51,4 +55,7 @@ networks:
     name: immich
   traefik:
     name: traefik
+    external: true
+  tsdproxy:
+    name: tsdproxy
     external: true

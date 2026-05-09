@@ -1,0 +1,18 @@
+---
+- name: Configure tsdproxy with docker_compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-tsdproxy.yaml.j2
+    docker_compose_dst_file_name: docker-compose-tsdproxy.yaml
+    docker_compose_envs:
+      TSDPROXY_IMAGE_TAG: "{{ docker_compose_tsdproxy_image_tag }}"
+      HOSTNAME: "{{ inventory_hostname_short }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/tsdproxy.yaml.j2
+        dst_relative_file_path: tsdproxy/config/tsdproxy.yaml
+        service_name_to_restart: tsdproxy
+      - src_file_path: templates/authkey.j2
+        dst_relative_file_path: tsdproxy/config/authkey
+        mode: "0600"
+        service_name_to_restart: tsdproxy
+  ansible.builtin.include_role:
+    name: docker_compose
