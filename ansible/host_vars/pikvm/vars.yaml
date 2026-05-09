@@ -5,8 +5,9 @@ pikvm_root_password: "{{ vault_pikvm_root_password }}"
 pikvm_web_admin_password: "{{ vault_pikvm_web_admin_password }}"
 
 pikvm_override_yaml_template_src: files/pikvm/override.yaml.j2
-pikvm_ssh_remote_command_private_key: "{{ pikvm_kvmd_ssh_private_key }}"
-pikvm_ssh_remote_command_hosts:
+remote_power_control_ssh_username: kvmd
+remote_power_control_ssh_private_key_path: /etc/remote_power_control/id_ed25519
+pikvm_remote_power_control_ssh_targets:
   - yaml_key_name: backup_01
     hostname: backup-01.{{ domain_name }}
   - yaml_key_name: nas_host_01
@@ -15,8 +16,6 @@ pikvm_ssh_remote_command_hosts:
     hostname: vm-host-01.{{ domain_name }}
   - yaml_key_name: vm_host_02
     hostname: vm-host-02.{{ domain_name }}
-  - yaml_key_name: vm_host_03
-    hostname: vm-host-03.{{ domain_name }}
 pikvm_esphome_api_cli_script_path: /usr/local/bin/esphome-api-cli
 pikvm_esphome_outlets:
   - yaml_key_name: backup_01
@@ -34,6 +33,3 @@ pikvm_esphome_outlets:
   - yaml_key_name: vm_host_02
     hostname: vm-host-02-outlet.local
     api_encryption_key: "{{ esphome_api_encryption_key_vm_host_02_outlet }}"
-  - yaml_key_name: vm_host_03
-    hostname: vm-host-03-outlet.local
-    api_encryption_key: "{{ esphome_api_encryption_key_vm_host_03_outlet }}"

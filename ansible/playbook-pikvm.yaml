@@ -21,6 +21,11 @@
 
   roles:
     - role: pikvm
+    - role: remote_power_control
+      when: inventory_hostname == 'pikvm'
+      vars:
+        remote_power_control_client: true
+        remote_power_control_client_private_key: "{{ pikvm_kvmd_ssh_private_key }}"
     - pikvm_tailscale_exit_node
     - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
       when: inventory_hostname == 'pikvm' or inventory_hostname == 'pikvm-hid'

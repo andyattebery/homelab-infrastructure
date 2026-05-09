@@ -33,18 +33,20 @@ kvmd:
             #    host: ipmi.nas-host-01.{{ domain_name }}
             #    user: {{ nas_host_01_ipmi_username }}
             #    passwd: {{ nas_host_01_ipmi_password }}
-{% for ssh_remote_command_host in pikvm_ssh_remote_command_hosts | default([]) %}
-            reboot_{{ ssh_remote_command_host.yaml_key_name }}:
+{% for ssh_target in pikvm_remote_power_control_ssh_targets | default([]) %}
+            reboot_{{ ssh_target.yaml_key_name }}:
                 type: cmd
                 cmd:
-                    - '{{ pikvm_ssh_remote_command_script_path }}'
-                    - '{{ ssh_remote_command_host.hostname }}'
+                    - '/usr/local/bin/remote_power_control'
+                    - '{{ ssh_target.hostname }}'
+                    - 'ssh'
                     - 'reboot'
-            shutdown_{{ ssh_remote_command_host.yaml_key_name }}:
+            shutdown_{{ ssh_target.yaml_key_name }}:
                 type: cmd
                 cmd:
-                    - '{{ pikvm_ssh_remote_command_script_path }}'
-                    - '{{ ssh_remote_command_host.hostname }}'
+                    - '/usr/local/bin/remote_power_control'
+                    - '{{ ssh_target.hostname }}'
+                    - 'ssh'
                     - 'shutdown'
 {% endfor %}
 {% for esphome_outlet in pikvm_esphome_outlets | default([]) %}
@@ -127,14 +129,14 @@ kvmd:
             #    driver: ipmi_nas_host_01
             #    pin: 4
             #    mode: output
-{% for ssh_remote_command_host in pikvm_ssh_remote_command_hosts | default([]) %}
-            reboot_{{ ssh_remote_command_host.yaml_key_name }}:
-                driver: reboot_{{ ssh_remote_command_host.yaml_key_name }}
+{% for ssh_target in pikvm_remote_power_control_ssh_targets | default([]) %}
+            reboot_{{ ssh_target.yaml_key_name }}:
+                driver: reboot_{{ ssh_target.yaml_key_name }}
                 pin: 0
                 mode: output
                 switch: false
-            shutdown_{{ ssh_remote_command_host.yaml_key_name }}:
-                driver: shutdown_{{ ssh_remote_command_host.yaml_key_name }}
+            shutdown_{{ ssh_target.yaml_key_name }}:
+                driver: shutdown_{{ ssh_target.yaml_key_name }}
                 pin: 0
                 mode: output
                 switch: false
@@ -193,13 +195,6 @@ kvmd:
                     #- "ipmi_nas_host_01_on | confirm | IPMI On"
                     #- "ipmi_nas_host_01_off | confirm | IPMI Off"
                     #- "ipmi_nas_host_01_reset | confirm | IPMI Reset"
-                -
-                    - "#vm-host-03"
-                    - "wol_vm_host_03 | confirm | Power On (WoL)"
-                    - "reboot_vm_host_03 | confirm | Reboot"
-                    - "shutdown_vm_host_03 | confirm | Shutdown"
-                    - "esphome_outlet_on_vm_host_03 | confirm | Outlet On"
-                    - "esphome_outlet_off_vm_host_03 | confirm | Outlet Off"
                 -
                     - "#mac-mini-01"
                     - "esphome_outlet_on_mac_mini_01 | confirm | Outlet On"
