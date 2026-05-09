@@ -73,10 +73,8 @@ vm_host_01_mac_address: "{{ vault_vm_host_01_mac_address }}"
 vm_host_02_mac_address: "{{ vault_vm_host_02_mac_address }}"
 vm_host_03_mac_address: "{{ vault_vm_host_03_mac_address }}"
 
-# groups
-homelab_domain_name: "{{ vault_homelab_domain_name }}"
-
-# proxmox cluster vars live in group_vars/prod_proxmox_cluster/
+# network
+dns_server_vip: "{{ vault_dns_server_vip }}"
 
 # applications
 beszel_key: "{{ vault_beszel_key }}"

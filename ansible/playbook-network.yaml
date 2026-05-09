@@ -4,10 +4,14 @@
   become: true
 
   roles:
-    # - configure_server
-    # - geerlingguy.docker
-    # - disable_resolved_dns_stub_listener # This appears to be unnecessary since tailscale replaces /etc/resolve.conf
-    # - artis3n.tailscale.machine
+    - configure_server
+    - geerlingguy.docker
+    - role: artis3n.tailscale.machine
+      vars:
+        # Disable MagicDNS so it doesn't overwrite /etc/resolv.conf (legacy).
+        # Advertise as exit node + subnet router for the homelab LAN.
+        tailscale_args: "--accept-dns=false --advertise-exit-node --advertise-routes={{ subnet_cidr }}"
+    - disable_resolved_dns_stub_listener
     - role: docker_compose_adguardhome
       when: inventory_hostname != 'network-01'
     - docker_compose_dashboard_services_manager_provider
@@ -17,7 +21,7 @@
         keepalived_network_mode: host
         keepalived_instance_name: adguardhome
         keepalived_interface: eth0
-        keepalived_virtual_ipaddress: 192.168.1.222
+        keepalived_virtual_ipaddress: "{{ dns_server_vip }}"
     - role: docker_compose_wireguard
       vars:
         docker_compose_copy_scripts: true

@@ -15,6 +15,7 @@ vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
 vault_cloudflare_api_token: {{ op://Personal/Cloudflare API Token - Ansible Vault DNS Edit/credential }}
 vault_diun_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
+vault_dns_server_vip: {{ op://Personal/Home Lab/dns/vip }}
 vault_esphome_api_encryption_key_backup_01_outlet: {{ op://Personal/ESPHome/backup-01 outlet/api encryption key }}
 vault_esphome_api_encryption_key_mac_mini_01_outlet: {{ op://Personal/ESPHome/mac-mini-01 outlet/api encryption key }}
 vault_esphome_api_encryption_key_nas_host_01_outlet: {{ op://Personal/ESPHome/nas-host-01 outlet/api encryption key }}
@@ -31,7 +32,6 @@ vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
 vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
 vault_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/ansible }}
-vault_homelab_domain_name: {{ op://Personal/Home Lab Domain Name/notesPlain }}
 vault_icecast_server_hostname: {{ op://Personal/pi-turntable/icecast/hostname }}
 vault_icecast_server_port: {{ op://Personal/pi-turntable/icecast/port }}
 vault_icecast_server_password: {{ op://Personal/pi-turntable/icecast/password }}
