@@ -6,16 +6,6 @@
   vars:
     docker_compose_dst_data_directory_path: "/mnt/data"
 
-  pre_tasks:
-    - name: Remove legacy tailscale apt sources
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /etc/apt/sources.list.d/tailscale.list
-        - /etc/apt/sources.list.d/tailscale.sources
-        - /usr/share/keyrings/tailscale-archive-keyring.gpg
-
   roles:
     - configure_server
     - artis3n.tailscale.machine

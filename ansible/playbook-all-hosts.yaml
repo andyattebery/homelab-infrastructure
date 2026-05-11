@@ -1,3 +1,0 @@
-- name: Configure all hosts
-  hosts: all
-  become: true
