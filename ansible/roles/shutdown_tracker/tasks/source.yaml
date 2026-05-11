@@ -1,0 +1,18 @@
+---
+- name: Assert source-mode vars
+  ansible.builtin.assert:
+    that:
+      - shutdown_tracker_source_ssh_key_path | length > 0
+      - shutdown_tracker_destination_host | length > 0
+      - shutdown_tracker_destination_username | length > 0
+    fail_msg: >-
+      shutdown_tracker (source mode) requires shutdown_tracker_source_ssh_key_path,
+      shutdown_tracker_destination_host, and shutdown_tracker_destination_username.
+
+- name: Render shutdown_tracker_complete caller wrapper
+  ansible.builtin.template:
+    src: shutdown_tracker_complete_caller.sh.j2
+    dest: "{{ shutdown_tracker_complete_caller_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"

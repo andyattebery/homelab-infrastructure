@@ -1,0 +1,10 @@
+#!/bin/sh
+# Wrapper: signal completion to the configured shutdown_tracker destination.
+# Usage: <this script> <source_key>
+set -eu
+source_key=${1:?source key required}
+exec /usr/bin/ssh -o StrictHostKeyChecking=accept-new \
+    -i {{ shutdown_tracker_source_ssh_key_path }} \
+    {{ shutdown_tracker_destination_username }}@{{ shutdown_tracker_destination_host }} \
+    sudo {{ shutdown_tracker_destination_complete_script_path }} \
+    "$source_key"

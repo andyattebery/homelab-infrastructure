@@ -1,4 +1,12 @@
 ---
+- name: Assert remote_power_control target-mode vars
+  ansible.builtin.assert:
+    that:
+      - remote_power_control_target_authorized_keys | length > 0
+    fail_msg: >-
+      remote_power_control (target mode) requires remote_power_control_target_authorized_keys
+      (non-empty list of SSH public keys authorized to invoke the power command).
+
 - name: Download power_command_target script
   ansible.builtin.get_url:
     url: https://github.com/andyattebery/remote_power_control/raw/main/remote/power_command_target

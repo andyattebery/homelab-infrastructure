@@ -1,4 +1,15 @@
 ---
+- name: Assert syncoid_destination required vars
+  ansible.builtin.assert:
+    that:
+      - syncoid_destination_username | length > 0
+      - syncoid_source_ssh_public_keys | length > 0
+      - syncoid_destination_dataset | length > 0
+    fail_msg: >-
+      syncoid_destination requires syncoid_destination_username,
+      syncoid_source_ssh_public_keys (non-empty list of authorized SSH public keys),
+      and syncoid_destination_dataset.
+
 - name: Install packages
   ansible.builtin.apt:
     name:

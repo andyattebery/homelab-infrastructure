@@ -9,12 +9,14 @@
   hosts: offsite-nas
   become: true
 
+  vars:
+    syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+
   roles:
     - configure_server
     - artis3n.tailscale.machine
     - role: backup_destination
       vars:
-        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
         syncoid_source_ssh_public_keys:
           - "{{ nas_01_syncoid_ssh_public_key }}"
           - "{{ backup_01_syncoid_ssh_public_key }}"
@@ -22,6 +24,15 @@
         sanoid_src_conf_file_path: files/offsite-nas/sanoid.conf
         scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
         scrutiny_collector_systemd_after: tailscaled.service sys-subsystem-net-devices-tailscale0.device
+    - role: shutdown_tracker
+      vars:
+        shutdown_tracker_destination: true
+        shutdown_tracker_expected_sources:
+          - name: backup-01
+            busy_check_command: "pgrep -fa 'zfs receive'"
+          - name: nas-01
+            busy_check_command: "pgrep -fa 'zfs receive'"
+        shutdown_tracker_destination_username: "{{ syncoid_destination_username }}"
     - role: samba
       vars:
         samba_users:

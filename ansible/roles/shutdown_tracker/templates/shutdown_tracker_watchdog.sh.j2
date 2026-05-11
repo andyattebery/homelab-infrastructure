@@ -1,0 +1,41 @@
+#!/bin/sh
+# Watchdog: deadline-triggered safety net for cases where completion signals
+# never arrive. Reads each pending source's busy_check_command; defers if any reports
+# busy, otherwise powers off.
+#
+# NOTE: deliberately NOT using `set -e` — we capture predicate exit codes
+# explicitly and react to them; `-e` would abort on the first non-zero exit
+# and short-circuit the fail-safe logic.
+set -u
+
+pause={{ shutdown_tracker_pause_file_path }}
+sources_dir={{ shutdown_tracker_sources_directory_path }}
+completed_dir={{ shutdown_tracker_completed_directory_path }}
+
+if [ -e "$pause" ]; then
+    logger -t shutdown_tracker "watchdog: pause file present; deferring poweroff"
+    exit 0
+fi
+
+mkdir -p "$completed_dir"
+
+# Exit 0 = busy, exit 1 = idle, anything else = treated as busy (fail-safe).
+for src_file in "$sources_dir"/*; do
+    [ -e "$src_file" ] || continue
+    name=$(basename "$src_file")
+    [ -e "$completed_dir/$name" ] && continue
+
+    busy_check_command=$(cat "$src_file")
+    sh -c "$busy_check_command" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        logger -t shutdown_tracker "watchdog: '$name' reports busy ($busy_check_command); deferring poweroff"
+        exit 0
+    elif [ "$rc" -ne 1 ]; then
+        logger -p user.warning -t shutdown_tracker "watchdog: '$name' busy_check_command exited $rc (treated as busy): $busy_check_command"
+        exit 0
+    fi
+done
+
+logger -t shutdown_tracker "watchdog: deadline reached and all pending sources report idle; forcing poweroff"
+systemctl poweroff

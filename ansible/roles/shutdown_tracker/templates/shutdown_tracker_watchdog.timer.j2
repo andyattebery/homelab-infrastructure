@@ -1,0 +1,10 @@
+[Unit]
+Description=shutdown_tracker watchdog timer
+
+[Timer]
+OnBootSec={{ shutdown_tracker_complete_signal_timeout_minutes }}min
+OnUnitActiveSec={{ shutdown_tracker_watchdog_retry_minutes }}min
+Unit=shutdown_tracker_watchdog.service
+
+[Install]
+WantedBy=timers.target

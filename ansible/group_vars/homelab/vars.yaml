@@ -2,3 +2,10 @@
 domain_name: "{{ vault_domain_name }}"
 public_domain_name: "{{ vault_public_domain_name }}"
 subnet_cidr: "{{ vault_subnet_cidr }}"
+
+remote_power_control_default_profile:
+  pikvm_url: "https://pikvm.{{ domain_name }}"
+  pikvm_username: "{{ pikvm_api_username }}"
+  pikvm_password: "{{ pikvm_api_password }}"
+  homeassistant_url: "https://homeassistant.{{ domain_name }}:8123"
+  homeassistant_access_token: "{{ vault_remote_power_control_homeassistant_access_token }}"

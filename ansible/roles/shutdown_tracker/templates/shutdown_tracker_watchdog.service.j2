@@ -1,0 +1,6 @@
+[Unit]
+Description=shutdown_tracker watchdog: poweroff if all pending sources are idle
+
+[Service]
+Type=oneshot
+ExecStart={{ shutdown_tracker_watchdog_script_path }}

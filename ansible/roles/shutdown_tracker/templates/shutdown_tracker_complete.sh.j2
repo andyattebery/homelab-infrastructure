@@ -1,0 +1,38 @@
+#!/bin/sh
+# Called by sources via SSH+sudo to signal that their sync run has finished.
+# When all expected sources have signaled, schedules a deferred poweroff
+# (unless the pause file is set).
+set -eu
+
+source=${1:?source name required}
+sources_dir={{ shutdown_tracker_sources_directory_path }}
+completed_dir={{ shutdown_tracker_completed_directory_path }}
+pause={{ shutdown_tracker_pause_file_path }}
+grace={{ shutdown_tracker_poweroff_grace_seconds }}
+
+# Reject unknown source keys — typos shouldn't accidentally trigger poweroff.
+if [ ! -e "$sources_dir/$source" ]; then
+    logger -t shutdown_tracker "complete: rejecting unknown source '$source' (not in $sources_dir)"
+    exit 0
+fi
+
+mkdir -p "$completed_dir"
+: > "$completed_dir/$source"
+logger -t shutdown_tracker "complete: marked '$source' complete"
+
+# Are we waiting on any expected source?
+for src_file in "$sources_dir"/*; do
+    [ -e "$src_file" ] || continue
+    name=$(basename "$src_file")
+    [ -e "$completed_dir/$name" ] || exit 0
+done
+
+if [ -e "$pause" ]; then
+    logger -t shutdown_tracker "complete: all signaled but pause file set; skipping poweroff"
+    exit 0
+fi
+
+logger -t shutdown_tracker "complete: all expected sources signaled; scheduling poweroff in ${grace}s"
+# systemd-run schedules a transient timer owned by PID 1, detached from the SSH/sudo session.
+# No --unit name: if two signals race to "all signaled", a fixed name would collide.
+systemd-run --on-active="${grace}sec" /usr/bin/systemctl poweroff

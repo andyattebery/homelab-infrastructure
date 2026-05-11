@@ -1,0 +1,113 @@
+---
+- name: Assert destination-mode vars
+  ansible.builtin.assert:
+    that:
+      - shutdown_tracker_expected_sources | length > 0
+      - shutdown_tracker_destination_username | length > 0
+      - shutdown_tracker_expected_sources | rejectattr('name', 'defined') | list | length == 0
+      - shutdown_tracker_expected_sources | rejectattr('busy_check_command', 'defined') | list | length == 0
+    fail_msg: >-
+      shutdown_tracker (destination mode) requires shutdown_tracker_expected_sources (non-empty list of
+      {name, busy_check_command} dicts) and shutdown_tracker_destination_username.
+
+- name: Create shutdown_tracker sources directory
+  ansible.builtin.file:
+    path: "{{ shutdown_tracker_sources_directory_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render systemd-tmpfiles config for /run/shutdown_tracker/
+  ansible.builtin.template:
+    src: shutdown_tracker.tmpfiles.conf.j2
+    dest: /etc/tmpfiles.d/shutdown_tracker.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: shutdown_tracker_tmpfiles
+
+- name: Create /run/shutdown_tracker/ for the current boot
+  ansible.builtin.command:
+    cmd: systemd-tmpfiles --create /etc/tmpfiles.d/shutdown_tracker.conf
+  changed_when: shutdown_tracker_tmpfiles.changed
+
+- name: Render busy_check_command files for expected sources
+  ansible.builtin.template:
+    src: source_busy_check.j2
+    dest: "{{ shutdown_tracker_sources_directory_path }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ shutdown_tracker_expected_sources }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: List existing busy_check_command files
+  ansible.builtin.find:
+    paths: "{{ shutdown_tracker_sources_directory_path }}"
+    file_type: file
+  register: shutdown_tracker_existing_sources
+
+- name: Remove orphaned busy_check_command files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ shutdown_tracker_existing_sources.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: (item.path | basename) not in (shutdown_tracker_expected_sources | map(attribute='name') | list)
+
+- name: Render shutdown_tracker_complete script
+  ansible.builtin.template:
+    src: shutdown_tracker_complete.sh.j2
+    dest: "{{ shutdown_tracker_complete_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render shutdown_tracker_watchdog script
+  ansible.builtin.template:
+    src: shutdown_tracker_watchdog.sh.j2
+    dest: "{{ shutdown_tracker_watchdog_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render sudoers grant for shutdown_tracker_complete
+  ansible.builtin.template:
+    src: shutdown_tracker_complete.sudoers.j2
+    dest: /etc/sudoers.d/shutdown_tracker_complete
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Render shutdown_tracker_watchdog.service
+  ansible.builtin.template:
+    src: shutdown_tracker_watchdog.service.j2
+    dest: /etc/systemd/system/shutdown_tracker_watchdog.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart shutdown_tracker_watchdog timer
+
+- name: Render shutdown_tracker_watchdog.timer
+  ansible.builtin.template:
+    src: shutdown_tracker_watchdog.timer.j2
+    dest: /etc/systemd/system/shutdown_tracker_watchdog.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart shutdown_tracker_watchdog timer
+
+- name: Enable and start shutdown_tracker_watchdog.timer
+  ansible.builtin.systemd_service:
+    name: shutdown_tracker_watchdog.timer
+    state: started
+    enabled: true
+    daemon_reload: true

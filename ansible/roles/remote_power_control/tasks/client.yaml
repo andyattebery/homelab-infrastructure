@@ -20,6 +20,18 @@
     mode: "0600"
     owner: root
     group: root
+- name: Copy remote_power_control profile env files
+  ansible.builtin.template:
+    src: profile.env.j2
+    dest: "{{ remote_power_control_config_directory_path }}/{{ item.key }}.env"
+    mode: "0600"
+    owner: root
+    group: root
+  loop: "{{ remote_power_control_extra_profiles | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  vars:
+    profile: "{{ item.value }}"
 - name: Copy client ssh private key
   when: remote_power_control_client_private_key is defined
   ansible.builtin.copy:

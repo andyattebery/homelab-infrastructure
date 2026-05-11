@@ -1,3 +1,45 @@
 ---
-shutdown_tracker_directory: "/opt/shutdown_tracker"
-shutdown_tracker_script_name: "shutdown_tracker.bash"
+# Mode flags. Both default false so the role is a no-op unless explicitly enabled.
+shutdown_tracker_destination: false
+shutdown_tracker_source: false
+
+# ─── Common vars (both modes) ───────────────────────────────────────────────
+
+# The unprivileged user on the destination side of the protocol.
+# - destination mode: granted sudo for the complete script
+# - source mode: SSH user the wrapper authenticates as on the destination
+# Both modes set the same value (the syncoid user on the destination host).
+shutdown_tracker_destination_username: ""
+
+# ─── Destination-mode vars ───────────────────────────────────────────────────
+
+# List of dicts: each must have `name` and `busy_check_command`. Required when destination=true.
+shutdown_tracker_expected_sources: []
+
+# Watchdog timing.
+# `complete_signal_timeout` = how long we wait for completion signals before
+# assuming something's broken and the box should poweroff anyway.
+# `watchdog_retry` = if the first watchdog fire defers (predicate said busy),
+# how often we re-check.
+shutdown_tracker_complete_signal_timeout_minutes: 720
+shutdown_tracker_watchdog_retry_minutes: 60
+
+# Destination paths.
+shutdown_tracker_complete_script_path: /usr/local/sbin/shutdown_tracker_complete
+shutdown_tracker_watchdog_script_path: /usr/local/sbin/shutdown_tracker_watchdog
+shutdown_tracker_sources_directory_path: /etc/shutdown_tracker/sources.d
+shutdown_tracker_completed_directory_path: /run/shutdown_tracker/completed
+shutdown_tracker_pause_file_path: /run/shutdown_tracker/pause
+
+# Seconds between "all sources signaled" and `systemctl poweroff`.
+shutdown_tracker_poweroff_grace_seconds: 30
+
+# ─── Source-mode vars ────────────────────────────────────────────────────────
+
+# Required when source=true:
+shutdown_tracker_source_ssh_key_path: ""
+shutdown_tracker_destination_host: ""
+
+# Source-side path defaults:
+shutdown_tracker_destination_complete_script_path: /usr/local/sbin/shutdown_tracker_complete
+shutdown_tracker_complete_caller_script_path: "/usr/local/bin/shutdown_tracker_complete_call_{{ shutdown_tracker_destination_host | replace('.', '_') }}"

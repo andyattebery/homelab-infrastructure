@@ -195,7 +195,7 @@
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
     # - role: docker_compose_docker_monitoring
-  # tasks:
+  tasks:
     # - name: Copy 90-connectx-4-lx.conf netplan config
     #   ansible.builtin.copy:
     #     src: nas-01/90-connectx-4-lx.yaml
@@ -307,47 +307,67 @@
     #     snapraid_btrfs_runner_install_timer_template_path: "files/nas-01/snapraid-btrfs-runner.timer"
     #   ansible.builtin.include_role:
     #     name: snapraid_btrfs_runner_install
-    # - name: Configure syncoid to backup-01
-    #   ansible.builtin.include_role:
-    #     name: syncoid_source
-    #   vars:
-    #     syncoid_source_username: "{{ ansible_user }}"
-    #     syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
-    #     syncoid_destination_username: "syncoid"
-    #     syncoid_destination_host: "backup-01.{{ domain_name }}"
-    #     syncoid_timer_on_calendar: "*-*-* 02:00:00"
-    #     syncoid_datasets:
-    #       - syncoid_source_dataset: tank
-    #         syncoid_destination_dataset: backups/tank
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/tank
-    #         syncoid_healthchecks_uuid: 8493a848-6cfd-4ab9-9931-c94a6b053b21
-    #       - syncoid_source_dataset: sink
-    #         syncoid_destination_dataset: backups/sink
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
-    #         syncoid_healthchecks_uuid: b5eaeb0d-e04c-49da-bf13-020e82560a2a
-    # - name: Configure syncoid to offsite-nas
-    #   ansible.builtin.include_role:
-    #     name: syncoid_source
-    #   vars:
-    #     syncoid_source_username: "{{ ansible_user }}"
-    #     syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
-    #     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
-    #     syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
-    #     syncoid_pre_sync_commands:
-    #       - "/usr/bin/echo 'Powering on via PiKVM' ; /usr/bin/curl --no-progress-meter --header 'X-KVMD-User:{{ offsite_pikvm_web_username }}' --header 'X-KVMD-Passwd:{{ offsite_pikvm_web_password }}' --request POST 'https://offsite-pikvm.{{ tailscale_tailnet }}/api/atx/power?action=on'"
-    #       - "/usr/bin/echo 'Sleeping for 5m...' ; /usr/bin/sleep 5m"
-    #     # syncoid_post_sync_commands:
-    #     #   - "/usr/bin/ssh -o StrictHostKeyChecking=accept-new -i /home/{{ ansible_user }}/.ssh/id_ed25519 {{ offsite_nas_syncoid_username }}@offsite-nas.{{ tailscale_tailnet }} 'sudo shutdown now' ; echo 'Shutdown complete'"`
-    #     syncoid_timer_on_calendar: "*-*-* 03:00:00"
-    #     syncoid_datasets:
-    #       - syncoid_source_dataset: tank
-    #         syncoid_destination_dataset: backups/tank
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/tank
-    #         syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
-    #       - syncoid_source_dataset: sink
-    #         syncoid_destination_dataset: backups/sink
-    #         syncoid_destination_dataset_mountpoint: /mnt/backups/sink
-    #         syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
+    - name: Configure syncoid to backup-01
+      ansible.builtin.include_role:
+        name: syncoid_source
+      vars:
+        syncoid_source_username: "{{ ansible_user }}"
+        syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
+        syncoid_source_ssh_key_path: "/home/{{ ansible_user }}/.ssh/id_ed25519_syncoid"
+        syncoid_destination_username: "syncoid"
+        syncoid_destination_host: "backup-01.{{ domain_name }}"
+        syncoid_timer_on_calendar: "*-*-* 02:00:00"
+        syncoid_datasets:
+          - syncoid_source_dataset: tank
+            syncoid_destination_dataset: backups/tank
+            syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+            syncoid_healthchecks_uuid: 8493a848-6cfd-4ab9-9931-c94a6b053b21
+          - syncoid_source_dataset: sink
+            syncoid_destination_dataset: backups/sink
+            syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+            syncoid_healthchecks_uuid: b5eaeb0d-e04c-49da-bf13-020e82560a2a
+    - name: Configure remote_power_control client
+      ansible.builtin.include_role:
+        name: remote_power_control
+      vars:
+        remote_power_control_client: true
+        remote_power_control_extra_profiles:
+          offsite: "{{ remote_power_control_profile_offsite }}"
+    - name: Configure offsite-nas as a syncoid destination
+      vars:
+        syncoid_destination_host: "offsite-nas.{{ tailscale_tailnet }}"
+        syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
+        syncoid_source_ssh_key_path: "/home/{{ ansible_user }}/.ssh/id_ed25519_syncoid"
+        shutdown_tracker_complete_caller_script_path: "/usr/local/bin/shutdown_tracker_complete_call_{{ syncoid_destination_host | replace('.', '_') }}"
+      block:
+        - name: Configure shutdown_tracker source for offsite-nas
+          ansible.builtin.include_role:
+            name: shutdown_tracker
+          vars:
+            shutdown_tracker_source: true
+            shutdown_tracker_source_ssh_key_path: "{{ syncoid_source_ssh_key_path }}"
+            shutdown_tracker_destination_host: "{{ syncoid_destination_host }}"
+            shutdown_tracker_destination_username: "{{ syncoid_destination_username }}"
+        - name: Configure syncoid to offsite-nas
+          ansible.builtin.include_role:
+            name: syncoid_source
+          vars:
+            syncoid_source_username: "{{ ansible_user }}"
+            syncoid_source_ssh_private_key: "{{ nas_01_syncoid_ssh_private_key }}"
+            syncoid_pre_sync_commands:
+              - "/usr/local/bin/remote_power_control --profile offsite offsite-pikvm.{{ tailscale_tailnet }} pikvm on"
+            syncoid_post_sync_commands:
+              - "{{ shutdown_tracker_complete_caller_script_path }} nas-01"
+            syncoid_timer_on_calendar: "*-*-* 03:00:00"
+            syncoid_datasets:
+              - syncoid_source_dataset: tank
+                syncoid_destination_dataset: backups/tank
+                syncoid_destination_dataset_mountpoint: /mnt/backups/tank
+                syncoid_healthchecks_uuid: bc333132-22d4-49de-a975-15ff8683b037
+              - syncoid_source_dataset: sink
+                syncoid_destination_dataset: backups/sink
+                syncoid_destination_dataset_mountpoint: /mnt/backups/sink
+                syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
     # - name: Configure samba
     #   ansible.builtin.copy:
     #     src: "files/nas-01/smb.conf"

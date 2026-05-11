@@ -2,6 +2,9 @@
 remote_power_control_client: false
 remote_power_control_target: false
 remote_power_control_config_directory_path: /etc/remote_power_control
+remote_power_control_default_profile: {}
+remote_power_control_extra_profiles: {}
 remote_power_control_client_private_key_name: id_ed25519
 remote_power_control_target_username: remote-power-control
+remote_power_control_target_authorized_keys: []
 remote_power_control_power_command_target_path: /usr/local/bin/power_command_target

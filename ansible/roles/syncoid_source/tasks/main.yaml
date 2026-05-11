@@ -1,4 +1,18 @@
 ---
+- name: Assert syncoid_source required vars
+  ansible.builtin.assert:
+    that:
+      - syncoid_source_username | length > 0
+      - syncoid_source_ssh_private_key | length > 0
+      - syncoid_source_ssh_key_path | length > 0
+      - syncoid_destination_username | length > 0
+      - syncoid_destination_host | length > 0
+      - syncoid_datasets | length > 0
+    fail_msg: >-
+      syncoid_source requires syncoid_source_username, syncoid_source_ssh_private_key,
+      syncoid_source_ssh_key_path, syncoid_destination_username, syncoid_destination_host,
+      and a non-empty syncoid_datasets list.
+
 - name: Install packages
   ansible.builtin.apt:
     name:
@@ -23,7 +37,7 @@
 - name: Copy syncoid_source_ssh_private_key
   ansible.builtin.copy:
     content: "{{ syncoid_source_ssh_private_key }}"
-    dest: "{{ syncoid_ssh_key_path }}"
+    dest: "{{ syncoid_source_ssh_key_path }}"
     owner: "{{ user_syncoid_source_username_result.uid }}"
     group: "{{ user_syncoid_source_username_result.group }}"
     mode: '0600'
@@ -94,6 +108,3 @@
     name: "{{ syncoid_all_timer }}"
     state: started
     enabled: true
-- name: Reload systemd
-  ansible.builtin.systemd_service:
-    daemon_reload: true
