@@ -14,15 +14,12 @@
   ansible.builtin.command:
     cmd: kvmd-pstrun -- mkdir -p {{ pikvm_tailscale_certificate_dir_path }}
   changed_when: false
-- name: Copy tailscale-certificate.sh
-  ansible.builtin.template:
-    src: tailscale-certificate.sh.j2
-    dest: "{{ pikvm_tailscale_certificate_script_path }}"
-    mode: "0755"
-  changed_when: false
-- name: Link SSL cert and key
-  ansible.builtin.include_tasks:
-    file: link_ssl_file.yaml
+- name: Link SSL cert and key into kvmd nginx ssl dir
+  ansible.builtin.file:
+    src: "{{ (pikvm_tailscale_certificate_dir_path, item) | path_join }}"
+    dest: "{{ (pikvm_tailscale_certificate_kvmd_ssl_dir, item) | path_join }}"
+    state: link
+    force: true
   loop:
     - server.crt
     - server.key

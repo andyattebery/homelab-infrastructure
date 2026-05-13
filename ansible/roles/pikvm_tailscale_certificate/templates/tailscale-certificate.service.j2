@@ -1,7 +1,12 @@
 [Unit]
-Description=Run tailscale cert to renew Let's Encrypt certificate
-After=network.target
+Description=Renew Tailscale Let's Encrypt cert and reload kvmd-nginx
+After=network-online.target tailscaled.service
+Wants=network-online.target
 
 [Service]
-ExecStart={{ pikvm_tailscale_certificate_script_path }}
 Type=oneshot
+ExecStart=/usr/bin/kvmd-pstrun -- /usr/bin/tailscale cert \
+    --cert-file {{ pikvm_tailscale_certificate_dir_path }}/server.crt \
+    --key-file  {{ pikvm_tailscale_certificate_dir_path }}/server.key \
+    {{ pikvm_tailscale_certificate_domain }}
+ExecStartPost=/usr/bin/systemctl reload kvmd-nginx

@@ -29,6 +29,8 @@
     - pikvm_tailscale_exit_node
     - role: pikvm_certbot_dns_cloudflare # Creating cert for local DNS name
       when: inventory_hostname == 'pikvm' or inventory_hostname == 'pikvm-hid'
+      vars:
+        pikvm_certbot_dns_cloudflare_cert_domain: "{{ inventory_hostname }}.{{ domain_name }}"
     - role: pikvm_tailscale_certificate # Creating cert for tailscale DNS name
       when: inventory_hostname == 'offsite-pikvm'
     - role: pikvm_hid_kvm_switch_input
