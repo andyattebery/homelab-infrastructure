@@ -1,2 +1,3 @@
 ---
-certbot_asrock_ipmi_cert_updater_directory_path: /opt/asrock-ipmi-cert-updater
+certbot_asrock_ipmi_cert_updater_directory_path: "{{ docker_compose_dst_data_directory_path }}/certbot/asrock-ipmi-cert-updater"
+certbot_asrock_ipmi_cert_updater_container_directory_path: /certbot/asrock-ipmi-cert-updater

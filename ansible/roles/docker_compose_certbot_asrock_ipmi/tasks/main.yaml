@@ -17,6 +17,6 @@
 - name: Initial docker compose setup
   vars:
     docker_compose_certbot_dns_cloudflare_domain_name: "{{ certbot_asrock_ipmi_cert_updater_domain_name }}"
-    certbot_deploy_hook: "python {{ certbot_asrock_ipmi_cert_updater_bin_path }} config --config-file {{ certbot_asrock_ipmi_cert_updater_ini_path }}"
+    certbot_deploy_hook: "python {{ certbot_asrock_ipmi_cert_updater_container_bin_path }} config --config-file {{ certbot_asrock_ipmi_cert_updater_container_ini_path }}"
   ansible.builtin.include_role:
     name: docker_compose_certbot_dns_cloudflare

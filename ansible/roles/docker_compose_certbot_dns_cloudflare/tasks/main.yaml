@@ -24,5 +24,6 @@
       - src_file_path: templates/certbot_renew_entrypoint.sh.j2
         dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
         mode: "0755"
+        service_name_to_restart: certbot
   ansible.builtin.include_role:
     name: docker_compose
