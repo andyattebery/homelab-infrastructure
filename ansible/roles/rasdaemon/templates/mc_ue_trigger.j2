@@ -1,0 +1,24 @@
+#!/bin/sh
+# Triggered by rasdaemon on uncorrectable memory errors.
+#
+# rasdaemon spawns this script via execve() with a hand-built env array — the
+# only inherited variable is PATH, plus rasdaemon-set event variables:
+#   TIMESTAMP, COUNT, TYPE, MESSAGE, LABEL, MC_INDEX, TOP_LAYER (csrow),
+#   MIDDLE_LAYER (channel), LOWER_LAYER, ADDRESS, GRAIN, SYNDROME, DRIVER_DETAIL
+#
+# This trigger writes a single rich log line to journald (tag `rasdaemon-ue`,
+# priority kern.err). Notification/alerting is handled separately by Grafana
+# alerting on node_exporter's `node_edac_uncorrectable_errors_total` metric.
+# When Grafana pages on a UE, `journalctl -t rasdaemon-ue` has the per-event
+# context (DIMM label, address, syndrome, kernel, boot ID) for triage.
+set -u
+
+host=$(hostname -s)
+kver=$(uname -r)
+boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+addr="${ADDRESS#0x}"
+synd="${SYNDROME#0x}"
+dimm="${LABEL:-<no DIMM label>}"
+
+logger -t rasdaemon-ue -p kern.err \
+    "UE on $host: $dimm mc=${MC_INDEX:-?} csrow=${TOP_LAYER:-?} chan=${MIDDLE_LAYER:-?} addr=0x$addr count=${COUNT:-1} | ts=${TIMESTAMP:-?} type=${TYPE:-?} grain=${GRAIN:-?} syndrome=0x$synd msg=${MESSAGE:-} driver=${DRIVER_DETAIL:-} kver=$kver boot=$boot_id"

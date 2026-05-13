@@ -45,6 +45,10 @@
   when: docker_compose_src_config_files | default([]) | length > 0
   ansible.builtin.include_tasks:
     file: copy_config_files.yaml
+- name: Copy config directories
+  when: docker_compose_src_config_dirs | default([]) | length > 0
+  ansible.builtin.include_tasks:
+    file: copy_config_dirs.yaml
 - name: Copy scripts
   when: docker_compose_copy_scripts
   ansible.builtin.copy:

@@ -34,10 +34,19 @@ services:
     user: 472:${PGID} # 472:1000  # https://github.com/grafana/grafana/issues/41217
     environment:
      - GF_SERVER_ROOT_URL=https://grafana.$DOMAIN_NAME
+     # Read by the file-provisioned Pushover contact point via $ENV substitution.
+     - GRAFANA_PUSHOVER_APP_TOKEN=${GRAFANA_PUSHOVER_APP_TOKEN}
+     - GRAFANA_PUSHOVER_USER_KEY=${GRAFANA_PUSHOVER_USER_KEY}
     networks:
       - traefik
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/grafana:/var/lib/grafana
+      # File provisioning: provider configs, datasources, alert rules, contact points.
+      # Mount read-only; source of truth is in the homelab-infrastructure repo at
+      # ansible/files/docker-01/grafana/provisioning/.
+      - ${DOCKER_DATA_DIRECTORY}/grafana-provisioning:/etc/grafana/provisioning:ro
+      # Dashboard JSON files (loaded by the provider config above).
+      - ${DOCKER_DATA_DIRECTORY}/grafana-dashboards:/var/lib/grafana/dashboards:ro
     labels:
       - traefik.enable=true
   healthchecks:

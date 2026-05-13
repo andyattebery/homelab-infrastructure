@@ -1,0 +1,24 @@
+# Grafana notification contact points.
+#
+# The Pushover app token + user key are read from the Grafana container's env
+# at startup via $ENV substitution. Set them in the compose .env file:
+#   GRAFANA_PUSHOVER_APP_TOKEN=<token from pushover.net new application>
+#   GRAFANA_PUSHOVER_USER_KEY=<your pushover user key, same as vault_pushover_user_key>
+#
+# Create the Pushover application (https://pushover.net/apps/build) named
+# something like "grafana" so notifications are visually distinguishable from
+# scrutiny / healthchecks / etc.
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: pushover
+    receivers:
+      - uid: pushover-default
+        type: pushover
+        settings:
+          apiToken: $GRAFANA_PUSHOVER_APP_TOKEN
+          userKey: $GRAFANA_PUSHOVER_USER_KEY
+          priority: '1'
+          title: '{{ template "default.title" . }}'
+          message: '{{ template "default.message" . }}'
+        disableResolveMessage: false

@@ -1,0 +1,9 @@
+---
+# Soft-offline a page after this many corrected errors land on it within
+# rasdaemon_page_ce_refresh_cycle. mcelog convention is 10/24h; Debian's
+# rasdaemon package default is 50/24h, which is too lenient given the
+# industry guidance referenced in the role README.
+rasdaemon_page_ce_threshold: 10
+rasdaemon_page_ce_refresh_cycle: "24h"
+
+rasdaemon_trigger_dir: /etc/ras/triggers

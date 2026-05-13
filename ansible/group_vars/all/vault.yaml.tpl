@@ -32,6 +32,7 @@ vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
 vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
 vault_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/ansible }}
+vault_grafana_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/grafana }}
 vault_icecast_server_hostname: {{ op://Personal/pi-turntable/icecast/hostname }}
 vault_icecast_server_port: {{ op://Personal/pi-turntable/icecast/port }}
 vault_icecast_server_password: {{ op://Personal/pi-turntable/icecast/password }}
@@ -92,6 +93,7 @@ vault_nextcloud_mysql_user: {{ op://Personal/Nextcloud/database/username }}
 vault_nut_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/nut }}
 vault_obico_django_secret_key: {{ op://Personal/Obico/config/django secret key }}
 vault_obico_ml_api_token: {{ op://Personal/Obico/config/ml api token }}
+vault_offsite_homeassistant_ssh_public_key: {{ op://Personal/pujvtar47xq3wrg7xyckzxefnu/public key }}
 vault_omnivore_content_fetch_verification_token: "{{ op://Personal/Omnivore/config/content_fetch_verification_token }}"
 vault_omnivore_image_proxy_secret: "{{ op://Personal/Omnivore/config/image_proxy_secret }}"
 vault_omnivore_jwt_secret: "{{ op://Personal/Omnivore/config/jwt_secret }}"

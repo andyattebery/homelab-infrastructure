@@ -1,0 +1,65 @@
+---
+- name: Install rasdaemon
+  ansible.builtin.apt:
+    name: rasdaemon
+    state: present
+    update_cache: true
+
+- name: Create trigger directory
+  ansible.builtin.file:
+    path: "{{ rasdaemon_trigger_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install UE trigger script
+  ansible.builtin.template:
+    src: mc_ue_trigger.j2
+    dest: "{{ rasdaemon_trigger_dir }}/mc_ue_trigger"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart rasdaemon
+
+- name: Ensure DIMM labels directory exists
+  ansible.builtin.file:
+    path: /etc/ras/dimm_labels.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install DIMM label database files
+  ansible.builtin.copy:
+    src: "dimm_labels/{{ item }}"
+    dest: "/etc/ras/dimm_labels.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - asrockrack-romed8-2t
+  notify: Re-register DIMM labels
+
+- name: Enable ras-mc-ctl.service (auto-registers labels on boot)
+  ansible.builtin.systemd:
+    name: ras-mc-ctl.service
+    enabled: true
+
+- name: Configure rasdaemon environment
+  ansible.builtin.blockinfile:
+    path: /etc/default/rasdaemon
+    create: false
+    block: |
+      PAGE_CE_THRESHOLD="{{ rasdaemon_page_ce_threshold }}"
+      PAGE_CE_REFRESH_CYCLE="{{ rasdaemon_page_ce_refresh_cycle }}"
+      PAGE_CE_ACTION="soft"
+      TRIGGER_DIR={{ rasdaemon_trigger_dir }}
+      MC_UE_TRIGGER=mc_ue_trigger
+  notify: Restart rasdaemon
+
+- name: Enable and start rasdaemon
+  ansible.builtin.systemd:
+    name: rasdaemon
+    enabled: true
+    state: started

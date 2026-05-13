@@ -61,6 +61,10 @@
       ansible.builtin.import_role:
         name: kernel_parameters
 
+    - name: Configure rasdaemon
+      ansible.builtin.import_role:
+        name: rasdaemon
+
     - name: Configure NUT (UPS) client
       vars:
         nut_enable_client: true

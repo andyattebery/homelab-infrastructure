@@ -1,0 +1,12 @@
+# Dashboard provider: tells Grafana where to find dashboard JSON files.
+# JSONs live next to this file under ../json/ (path is container-side).
+apiVersion: 1
+providers:
+  - name: default
+    type: file
+    folder: ''
+    foldersFromFilesStructure: true
+    allowUiUpdates: true
+    updateIntervalSeconds: 60
+    options:
+      path: /var/lib/grafana/dashboards

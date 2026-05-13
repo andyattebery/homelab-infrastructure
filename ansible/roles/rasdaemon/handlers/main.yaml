@@ -1,0 +1,10 @@
+---
+- name: Restart rasdaemon
+  ansible.builtin.systemd:
+    name: rasdaemon
+    state: restarted
+
+- name: Re-register DIMM labels
+  ansible.builtin.command:
+    cmd: ras-mc-ctl --register-labels
+  changed_when: true

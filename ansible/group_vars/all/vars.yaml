@@ -108,6 +108,8 @@ healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 
+grafana_pushover_token: "{{ vault_grafana_pushover_token }}"
+
 icecast_server_hostname: "{{ vault_icecast_server_hostname }}"
 icecast_server_port: "{{ vault_icecast_server_port }}"
 icecast_server_password: "{{ vault_icecast_server_password }}"

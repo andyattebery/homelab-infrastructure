@@ -1,0 +1,44 @@
+# Hardware-related alert rules.
+#
+# These fire on metrics that node_exporter's built-in `edac` collector
+# exposes. The `rasdaemon` Ansible role on prod_proxmox_cluster hosts
+# additionally configures DIMM labels and writes a rich `rasdaemon-ue`
+# journal entry per event — when an alert fires, ssh to the host and
+# `journalctl -t rasdaemon-ue` for per-event detail (DIMM label, address,
+# syndrome, kernel, boot ID).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: memory-errors
+    folder: Hardware
+    interval: 1m
+    rules:
+      - uid: edac-uncorrectable-memory-error
+        title: EDAC uncorrectable memory error
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: node_edac_uncorrectable_errors_total > 0
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: memory
+        annotations:
+          summary: 'EDAC uncorrectable memory error on {{ $labels.instance }}'
+          description: |
+            node_edac_uncorrectable_errors_total on {{ $labels.instance }} (controller {{ $labels.controller }}) is non-zero.
+            ECC could not correct a memory error — the affected page may be unrecoverable.
+            Run `journalctl -t rasdaemon-ue -n 20` on the host for the address, DIMM label, and syndrome.
