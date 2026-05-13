@@ -3,6 +3,7 @@ services:
   dcgm-exporter:
     image: nvcr.io/nvidia/k8s/dcgm-exporter:4.5.1-4.8.0-distroless
     container_name: dcgm-exporter
+    restart: unless-stopped
     cap_add:
       - SYS_ADMIN
     runtime: nvidia  # Specifies using NVIDIA runtime (equivalent to --gpus)
@@ -23,12 +24,12 @@ services:
               count: all
               capabilities: [gpu]
     environment:
-      - $LOCALAI_MODELS_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
-      - $LOCALAI_DATA_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
-      - $LOCALAI_GENERATED_CONTENT_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
-      - $LOCALAI_UPLOAD_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
-      - $LOCALAI_CONFIG_DIR=${DOCKER_DATA_DIRECTORY}/local-ai/
-      - $LOCALAI_MODELS_CONFIG_FILE=${DOCKER_DATA_DIRECTORY}/local-ai/models-config/
+      - LOCALAI_MODELS_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
+      - LOCALAI_DATA_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
+      - LOCALAI_GENERATED_CONTENT_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
+      - LOCALAI_UPLOAD_PATH=${DOCKER_DATA_DIRECTORY}/local-ai/
+      - LOCALAI_CONFIG_DIR=${DOCKER_DATA_DIRECTORY}/local-ai/
+      - LOCALAI_MODELS_CONFIG_FILE=${DOCKER_DATA_DIRECTORY}/local-ai/models-config/
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/local-ai/:/root/.ollama
     networks:
