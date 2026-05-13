@@ -37,7 +37,7 @@
         certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
         certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
         certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
-    # - role: docker_compose_docker_monitoring
+    - role: docker_compose_docker_monitoring
     # - role: docker_compose_perplexica
     #   vars:
     #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
@@ -71,6 +71,10 @@
           INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
           GRAFANA_PUSHOVER_APP_TOKEN: "{{ grafana_pushover_token }}"
           GRAFANA_PUSHOVER_USER_KEY: "{{ pushover_user_key }}"
+        docker_compose_src_config_files:
+          - src_file_path: files/prometheus/prometheus.yml
+            dst_relative_file_path: prometheus/config/prometheus.yml
+            service_name_to_restart: prometheus
         docker_compose_src_config_dirs:
           - src_dir_path: files/docker-01/grafana/provisioning
             dst_relative_dir_path: grafana-provisioning

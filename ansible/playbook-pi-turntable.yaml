@@ -6,6 +6,7 @@
   roles:
     # - role: configure_server
   #   - role: geerlingguy.docker
+    - role: prometheus.prometheus.node_exporter
     - role: docker_compose_traefik
       vars:
         docker_compose_copy_scripts: true

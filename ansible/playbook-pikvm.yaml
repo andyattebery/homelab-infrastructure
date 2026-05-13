@@ -44,6 +44,15 @@
     - role: beszel_agent
 
   tasks:
+    - name: Install prometheus-node-exporter
+      community.general.pacman:
+        name: prometheus-node-exporter
+        state: present
+    - name: Enable and start prometheus-node-exporter.service
+      ansible.builtin.systemd_service:
+        name: prometheus-node-exporter.service
+        state: started
+        enabled: true
     - name: Generate locale
       community.general.locale_gen:
         name: "{{ locale }}"

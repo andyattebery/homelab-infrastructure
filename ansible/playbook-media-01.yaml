@@ -17,6 +17,9 @@
 
   roles:
     - configure_server
+    - role: zfs_conf
+      vars:
+        zfs_arc_max_gb: 2
     # - geerlingguy.docker
     # - role: nvidia.nvidia_driver
     #   vars:
@@ -37,7 +40,7 @@
         docker_compose_traefik_enable_host_network: true
     # - docker_compose_dashboard_services_manager_provider
     # - docker_compose_diun
-    # - role: docker_compose_docker_monitoring
+    - role: docker_compose_docker_monitoring
     # - role: docker_compose_immich
     #   vars:
     #     immich_only_machine_learning: true
@@ -49,9 +52,9 @@
     #     obico_machine_learning_cuda: true
     #     docker_compose_envs:
     #       OBICO_ML_API_TOKEN: "{{ obico_ml_api_token }}"
-    # - role: docker_compose
-    #   vars:
-    #     docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
     # - role: docker_compose
     #   vars:
     #     docker_compose_copy_scripts: true

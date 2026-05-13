@@ -20,6 +20,10 @@
       ansible.builtin.import_role:
         name: configure_server
 
+    - name: Configure node_exporter
+      ansible.builtin.import_role:
+        name: prometheus.prometheus.node_exporter
+
     - name: Configure power_saving
       ansible.builtin.import_role:
         name: power_saving

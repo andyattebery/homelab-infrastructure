@@ -10,6 +10,16 @@ scrape_configs:
       - nas-01.{{ domain_name }}:9100
       - nas-host-01.{{ domain_name }}:9100
       - vm-host-01.{{ domain_name }}:9100
+      - vm-host-02.{{ domain_name }}:9100
+      - backup-01.{{ domain_name }}:9100
+      - network-01.{{ domain_name }}:9100
+      - network-03.{{ domain_name }}:9100
+      - pi-rack.{{ domain_name }}:9100
+      - pi-camera.{{ domain_name }}:9100
+      - pi-turntable.{{ domain_name }}:9100
+      - pikvm.{{ domain_name }}:9100
+      - pikvm-hid.{{ domain_name }}:9100
+      - jetson-01.{{ domain_name }}:9100
 - job_name: gpu-metrics
   scrape_interval: 1s
   metrics_path: /metrics
