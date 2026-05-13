@@ -1,6 +1,6 @@
 ---
 pbs_backup_01_username: "nas-host-01"
-pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
+pbs_backup_01_password: "{{ vault_pbs_backup_01_password }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-INTEL_SSDPE21D960GA_PHM2911300BM960CGN
 pve_node_ceph_osd_mode: activate_existing
 

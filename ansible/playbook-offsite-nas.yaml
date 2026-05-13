@@ -20,6 +20,7 @@
         syncoid_source_ssh_public_keys:
           - "{{ nas_01_syncoid_ssh_public_key }}"
           - "{{ backup_01_syncoid_ssh_public_key }}"
+          - "{{ offsite_homeassistant_ssh_public_key }}"
         syncoid_destination_dataset: backups
         sanoid_src_conf_file_path: files/offsite-nas/sanoid.conf
         scrutiny_collector_systemd_requires: tailscaled.service sys-subsystem-net-devices-tailscale0.device
@@ -32,6 +33,8 @@
             busy_check_command: "pgrep -fa 'zfs receive'"
           - name: nas-01
             busy_check_command: "pgrep -fa 'zfs receive'"
+          - name: home-assistant
+            busy_check_command: "smbstatus -S 2>/dev/null | grep -q '^offsite-homeassistant_backups\\s'"
         shutdown_tracker_destination_username: "{{ syncoid_destination_username }}"
     - role: samba
       vars:

@@ -121,7 +121,7 @@
             syncoid_source_username: "{{ ansible_user }}"
             syncoid_source_ssh_private_key: "{{ backup_01_syncoid_ssh_private_key }}"
             syncoid_pre_sync_commands:
-              - "/usr/local/bin/remote_power_control --profile offsite offsite-pikvm.{{ tailscale_tailnet }} pikvm on"
+              - "/usr/local/bin/remote_power_control --profile offsite offsite-nas.{{ tailscale_tailnet }} pikvm on"
             syncoid_post_sync_commands:
               - "{{ shutdown_tracker_complete_caller_script_path }} backup-01"
             syncoid_timer_on_calendar: "*-*-* 04:00:00"

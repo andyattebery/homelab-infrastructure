@@ -1,7 +1,7 @@
 ---
-pbs_backup_01_username: "vm-host-01"
-pbs_backup_01_password: "{{ vault_pbs_backup_01_username }}"
-pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_950_PRO_512GB_S2GMNCAGB07802W
+pbs_backup_01_username: "vm-host-02"
+pbs_backup_01_password: "{{ vault_pbs_backup_01_password }}"
+pve_ceph_osd_device: /dev/disk/by-id/nvme-Samsung_SSD_970_EVO_500GB_S5H7NC0MB30425R
 pve_node_ceph_osd_mode: activate_existing
 # Ceph cluster network NIC — identified by MAC so we don't depend on the
 # pinned name the installer assigned (nic1 today, could be different on a
