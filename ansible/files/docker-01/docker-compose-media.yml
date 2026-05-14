@@ -73,6 +73,7 @@ services:
   trakt-for-appletv:
     image: forgejo.{{ domain_name }}/andy/trakt-for-appletv:latest
     container_name: trakt-for-appletv
+    restart: unless-stopped
     network_mode: host
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/trakt-for-appletv/data:/opt/TVRemote/data

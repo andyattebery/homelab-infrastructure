@@ -5,6 +5,7 @@ services:
       context: ${OMNIVORE_REPO_PATH}
       dockerfile: ./packages/api/Dockerfile
     container_name: "omnivore-api"
+    restart: unless-stopped
     networks:
       - omnivore
       - traefik
@@ -41,6 +42,7 @@ services:
       context: ${OMNIVORE_REPO_PATH}
       dockerfile: ./packages/content-fetch/Dockerfile
     container_name: "omnivore-content-fetch"
+    restart: unless-stopped
     networks:
       - omnivore
     # ports:
@@ -72,6 +74,7 @@ services:
   omnivore-postgres:
     image: "ankane/pgvector:v0.5.1"
     container_name: "omnivore-postgres"
+    restart: unless-stopped
     networks:
       - omnivore
     environment:
@@ -93,6 +96,7 @@ services:
       context: ${OMNIVORE_REPO_PATH}
       dockerfile: ./packages/text-to-speech/Dockerfile
     container_name: "omnivore-tts"
+    restart: unless-stopped
     networks:
       - omnivore
       - traefik
@@ -141,6 +145,7 @@ services:
         - SERVER_BASE_URL=https://${OMNIVORE_API_DOMAIN_NAME}
         - HIGHLIGHTS_BASE_URL=https://${OMNIVORE_DOMAIN_NAME}
     container_name: "omnivore-web"
+    restart: unless-stopped
     networks:
       - omnivore
       - traefik

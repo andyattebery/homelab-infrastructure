@@ -93,6 +93,7 @@ services:
   netbootxyz:
     image: ghcr.io/netbootxyz/netbootxyz
     container_name: netbootxyz
+    restart: unless-stopped
     # environment:
       # - MENU_VERSION=2.0.47 # optional
     volumes:

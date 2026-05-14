@@ -2,6 +2,7 @@ services:
   miniflux:
     image: miniflux/miniflux:latest
     container_name: miniflux
+    restart: unless-stopped
     networks:
       - traefik
       - miniflux
@@ -23,6 +24,7 @@ services:
   miniflux-db:
     image: postgres:15
     container_name: miniflux-db
+    restart: unless-stopped
     networks:
       - miniflux
     environment:

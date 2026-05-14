@@ -54,6 +54,7 @@ services:
   nextcloud-ofelia:
     image: mcuadros/ofelia:latest
     container_name: nextcloud-ofelia
+    restart: unless-stopped
     depends_on:
       - nextcloud
     command: daemon --docker --docker-filter label=com.docker.compose.project=${COMPOSE_PROJECT_NAME}

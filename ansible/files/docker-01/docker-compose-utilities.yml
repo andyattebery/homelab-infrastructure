@@ -94,6 +94,7 @@ services:
       - changedetection
   semaphore:
     image: semaphoreui/semaphore:latest
+    restart: unless-stopped
     environment:
       - SEMAPHORE_DB_DIALECT=bolt
       - SEMAPHORE_ADMIN=admin
@@ -109,6 +110,7 @@ services:
   stirling-pdf:
     image: frooodle/s-pdf:latest
     container_name: stirling-pdf
+    restart: unless-stopped
     user: ${PUID}:${PGID}
     environment:
       - DOCKER_ENABLE_SECURITY=false

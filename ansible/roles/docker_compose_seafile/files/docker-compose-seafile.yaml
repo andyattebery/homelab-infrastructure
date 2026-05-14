@@ -2,6 +2,7 @@ services:
   seafile:
     image: seafileltd/seafile-mc:11.0-latest
     container_name: seafile
+    restart: unless-stopped
     ports:
       - "80:80"
 #     - "443:443"  # If https is enabled, cancel the comment.
@@ -23,6 +24,7 @@ services:
   seafile-db:
     image: mariadb:10.11
     container_name: seafile-mysql
+    restart: unless-stopped
     environment:
       - MYSQL_ROOT_PASSWORD=db_dev  # Required, set the root's password of MySQL service.
       - MYSQL_LOG_CONSOLE=true
@@ -34,6 +36,7 @@ services:
   seafile-memcached:
     image: memcached:1.6.18
     container_name: seafile-memcached
+    restart: unless-stopped
     entrypoint: memcached -m 256
     networks:
       - seafile

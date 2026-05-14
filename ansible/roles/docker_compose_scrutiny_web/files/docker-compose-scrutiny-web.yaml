@@ -3,6 +3,7 @@ services:
   scrutiny-influxdb:
     image: influxdb:2.2
     container_name: scrutiny-influxdb
+    restart: unless-stopped
     networks:
       - scrutiny
     volumes:
