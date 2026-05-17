@@ -28,6 +28,6 @@ if [ "$has_files_in_current_dir" = false ] && [ -d "$DOCKER_COMPOSE_DIR" ]; then
     done
 fi
 
-printf "Running docker compose with files:\n${docker_compose_files_list}"
+printf "Running docker compose with files:\n${docker_compose_files_list}" >&2
 
 docker compose $docker_compose_files_parameter "$@"

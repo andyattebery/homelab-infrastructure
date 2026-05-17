@@ -1,7 +1,15 @@
 ---
-- name: "Run {{ docker_compose_base_command }} pull" # noqa name[template]
+- name: "Get services for {{ docker_compose_dst_file_path }}" # noqa name[template]
   become: false
   ansible.builtin.command:
-    cmd: "{{ docker_compose_base_command }} pull"
+    cmd: "{{ docker_compose_base_command }} config --services"
+  register: docker_compose_services_result
+  changed_when: false
+
+- name: "Pull {{ item }}" # noqa name[template]
+  become: false
+  ansible.builtin.command:
+    cmd: "{{ docker_compose_base_command }} pull {{ item }}"
+  loop: "{{ docker_compose_services_result.stdout_lines }}"
   register: docker_compose_pull_result
   changed_when: docker_compose_pull_result.stderr_lines | reject('match', '.*(Pulling|Pulled|Skipped).*') is any

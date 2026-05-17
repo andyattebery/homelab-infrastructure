@@ -8,7 +8,7 @@ docker_compose_gid: "{{ ansible_non_become_user_gid }}"
 docker_compose_should_include_in_main_compose_file: true
 docker_compose_should_run_up: true
 docker_compose_should_prune: false
-docker_compose_copy_scripts: false
+docker_compose_copy_scripts: true
 
 docker_compose_up_command: "{{ docker_compose_base_command }} up --detach"
 

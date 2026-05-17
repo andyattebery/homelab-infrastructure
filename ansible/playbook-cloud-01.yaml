@@ -14,7 +14,6 @@
     - docker_compose_traefik # Needs to be before docker-compose-cloud-01 for the traefik network to be created
     - role: docker_compose
       vars:
-        docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/cloud-01/docker-compose-cloud-01.yml
         docker_compose_envs:
           FRESHRSS_DOMAIN_NAME: "freshrss.{{ domain_name }}"

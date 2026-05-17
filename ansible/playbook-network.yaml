@@ -28,8 +28,6 @@
         # up in keepalived's own log, which is acceptable.
         keepalived_track_script_command: "/usr/bin/timeout 2 /usr/bin/nslookup healthcheck.adguardhome.test 127.0.0.1"
     - role: docker_compose_wireguard
-      vars:
-        docker_compose_copy_scripts: true
 
 - name: Configure textfile collectors on network-01
   hosts: network-01

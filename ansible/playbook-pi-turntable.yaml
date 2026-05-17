@@ -9,7 +9,6 @@
     - role: prometheus.prometheus.node_exporter
     - role: docker_compose_traefik
       vars:
-        docker_compose_copy_scripts: true
         docker_compose_traefik_enable_dashboard: true
         docker_compose_traefik_enable_host_network: true
         # docker_compose_traefik_file_provider_path: files/pi-turntable/file_provider.yml

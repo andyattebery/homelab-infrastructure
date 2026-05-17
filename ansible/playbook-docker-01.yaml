@@ -12,7 +12,6 @@
     - geerlingguy.docker
     - role: docker_compose_traefik
       vars:
-        docker_compose_copy_scripts: true
         docker_compose_traefik_enable_dashboard: true
     - role: docker_compose_tsdproxy
     # - role: docker_compose_diun
