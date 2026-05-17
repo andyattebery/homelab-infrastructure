@@ -1,0 +1,11 @@
+modules:
+  default:
+    user: "{{ nas_host_01_ipmi_username }}"
+    pass: "{{ nas_host_01_ipmi_password }}"
+    driver: "LAN_2_0"
+    privilege: "user"
+    timeout: 10000
+    collectors:
+    - bmc
+    - ipmi
+    - chassis

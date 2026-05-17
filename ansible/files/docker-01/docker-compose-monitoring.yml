@@ -37,6 +37,11 @@ services:
      # Read by the file-provisioned Pushover contact point via $ENV substitution.
      - GRAFANA_PUSHOVER_APP_TOKEN=${GRAFANA_PUSHOVER_APP_TOKEN}
      - GRAFANA_PUSHOVER_USER_KEY=${GRAFANA_PUSHOVER_USER_KEY}
+     # Read by provisioned InfluxDB datasources (see
+     # provisioning/datasources/influxdb.yaml) via $ENV substitution.
+     - INFLUXDB_HEALTHCHECKS_TOKEN=${INFLUXDB_HEALTHCHECKS_TOKEN}
+     - INFLUXDB_PROXMOX_READ_TOKEN=${INFLUXDB_PROXMOX_READ_TOKEN}
+     - DOMAIN_NAME=${DOMAIN_NAME}
     networks:
       - traefik
     volumes:
@@ -116,6 +121,37 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     labels:
       - traefik.enable=true
+
+  pve-exporter:
+    image: prompve/prometheus-pve-exporter:latest
+    container_name: pve-exporter
+    restart: unless-stopped
+    networks:
+      - traefik
+    environment:
+      - PVE_USER=ro-api@pam
+      - PVE_TOKEN_NAME=${PVE_MONITORING_TOKEN_NAME}
+      - PVE_TOKEN_VALUE=${PVE_MONITORING_TOKEN_VALUE}
+      - PVE_VERIFY_SSL=false
+  adguard-exporter:
+    image: ghcr.io/henrywhitaker3/adguard-exporter:latest
+    container_name: adguard-exporter
+    restart: unless-stopped
+    networks:
+      - traefik
+    environment:
+      - ADGUARD_SERVERS=${ADGUARD_SERVERS}
+      - ADGUARD_USERNAMES=${ADGUARD_USERNAMES}
+      - ADGUARD_PASSWORDS=${ADGUARD_PASSWORDS}
+  ipmi-exporter:
+    image: prometheuscommunity/ipmi-exporter:latest
+    container_name: ipmi-exporter
+    restart: unless-stopped
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/ipmi-exporter/ipmi-exporter.yml:/config/ipmi.yml:ro
+    command: ["--config.file=/config/ipmi.yml"]
 
 networks:
   traefik:

@@ -1,0 +1,40 @@
+# Ceph cluster alerts via the mgr Prometheus module (:9283).
+#
+# Metric grounding:
+# - ceph_health_status: 0=HEALTH_OK, 1=HEALTH_WARN, 2=HEALTH_ERR.
+#   Emitted by the Ceph mgr Prometheus module (ceph mgr module enable prometheus).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: ceph
+    folder: Infrastructure
+    interval: 1m
+    rules:
+      - uid: ceph-health-not-ok
+        title: Ceph cluster not healthy
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: ceph_health_status != 0
+              instant: true
+              refId: A
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: ceph
+        annotations:
+          summary: 'Ceph cluster health is {{ $value }} (0=OK, 1=WARN, 2=ERR)'
+          description: |
+            ceph_health_status has been non-zero for 10+ minutes.
+            Run `ceph status` on any cluster node for details (PG state, OSD status, etc.).

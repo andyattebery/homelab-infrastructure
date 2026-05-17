@@ -1,0 +1,110 @@
+---
+# Idempotent PBS user + token + ACL setup. Token secret is stored locally
+# at {{ pbs_exporter_api_token_path }} (read by pbs_exporter via
+# PBS_API_TOKEN_FILE). No vault round-trip required.
+#
+# Reprovision safety: if the on-host secret file is missing but the PBS-side
+# token exists, we delete the orphaned token and regenerate. PBS can't
+# disclose an existing token's secret, so rotate-if-orphaned is the only
+# way to recover.
+
+- name: List PBS users (json)
+  ansible.builtin.command:
+    cmd: /usr/sbin/proxmox-backup-manager user list --output-format json
+  register: pbs_exporter_user_list
+  changed_when: false
+
+- name: Create PBS monitoring user (if missing)
+  when: "pbs_exporter_pbs_username not in (pbs_exporter_user_list.stdout | from_json | map(attribute='userid'))"
+  ansible.builtin.command:
+    cmd: >-
+      /usr/sbin/proxmox-backup-manager user create
+      {{ pbs_exporter_pbs_username }}
+      --comment 'pbs_exporter (token-only, no password)'
+  changed_when: true
+
+- name: Ensure token-secret directory exists
+  ansible.builtin.file:
+    path: "{{ pbs_exporter_api_token_path | dirname }}"
+    state: directory
+    owner: root
+    group: "{{ pbs_exporter_username }}"
+    mode: "0750"
+
+- name: Stat token-secret file
+  ansible.builtin.stat:
+    path: "{{ pbs_exporter_api_token_path }}"
+  register: pbs_exporter_secret_stat
+
+- name: List existing tokens for user
+  ansible.builtin.command:
+    cmd: /usr/sbin/proxmox-backup-manager user list-tokens {{ pbs_exporter_pbs_username }} --output-format json
+  register: pbs_exporter_token_list
+  changed_when: false
+
+- name: Set tokenid fact
+  ansible.builtin.set_fact:
+    pbs_exporter_full_tokenid: "{{ pbs_exporter_pbs_username }}!{{ pbs_exporter_api_token_name }}"
+
+- name: Delete orphaned token (secret lost) before regenerating
+  when:
+    - pbs_exporter_full_tokenid in (pbs_exporter_token_list.stdout | from_json | map(attribute='tokenid'))
+    - not pbs_exporter_secret_stat.stat.exists
+  ansible.builtin.command:
+    cmd: /usr/sbin/proxmox-backup-manager user delete-token {{ pbs_exporter_pbs_username }} {{ pbs_exporter_api_token_name }}
+  changed_when: true
+
+- name: Re-list tokens after potential delete
+  when: not pbs_exporter_secret_stat.stat.exists
+  ansible.builtin.command:
+    cmd: /usr/sbin/proxmox-backup-manager user list-tokens {{ pbs_exporter_pbs_username }} --output-format json
+  register: pbs_exporter_token_list_after_delete
+  changed_when: false
+
+- name: Generate token (if missing in PBS or secret missing locally)
+  when:
+    - not pbs_exporter_secret_stat.stat.exists
+    - pbs_exporter_full_tokenid not in ((pbs_exporter_token_list_after_delete.stdout | default('[]')) | from_json | map(attribute='tokenid'))
+  # `generate-token` doesn't accept `--output-format`. It prints
+  # `Result: { "tokenid": "...", "value": "<secret>" }` — strip the
+  # `Result:` prefix before parsing JSON.
+  ansible.builtin.command:
+    cmd: >-
+      /usr/sbin/proxmox-backup-manager user generate-token
+      {{ pbs_exporter_pbs_username }}
+      {{ pbs_exporter_api_token_name }}
+  register: pbs_exporter_token_gen
+  changed_when: true
+  no_log: true
+
+- name: Write token secret to local file # noqa: no-handler
+  when: pbs_exporter_token_gen.changed | default(false)
+  ansible.builtin.copy:
+    content: "{{ (pbs_exporter_token_gen.stdout | regex_replace('^Result:\\s*', '') | from_json).value }}"
+    dest: "{{ pbs_exporter_api_token_path }}"
+    owner: root
+    group: "{{ pbs_exporter_username }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart pbs_exporter
+
+- name: Grant ACL role on path
+  # Per PBS docs (user-management): "Newly generated API tokens don't
+  # have any permissions" and "API token permissions are calculated
+  # based on ACLs containing their ID, independently of those of their
+  # corresponding user. The resulting permission set on a given path is
+  # then intersected with that of the corresponding user."
+  #
+  # Effective token perms = (token ACL) ∩ (user ACL). So we grant the
+  # same role to BOTH the user (sets upper bound) and the token
+  # (the actual effective grant for token operations).
+  ansible.builtin.command:
+    cmd: >-
+      /usr/sbin/proxmox-backup-manager acl update
+      {{ pbs_exporter_acl_path }}
+      {{ pbs_exporter_acl_role }}
+      --auth-id '{{ item }}'
+  changed_when: false
+  loop:
+    - "{{ pbs_exporter_pbs_username }}"
+    - "{{ pbs_exporter_full_tokenid }}"

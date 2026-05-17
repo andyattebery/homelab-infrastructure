@@ -1,0 +1,13 @@
+[Unit]
+Description=Prometheus ZFS Exporter
+After=network-online.target zfs.target
+Wants=network-online.target
+
+[Service]
+ExecStart={{ zfs_exporter_bin_path }} --web.listen-address={{ zfs_exporter_web_listen_address }}
+User=root
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

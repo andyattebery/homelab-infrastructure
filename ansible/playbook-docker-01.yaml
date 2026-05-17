@@ -38,6 +38,7 @@
         certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
         certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
     - role: docker_compose_docker_monitoring
+    - role: docker_compose_telegraf
     # - role: docker_compose_perplexica
     #   vars:
     #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
@@ -71,10 +72,20 @@
           INFLUXDB_INIT_BUCKET: "{{ influxdb_init_bucket }}"
           GRAFANA_PUSHOVER_APP_TOKEN: "{{ grafana_pushover_token }}"
           GRAFANA_PUSHOVER_USER_KEY: "{{ pushover_user_key }}"
+          INFLUXDB_HEALTHCHECKS_TOKEN: "{{ influxdb_healthchecks_read_token }}"
+          INFLUXDB_PROXMOX_READ_TOKEN: "{{ influxdb_proxmox_read_token }}"
+          PVE_MONITORING_TOKEN_NAME: "{{ proxmox_api_token_id_monitoring | regex_replace('^.*!', '') }}"
+          PVE_MONITORING_TOKEN_VALUE: "{{ proxmox_api_token_secret_monitoring }}"
+          ADGUARD_SERVERS: "https://adguardhome.{{ domain_name }},https://adguardhome-02.{{ domain_name }},https://adguardhome-03.{{ domain_name }}"
+          ADGUARD_USERNAMES: "{{ network_01_adguardhome_username }},{{ network_02_adguardhome_username }},{{ network_03_adguardhome_username }}"
+          ADGUARD_PASSWORDS: "{{ network_01_adguardhome_password }},{{ network_02_adguardhome_password }},{{ network_03_adguardhome_password }}"
         docker_compose_src_config_files:
           - src_file_path: files/prometheus/prometheus.yml
             dst_relative_file_path: prometheus/config/prometheus.yml
             service_name_to_restart: prometheus
+          - src_file_path: files/docker-01/ipmi-exporter.yml
+            dst_relative_file_path: ipmi-exporter/ipmi-exporter.yml
+            service_name_to_restart: ipmi-exporter
         docker_compose_src_config_dirs:
           - src_dir_path: files/docker-01/grafana/provisioning
             dst_relative_dir_path: grafana-provisioning

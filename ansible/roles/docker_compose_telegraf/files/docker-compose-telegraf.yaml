@@ -1,0 +1,14 @@
+---
+services:
+  telegraf:
+    image: telegraf:latest
+    container_name: telegraf
+    restart: unless-stopped
+    env_file:
+      - ${DOCKER_DATA_DIRECTORY}/telegraf-config/influxdb.env
+    # No `networks:` — telegraf reaches InfluxDB at `http://influxdb.${DOMAIN_NAME}:8086`
+    # (same external URL Grafana's `influxdb-proxmox` datasource uses) and
+    # Healthchecks at `https://healthchecks.${DOMAIN_NAME}/...` via the host
+    # NAT path. No container-to-container DNS dependency.
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/telegraf-config/telegraf.conf:/etc/telegraf/telegraf.conf:ro

@@ -1,0 +1,29 @@
+---
+# pdf/zfs_exporter tarballs extract to a versioned + arch-suffixed
+# directory like `zfs_exporter-2.3.12.linux-amd64/zfs_exporter`. We
+# pre-fetch the release tag to construct the correct in-archive path
+# before delegating the download/version-check to github_release_install.
+- name: Get zfs_exporter latest release tag
+  ansible.builtin.uri:
+    url: https://api.github.com/repos/pdf/zfs_exporter/releases/latest
+    return_content: true
+  register: zfs_exporter_release_info
+  changed_when: false
+
+- name: Set version + arch facts
+  ansible.builtin.set_fact:
+    zfs_exporter_version: "{{ zfs_exporter_release_info.json.tag_name | regex_replace('^v', '') }}"
+    zfs_exporter_arch_suffix: >-
+      {{ {'x86_64': 'linux-amd64', 'aarch64': 'linux-arm64'}[ansible_facts['architecture']] }}
+
+- name: Install zfs_exporter
+  ansible.builtin.include_role:
+    name: github_release_install
+  vars:
+    github_release_install_repo: pdf/zfs_exporter
+    github_release_install_asset_patterns:
+      x86_64: "linux-amd64\\.tar\\.gz$"
+      aarch64: "linux-arm64\\.tar\\.gz$"
+    github_release_install_archive_type: tarball
+    github_release_install_binary_in_archive: "zfs_exporter-{{ zfs_exporter_version }}.{{ zfs_exporter_arch_suffix | trim }}/zfs_exporter"
+    github_release_install_binary_path: "{{ zfs_exporter_bin_path }}"

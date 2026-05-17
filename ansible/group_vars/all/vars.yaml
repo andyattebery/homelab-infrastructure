@@ -105,6 +105,7 @@ healthchecks_superuser_password: "{{ vault_healthchecks_superuser_password }}"
 healthchecks_pushover_subscription_url: "{{ vault_healthchecks_pushover_subscription_url }}"
 healthchecks_pushover_token: "{{ vault_healthchecks_pushover_token }}"
 healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
+healthchecks_readonly_api_key: "{{ vault_healthchecks_readonly_api_key }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 
@@ -122,6 +123,9 @@ influxdb_init_username: "{{ vault_influxdb_init_username }}"
 influxdb_init_password: "{{ vault_influxdb_init_password }}"
 influxdb_init_org: "{{ vault_influxdb_init_org }}"
 influxdb_init_bucket: "{{ vault_influxdb_init_bucket }}"
+influxdb_healthchecks_read_token: "{{ vault_influxdb_healthchecks_read_token }}"
+influxdb_proxmox_read_token: "{{ vault_influxdb_proxmox_read_token }}"
+influxdb_proxmox_write_token: "{{ vault_influxdb_proxmox_write_token }}"
 
 jellyfin_api_key_homepage: "{{ vault_jellyfin_api_key_homepage }}"
 
@@ -186,6 +190,8 @@ plex_claim_token: "{{ vault_plex_claim_token }}"
 
 proxmox_api_token_id_homepage: "{{ vault_proxmox_api_token_id_homepage }}"
 proxmox_api_token_secret_homepage: "{{ vault_proxmox_api_token_secret_homepage }}"
+proxmox_api_token_id_monitoring: "{{ vault_proxmox_api_token_id_monitoring }}"
+proxmox_api_token_secret_monitoring: "{{ vault_proxmox_api_token_secret_monitoring }}"
 
 pushover_user_key: "{{ vault_pushover_user_key }}"
 

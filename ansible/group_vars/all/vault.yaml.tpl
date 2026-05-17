@@ -31,6 +31,7 @@ vault_healthchecks_superuser_email: {{ op://Personal/Healthchecks/username }}
 vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
 vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
+vault_healthchecks_readonly_api_key: {{ op://Personal/Healthchecks/api keys/read only }}
 vault_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/ansible }}
 vault_grafana_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/grafana }}
 vault_icecast_server_hostname: {{ op://Personal/pi-turntable/icecast/hostname }}
@@ -44,6 +45,9 @@ vault_influxdb_init_username: "{{ op://Personal/InfluxDB/username }}"
 vault_influxdb_init_password: "{{ op://Personal/InfluxDB/password }}"
 vault_influxdb_init_org: "{{ op://Personal/InfluxDB/config/org }}"
 vault_influxdb_init_bucket: "{{ op://Personal/InfluxDB/config/bucket }}"
+vault_influxdb_healthchecks_read_token: "{{ op://Personal/InfluxDB/tokens/healthchecks read }}"
+vault_influxdb_proxmox_read_token: "{{ op://Personal/InfluxDB/tokens/proxmox read }}"
+vault_influxdb_proxmox_write_token: "{{ op://Personal/InfluxDB/tokens/proxmox write }}"
 vault_jellyfin_api_key_homepage: "{{ op://Personal/Jellyfin/api keys/homepage }}"
 vault_jellystat_db_name: "{{ op://Personal/jellystat/database/name }}"
 vault_jellystat_db_username: "{{ op://Personal/jellystat/database/username }}"
@@ -134,9 +138,11 @@ vault_pikvm_kvmd_ssh_private_key: |
 vault_pikvm_kvmd_ssh_public_key: {{ op://Personal/pikvm - kvmd - SSH Key/public key }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
-vault_proxmox_api_token_id_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/token id }}
-vault_proxmox_api_token_secret_homepage: {{ op://Personal/wtae5gr7llnkmo7mwwjbleqq4u/homepage api token/secret }}
+vault_proxmox_api_token_id_homepage: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/homepage api token/token id }}
+vault_proxmox_api_token_secret_homepage: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/homepage api token/secret }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
+vault_proxmox_api_token_id_monitoring: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/monitoring api token/token id }}
+vault_proxmox_api_token_secret_monitoring: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/monitoring api token/secret }}
 vault_remote_power_control_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/remote_power_control }}
 vault_scrutiny_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/scrutiny }}
 vault_servercat_ssh_public_key: {{ op://Personal/pibtry4hziwtyen2xklu5g2qzy/public key }}

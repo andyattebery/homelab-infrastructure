@@ -1,0 +1,82 @@
+---
+# Generic per-instance textfile collector. Caller provides:
+#   textfile_collector_name           — instance name (used in filenames)
+#   textfile_collector_source_cmd     — shell snippet that emits prometheus-textfile
+#                                       lines on stdout (caller's responsibility,
+#                                       no format-shaping in this role)
+#   textfile_collector_interval_seconds (default 60)
+- name: Apply zpool-scrub built-in
+  when: textfile_collector_zpool_scrub | bool
+  ansible.builtin.set_fact:
+    textfile_collector_name: zpool-scrub
+    textfile_collector_interval_seconds: "{{ textfile_collector_interval_seconds | default(300) }}"
+    textfile_collector_source_cmd: |
+      zpool list -H -o name | while read pool; do
+        scan=$(zpool status "$pool" 2>/dev/null | awk '/^[[:space:]]*scan:/{sub(/^[[:space:]]*scan:[[:space:]]*/,""); print; exit}')
+        in_progress=0
+        errors=0
+        last_ts=0
+        case "$scan" in
+          "scrub in progress"*) in_progress=1 ;;
+          "scrub repaired"*|"scrub finished"*)
+            errors=$(echo "$scan" | grep -oE 'with [0-9]+ errors' | grep -oE '[0-9]+')
+            [ -z "$errors" ] && errors=0
+            date_str=$(echo "$scan" | sed -nE 's/.* on (.+)$/\1/p')
+            [ -n "$date_str" ] && last_ts=$(date -d "$date_str" +%s 2>/dev/null || echo 0)
+            ;;
+        esac
+        printf 'zpool_scrub_in_progress{pool="%s"} %d\n' "$pool" "$in_progress"
+        printf 'zpool_scrub_errors{pool="%s"} %d\n' "$pool" "$errors"
+        printf 'zpool_last_scrub_timestamp{pool="%s"} %d\n' "$pool" "$last_ts"
+      done
+
+- name: Validate required inputs
+  ansible.builtin.assert:
+    that:
+      - textfile_collector_name | default('') | length > 0
+      - textfile_collector_source_cmd | default('') | length > 0
+
+- name: Install required packages
+  ansible.builtin.package:
+    name: "{{ textfile_collector_packages }}"
+    state: present
+  when: textfile_collector_packages | length > 0
+
+- name: Ensure textfile output directory exists
+  ansible.builtin.file:
+    path: "{{ textfile_collector_textfile_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render textfile_collector wrapper script
+  ansible.builtin.template:
+    src: textfile_collector.sh.j2
+    dest: "/usr/local/bin/textfile_collector_{{ textfile_collector_name }}.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render textfile_collector systemd service
+  ansible.builtin.template:
+    src: textfile_collector.service.j2
+    dest: "/etc/systemd/system/textfile_collector_{{ textfile_collector_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render textfile_collector systemd timer
+  ansible.builtin.template:
+    src: textfile_collector.timer.j2
+    dest: "/etc/systemd/system/textfile_collector_{{ textfile_collector_name }}.timer"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start textfile_collector timer
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: "textfile_collector_{{ textfile_collector_name }}.timer"
+    state: started
+    enabled: true

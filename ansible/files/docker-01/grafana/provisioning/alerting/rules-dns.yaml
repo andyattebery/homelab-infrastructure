@@ -1,0 +1,75 @@
+# DNS HA alerts: keepalived VIP ownership + AdGuard sync freshness.
+#
+# Metric grounding:
+# - keepalived_vrrp_state (mehdy/keepalived-exporter v1.7.1+):
+#   0=Init, 1=Backup, 2=Master, 3=Fault.
+#   Exporter uses --ka.container.pid-path to send signals via docker exec
+#   (not docker kill), avoiding s6-overlay signal conflicts.
+# - adguardhome_sync_last_success_timestamp (textfile_collector on network-01):
+#   Unix epoch seconds of the most recent "Sync done" log entry.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: dns-ha
+    folder: Infrastructure
+    interval: 1m
+    rules:
+      - uid: keepalived-no-master
+        title: Keepalived VIP has no master
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: sum(keepalived_vrrp_state == 2) == 0
+              instant: true
+              refId: A
+        for: 1m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: dns
+        annotations:
+          summary: 'No keepalived master for the DNS VIP'
+          description: |
+            No peer reports keepalived_vrrp_state == 2 (Master) for 1+ minute.
+            DNS resolution via the VIP is down. Check keepalived logs on all three
+            peers: `docker logs keepalived` on network-01, network-03, pi-rack.
+
+      - uid: adguardhome-sync-drift
+        title: AdGuard sync older than 1h
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: (time() - adguardhome_sync_last_success_timestamp) > 3600
+              instant: true
+              refId: A
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: dns
+        annotations:
+          summary: 'AdGuard sync has not succeeded for {{ $value | humanizeDuration }}'
+          description: |
+            The adguardhome-sync container on network-01 has not logged a
+            successful "Sync done" in over 1 hour. Check `docker logs adguardhome-sync`
+            on network-01 for errors.

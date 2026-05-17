@@ -1,0 +1,14 @@
+---
+- name: Copy zfs_exporter.service
+  ansible.builtin.template:
+    src: zfs_exporter.service.j2
+    dest: /etc/systemd/system/zfs_exporter.service
+    mode: "0644"
+    owner: root
+  notify: Restart zfs_exporter
+- name: Enable and start zfs_exporter.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: zfs_exporter.service
+    state: started
+    enabled: true

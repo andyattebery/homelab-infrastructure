@@ -1,0 +1,879 @@
+{
+  "uid": "ceph-cluster",
+  "title": "Ceph Cluster",
+  "description": "Ceph cluster health, OSD state, capacity, I/O, and PG status",
+  "tags": ["ceph"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Health",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_health_status",
+          "legendFormat": "Health",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "OK", "color": "green" },
+              "1": { "text": "WARNING", "color": "yellow" },
+              "2": { "text": "ERROR", "color": "red" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Health Details",
+      "description": "Active health checks causing non-OK status",
+      "gridPos": { "h": 4, "w": 12, "x": 4, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_health_detail == 1",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "severity" },
+            "properties": [
+              { "id": "mappings", "value": [
+                { "options": { "HEALTH_WARN": { "color": "yellow", "text": "WARN" }, "HEALTH_ERR": { "color": "red", "text": "ERR" } }, "type": "value" }
+              ]},
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": { "show": false }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true,
+              "type": true,
+              "Value": true
+            },
+            "renameByName": {
+              "name": "Check",
+              "severity": "Severity"
+            },
+            "indexByName": {
+              "name": 0,
+              "severity": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "OSD Flags",
+      "description": "Cluster-wide OSD flags currently set",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        { "expr": "ceph_osd_flag_noout", "legendFormat": "noout", "refId": "A", "instant": true },
+        { "expr": "ceph_osd_flag_noscrub", "legendFormat": "noscrub", "refId": "B", "instant": true },
+        { "expr": "ceph_osd_flag_nodeep_scrub", "legendFormat": "nodeep-scrub", "refId": "C", "instant": true },
+        { "expr": "ceph_osd_flag_norebalance", "legendFormat": "norebalance", "refId": "D", "instant": true },
+        { "expr": "ceph_osd_flag_norecover", "legendFormat": "norecover", "refId": "E", "instant": true },
+        { "expr": "ceph_osd_flag_nobackfill", "legendFormat": "nobackfill", "refId": "F", "instant": true },
+        { "expr": "ceph_osd_flag_nodown", "legendFormat": "nodown", "refId": "G", "instant": true },
+        { "expr": "ceph_osd_flag_noin", "legendFormat": "noin", "refId": "H", "instant": true },
+        { "expr": "ceph_osd_flag_noup", "legendFormat": "noup", "refId": "I", "instant": true }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "off", "color": "green" },
+              "1": { "text": "SET", "color": "orange" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": { "show": false }
+      },
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": { "reducers": ["lastNotNull"] }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Field": "Flag",
+              "Last *": "State"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Monitors",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Mon Quorum",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_mon_quorum_status",
+          "legendFormat": "{{ ceph_daemon }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "Out", "color": "red" },
+              "1": { "text": "In Quorum", "color": "green" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "row",
+      "title": "OSDs",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "OSDs UP",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "count(ceph_osd_up == 1)",
+          "legendFormat": "UP",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "OSDs DOWN",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "count(ceph_osd_up == 0) or vector(0)",
+          "legendFormat": "DOWN",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "OSDs IN",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "count(ceph_osd_in == 1)",
+          "legendFormat": "IN",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "OSDs OUT",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "count(ceph_osd_in == 0) or vector(0)",
+          "legendFormat": "OUT",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "OSD Apply Latency",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_osd_apply_latency_ms",
+          "legendFormat": "{{ ceph_daemon }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "OSD Commit Latency",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 15 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_osd_commit_latency_ms",
+          "legendFormat": "{{ ceph_daemon }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Capacity",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 21 },
+      "collapsed": false
+    },
+    {
+      "type": "gauge",
+      "title": "Cluster Usage",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_used_bytes / ceph_cluster_total_bytes",
+          "legendFormat": "Used",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.65 },
+            { "color": "red", "value": 0.85 }
+          ]}
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Total Capacity",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_bytes",
+          "legendFormat": "Total",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Used",
+      "gridPos": { "h": 3, "w": 4, "x": 12, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_used_bytes",
+          "legendFormat": "Used",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Available",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_bytes - ceph_cluster_total_used_bytes",
+          "legendFormat": "Available",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Used (Raw)",
+      "gridPos": { "h": 3, "w": 4, "x": 12, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_used_raw_bytes",
+          "legendFormat": "Raw Used",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "dark-orange", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Capacity Over Time",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_cluster_total_bytes",
+          "legendFormat": "Total",
+          "refId": "A"
+        },
+        {
+          "expr": "ceph_cluster_total_used_bytes",
+          "legendFormat": "Used",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "fillOpacity": 20, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "I/O",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 28 },
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "IOPS (by pool)",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "rate(ceph_pool_rd[5m]) * on(pool_id) group_left(name) ceph_pool_metadata",
+          "legendFormat": "{{ name }} read",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(ceph_pool_wr[5m]) * on(pool_id) group_left(name) ceph_pool_metadata",
+          "legendFormat": "{{ name }} write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "iops",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput (by pool)",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 29 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "rate(ceph_pool_rd_bytes[5m]) * on(pool_id) group_left(name) ceph_pool_metadata",
+          "legendFormat": "{{ name }} read",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(ceph_pool_wr_bytes[5m]) * on(pool_id) group_left(name) ceph_pool_metadata",
+          "legendFormat": "{{ name }} write",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Placement Groups",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "PG Total",
+      "gridPos": { "h": 3, "w": 6, "x": 0, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "sum(ceph_pg_total)",
+          "legendFormat": "Total",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active+Clean",
+      "gridPos": { "h": 3, "w": 6, "x": 6, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "sum(ceph_pg_clean)",
+          "legendFormat": "Clean",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Degraded",
+      "gridPos": { "h": 3, "w": 6, "x": 12, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "sum(ceph_pg_degraded)",
+          "legendFormat": "Degraded",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Undersized",
+      "gridPos": { "h": 3, "w": 6, "x": 18, "y": 37 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "sum(ceph_pg_undersized)",
+          "legendFormat": "Undersized",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Degraded Objects",
+      "gridPos": { "h": 3, "w": 12, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_num_objects_degraded",
+          "legendFormat": "Objects",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Misplaced Objects",
+      "gridPos": { "h": 3, "w": 12, "x": 12, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_num_objects_misplaced",
+          "legendFormat": "Misplaced",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 1 }
+          ]}
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "PG States Over Time",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 43 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        { "expr": "sum(ceph_pg_active)", "legendFormat": "active", "refId": "A" },
+        { "expr": "sum(ceph_pg_clean)", "legendFormat": "clean", "refId": "B" },
+        { "expr": "sum(ceph_pg_degraded)", "legendFormat": "degraded", "refId": "C" },
+        { "expr": "sum(ceph_pg_undersized)", "legendFormat": "undersized", "refId": "D" },
+        { "expr": "sum(ceph_pg_recovering)", "legendFormat": "recovering", "refId": "E" },
+        { "expr": "sum(ceph_pg_remapped)", "legendFormat": "remapped", "refId": "F" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "desc" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Pools",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 50 },
+      "collapsed": false
+    },
+    {
+      "type": "table",
+      "title": "Pool Usage",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 51 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "ceph_pool_bytes_used * on(pool_id) group_left(name) ceph_pool_metadata",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        },
+        {
+          "expr": "ceph_pool_max_avail * on(pool_id) group_left(name) ceph_pool_metadata",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "B"
+        },
+        {
+          "expr": "ceph_pool_objects * on(pool_id) group_left(name) ceph_pool_metadata",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "C"
+        },
+        {
+          "expr": "ceph_pool_percent_used * on(pool_id) group_left(name) ceph_pool_metadata",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "D"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Value #A" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Value #B" },
+            "properties": [{ "id": "unit", "value": "bytes" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Value #D" },
+            "properties": [
+              { "id": "unit", "value": "percentunit" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.65 }, { "color": "red", "value": 0.85 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "footer": { "show": false }
+      },
+      "transformations": [
+        {
+          "id": "seriesToColumns",
+          "options": { "byField": "name" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "__name__ 4": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "instance 4": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "job 4": true,
+              "pool_id 1": true,
+              "pool_id 2": true,
+              "pool_id 3": true,
+              "pool_id 4": true
+            },
+            "renameByName": {
+              "name": "Pool",
+              "Value #A": "Used",
+              "Value #B": "Available",
+              "Value #C": "Objects",
+              "Value #D": "% Used"
+            },
+            "indexByName": {
+              "name": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #D": 3,
+              "Value #C": 4
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}

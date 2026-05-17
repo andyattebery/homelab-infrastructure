@@ -1,0 +1,7 @@
+[Unit]
+Description=Textfile collector for {{ textfile_collector_name }}
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/textfile_collector_{{ textfile_collector_name }}.sh
+User=root

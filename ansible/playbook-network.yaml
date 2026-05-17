@@ -32,6 +32,18 @@
       vars:
         docker_compose_copy_scripts: true
 
+- name: Configure textfile collectors on network-01
+  hosts: network-01
+  become: true
+  roles:
+    - role: textfile_collector
+      vars:
+        textfile_collector_name: adguardhome-sync
+        textfile_collector_interval_seconds: 300
+        textfile_collector_source_cmd: >-
+          ts=$(docker logs --since=24h adguardhome-sync 2>&1 | grep 'Sync done' | tail -1 | awk '{print $1}');
+          [ -n "$ts" ] && printf 'adguardhome_sync_last_success_timestamp %d\n' "$(date -d "$ts" +%s)"
+
 - name: Configure origin adguardhome host
   hosts: network-01
   become: true

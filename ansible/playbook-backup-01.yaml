@@ -24,6 +24,24 @@
       ansible.builtin.import_role:
         name: prometheus.prometheus.node_exporter
 
+    - name: Configure zfs_exporter
+      ansible.builtin.import_role:
+        name: zfs_exporter
+
+    - name: Configure zpool-scrub textfile_collector
+      ansible.builtin.import_role:
+        name: textfile_collector
+      vars:
+        textfile_collector_zpool_scrub: true
+
+    - name: Configure pbs_exporter
+      # Role bootstraps its own PBS user (monitoring@pbs), token (exporter),
+      # and ACL (DatastoreAudit on /datastore) idempotently. Token secret
+      # lives on backup-01 only at /etc/pbs_exporter/api_token.secret;
+      # pbs_exporter reads it via PBS_API_TOKEN_FILE. No vault entry needed.
+      ansible.builtin.import_role:
+        name: pbs_exporter
+
     - name: Configure power_saving
       ansible.builtin.import_role:
         name: power_saving

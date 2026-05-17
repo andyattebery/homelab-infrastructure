@@ -1,0 +1,9 @@
+services:
+  nut-exporter:
+    image: ghcr.io/druggeri/nut_exporter:latest
+    container_name: nut-exporter
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - NUT_EXPORTER_SERVER=127.0.0.1
+      - NUT_EXPORTER_VARIABLES=battery.charge,battery.runtime,battery.voltage,battery.voltage.nominal,input.voltage,input.voltage.nominal,output.voltage,ups.load,ups.status

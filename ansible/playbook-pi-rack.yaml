@@ -48,6 +48,10 @@
         nut_notify_pushover_token: "{{ nut_pushover_token }}"
         nut_notify_pushover_user_key: "{{ pushover_user_key }}"
 
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/pi-rack/docker-compose-monitoring.yml
+
   tasks:
     - name: Set POE+ HAT PWM fan values
       ansible.builtin.blockinfile:

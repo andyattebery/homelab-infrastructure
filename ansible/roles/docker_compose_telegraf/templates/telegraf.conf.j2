@@ -1,0 +1,33 @@
+# Telegraf config — polls Healthchecks API and writes per-check status
+# into InfluxDB v2. Rendered by Ansible from the telegraf role. Token
+# value comes from the env file mounted via docker-compose env_file.
+
+[agent]
+  interval = "60s"
+  round_interval = true
+  flush_interval = "60s"
+  hostname = "docker-01"
+  omit_hostname = false
+
+[[inputs.http]]
+  urls = ["{{ telegraf_healthchecks_url }}"]
+  method = "GET"
+  headers = {"X-Api-Key" = "{{ healthchecks_readonly_api_key }}"}
+  data_format = "json_v2"
+
+  [[inputs.http.json_v2]]
+    measurement_name = "healthchecks"
+
+    [[inputs.http.json_v2.object]]
+      path = "checks"
+      tags = ["name"]
+      included_keys = ["status", "n_pings", "last_ping"]
+
+[[outputs.influxdb_v2]]
+  # Match existing convention: Grafana's `influxdb-proxmox` datasource
+  # also points at this URL (via host-published port 8086). No docker
+  # network co-tenancy required.
+  urls = ["http://influxdb.{{ domain_name }}:8086"]
+  token = "${INFLUXDB_TOKEN}"
+  organization = "{{ telegraf_influxdb_org }}"
+  bucket = "{{ telegraf_influxdb_bucket }}"

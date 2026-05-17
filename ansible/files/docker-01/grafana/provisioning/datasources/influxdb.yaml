@@ -1,0 +1,30 @@
+# InfluxDB datasources — both Flux-mode, same InfluxDB instance, different
+# orgs/buckets. Tokens are read-only, stored in 1Password, plumbed via
+# vault → docker_compose_envs → Grafana container env → $ENV substitution.
+apiVersion: 1
+datasources:
+  - name: influxdb-proxmox
+    uid: be8ti03hoycjkb
+    type: influxdb
+    access: proxy
+    url: http://influxdb.${DOMAIN_NAME}:8086
+    jsonData:
+      version: Flux
+      organization: proxmox
+      defaultBucket: proxmox
+    secureJsonData:
+      token: $INFLUXDB_PROXMOX_READ_TOKEN
+    editable: false
+
+  - name: influxdb-healthchecks
+    uid: influxdb-healthchecks
+    type: influxdb
+    access: proxy
+    url: http://influxdb.${DOMAIN_NAME}:8086
+    jsonData:
+      version: Flux
+      organization: org
+      defaultBucket: healthchecks
+    secureJsonData:
+      token: $INFLUXDB_HEALTHCHECKS_TOKEN
+    editable: false

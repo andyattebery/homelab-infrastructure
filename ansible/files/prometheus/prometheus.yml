@@ -34,3 +34,76 @@ scrape_configs:
       - docker-01.{{ domain_name }}:8080
       - media-01.{{ domain_name }}:8080
       - nas-01.{{ domain_name }}:8080
+- job_name: zfs
+  static_configs:
+  - targets:
+      - nas-01.{{ domain_name }}:9134
+      - backup-01.{{ domain_name }}:9134
+- job_name: pbs
+  static_configs:
+  - targets:
+      - backup-01.{{ domain_name }}:10019
+- job_name: nut
+  metrics_path: /ups_metrics
+  static_configs:
+  - targets:
+      - pi-rack.{{ domain_name }}:9199
+- job_name: ceph
+  static_configs:
+  - targets:
+      - vm-host-01.{{ domain_name }}:9283
+      - vm-host-02.{{ domain_name }}:9283
+      - nas-host-01.{{ domain_name }}:9283
+- job_name: ipmi
+  metrics_path: /ipmi
+  static_configs:
+  - targets:
+      - ipmi.nas-host-01.{{ domain_name }}
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: ipmi-exporter:9290
+- job_name: pve
+  metrics_path: /pve
+  static_configs:
+  - targets:
+      - vm-host-01.{{ domain_name }}:8006
+      - vm-host-02.{{ domain_name }}:8006
+      - nas-host-01.{{ domain_name }}:8006
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: pve-exporter:9221
+- job_name: adguard
+  static_configs:
+  - targets:
+      - adguard-exporter:9618
+- job_name: keepalived
+  static_configs:
+  - targets:
+      - network-01.{{ domain_name }}:9165
+      - network-03.{{ domain_name }}:9165
+      - pi-rack.{{ domain_name }}:9165
+- job_name: node-offsite
+  scrape_interval: 5m
+  scrape_timeout: 30s
+  static_configs:
+  - targets:
+      - offsite-nas.{{ tailscale_tailnet }}:9100
+      - offsite-pikvm.{{ tailscale_tailnet }}:9100
+    labels:
+      offsite_sleep_ok: "true"
+- job_name: zfs-offsite
+  scrape_interval: 5m
+  scrape_timeout: 30s
+  static_configs:
+  - targets:
+      - offsite-nas.{{ tailscale_tailnet }}:9134
+    labels:
+      offsite_sleep_ok: "true"

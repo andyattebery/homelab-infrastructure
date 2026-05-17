@@ -137,12 +137,13 @@
     #         path: /mnt/storage
     #       - name: tank
     #         path: /mnt/tank
-    - role: docker_compose_traefik
-      vars:
-        docker_compose_traefik_enable_dashboard: true
-        docker_compose_traefik_enable_tailscale: true
-        docker_compose_traefik_log_level: ERROR
-    - role: docker_compose_tsdproxy
+    # - role: mise
+    # - role: docker_compose_traefik
+    #   vars:
+    #     docker_compose_traefik_enable_dashboard: true
+    #     docker_compose_traefik_enable_tailscale: true
+    #     docker_compose_traefik_log_level: ERROR
+    # - role: docker_compose_tsdproxy
     # - role: docker_compose_dashboard_services_manager_provider
     # - role: docker_compose_diun
     # - role: docker_compose_frigate
@@ -153,12 +154,12 @@
     #   vars:
     #     shinobi_data_directory: "/mnt/tank/shinobi/data"
     #     shinobi_db_directory: "/mnt/tank/shinobi/db"
-    - role: docker_compose_immich
-      vars:
-        immich_no_machine_learning: true
-        immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
-        immich_photos_directory: "/mnt/tank/immich/photos"
-        immich_db_directory: "/mnt/tank/immich/db"
+    # - role: docker_compose_immich
+    #   vars:
+    #     immich_no_machine_learning: true
+    #     immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
+    #     immich_photos_directory: "/mnt/tank/immich/photos"
+    #     immich_db_directory: "/mnt/tank/immich/db"
     # - role: docker_compose_manyfold
     # - role: docker_compose_nextcloud
     #   vars:
@@ -169,24 +170,23 @@
     #   vars:
     #     paperless_directory: "/mnt/tank/paperless-ngx"
 
-    - role: docker_compose_scrutiny_web
-      vars:
-        scrutiny_shoutrrr_notify_urls:
-          - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
-    # - role: mise
-    - role: docker_compose
-      vars:
-        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
-        docker_compose_copy_scripts: true
-        docker_compose_envs:
-          MINIO_USERNAME: "{{ minio_username }}"
-          MINIO_PASSWORD: "{{ minio_password }}"
-          LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
-          LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
-          LINKWARDEN_POSTGRES_DB: "linkwarden"
-          LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
-          LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
-          LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+    # - role: docker_compose_scrutiny_web
+    #   vars:
+    #     scrutiny_shoutrrr_notify_urls:
+    #       - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
+    # - role: docker_compose
+    #   vars:
+    #     docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
+    #     docker_compose_copy_scripts: true
+    #     docker_compose_envs:
+    #       MINIO_USERNAME: "{{ minio_username }}"
+    #       MINIO_PASSWORD: "{{ minio_password }}"
+    #       LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
+    #       LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
+    #       LINKWARDEN_POSTGRES_DB: "linkwarden"
+    #       LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
+    #       LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
+    #       LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
     # - role: rtsp_recorder
     #   vars:
     #     rtsp_stream_name: pi-camera-cam1
@@ -194,7 +194,11 @@
     #     rtsp_stream_recording_directory: /mnt/data/data05/temp/recording
     # - role: beszel_agent
     # - role: prometheus.prometheus.node_exporter
-    # - role: docker_compose_docker_monitoring
+    - role: docker_compose_docker_monitoring
+    - role: zfs_exporter
+    - role: textfile_collector
+      vars:
+        textfile_collector_zpool_scrub: true
   tasks:
     # - name: Copy 90-connectx-4-lx.conf netplan config
     #   ansible.builtin.copy:

@@ -1,0 +1,72 @@
+# PVE alerts via prometheus-pve/prometheus-pve-exporter.
+#
+# Metric grounding:
+# - pve_up: 1 if the PVE API on the target node is reachable.
+# - pve_disk_usage_bytes / pve_disk_size_bytes: per-storage usage ratio.
+# - pve_ha_state: gauge with label state={stopped,started,online,fence,error,...};
+#   value 1 indicates the resource is in that state.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: pve
+    folder: Infrastructure
+    interval: 5m
+    rules:
+      - uid: pve-ha-state-error
+        title: PVE HA resource in error state
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: pve_ha_state{state="error"} == 1
+              instant: true
+              refId: A
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: pve
+        annotations:
+          summary: 'PVE HA resource {{ $labels.name }} is in error state'
+          description: |
+            pve_ha_state{state="error"} for {{ $labels.name }} on {{ $labels.instance }}.
+            Check `ha-manager status` on a cluster node for details.
+
+      - uid: pve-storage-high
+        title: PVE storage above 85%
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: (pve_disk_usage_bytes / pve_disk_size_bytes) > 0.85
+              instant: true
+              refId: A
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: pve
+        annotations:
+          summary: 'PVE storage {{ $labels.id }} on {{ $labels.instance }} above 85%'
+          description: |
+            Disk usage ratio for {{ $labels.id }} on {{ $labels.instance }} is
+            {{ $value | printf "%.1f" }}. Free space for VM disks or backups is
+            running low. Consider pruning old backups/snapshots or expanding storage.

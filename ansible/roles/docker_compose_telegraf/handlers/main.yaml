@@ -1,0 +1,8 @@
+---
+- name: Restart telegraf
+  # Tolerates first-run before docker_compose has created the container.
+  # The container will be created by docker_compose on this same play.
+  ansible.builtin.command:
+    cmd: "docker restart telegraf"
+  failed_when: false
+  changed_when: false

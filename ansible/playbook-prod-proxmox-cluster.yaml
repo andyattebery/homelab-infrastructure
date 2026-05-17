@@ -180,3 +180,9 @@
       when: inventory_hostname == pve_cluster_designated_runner
       ansible.builtin.import_role:
         name: pve_cluster_ceph
+
+    - name: Enable Ceph mgr Prometheus module
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.command:
+        cmd: ceph mgr module enable prometheus
+      changed_when: true

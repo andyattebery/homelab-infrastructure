@@ -1,0 +1,6 @@
+- name: Add pbs_exporter system user
+  ansible.builtin.user:
+    name: "{{ pbs_exporter_username }}"
+    password: '!'
+    system: true
+    create_home: false

@@ -1,0 +1,30 @@
+---
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - healthchecks_readonly_api_key | default('') | length > 0
+      - telegraf_influxdb_bucket | length > 0
+      - telegraf_influxdb_org | length > 0
+
+- name: Bootstrap InfluxDB bucket + write-only token
+  ansible.builtin.include_tasks:
+    file: bootstrap.yaml
+
+- name: Render telegraf.conf
+  # Mode 0644: telegraf.conf is mounted into the container and read by
+  # the `telegraf` user (uid 999) inside. It contains no secrets — the
+  # token comes in as $INFLUXDB_TOKEN env var via env_file (which IS
+  # secret-mode 0640 and host-side only).
+  ansible.builtin.template:
+    src: telegraf.conf.j2
+    dest: "{{ telegraf_influxdb_env_path | dirname }}/telegraf.conf"
+    owner: root
+    group: docker
+    mode: "0644"
+  notify: Restart telegraf
+
+- name: Configure telegraf docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-telegraf.yaml
+  ansible.builtin.include_role:
+    name: docker_compose

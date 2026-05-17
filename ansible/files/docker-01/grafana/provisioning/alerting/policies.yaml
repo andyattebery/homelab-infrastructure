@@ -1,5 +1,5 @@
-# Routing tree: by default, route everything to the pushover contact point.
-# Override per-route by adding matchers (e.g. `severity = critical`).
+# Routing tree: default to pushover (priority 1 / high). Alerts labeled
+# severity=warning route to pushover-warning (priority 0 / normal).
 apiVersion: 1
 policies:
   - orgId: 1
@@ -10,3 +10,13 @@ policies:
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 12h
+    routes:
+      - receiver: pushover-warning
+        matchers:
+          - severity = warning
+        group_by:
+          - alertname
+          - instance
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 12h

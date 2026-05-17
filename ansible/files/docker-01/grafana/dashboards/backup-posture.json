@@ -1,0 +1,651 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "datasource", "uid": "grafana" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "ZFS pool health, PBS backup freshness, scrub state, Healthchecks sync status",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "title": "ZFS Pools",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "color": "green", "text": "Online" } }, "type": "value" },
+            { "options": { "1": { "color": "red", "text": "Degraded" } }, "type": "value" },
+            { "options": { "2": { "color": "dark-red", "text": "Faulted" } }, "type": "value" },
+            { "options": { "3": { "color": "orange", "text": "Offline" } }, "type": "value" },
+            { "options": { "4": { "color": "dark-red", "text": "Unavail" } }, "type": "value" },
+            { "options": { "5": { "color": "orange", "text": "Removed" } }, "type": "value" },
+            { "options": { "6": { "color": "dark-red", "text": "Suspended" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 1 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_replace(zfs_pool_health, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{host}} / {{pool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pool Health",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.75 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 5 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_replace(zfs_pool_allocated_bytes / zfs_pool_size_bytes, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{host}} / {{pool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pool Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 5 },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_replace(zfs_pool_free_bytes, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{host}} / {{pool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Pool Free Space",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "id": 5,
+      "title": "ZFS Scrubs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Last Scrub" },
+            "properties": [
+              { "id": "unit", "value": "dateTimeFromNow" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Errors" },
+            "properties": [
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "In Progress" },
+            "properties": [
+              { "id": "mappings", "value": [{ "options": { "0": { "text": "No" }, "1": { "color": "blue", "text": "Yes" } }, "type": "value" }] },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 12 },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_join(label_replace(zpool_last_scrub_timestamp * 1000, \"host\", \"$1\", \"instance\", \"([^.:]+).*\"), \"host_pool\", \" / \", \"host\", \"pool\")",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_join(label_replace(zpool_scrub_errors, \"host\", \"$1\", \"instance\", \"([^.:]+).*\"), \"host_pool\", \" / \", \"host\", \"pool\")",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "label_join(label_replace(zpool_scrub_in_progress, \"host\", \"$1\", \"instance\", \"([^.:]+).*\"), \"host_pool\", \" / \", \"host\", \"pool\")",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "C"
+        }
+      ],
+      "title": "Scrub Status",
+      "transformations": [
+        {
+          "id": "seriesToColumns",
+          "options": { "byField": "host_pool" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "__name__ 3": true,
+              "job 1": true,
+              "job 2": true,
+              "job 3": true,
+              "instance 1": true,
+              "instance 2": true,
+              "instance 3": true,
+              "pool 1": true,
+              "pool 2": true,
+              "pool 3": true,
+              "host 1": true,
+              "host 2": true,
+              "host 3": true
+            },
+            "renameByName": {
+              "host_pool": "Host / Pool",
+              "Value #A": "Last Scrub",
+              "Value #B": "Errors",
+              "Value #C": "In Progress"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 19 },
+      "id": 7,
+      "title": "PBS Backups",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.75 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 20 },
+      "id": 8,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "pbs_used / pbs_size",
+          "legendFormat": "{{datastore}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PBS Datastore Usage",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 20 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "pbs_available",
+          "legendFormat": "{{datastore}}",
+          "refId": "A"
+        }
+      ],
+      "title": "PBS Free Space",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "options": { "0": { "color": "red", "text": "DOWN" }, "1": { "color": "green", "text": "UP" } }, "type": "value" }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 20 },
+      "id": 10,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "pbs_up",
+          "legendFormat": "PBS",
+          "refId": "A"
+        }
+      ],
+      "title": "PBS Status",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Age" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "thresholds", "value": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 86400 }, { "color": "red", "value": 129600 }] } },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 24 },
+      "id": 11,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Age" }]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "time() - pbs_snapshot_vm_last_timestamp",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Last Backup Age per VM",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "vm_name": "VM",
+              "namespace": "PVE Node",
+              "datastore": "Datastore",
+              "vm_id": "VM ID",
+              "Value": "Age"
+            },
+            "indexByName": {
+              "vm_name": 0,
+              "namespace": 1,
+              "vm_id": 2,
+              "datastore": 3,
+              "Value": 4
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "id": 12,
+      "title": "Healthchecks (Syncoid & Cron)",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "influxdb", "uid": "influxdb-healthchecks" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "status" },
+            "properties": [
+              { "id": "mappings", "value": [
+                { "options": { "up": { "color": "green", "text": "up" }, "down": { "color": "red", "text": "down" }, "grace": { "color": "yellow", "text": "grace" }, "paused": { "color": "blue", "text": "paused" }, "new": { "color": "purple", "text": "new" } }, "type": "value" }
+              ]},
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "last_ping" },
+            "properties": [
+              { "id": "custom.width", "value": 200 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 34 },
+      "id": 13,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": { "type": "influxdb", "uid": "influxdb-healthchecks" },
+          "query": "from(bucket: \"healthchecks\")\n  |> range(start: -24h)\n  |> filter(fn: (r) => r._measurement == \"healthchecks\")\n  |> filter(fn: (r) => r._field == \"status\" or r._field == \"n_pings\" or r._field == \"last_ping\")\n  |> last()\n  |> toString()\n  |> group()\n  |> pivot(rowKey: [\"_time\", \"name\"], columnKey: [\"_field\"], valueColumn: \"_value\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Healthchecks Status",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_start": true,
+              "_stop": true,
+              "_time": true,
+              "_measurement": true,
+              "host": true,
+              "result": true,
+              "table": true,
+              "url": true
+            },
+            "renameByName": {
+              "name": "Check",
+              "last_ping": "Last Ping",
+              "status": "Status",
+              "n_pings": "Total Pings"
+            },
+            "indexByName": {
+              "name": 0,
+              "status": 1,
+              "last_ping": 2,
+              "n_pings": 3
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 43 },
+      "id": 14,
+      "title": "Offsite",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "description": "Populates after Step 8 (offsite onboarding) deploys textfile_collector on offsite-nas.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Awaiting offsite onboarding",
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 604800 },
+              { "color": "red", "value": 1209600 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 44 },
+      "id": 15,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "time() - offsite_host_last_awake_timestamp",
+          "legendFormat": "offsite-nas",
+          "refId": "A"
+        }
+      ],
+      "title": "Offsite-NAS Last Awake",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "description": "Populates after Step 8 deploys zfs_exporter on offsite-nas.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "Awaiting offsite onboarding",
+          "color": { "mode": "thresholds" },
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.75 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 44 },
+      "id": 16,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+          "expr": "zfs_pool_allocated_bytes{instance=~\"offsite-nas.*\"} / zfs_pool_size_bytes{instance=~\"offsite-nas.*\"}",
+          "legendFormat": "{{pool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Offsite-NAS Pool Usage",
+      "type": "stat"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["backup"],
+  "templating": { "list": [] },
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Backup Posture",
+  "uid": "backup-posture",
+  "version": 1
+}

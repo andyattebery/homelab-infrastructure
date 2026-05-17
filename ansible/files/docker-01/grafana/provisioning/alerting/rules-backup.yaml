@@ -1,0 +1,152 @@
+# Backup-posture alerts: ZFS pool health, scrub errors, PBS backup staleness.
+#
+# Metric grounding:
+# - zfs_pool_health (pdf/zfs_exporter, collector/pool.go + transform.go):
+#   0=Online, 1=Degraded, 2=Faulted, 3=Offline, 4=Unavail, 5=Removed, 6=Suspended.
+# - zpool_scrub_errors (textfile_collector zpool-scrub instance, parses
+#   `zpool status` "scrub repaired N errors" line).
+# - pbs_snapshot_vm_last_timestamp (natrontech/pbs-exporter): Unix epoch
+#   seconds of the most recent snapshot per {datastore, namespace, vm_id,
+#   vm_name}. Staleness = time() - that.
+#
+# pbs_snapshot_vm_last_verify is deliberately NOT alerted: PBS verify jobs
+# are not configured on this instance, so every VM reports verify=0
+# (exporter encoding: 1 only if Verification.State == "ok"). Add the alert
+# after configuring verify schedules in PBS.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: zfs
+    folder: Backup
+    interval: 1m
+    rules:
+      - uid: zfs-pool-not-healthy
+        title: ZFS pool not healthy
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: zfs_pool_health != 0
+              instant: true
+              refId: A
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: zfs
+        annotations:
+          summary: 'ZFS pool {{ $labels.pool }} on {{ $labels.instance }} is not healthy'
+          description: |
+            zfs_pool_health on {{ $labels.instance }} for pool {{ $labels.pool }} = {{ $value }}.
+            Encoding: 0=Online, 1=Degraded, 2=Faulted, 3=Offline, 4=Unavail, 5=Removed, 6=Suspended.
+            Run `zpool status -v {{ $labels.pool }}` on the host for the failing vdev/device.
+
+      - uid: zfs-scrub-errors
+        title: ZFS scrub reported errors
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: zpool_scrub_errors > 0
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: zfs
+        annotations:
+          summary: 'ZFS scrub found {{ $value }} error(s) on {{ $labels.pool }} ({{ $labels.instance }})'
+          description: |
+            The last scrub of pool {{ $labels.pool }} on {{ $labels.instance }} reported
+            {{ $value }} error(s). Run `zpool status -v {{ $labels.pool }}` for the affected
+            files and consider replacing the implicated device.
+
+  - orgId: 1
+    name: pbs
+    folder: Backup
+    interval: 5m
+    rules:
+      - uid: pbs-backup-stale
+        title: PBS backup older than 36h
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: (time() - pbs_snapshot_vm_last_timestamp) > (36 * 3600)
+              instant: true
+              refId: A
+        for: 10m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: pbs
+        annotations:
+          summary: 'PBS: no recent backup for {{ $labels.vm_name }} ({{ $labels.namespace }})'
+          description: |
+            Last snapshot of {{ $labels.vm_name }} (vm_id={{ $labels.vm_id }},
+            datastore={{ $labels.datastore }}, namespace={{ $labels.namespace }})
+            is {{ $value | humanizeDuration }} old. Check the syncoid / PBS schedule
+            for this VM, or remove it from PBS if intentionally retired.
+
+  - orgId: 1
+    name: offsite
+    folder: Backup
+    interval: 5m
+    rules:
+      - uid: offsite-nas-no-awake-14d
+        title: Offsite-NAS not seen awake in 14 days
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: (time() - offsite_host_last_awake_timestamp) > (14 * 86400)
+              instant: true
+              refId: A
+        for: 30m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: 'Offsite-NAS has not been awake in {{ $value | humanizeDuration }}'
+          description: |
+            No shutdown_tracker "poweroff" journal entry in 14+ days.
+            Offsite backups (syncoid) require the NAS to be powered on.
+            Check physical power at the offsite location.

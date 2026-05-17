@@ -1,0 +1,99 @@
+# UPS alerts via DRuggeri/nut_exporter on pi-rack.
+#
+# Metric grounding (verified live on rack-ups, 2026-05-13):
+# - network_ups_tools_ups_status{flag="OB"} = 1 when on battery.
+# - network_ups_tools_battery_charge: 0–100 percentage.
+# - network_ups_tools_battery_runtime: seconds of estimated runtime (2040s at full charge).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: ups
+    folder: Hardware
+    interval: 1m
+    rules:
+      - uid: ups-on-battery
+        title: UPS on battery power
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: network_ups_tools_ups_status{flag="OB"} == 1
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: ups
+        annotations:
+          summary: 'UPS {{ $labels.ups }} is on battery power'
+          description: |
+            network_ups_tools_ups_status{flag="OB"} = 1 on {{ $labels.instance }}.
+            Mains power has failed. Check input voltage and estimated runtime.
+
+      - uid: ups-battery-low
+        title: UPS battery below 50%
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: network_ups_tools_battery_charge < 50
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: ups
+        annotations:
+          summary: 'UPS {{ $labels.ups }} battery at {{ $value }}%'
+          description: |
+            Battery charge on {{ $labels.instance }} ({{ $labels.ups }}) has dropped
+            below 50%. If on battery, consider graceful shutdown of non-essential hosts.
+
+      - uid: ups-runtime-low
+        title: UPS runtime below 10 minutes
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: network_ups_tools_battery_runtime < 600
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: ups
+        annotations:
+          summary: 'UPS {{ $labels.ups }} runtime {{ $value }}s (< 10m)'
+          description: |
+            Estimated runtime on {{ $labels.instance }} ({{ $labels.ups }}) is below
+            10 minutes. Initiate graceful shutdown of rack hosts if mains has not returned.

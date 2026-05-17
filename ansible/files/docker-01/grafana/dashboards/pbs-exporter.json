@@ -1,0 +1,267 @@
+{
+  "uid": "pbs-exporter",
+  "title": "PBS Backup",
+  "description": "Proxmox Backup Server datastore usage, per-VM backup freshness, and verify status",
+  "tags": ["pbs", "backup"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "PBS Up",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "pbs_up",
+          "legendFormat": "{{ instance }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "DOWN", "color": "red" },
+              "1": { "text": "UP", "color": "green" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null },
+            { "color": "green", "value": 1 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Datastore Usage",
+      "gridPos": { "h": 4, "w": 8, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "pbs_used / pbs_size",
+          "legendFormat": "{{ datastore }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.75 },
+            { "color": "red", "value": 0.9 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Datastore Capacity",
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "pbs_used",
+          "legendFormat": "{{ datastore }} used",
+          "refId": "A"
+        },
+        {
+          "expr": "pbs_available",
+          "legendFormat": "{{ datastore }} available",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "table",
+      "title": "Last Backup per VM",
+      "description": "Shows the age of the most recent backup snapshot for each VM/CT",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "time() - pbs_snapshot_vm_last_timestamp",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "pbs_snapshot_vm_last_verify",
+          "legendFormat": "",
+          "refId": "B",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "seriesToColumns",
+          "options": { "byField": "vm_name" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "datastore 1": true,
+              "datastore 2": true,
+              "instance 1": true,
+              "instance 2": true,
+              "job 1": true,
+              "job 2": true,
+              "vm_id 2": true
+            },
+            "renameByName": {
+              "vm_id 1": "VM ID",
+              "vm_name": "VM Name",
+              "Value #A": "Backup Age",
+              "Value #B": "Verified"
+            },
+            "indexByName": {
+              "vm_id 1": 0,
+              "vm_name": 1,
+              "Value #A": 2,
+              "Value #B": 3
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Backup Age" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "thresholds", "value": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "yellow", "value": 86400 },
+                  { "color": "red", "value": 129600 }
+                ]
+              }},
+              { "id": "mappings", "value": [
+                { "type": "special", "options": { "match": "null", "result": { "text": "Never", "color": "red" } } }
+              ]}
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Verified" },
+            "properties": [
+              { "id": "mappings", "value": [
+                { "type": "value", "options": {
+                  "0": { "text": "No", "color": "yellow" },
+                  "1": { "text": "Yes", "color": "green" }
+                }}
+              ]},
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Backup Age", "desc": true }]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Datastore Usage Over Time",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "pbs_used",
+          "legendFormat": "{{ datastore }} used",
+          "refId": "A"
+        },
+        {
+          "expr": "pbs_size",
+          "legendFormat": "{{ datastore }} total",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Snapshot Count",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "pbs_snapshot_count",
+          "legendFormat": "{{ datastore }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ],
+  "time": { "from": "now-7d", "to": "now" },
+  "timepicker": {},
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}

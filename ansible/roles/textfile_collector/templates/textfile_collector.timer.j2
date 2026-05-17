@@ -1,0 +1,10 @@
+[Unit]
+Description=Run textfile_collector_{{ textfile_collector_name }} every {{ textfile_collector_interval_seconds }}s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec={{ textfile_collector_interval_seconds }}s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

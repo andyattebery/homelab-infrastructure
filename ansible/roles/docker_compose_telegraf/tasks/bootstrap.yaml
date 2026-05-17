@@ -1,0 +1,98 @@
+---
+# Idempotent bootstrap of InfluxDB bucket + write-only token for Telegraf.
+# Token secret stored at {{ telegraf_influxdb_env_path }} as KEY=VALUE for
+# Telegraf compose env_file consumption. No vault round-trip.
+#
+# Self-healing: if the on-host env file is missing but an InfluxDB auth
+# with our description exists, the secret has been lost — delete the
+# orphan auth and regenerate. (`influx auth list --json` returns empty
+# token field for existing auths, verified — there's no way to recover
+# an existing secret.)
+
+- name: Ensure env file directory exists
+  ansible.builtin.file:
+    path: "{{ telegraf_influxdb_env_path | dirname }}"
+    state: directory
+    owner: root
+    group: docker
+    mode: "0750"
+
+- name: Stat env file
+  ansible.builtin.stat:
+    path: "{{ telegraf_influxdb_env_path }}"
+  register: telegraf_env_stat
+
+- name: List InfluxDB buckets (json)
+  ansible.builtin.command:
+    cmd: "docker exec {{ telegraf_influxdb_container_name }} influx bucket list --json"
+  register: telegraf_influxdb_bucket_list
+  changed_when: false
+
+- name: Create InfluxDB bucket (if missing)
+  when: telegraf_influxdb_bucket not in (telegraf_influxdb_bucket_list.stdout | from_json | map(attribute='name'))
+  ansible.builtin.command:
+    cmd: "docker exec {{ telegraf_influxdb_container_name }} influx bucket create --name {{ telegraf_influxdb_bucket }} --org {{ telegraf_influxdb_org }}"
+  changed_when: true
+
+- name: Re-list buckets to capture new bucket id (always — small cost, simple logic)
+  ansible.builtin.command:
+    cmd: "docker exec {{ telegraf_influxdb_container_name }} influx bucket list --json"
+  register: telegraf_influxdb_bucket_list_final
+  changed_when: false
+
+- name: Set bucket id fact
+  ansible.builtin.set_fact:
+    telegraf_influxdb_bucket_id: >-
+      {{ (telegraf_influxdb_bucket_list_final.stdout | from_json
+          | selectattr('name', 'equalto', telegraf_influxdb_bucket)
+          | map(attribute='id') | first) }}
+
+- name: List InfluxDB auths (json)
+  ansible.builtin.command:
+    cmd: "docker exec {{ telegraf_influxdb_container_name }} influx auth list --json"
+  register: telegraf_influxdb_auth_list
+  changed_when: false
+
+- name: Find existing auth id by description
+  ansible.builtin.set_fact:
+    telegraf_existing_auth_id: >-
+      {{ (telegraf_influxdb_auth_list.stdout | from_json
+          | selectattr('description', 'equalto', telegraf_influxdb_token_description)
+          | map(attribute='id') | list | first) | default('') }}
+
+- name: Delete orphaned auth (secret lost) before regenerating
+  when:
+    - telegraf_existing_auth_id | length > 0
+    - not telegraf_env_stat.stat.exists
+  ansible.builtin.command:
+    cmd: "docker exec {{ telegraf_influxdb_container_name }} influx auth delete --id {{ telegraf_existing_auth_id }}"
+  changed_when: true
+
+- name: Generate write-only token (if missing in InfluxDB or env file missing)
+  when:
+    - not telegraf_env_stat.stat.exists
+  # `influx auth create --json` outputs JSON with the `token` field
+  # populated. This is the ONLY time the secret is available; subsequent
+  # `auth list --json` returns it as an empty string.
+  ansible.builtin.command:
+    cmd: >-
+      docker exec {{ telegraf_influxdb_container_name }}
+      influx auth create
+      --org {{ telegraf_influxdb_org }}
+      --write-bucket {{ telegraf_influxdb_bucket_id | trim }}
+      --description '{{ telegraf_influxdb_token_description }}'
+      --json
+  register: telegraf_auth_create
+  changed_when: true
+  no_log: true
+
+- name: Write env file # noqa: no-handler
+  when: telegraf_auth_create.changed | default(false)
+  ansible.builtin.copy:
+    content: "INFLUXDB_TOKEN={{ (telegraf_auth_create.stdout | from_json).token }}\n"
+    dest: "{{ telegraf_influxdb_env_path }}"
+    owner: root
+    group: docker
+    mode: "0640"
+  no_log: true
+  notify: Restart telegraf

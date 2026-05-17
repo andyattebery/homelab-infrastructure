@@ -1,0 +1,18 @@
+[Unit]
+Description=Prometheus PBS Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile={{ pbs_exporter_env_path }}
+ExecStart={{ pbs_exporter_bin_path }}
+User={{ pbs_exporter_username }}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

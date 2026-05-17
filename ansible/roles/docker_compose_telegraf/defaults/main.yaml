@@ -1,0 +1,12 @@
+---
+telegraf_influxdb_container_name: influxdb2
+telegraf_influxdb_org: org
+telegraf_influxdb_bucket: healthchecks
+telegraf_influxdb_token_description: telegraf-healthchecks
+# Path on the host that Telegraf's compose `env_file:` reads to inject
+# INFLUXDB_TOKEN into the container at startup.
+telegraf_influxdb_env_path: "{{ docker_compose_dst_data_directory_path }}/telegraf-config/influxdb.env"
+
+# Healthchecks endpoint (Telegraf polls this via inputs.http)
+telegraf_healthchecks_url: "https://healthchecks.{{ domain_name }}/api/v3/checks/"
+# Caller must provide: healthchecks_readonly_api_key

@@ -1,0 +1,16 @@
+---
+pbs_exporter_username: pbs_exporter
+pbs_exporter_bin_path: /usr/local/bin/pbs_exporter
+pbs_exporter_env_path: /etc/pbs_exporter.env
+pbs_exporter_listen_address: ":10019"
+pbs_exporter_endpoint: "https://localhost:8007"
+pbs_exporter_insecure: true
+
+# PBS user + token bootstrap (created idempotently on backup-01 itself —
+# no vault round-trip needed; token secret is stored locally and read
+# via PBS_API_TOKEN_FILE).
+pbs_exporter_pbs_username: monitoring@pbs
+pbs_exporter_api_token_name: exporter
+pbs_exporter_api_token_path: /etc/pbs_exporter/api_token.secret
+pbs_exporter_acl_path: /
+pbs_exporter_acl_role: Audit

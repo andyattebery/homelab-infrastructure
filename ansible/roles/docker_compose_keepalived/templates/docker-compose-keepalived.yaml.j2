@@ -11,9 +11,29 @@ services:
     environment:
       TZ: ${TZ}
       KEEPALIVED_CUSTOM_CONFIG: true
+      TMPDIR: /data/keepalived
     network_mode: ${KEEPALIVED_NETWORK_MODE}
     cap_add:
       - NET_ADMIN
       - NET_BROADCAST
     volumes:
       - "${DOCKER_DATA_DIRECTORY}/keepalived:/etc/keepalived:ro"
+      - keepalived-data:/data/keepalived
+      - keepalived-pid:/run/keepalived
+  keepalived-exporter:
+    image: ghcr.io/mehdy/keepalived-exporter:latest
+    container_name: keepalived-exporter
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - keepalived-data:/data/keepalived-data:ro
+      - keepalived-pid:/run/keepalived-pid:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --container-name={{ keepalived_container_name }}
+      - --container-tmp-dir=/data/keepalived-data
+      - --ka.container.pid-path=/run/keepalived-pid/keepalived.pid
+
+volumes:
+  keepalived-data:
+  keepalived-pid:

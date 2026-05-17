@@ -10,6 +10,10 @@
 # scrutiny / healthchecks / etc.
 apiVersion: 1
 contactPoints:
+  # Pushover priority is NOT templatable in Grafana — verified in grafana
+  # source (receivers/pushover/v1/pushover.go reads AlertingPriority
+  # directly with no template processing). So we ship one receiver per
+  # severity and route by label in policies.yaml.
   - orgId: 1
     name: pushover
     receivers:
@@ -19,6 +23,18 @@ contactPoints:
           apiToken: $GRAFANA_PUSHOVER_APP_TOKEN
           userKey: $GRAFANA_PUSHOVER_USER_KEY
           priority: '1'
+          title: '{{ template "default.title" . }}'
+          message: '{{ template "default.message" . }}'
+        disableResolveMessage: false
+  - orgId: 1
+    name: pushover-warning
+    receivers:
+      - uid: pushover-warning
+        type: pushover
+        settings:
+          apiToken: $GRAFANA_PUSHOVER_APP_TOKEN
+          userKey: $GRAFANA_PUSHOVER_USER_KEY
+          priority: '0'
           title: '{{ template "default.title" . }}'
           message: '{{ template "default.message" . }}'
         disableResolveMessage: false

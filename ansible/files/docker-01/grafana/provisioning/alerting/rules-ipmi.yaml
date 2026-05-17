@@ -1,0 +1,42 @@
+# IPMI hardware alerts for nas-host-01 via prometheus-community/ipmi_exporter.
+#
+# Metric grounding:
+# - ipmi_fan_speed_state: 0=Normal, 1=Warning, 2=Critical.
+# - ipmi_sensor_state{name=~"PSU.*"}: 0=Normal, 1=Warning, 2=Critical.
+#   (ipmi_power_state does not exist; PSU health is in ipmi_sensor_state.)
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: ipmi
+    folder: Hardware
+    interval: 1m
+    rules:
+      - uid: ipmi-fan-or-psu-critical
+        title: IPMI fan or PSU critical
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: ipmi_fan_speed_state == 2 or ipmi_sensor_state{name=~"PSU.*"} == 2
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: ipmi
+        annotations:
+          summary: 'IPMI critical sensor on {{ $labels.instance }}: {{ $labels.name }}'
+          description: |
+            A fan or PSU sensor on {{ $labels.instance }} has reached Critical state.
+            Check the IPMI dashboard or run `ipmitool sensor` on the host for details.
+            A failed fan risks thermal throttle; a failed PSU risks unclean shutdown.

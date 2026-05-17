@@ -1,0 +1,264 @@
+{
+  "uid": "dns-ha",
+  "title": "DNS HA",
+  "description": "Keepalived VIP state, AdGuard query stats, and sync freshness across the DNS HA trio",
+  "tags": ["dns", "keepalived", "adguard"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Keepalived",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "VRRP State",
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(keepalived_vrrp_state{ip_address!=\"\"}, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{ host }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "Init", "color": "orange" },
+              "1": { "text": "Backup", "color": "yellow" },
+              "2": { "text": "Master", "color": "green" },
+              "3": { "text": "Fault", "color": "red" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "VRRP State History",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(keepalived_vrrp_state{ip_address!=\"\"}, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{ host }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 3,
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "Init" },
+              "1": { "text": "Backup" },
+              "2": { "text": "Master" },
+              "3": { "text": "Fault" }
+            }}
+          ],
+          "custom": { "fillOpacity": 20, "lineWidth": 2, "spanNulls": false, "stacking": { "mode": "none" } },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Master Transitions",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(increase(keepalived_become_master_total{ip_address!=\"\"}[5m]), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{ host }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "row",
+      "title": "AdGuard",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 11 },
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Protection Enabled",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(adguard_protection_enabled, \"peer\", \"$1\", \"server\", \"https?://([^.]+).*\")",
+          "legendFormat": "{{ peer }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": {
+              "0": { "text": "Off", "color": "red" },
+              "1": { "text": "On", "color": "green" }
+            }}
+          ],
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg Processing Time",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(adguard_avg_processing_time_seconds, \"peer\", \"$1\", \"server\", \"https?://([^.]+).*\")",
+          "legendFormat": "{{ peer }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 0.1 },
+            { "color": "red", "value": 0.5 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto",
+        "orientation": "horizontal"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Sync Last Success",
+      "description": "Last successful adguardhome-sync run (textfile_collector on network-01)",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "time() - adguardhome_sync_last_success_timestamp",
+          "legendFormat": "Last sync",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "yellow", "value": 2700 },
+            { "color": "red", "value": 5400 }
+          ]}
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(adguard_queries, \"peer\", \"$1\", \"server\", \"https?://([^.]+).*\")",
+          "legendFormat": "{{ peer }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Blocked / Filtered",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(adguard_queries_blocked, \"peer\", \"$1\", \"server\", \"https?://([^.]+).*\")",
+          "legendFormat": "{{ peer }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": { "mode": "multi", "sort": "none" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      }
+    }
+  ],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": []
+}

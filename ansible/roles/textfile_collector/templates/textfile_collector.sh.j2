@@ -1,0 +1,17 @@
+#!/bin/sh
+# textfile_collector wrapper for instance "{{ textfile_collector_name }}".
+# Runs the configured source_cmd, captures stdout, writes atomically
+# (tmp file + rename) into node_exporter's textfile directory.
+set -u
+
+OUT_FILE="{{ textfile_collector_textfile_dir }}/{{ textfile_collector_name }}.prom"
+TMP_FILE="${OUT_FILE}.tmp.$$"
+
+cleanup() { rm -f "$TMP_FILE"; }
+trap cleanup EXIT
+
+{
+{{ textfile_collector_source_cmd }}
+} > "$TMP_FILE"
+
+mv "$TMP_FILE" "$OUT_FILE"
