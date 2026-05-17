@@ -1,0 +1,26 @@
+---
+- name: Configure zpool-scrub textfile collector
+  ansible.builtin.include_role:
+    name: textfile_collector
+  vars:
+    textfile_collector_name: zpool-scrub
+    textfile_collector_interval_seconds: "{{ textfile_collector_zpool_scrub_interval_seconds }}"
+    textfile_collector_source_cmd: |
+      zpool list -H -o name | while read pool; do
+        scan=$(zpool status "$pool" 2>/dev/null | awk '/^[[:space:]]*scan:/{sub(/^[[:space:]]*scan:[[:space:]]*/,""); print; exit}')
+        in_progress=0
+        errors=0
+        last_ts=0
+        case "$scan" in
+          "scrub in progress"*) in_progress=1 ;;
+          "scrub repaired"*|"scrub finished"*)
+            errors=$(echo "$scan" | grep -oE 'with [0-9]+ errors' | grep -oE '[0-9]+')
+            [ -z "$errors" ] && errors=0
+            date_str=$(echo "$scan" | sed -nE 's/.* on (.+)$/\1/p')
+            [ -n "$date_str" ] && last_ts=$(date -d "$date_str" +%s 2>/dev/null || echo 0)
+            ;;
+        esac
+        printf 'zpool_scrub_in_progress{pool="%s"} %d\n' "$pool" "$in_progress"
+        printf 'zpool_scrub_errors{pool="%s"} %d\n' "$pool" "$errors"
+        printf 'zpool_last_scrub_timestamp{pool="%s"} %d\n' "$pool" "$last_ts"
+      done

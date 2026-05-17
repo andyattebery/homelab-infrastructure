@@ -20,19 +20,13 @@
       ansible.builtin.import_role:
         name: configure_server
 
-    - name: Configure node_exporter
-      ansible.builtin.import_role:
-        name: prometheus.prometheus.node_exporter
-
     - name: Configure zfs_exporter
       ansible.builtin.import_role:
         name: zfs_exporter
 
-    - name: Configure zpool-scrub textfile_collector
+    - name: Configure zpool-scrub textfile collector
       ansible.builtin.import_role:
-        name: textfile_collector
-      vars:
-        textfile_collector_zpool_scrub: true
+        name: textfile_collector_zpool_scrub
 
     - name: Configure pbs_exporter
       # Role bootstraps its own PBS user (monitoring@pbs), token (exporter),

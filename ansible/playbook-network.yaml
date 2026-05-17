@@ -6,7 +6,6 @@
   roles:
     - configure_server
     - geerlingguy.docker
-    - prometheus.prometheus.node_exporter
     - role: artis3n.tailscale.machine
       vars:
         # Disable MagicDNS so it doesn't overwrite /etc/resolv.conf (legacy).

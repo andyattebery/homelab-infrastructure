@@ -14,7 +14,6 @@
 
   roles:
     - configure_server
-    - prometheus.prometheus.node_exporter
     # - role: waveshare_cm4_io_base_dual_cameras
     #   vars:
     #     raspberry_pi_camera_overlays:

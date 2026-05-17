@@ -12,6 +12,12 @@
   vars:
     syncoid_destination_username: "{{ offsite_nas_syncoid_username }}"
 
+  pre_tasks:
+    - name: Install jq
+      ansible.builtin.package:
+        name: jq
+        state: present
+
   roles:
     - configure_server
     - artis3n.tailscale.machine
@@ -36,16 +42,12 @@
           - name: home-assistant
             busy_check_command: "smbstatus -S 2>/dev/null | grep -q '^offsite-homeassistant_backups\\s'"
         shutdown_tracker_destination_username: "{{ syncoid_destination_username }}"
-    - role: prometheus.prometheus.node_exporter
     - role: zfs_exporter
-    - role: textfile_collector
-      vars:
-        textfile_collector_zpool_scrub: true
+    - role: textfile_collector_zpool_scrub
     - role: textfile_collector
       vars:
         textfile_collector_name: offsite-last-awake
         textfile_collector_interval_seconds: 60
-        textfile_collector_packages: [jq]
         textfile_collector_source_cmd: >-
           ts_us=$(journalctl -t shutdown_tracker --grep='(scheduling|forcing) poweroff' -o json -n1 2>/dev/null | jq -r '.__REALTIME_TIMESTAMP // empty');
           [ -n "$ts_us" ] && printf 'offsite_host_last_awake_timestamp %d\n' "$((ts_us / 1000000))"

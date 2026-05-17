@@ -1,0 +1,261 @@
+{
+  "uid": "system-updates",
+  "id": null,
+  "title": "System Updates",
+  "description": "APT package update status, kernel upgrades, and reboot-required state across the fleet",
+  "tags": ["apt", "updates"],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "table",
+      "title": "Fleet Update Status",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(max by(instance)(node_reboot_required), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "label_replace(max by(instance)(apt_kernel_upgrade_available), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "expr": "label_replace(sum by(instance)(apt_upgrades_pending), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "expr": "label_replace(\n  sum by (instance)(apt_upgrades_pending{origin=~\".*[Ss]ecurity.*\"})\n    or\n  sum by (instance)(apt_upgrades_pending) * 0\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "expr": "label_replace(sum by(instance)(apt_upgrades_held), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        },
+        {
+          "expr": "label_replace(max by(instance)(time() - apt_package_cache_timestamp_seconds), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "format": "table",
+          "instant": true,
+          "refId": "F"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "instance": true,
+              "job": true
+            },
+            "renameByName": {
+              "host": "Host",
+              "Value #A": "Reboot",
+              "Value #B": "Kernel",
+              "Value #C": "Pending",
+              "Value #D": "Security",
+              "Value #E": "Held",
+              "Value #F": "Cache Age"
+            },
+            "indexByName": {
+              "host": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5,
+              "Value #F": 6
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": { "type": "auto" }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Host" },
+            "properties": [
+              { "id": "custom.align", "value": "left" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Reboot" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": {
+                    "0": { "text": "No", "color": "green" },
+                    "1": { "text": "Yes", "color": "red" }
+                  }}
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Kernel" },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": {
+                    "0": { "text": "No", "color": "green" }
+                  }},
+                  { "type": "range", "options": {
+                    "from": 1, "to": null,
+                    "result": { "text": "Yes", "color": "orange" }
+                  }}
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Pending" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 5 },
+                    { "color": "red", "value": 20 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Security" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "orange", "value": 1 },
+                    { "color": "red", "value": 5 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Held" },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 1 }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Cache Age" },
+            "properties": [
+              { "id": "unit", "value": "s" },
+              {
+                "id": "custom.cellOptions",
+                "value": { "type": "color-background", "mode": "basic" }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 86400 },
+                    { "color": "red", "value": 172800 }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Host", "desc": false }]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Pending Updates Over Time",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
+      "targets": [
+        {
+          "expr": "label_replace(sum by(instance)(apt_upgrades_pending), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "legendFormat": "{{ host }}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      }
+    }
+  ],
+  "time": { "from": "now-7d", "to": "now" }
+}

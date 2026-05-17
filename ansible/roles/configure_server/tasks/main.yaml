@@ -62,3 +62,11 @@
       - git
       - ssh
       - tmux
+- name: Configure node_exporter
+  when: configure_server_node_exporter | default(true)
+  ansible.builtin.include_role:
+    name: prometheus.prometheus.node_exporter
+- name: Configure apt-updates textfile collector
+  when: configure_server_node_exporter | default(true)
+  ansible.builtin.include_role:
+    name: textfile_collector_apt_updates

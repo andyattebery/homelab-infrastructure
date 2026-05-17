@@ -193,12 +193,9 @@
     #     rtsp_stream_url: rtsp://pi-camera.{{ domain_name }}:8554/cam1
     #     rtsp_stream_recording_directory: /mnt/data/data05/temp/recording
     # - role: beszel_agent
-    # - role: prometheus.prometheus.node_exporter
     - role: docker_compose_docker_monitoring
     - role: zfs_exporter
-    - role: textfile_collector
-      vars:
-        textfile_collector_zpool_scrub: true
+    - role: textfile_collector_zpool_scrub
   tasks:
     # - name: Copy 90-connectx-4-lx.conf netplan config
     #   ansible.builtin.copy:

@@ -1,5 +1,3 @@
 ---
 textfile_collector_interval_seconds: 60
 textfile_collector_textfile_dir: /var/lib/node_exporter
-textfile_collector_packages: []
-textfile_collector_zpool_scrub: false

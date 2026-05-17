@@ -1,0 +1,22 @@
+---
+- name: Install python3-prometheus-client
+  ansible.builtin.package:
+    name: python3-prometheus-client
+    state: present
+
+- name: Deploy apt_info.py
+  ansible.builtin.copy:
+    src: apt_info.py
+    dest: /usr/local/bin/apt_info.py
+    mode: "0755"
+
+- name: Configure apt-updates textfile collector
+  ansible.builtin.include_role:
+    name: textfile_collector
+  vars:
+    textfile_collector_name: apt-updates
+    textfile_collector_interval_seconds: "{{ textfile_collector_apt_updates_interval_seconds }}"
+    textfile_collector_source_cmd: |
+      /usr/bin/python3 /usr/local/bin/apt_info.py
+      kernel=$(apt list --upgradable 2>/dev/null | grep -ciE "linux-image|pve-kernel|raspberrypi-kernel")
+      printf 'apt_kernel_upgrade_available %d\n' "$kernel"

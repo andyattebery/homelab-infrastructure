@@ -31,7 +31,6 @@
     #       OBICO_DJANGO_SECRET_KEY: "{{ obico_django_secret_key }}"
     - role: docker_compose_beszel_hub
     - role: beszel_agent
-    # - role: prometheus.prometheus.node_exporter
     - role: docker_compose_certbot_asrock_ipmi
       vars:
         certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"

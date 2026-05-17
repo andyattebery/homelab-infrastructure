@@ -33,7 +33,6 @@
     #   vars:
     #     power_saving_configure_cpu: false
     # - role: beszel_agent
-    # - role: prometheus.prometheus.node_exporter
     - role: docker_compose_traefik
       vars:
         docker_compose_traefik_enable_dashboard: true
