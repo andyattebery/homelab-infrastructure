@@ -1,0 +1,12 @@
+---
+- name: Configure needledrop with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-needledrop.yaml
+    docker_compose_src_config_files:
+      - src_file_path: needledrop-config.yaml.j2
+        dst_relative_file_path: needledrop/config/config.yaml
+        service_name_to_restart: needledrop
+    docker_compose_envs:
+      NEEDLEDROP_TAG: "{{ docker_compose_needledrop_image_tag }}"
+  ansible.builtin.include_role:
+    name: docker_compose

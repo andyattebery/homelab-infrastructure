@@ -1,0 +1,9 @@
+pcm.{{ alsa_dsnoop_name }} {
+  type dsnoop
+  ipc_key {{ alsa_dsnoop_ipc_key }}
+  slave {
+    pcm "{{ alsa_dsnoop_hw_device }}"
+    rate {{ alsa_dsnoop_sample_rate }}
+    channels {{ alsa_dsnoop_channels }}
+  }
+}

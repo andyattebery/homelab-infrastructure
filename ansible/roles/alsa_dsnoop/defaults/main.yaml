@@ -1,0 +1,6 @@
+---
+alsa_dsnoop_name: dsnoopusb
+alsa_dsnoop_hw_device: "hw:1,0"
+alsa_dsnoop_sample_rate: 48000
+alsa_dsnoop_channels: 2
+alsa_dsnoop_ipc_key: 12345

@@ -1,0 +1,7 @@
+---
+- name: Deploy /etc/asound.conf
+  ansible.builtin.template:
+    src: asound.conf.j2
+    dest: /etc/asound.conf
+    mode: "0644"
+    owner: root

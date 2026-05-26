@@ -1,0 +1,18 @@
+[Unit]
+Description=ALSA capture to OwnTone pipe ({{ owntone_alsa_pipe_name }})
+After=sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'mkdir -p {{ owntone_alsa_pipe_media_path }} && { [ -p {{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }} ] || mkfifo -m 0666 {{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }}; } && { [ -p {{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }}.metadata ] || mkfifo -m 0666 {{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }}.metadata; }'
+ExecStart=/bin/sh -c '/usr/bin/arecord -D {{ owntone_alsa_pipe_alsa_device }} -r {{ owntone_alsa_pipe_sample_rate }} -f S16_LE -c 2 -t raw --buffer-size=192000 2>/dev/null | /usr/bin/sox -t raw -r {{ owntone_alsa_pipe_sample_rate }} -b 16 -e signed-integer -c 2 - -t raw - silence 1 0.1 {{ owntone_alsa_pipe_silence_threshold }} 1 {{ owntone_alsa_pipe_silence_duration }} {{ owntone_alsa_pipe_silence_threshold }} > {{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }}'
+
+Restart=always
+RestartSec=1
+SupplementaryGroups=audio
+User=root
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

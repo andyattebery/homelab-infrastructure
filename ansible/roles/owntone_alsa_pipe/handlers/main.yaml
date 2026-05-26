@@ -1,0 +1,17 @@
+---
+- name: Restart owntone
+  community.docker.docker_compose_v2:
+    project_src: "{{ owntone_alsa_pipe_compose_project_src }}"
+    state: restarted
+
+- name: Restart owntone-alsa-pipe
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: owntone-alsa-pipe.service
+    state: restarted
+
+- name: Restart owntone-alsa-pipe-metadata
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: owntone-alsa-pipe-metadata.service
+    state: restarted

@@ -1,0 +1,31 @@
+audio:
+  alsa_device: {{ docker_compose_needledrop_alsa_device }}
+  sample_rate: {{ docker_compose_needledrop_sample_rate }}
+  sample_duration_seconds: {{ docker_compose_needledrop_sample_duration }}
+
+recognition:
+  interval_seconds: {{ docker_compose_needledrop_recognition_interval }}
+  min_track_change_seconds: {{ docker_compose_needledrop_min_track_change_seconds }}
+
+outputs:
+  lastfm:
+    enabled: {{ docker_compose_needledrop_lastfm_enabled | lower }}
+{% if docker_compose_needledrop_lastfm_enabled %}
+    api_key: "{{ docker_compose_needledrop_lastfm_api_key }}"
+    api_secret: "{{ docker_compose_needledrop_lastfm_api_secret }}"
+    username: "{{ docker_compose_needledrop_lastfm_username }}"
+    password_hash: "{{ docker_compose_needledrop_lastfm_password_hash }}"
+    scrobble_threshold_seconds: {{ docker_compose_needledrop_lastfm_scrobble_threshold }}
+{% endif %}
+  owntone_metadata:
+    enabled: {{ docker_compose_needledrop_owntone_metadata_enabled | lower }}
+{% if docker_compose_needledrop_owntone_metadata_enabled %}
+    metadata_fifo: {{ docker_compose_needledrop_owntone_metadata_fifo }}
+{% endif %}
+  tuneshine:
+    enabled: {{ (docker_compose_needledrop_tuneshine | length > 0) | lower }}
+{% if docker_compose_needledrop_tuneshine | length > 0 %}
+    host: "{{ docker_compose_needledrop_tuneshine }}"
+{% endif %}
+  log:
+    enabled: {{ docker_compose_needledrop_log_enabled | lower }}

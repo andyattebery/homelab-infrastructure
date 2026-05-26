@@ -158,6 +158,11 @@ minio_password: "{{ vault_minio_password }}"
 myjdownloader_username: "{{ vault_myjdownloader_username }}"
 myjdownloader_password: "{{ vault_myjdownloader_password }}"
 
+needledrop_lastfm_api_key: "{{ vault_needledrop_lastfm_api_key }}"
+needledrop_lastfm_api_secret: "{{ vault_needledrop_lastfm_api_secret }}"
+needledrop_lastfm_password_hash: "{{ vault_needledrop_lastfm_password_hash }}"
+needledrop_lastfm_username: "{{ vault_needledrop_lastfm_username }}"
+
 nextcloud_admin_user: "{{ vault_nextcloud_admin_user }}"
 nextcloud_admin_password: "{{ vault_nextcloud_admin_password }}"
 nextcloud_mysql_root_password: "{{ vault_nextcloud_mysql_root_password }}"

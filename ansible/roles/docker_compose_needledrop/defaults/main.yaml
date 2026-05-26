@@ -1,0 +1,29 @@
+---
+docker_compose_needledrop_image_tag: latest
+
+# Audio
+docker_compose_needledrop_alsa_device: dsnoopusb
+docker_compose_needledrop_sample_rate: 48000
+docker_compose_needledrop_sample_duration: 12
+
+# Recognition
+docker_compose_needledrop_recognition_interval: 20
+docker_compose_needledrop_min_track_change_seconds: 30
+
+# Last.fm output
+docker_compose_needledrop_lastfm_enabled: false
+docker_compose_needledrop_lastfm_api_key: ""
+docker_compose_needledrop_lastfm_api_secret: ""
+docker_compose_needledrop_lastfm_username: ""
+docker_compose_needledrop_lastfm_password_hash: ""
+docker_compose_needledrop_lastfm_scrobble_threshold: 30
+
+# OwnTone metadata output
+docker_compose_needledrop_owntone_metadata_enabled: true
+docker_compose_needledrop_owntone_metadata_fifo: /media/Turntable.metadata
+
+# Tuneshine device
+docker_compose_needledrop_tuneshine: ""
+
+# Log output
+docker_compose_needledrop_log_enabled: true

@@ -1,0 +1,16 @@
+services:
+  needledrop:
+    image: ghcr.io/andyattebery/needledrop:${NEEDLEDROP_TAG:-latest}
+    container_name: needledrop
+    ipc: host
+    restart: unless-stopped
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/needledrop/config:/etc/needledrop:ro
+      - /etc/asound.conf:/etc/asound.conf:ro
+      - ${DOCKER_DATA_DIRECTORY}/owntone/media:/media:rw
+    tmpfs:
+      - /run/needledrop:size=50M

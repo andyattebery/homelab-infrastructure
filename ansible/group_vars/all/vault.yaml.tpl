@@ -82,6 +82,10 @@ vault_nas_03_syncoid_username: {{ op://Personal/nas-03/syncoid/username }}
 vault_nas_host_01_ipmi_password: {{ op://Personal/nas-host-01 IPMI/password }}
 vault_nas_host_01_ipmi_username: {{ op://Personal/nas-host-01 IPMI/username }}
 vault_nas_host_01_mac_address: {{ op://Personal/nas-host-01/hardware/mac address }}
+vault_needledrop_lastfm_api_key: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/key }}
+vault_needledrop_lastfm_api_secret: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/shared secret }}
+vault_needledrop_lastfm_password_hash: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/add more/password md5 }}
+vault_needledrop_lastfm_username: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/username }}
 vault_network_01_adguardhome_password: {{ op://Personal/adguardhome/password }}
 vault_network_01_adguardhome_username: {{ op://Personal/adguardhome/username }}
 vault_network_02_adguardhome_password: {{ op://Personal/adguardhome-02/password }}

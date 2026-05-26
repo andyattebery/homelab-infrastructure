@@ -1,0 +1,68 @@
+---
+- name: Install packages
+  ansible.builtin.package:
+    name:
+      - alsa-utils
+      - sox
+      - jq
+
+- name: Stop and disable legacy turntable-pipe.service
+  ansible.builtin.systemd_service:
+    name: turntable-pipe.service
+    state: stopped
+    enabled: false
+  failed_when: false
+
+- name: Remove legacy turntable-pipe.service file
+  ansible.builtin.file:
+    path: /etc/systemd/system/turntable-pipe.service
+    state: absent
+
+- name: Deploy owntone-alsa-pipe.service
+  ansible.builtin.template:
+    src: owntone-alsa-pipe.service.j2
+    dest: /etc/systemd/system/owntone-alsa-pipe.service
+    mode: "0644"
+    owner: root
+  notify: Restart owntone-alsa-pipe
+
+- name: Set OwnTone pipe_sample_rate
+  ansible.builtin.lineinfile:
+    path: "{{ owntone_alsa_pipe_owntone_conf_path }}"
+    regexp: '^\s*pipe_sample_rate\s*='
+    line: "\tpipe_sample_rate = {{ owntone_alsa_pipe_sample_rate }}"
+    insertafter: 'pipe_autostart'
+  notify: Restart owntone
+
+- name: Enable and start owntone-alsa-pipe.service
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: owntone-alsa-pipe.service
+    state: started
+    enabled: true
+
+- name: Deploy metadata script
+  when: owntone_alsa_pipe_tuneshine_host | length > 0
+  ansible.builtin.template:
+    src: owntone-alsa-pipe-metadata.sh.j2
+    dest: /usr/local/bin/owntone-alsa-pipe-metadata.sh
+    mode: "0755"
+    owner: root
+  notify: Restart owntone-alsa-pipe-metadata
+
+- name: Deploy owntone-alsa-pipe-metadata.service
+  when: owntone_alsa_pipe_tuneshine_host | length > 0
+  ansible.builtin.template:
+    src: owntone-alsa-pipe-metadata.service.j2
+    dest: /etc/systemd/system/owntone-alsa-pipe-metadata.service
+    mode: "0644"
+    owner: root
+  notify: Restart owntone-alsa-pipe-metadata
+
+- name: Enable and start owntone-alsa-pipe-metadata.service
+  when: owntone_alsa_pipe_tuneshine_host | length > 0
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+    name: owntone-alsa-pipe-metadata.service
+    state: started
+    enabled: true

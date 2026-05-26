@@ -1,0 +1,87 @@
+#!/bin/bash
+set -euo pipefail
+
+OWNTONE_API="http://localhost:3689/api"
+TUNESHINE_API="http://{{ owntone_alsa_pipe_tuneshine_host }}"
+METADATA_PIPE="{{ owntone_alsa_pipe_media_path }}/{{ owntone_alsa_pipe_name }}.metadata"
+POLL_INTERVAL={{ owntone_alsa_pipe_metadata_poll_interval }}
+{% raw %}
+LAST_TRACK=""
+LAST_ARTIST=""
+LAST_IMAGE_URL=""
+
+write_metadata_item() {
+  local code="$1"
+  local value="$2"
+  local encoded
+  encoded=$(printf '%s' "$value" | base64 -w0)
+  local length=${#value}
+  printf '<item><type>636f7265</type><code>%s</code><length>%d</length><data encoding="base64">%s</data></item>\n' \
+    "$code" "$length" "$encoded" | timeout 2 tee "$METADATA_PIPE" > /dev/null || true
+}
+
+write_artwork() {
+  local url="$1"
+  local tmpfile
+  tmpfile=$(mktemp)
+  trap "rm -f \"$tmpfile\"" RETURN
+  curl -sf --max-time 10 -o "$tmpfile" "$url" || return 1
+  local length
+  length=$(wc -c < "$tmpfile")
+  [ "$length" -gt 0 ] || return 1
+  local encoded
+  encoded=$(base64 -w0 < "$tmpfile")
+  printf '<item><type>73736e63</type><code>50494354</code><length>%d</length><data encoding="base64">%s</data></item>\n' \
+    "$length" "$encoded" | timeout 5 tee "$METADATA_PIPE" > /dev/null || true
+}
+
+pipe_is_playing() {
+  local player_json
+  player_json=$(curl -sf "$OWNTONE_API/player") || return 1
+
+  local state item_id
+  state=$(echo "$player_json" | jq -r '.state')
+  item_id=$(echo "$player_json" | jq -r '.item_id')
+
+  [ "$state" = "play" ] || return 1
+  [ "$item_id" != "0" ] || return 1
+
+  local data_kind
+  data_kind=$(curl -sf "$OWNTONE_API/queue" | jq -r ".items[] | select(.id == $item_id) | .data_kind") || return 1
+  [ "$data_kind" = "pipe" ]
+}
+
+while true; do
+  if ! pipe_is_playing; then
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+
+  tuneshine_json=$(curl -sf "$TUNESHINE_API/state") || { sleep "$POLL_INTERVAL"; continue; }
+
+  idle=$(echo "$tuneshine_json" | jq -r '.remoteMetadata.idle // true')
+  if [ "$idle" = "true" ]; then
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+
+  track=$(echo "$tuneshine_json" | jq -r '.remoteMetadata.trackName // empty')
+  artist=$(echo "$tuneshine_json" | jq -r '.remoteMetadata.artistName // empty')
+  album=$(echo "$tuneshine_json" | jq -r '.remoteMetadata.albumName // empty')
+  image_url=$(echo "$tuneshine_json" | jq -r '.remoteMetadata.imageUrl // empty')
+
+  if [ "$track" != "$LAST_TRACK" ] || [ "$artist" != "$LAST_ARTIST" ]; then
+    [ -n "$track" ] && write_metadata_item "6d696e6d" "$track"
+    [ -n "$artist" ] && write_metadata_item "61736172" "$artist"
+    [ -n "$album" ] && write_metadata_item "6173616c" "$album"
+    if [ -n "$image_url" ] && [ "$image_url" != "$LAST_IMAGE_URL" ]; then
+      write_artwork "$image_url"
+      LAST_IMAGE_URL="$image_url"
+    fi
+    LAST_TRACK="$track"
+    LAST_ARTIST="$artist"
+  fi
+
+  sleep "$POLL_INTERVAL"
+done
+{% endraw %}

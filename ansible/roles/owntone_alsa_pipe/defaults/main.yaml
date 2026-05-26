@@ -1,0 +1,11 @@
+---
+owntone_alsa_pipe_name: Turntable
+owntone_alsa_pipe_alsa_device: "hw:1,0"
+owntone_alsa_pipe_sample_rate: 48000
+owntone_alsa_pipe_silence_threshold: "0.5%%"
+owntone_alsa_pipe_silence_duration: "5.0"
+owntone_alsa_pipe_media_path: /opt/docker-compose/owntone/media
+owntone_alsa_pipe_compose_project_src: /opt/docker-compose/owntone
+owntone_alsa_pipe_owntone_conf_path: /opt/docker-compose/owntone/etc/owntone.conf
+owntone_alsa_pipe_tuneshine_host: ""
+owntone_alsa_pipe_metadata_poll_interval: 10

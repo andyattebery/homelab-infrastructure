@@ -1,0 +1,14 @@
+[Unit]
+Description=Tuneshine metadata to OwnTone pipe ({{ owntone_alsa_pipe_name }})
+After=owntone-alsa-pipe.service
+BindsTo=owntone-alsa-pipe.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/owntone-alsa-pipe-metadata.sh
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
