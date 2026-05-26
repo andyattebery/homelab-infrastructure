@@ -2,8 +2,8 @@
   "uid": "system-updates",
   "id": null,
   "title": "System Updates",
-  "description": "APT package update status, kernel upgrades, and reboot-required state across the fleet",
-  "tags": ["apt", "updates"],
+  "description": "Package update status, kernel upgrades, and reboot-required state across the fleet",
+  "tags": ["apt", "pacman", "updates"],
   "timezone": "browser",
   "editable": true,
   "graphTooltip": 1,
@@ -23,13 +23,13 @@
           "refId": "A"
         },
         {
-          "expr": "label_replace(max by(instance)(apt_kernel_upgrade_available), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "expr": "label_replace(\n  max by(instance)(apt_kernel_upgrade_available)\n    or\n  max by(instance)(pacman_kernel_upgrade_available)\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "expr": "label_replace(sum by(instance)(apt_upgrades_pending), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "expr": "label_replace(\n  sum by(instance)(apt_upgrades_pending)\n    or\n  sum by(instance)(pacman_upgrades_pending)\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
           "format": "table",
           "instant": true,
           "refId": "C"
@@ -41,13 +41,13 @@
           "refId": "D"
         },
         {
-          "expr": "label_replace(sum by(instance)(apt_upgrades_held), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "expr": "label_replace(\n  sum by(instance)(apt_upgrades_held)\n    or\n  sum by(instance)(pacman_upgrades_held)\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
           "format": "table",
           "instant": true,
           "refId": "E"
         },
         {
-          "expr": "label_replace(max by(instance)(time() - apt_package_cache_timestamp_seconds), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "expr": "label_replace(\n  max by(instance)(time() - apt_package_cache_timestamp_seconds)\n    or\n  max by(instance)(time() - pacman_package_cache_timestamp_seconds)\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
           "format": "table",
           "instant": true,
           "refId": "F"
@@ -235,7 +235,7 @@
       "datasource": { "type": "prometheus", "uid": "fe8ew4zkvbf28a" },
       "targets": [
         {
-          "expr": "label_replace(sum by(instance)(apt_upgrades_pending), \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
+          "expr": "label_replace(\n  sum by(instance)(apt_upgrades_pending)\n    or\n  sum by(instance)(pacman_upgrades_pending)\n, \"host\", \"$1\", \"instance\", \"([^.:]+).*\")",
           "legendFormat": "{{ host }}",
           "refId": "A"
         }

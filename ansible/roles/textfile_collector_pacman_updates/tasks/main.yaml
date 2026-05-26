@@ -1,0 +1,27 @@
+---
+- name: Install pacman-contrib
+  community.general.pacman:
+    name: pacman-contrib
+    state: present
+
+- name: Configure pacman-updates textfile collector
+  ansible.builtin.include_role:
+    name: textfile_collector
+  vars:
+    textfile_collector_name: pacman-updates
+    textfile_collector_interval_seconds: "{{ textfile_collector_pacman_updates_interval_seconds }}"
+    textfile_collector_source_cmd: |
+      updates=$(checkupdates 2>/dev/null || true)
+      count=$(printf '%s' "$updates" | grep -c . || true)
+      printf 'pacman_upgrades_pending %d\n' "${count:-0}"
+      kernel=$(printf '%s' "$updates" | grep -cE '^(linux|linux-lts|linux-aarch64|linux-rpi|linux-rpi-pikvm) ' || true)
+      printf 'pacman_kernel_upgrade_available %d\n' "${kernel:-0}"
+      held=$(sed -n 's/^IgnorePkg[[:space:]]*=[[:space:]]*//p' /etc/pacman.conf 2>/dev/null | tr ' ' '\n' | grep -c . || true)
+      printf 'pacman_upgrades_held %d\n' "${held:-0}"
+      sync_ts=$(stat -c %Y /var/lib/pacman/sync/*.db 2>/dev/null | sort -rn | head -1)
+      [ -n "$sync_ts" ] && printf 'pacman_package_cache_timestamp_seconds %d\n' "$sync_ts"
+      if [ -d "/usr/lib/modules/$(uname -r)" ]; then
+        printf 'node_reboot_required 0\n'
+      else
+        printf 'node_reboot_required 1\n'
+      fi

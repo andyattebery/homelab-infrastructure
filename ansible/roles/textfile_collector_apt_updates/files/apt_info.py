@@ -65,7 +65,7 @@ def _write_pending_upgrades(registry, cache, exclusions):
     candidates = {
         p.candidate
         for p in cache
-        if p.is_upgradable and not p.phasing_applied and p.name not in exclusions
+        if p.is_upgradable and not getattr(p, 'phasing_applied', False) and p.name not in exclusions
     }
     for candidate in candidates:
         logging.debug(
@@ -90,7 +90,7 @@ def _write_held_upgrades(registry, cache, exclusions):
         if (
             p.is_upgradable
             and p._pkg.selected_state == apt_pkg.SELSTATE_HOLD
-            and not p.phasing_applied
+            and not getattr(p, 'phasing_applied', False)
             and p.name not in exclusions
         )
     }
