@@ -1,0 +1,3 @@
+iface {{ e1000e_disable_offloads_nic }} inet manual
+    post-up /usr/sbin/ethtool -K {{ e1000e_disable_offloads_nic }}{% for offload in e1000e_disable_offloads_offloads %} {{ offload }} off{% endfor %}
+

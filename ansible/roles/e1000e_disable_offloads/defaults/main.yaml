@@ -1,0 +1,4 @@
+---
+e1000e_disable_offloads_offloads:
+  - tso
+  - gso

@@ -109,6 +109,17 @@
         name: debian_add_network_interface
       loop: "{{ extra_network_interfaces | default([]) }}"
 
+    - name: Disable e1000e NIC offloads
+      when: e1000e_disable_offloads_nics is defined
+      ansible.builtin.include_role:
+        name: e1000e_disable_offloads
+      vars:
+        e1000e_disable_offloads_nic: "{{ item.nic }}"
+        e1000e_disable_offloads_offloads: "{{ item.offloads | default(omit) }}"
+      loop: "{{ e1000e_disable_offloads_nics }}"
+      loop_control:
+        label: "{{ item.nic }}"
+
     # ---------- (a) Bootstrap (fresh-cluster only) ----------
     # pve_cluster_create now self-detects: stats /etc/pve/corosync.conf
     # on every inventory peer and skips `pvecm create` if any peer has

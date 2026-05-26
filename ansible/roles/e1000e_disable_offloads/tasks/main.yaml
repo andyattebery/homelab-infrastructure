@@ -1,0 +1,25 @@
+---
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - e1000e_disable_offloads_nic | default('') | length > 0
+    fail_msg: >-
+      e1000e_disable_offloads requires e1000e_disable_offloads_nic
+      to be set to the interface name (e.g. nic0).
+
+- name: Write interfaces.d offload snippet
+  ansible.builtin.template:
+    src: disable-offloads.cfg.j2
+    dest: "/etc/network/interfaces.d/{{ e1000e_disable_offloads_nic }}-disable-offloads.cfg"
+    owner: root
+    group: root
+    mode: "0644"
+  register: _e1000e_disable_offloads_result
+
+- name: Apply offload changes immediately
+  when: _e1000e_disable_offloads_result.changed
+  ansible.builtin.command:
+    cmd: >-
+      /usr/sbin/ethtool -K {{ e1000e_disable_offloads_nic }}
+      {% for offload in e1000e_disable_offloads_offloads %}{{ offload }} off {% endfor %}
+  changed_when: true
