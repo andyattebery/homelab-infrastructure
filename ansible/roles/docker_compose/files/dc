@@ -2,6 +2,11 @@
 
 : "${DOCKER_COMPOSE_DIR:=/opt/docker-compose}"
 
+quiet=false
+case "$1" in
+    -q|--quiet) quiet=true; shift ;;
+esac
+
 docker_compose_files_parameter=""
 docker_compose_files_list=""
 has_files_in_current_dir=false
@@ -28,6 +33,8 @@ if [ "$has_files_in_current_dir" = false ] && [ -d "$DOCKER_COMPOSE_DIR" ]; then
     done
 fi
 
-printf "Running docker compose with files:\n${docker_compose_files_list}" >&2
+if [ "$quiet" = false ]; then
+    printf "Running docker compose with files:\n${docker_compose_files_list}" >&2
+fi
 
 docker compose $docker_compose_files_parameter "$@"

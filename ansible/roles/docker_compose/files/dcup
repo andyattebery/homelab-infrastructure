@@ -2,8 +2,8 @@
 
 # Pull images one service at a time to avoid saturating the network
 # and causing TLS handshake timeouts on parallel pulls
-for svc in $(dc config --services); do
-    dc pull "$svc"
+for svc in $(dc -q config --services); do
+    dc -q pull "$svc"
 done
 
 dc up -d --remove-orphans && docker system prune -f
