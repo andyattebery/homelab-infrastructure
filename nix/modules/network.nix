@@ -26,6 +26,11 @@ in {
 
     sops.secrets."tailscale-auth-key" = {};
     services.tailscale.authKeyFile = config.sops.secrets."tailscale-auth-key".path;
+    services.tailscale.extraUpFlags = [
+      "--accept-dns=false"
+      "--advertise-exit-node"
+      "--advertise-routes=${vars.subnetCidr}"
+    ];
     services.tailscale.extraSetFlags = [
       "--accept-dns=false"
       "--advertise-exit-node"
