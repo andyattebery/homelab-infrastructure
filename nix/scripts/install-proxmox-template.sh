@@ -1,10 +1,15 @@
 #!/usr/bin/env sh
-# Run this from the NixOS live ISO environment booted in a Proxmox VM.
-# It partitions the disk, clones the repo, and installs from the flake.
+# Run as root from the NixOS live ISO: curl ... | sudo sh
+# Partitions the disk, clones the repo, and installs from the flake.
 # After reboot, the VM is ready to be converted to a Proxmox template.
 set -euo pipefail
 
 REPO_URL="https://github.com/andyattebery/homelab-infrastructure.git"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Error: must run as root (sudo sh)"
+  exit 1
+fi
 
 if [ -b /dev/sda ]; then
   DISK="/dev/sda"
@@ -44,6 +49,7 @@ git clone "$REPO_URL" /mnt/root/homelab-infrastructure
 
 echo "==> Copying hardware-configuration.nix into repo"
 cp /mnt/etc/nixos/hardware-configuration.nix /mnt/root/homelab-infrastructure/nix/hosts/proxmox-vm-hardware.nix
+git -C /mnt/root/homelab-infrastructure add nix/hosts/proxmox-vm-hardware.nix
 
 echo "==> Installing NixOS from flake"
 nixos-install --no-root-password --flake /mnt/root/homelab-infrastructure/nix#proxmox-template
@@ -51,9 +57,8 @@ nixos-install --no-root-password --flake /mnt/root/homelab-infrastructure/nix#pr
 echo ""
 echo "==> Installation complete."
 echo "    1. Remove the ISO from the VM's CD drive in Proxmox"
-echo "    2. Reboot: reboot"
+echo "    2. Reboot: sudo reboot"
 echo "    3. Verify SSH works: ssh root@<vm-ip>"
-echo "    4. Commit the hardware-configuration.nix (requires git credentials on VM, or scp to Mac):"
-echo "       ssh root@<vm-ip> 'cd /root/homelab-infrastructure && git add nix/hosts/proxmox-vm-hardware.nix && git commit -m \"add proxmox hardware config\" && git push'"
-echo "       Or: scp root@<vm-ip>:/root/homelab-infrastructure/nix/hosts/proxmox-vm-hardware.nix nix/hosts/"
-echo "    5. Shut down and convert to template in Proxmox UI"
+echo "    4. Get the hardware config (from Mac):"
+echo "       scp root@<vm-ip>:/root/homelab-infrastructure/nix/hosts/proxmox-vm-hardware.nix nix/hosts/"
+echo "    5. Shut down the VM and convert to template in Proxmox UI"
