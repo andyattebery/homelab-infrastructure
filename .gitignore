@@ -5,3 +5,7 @@ ansible/*vars/**/vault.yaml
 talos/*.raw
 ansible/.claude/settings.local.json
 .claude/settings.local.json
+
+# sops decrypted temp files
+nix/secrets/*.dec
+nix/secrets/*.cleartext

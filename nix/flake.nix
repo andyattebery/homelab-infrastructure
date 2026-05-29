@@ -1,30 +1,39 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
-
-  outputs = { self, nixpkgs }: {
-
-    nixosConfigurations.container = nixpkgs.lib.nixosSystem {
-      system = "x86_64-linux";
-      modules =
-        [ ({ pkgs, ... }: {
-            boot.isContainer = true;
-
-            # Let 'nixos-version --json' know about the Git revision
-            # of this flake.
-            system.configurationRevision = nixpkgs.lib.mkIf (self ? rev) self.rev;
-
-            # Network configuration.
-            networking.useDHCP = false;
-            networking.firewall.allowedTCPPorts = [ 80 ];
-
-            # Enable a web server.
-            services.httpd = {
-              enable = true;
-              adminAddr = "morty@example.org";
-            };
-          })
-        ];
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
+  };
 
+  outputs = { self, nixpkgs, sops-nix, ... }:
+  let
+    mkHost = hostname: extraModules: nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      specialArgs = {
+        inherit sops-nix;
+        vars = import ./secrets/vars.nix;
+      };
+      modules = [
+        sops-nix.nixosModules.sops
+        ./modules/base.nix
+        ./modules/monitoring.nix
+        ./hosts/${hostname}
+      ] ++ extraModules;
+    };
+  in {
+    nixosConfigurations = {
+      network-03 = mkHost "network-03" [
+        ./modules/tailscale.nix
+        ./modules/docker-host.nix
+        ./modules/network.nix
+      ];
+      proxmox-template = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [ ./hosts/proxmox-template ];
+      };
+      # END_HOSTS
+    };
   };
 }

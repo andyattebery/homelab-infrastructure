@@ -1,0 +1,13 @@
+watch:
+  workers: 20
+  schedule: "0 2 * * *"
+  firstCheckNotif: false
+providers:
+  docker:
+    watchByDefault: true
+notif:
+  pushover:
+    token: ${config.sops.placeholder."diun-pushover-token"}
+    recipient: ${config.sops.placeholder."pushover-user-key"}
+    templateTitle: '{{ .Meta.Hostname }}: {{ .Entry.Image.Path }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}'
+    templateBody: 'Image {{ if .Entry.Image.HubLink }}[**{{ .Entry.Image }}**]({{ .Entry.Image.HubLink }}){{ else }}**{{ .Entry.Image }}**{{ end }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}.'
