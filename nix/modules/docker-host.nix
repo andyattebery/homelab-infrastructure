@@ -67,6 +67,7 @@ in {
       TZ = config.time.timeZone;
       DOMAIN_NAME = defaults.domainName;
       DOCKER_DATA_DIRECTORY = defaults.dataDirectory;
+      HOSTNAME = config.networking.hostName;
     };
   in lib.mkIf (cfg != {}) {
     virtualisation.docker.enable = true;

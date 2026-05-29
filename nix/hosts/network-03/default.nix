@@ -11,9 +11,13 @@
 
   homelab.network = {
     enable = true;
-    adguardhome.hostname = "adguardhome-03.${vars.domainName}";
-    wireguardPort = 51820;
+    adguardhome = {
+      hostname = "adguardhome-03.${vars.domainName}";
+      username = vars.network-03.adguardhomeUsername;
+      passwordHash = vars.network-03.adguardhomePasswordHash;
+    };
     keepalived = {
+      interface = "ens18";
       priority = 100;
       isMaster = false;
     };

@@ -26,7 +26,7 @@
 From the NixOS live environment console:
 
 ```sh
-curl -L https://raw.githubusercontent.com/andyattebery/homelab-infrastructure/main/nix/scripts/install-proxmox-template.sh | sh
+curl -L https://raw.githubusercontent.com/andyattebery/homelab-infrastructure/main/nix/scripts/install-proxmox-template.sh | sudo sh
 ```
 
 The script partitions the disk (GPT + ESP), clones the repo, copies the generated `hardware-configuration.nix` into it, and runs `nixos-install --flake .#proxmox-template`.
@@ -54,44 +54,27 @@ The script partitions the disk (GPT + ESP), clones the repo, copies the generate
 
 ### 1. Clone
 
-In Proxmox: right-click template → Clone → full clone, set the VM name.
+In Proxmox: right-click template → Clone → full clone, set the VM name. Start the VM.
 
-### 2. Bootstrap (on the VM, as root)
-
-The template clone at `/root/homelab-infrastructure` carries over. Use it:
+### 2. Provision (from Mac)
 
 ```sh
-/root/homelab-infrastructure/nix/scripts/bootstrap-host.sh <hostname>
+nix/scripts/provision-host.sh --proxmox --tailscale <hostname> <host-ip>
 ```
 
-The script sets the hostname, generates a sops age key, and prints the public key + next steps.
+This single command:
+1. SSHs to the host, sets hostname, generates a sops age key
+2. Runs `add-host.sh` locally to create the host config and flake entry
+3. Runs `populate-secrets-from-op.sh` to re-encrypt secrets for the new host
+4. Commits and pushes
+5. SSHs to the host, runs `git pull`
+6. Scps `vars.nix` (real values) to the host
+7. SSHs to the host, runs `nixos-rebuild switch`
 
-### 3. Add to the flake (on Mac)
-
-```sh
-nix/scripts/add-host.sh --proxmox --tailscale <hostname> <age-public-key>
-nix/scripts/populate-secrets-from-op.sh
-git commit && git push
-nix/scripts/sync-vars.sh <hostname> /root/homelab-infrastructure
-```
-
-### 4. First rebuild (on the VM, as root)
+After provisioning, the `services` user exists. Optionally set up the services user repo for ongoing work:
 
 ```sh
-cd /root/homelab-infrastructure/nix && git pull
-sudo nixos-rebuild switch --flake .#<hostname>
-```
-
-This replaces the template config with the full host config. The `services` user now exists. Re-clone the repo as the services user for ongoing work:
-
-```sh
-git clone <repo-url> /home/services/homelab-infrastructure
-chown -R services:services /home/services/homelab-infrastructure
-```
-
-Then from the Mac, sync vars to the new path:
-
-```sh
+ssh root@<host-ip> 'git clone <repo-url> /home/services/homelab-infrastructure && chown -R services:services /home/services/homelab-infrastructure'
 nix/scripts/sync-vars.sh <hostname>
 ```
 

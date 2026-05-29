@@ -6,23 +6,26 @@ in {
   options.homelab.network = {
     enable = lib.mkEnableOption "network host role";
 
-    adguardhome.hostname = lib.mkOption { type = lib.types.str; };
+    adguardhome = {
+      hostname = lib.mkOption { type = lib.types.str; };
+      username = lib.mkOption { type = lib.types.str; };
+      passwordHash = lib.mkOption { type = lib.types.str; };
+    };
 
     keepalived = {
       isMaster = lib.mkOption { type = lib.types.bool; default = false; };
       priority = lib.mkOption { type = lib.types.int; };
-      interface = lib.mkOption { type = lib.types.str; default = "eth0"; };
+      interface = lib.mkOption { type = lib.types.str; };
       routerId = lib.mkOption { type = lib.types.int; default = 51; };
     };
 
-    wireguardPort = lib.mkOption {
-      type = lib.types.port;
-    };
   };
 
   config = lib.mkIf cfg.enable {
     services.resolved.extraConfig = "DNSStubListener=no";
 
+    sops.secrets."tailscale-auth-key" = {};
+    services.tailscale.authKeyFile = config.sops.secrets."tailscale-auth-key".path;
     services.tailscale.extraSetFlags = [
       "--accept-dns=false"
       "--advertise-exit-node"
@@ -47,6 +50,12 @@ in {
       mutableSettings = true;
       port = 3000;
       settings = {
+        users = [
+          {
+            name = cfg.adguardhome.username;
+            password = cfg.adguardhome.passwordHash;
+          }
+        ];
         dns = {
           bind_hosts = [ "0.0.0.0" ];
           port = 53;
@@ -89,18 +98,12 @@ in {
     };
 
     networking.firewall.allowedTCPPorts = [ 53 80 443 853 3000 ];
-    networking.firewall.allowedUDPPorts = [ 53 cfg.wireguardPort ];
+    networking.firewall.allowedUDPPorts = [ 53 ];
 
     services.docker-compose-defaults.domainName = vars.domainName;
 
     services.docker-compose.keepalived-exporter = {
       composeFile = ./compose/docker-compose-keepalived-exporter.yaml;
-    };
-
-    sops.secrets."${config.networking.hostName}-wireguard-env" = {};
-    services.docker-compose.wireguard = {
-      composeFile = ../../ansible/roles/docker_compose_wireguard/files/docker-compose-wireguard.yaml;
-      environmentFiles = [ config.sops.secrets."${config.networking.hostName}-wireguard-env".path ];
     };
 
     sops.secrets."diun-pushover-token" = {};

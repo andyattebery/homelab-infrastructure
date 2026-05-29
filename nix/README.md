@@ -32,6 +32,7 @@ NixOS host management for the homelab, running alongside the existing Ansible se
         install-proxmox-template.sh  # unattended NixOS install for Proxmox template VM
         bootstrap-host.sh            # run on new VM: sets hostname, generates age key
         add-host.sh                  # run on Mac: generates host config + flake entry
+        provision-host.sh            # end-to-end: clone template → running host in one command
         sync-vars.sh                 # scps vars.nix to a host (real values, not placeholders)
         nix-shell.sh                 # runs Nix commands via Docker (no Nix install needed)
 
