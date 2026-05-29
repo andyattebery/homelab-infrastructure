@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, vars, ... }:
 let
   sshKeys = import ./ssh-keys.nix;
 in {
@@ -38,6 +38,15 @@ in {
   environment.systemPackages = with pkgs; [
     git vim tmux mosh htop jq
   ];
+
+  sops.secrets."beszel-agent-env" = {};
+  services.beszel.agent = {
+    enable = true;
+    environment = {
+      HUB_URL = "https://beszel.${vars.domainName}";
+    };
+    environmentFile = config.sops.secrets."beszel-agent-env".path;
+  };
 
   services.chrony.enable = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
