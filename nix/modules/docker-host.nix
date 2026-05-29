@@ -74,6 +74,10 @@ in {
     users.groups.docker.gid = lib.mkDefault 998;
     users.users.services.extraGroups = [ "docker" ];
 
+    systemd.tmpfiles.rules = lib.mapAttrsToList (name: stack:
+      "d ${stack.workingDirectory} 0755 root root -"
+    ) cfg;
+
     systemd.services = lib.mapAttrs' (name: stack:
       let
         dataDir = if stack.dataDirectory != null
