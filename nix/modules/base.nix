@@ -49,6 +49,7 @@ in {
     fi
   '';
 
+  # Firewall disabled — do not add allowedTCPPorts/allowedUDPPorts/openFirewall anywhere.
   networking.firewall.enable = false;
 
   environment.systemPackages = with pkgs; [

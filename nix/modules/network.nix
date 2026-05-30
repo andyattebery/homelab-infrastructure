@@ -77,7 +77,6 @@ in {
 
     services.keepalived = {
       enable = true;
-      openFirewall = true;
       enableScriptSecurity = true;
       extraGlobalDefs = ''
         max_auto_priority -1
@@ -101,18 +100,6 @@ in {
         trackScripts = [ "chk_adguardhome" ];
       };
     };
-
-    networking.firewall.allowedTCPPorts = [
-      53    # AdGuard Home DNS
-      80    # AdGuard Home HTTP
-      443   # AdGuard Home HTTPS
-      853   # AdGuard Home DNS-over-TLS
-      3000  # AdGuard Home admin
-      9165  # keepalived-exporter (Prometheus)
-    ];
-    networking.firewall.allowedUDPPorts = [
-      53    # AdGuard Home DNS
-    ];
 
     services.docker-compose-defaults.domainName = vars.domainName;
 
