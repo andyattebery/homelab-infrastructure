@@ -102,7 +102,7 @@ in {
       };
     };
 
-    networking.firewall.allowedTCPPorts = [ 53 80 443 853 3000 ];
+    networking.firewall.allowedTCPPorts = [ 53 80 443 853 3000 9165 ];
     networking.firewall.allowedUDPPorts = [ 53 ];
 
     services.docker-compose-defaults.domainName = vars.domainName;

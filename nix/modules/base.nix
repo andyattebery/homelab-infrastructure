@@ -35,6 +35,8 @@ in {
     };
   };
 
+  networking.firewall.enable = false;
+
   environment.systemPackages = with pkgs; [
     git vim tmux mosh htop jq
   ];
