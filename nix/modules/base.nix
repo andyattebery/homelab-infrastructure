@@ -25,6 +25,9 @@ in {
   };
   programs.fish.enable = true;
   security.sudo.wheelNeedsPassword = false;
+  security.sudo.extraConfig = ''
+    Defaults env_keep += "SSH_AUTH_SOCK"
+  '';
 
   services.openssh = {
     enable = true;
@@ -32,6 +35,9 @@ in {
       PasswordAuthentication = false;
       PermitRootLogin = "no";
       KbdInteractiveAuthentication = false;
+      GSSAPIAuthentication = false;
+      X11Forwarding = false;
+      PermitEmptyPasswords = false;
     };
   };
 

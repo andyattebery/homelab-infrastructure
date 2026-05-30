@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
 # Provisions a new NixOS host from a cloned Proxmox template.
+# First run: use root@<ip> (template allows root SSH).
+# Re-run: use <ssh-target> from SSH config (services user + sudo).
 # Run from the repo root on Mac.
 set -euo pipefail
 
@@ -14,28 +16,29 @@ while [ $# -gt 0 ]; do
 done
 
 if [ $# -ne 2 ]; then
-  echo "Usage: $0 [--proxmox] [--tailscale] <hostname> <host-ip>"
+  echo "Usage: $0 [--proxmox] [--tailscale] <ssh-target> <hostname>"
   exit 1
 fi
 
-HOSTNAME="$1"
-HOST_IP="$2"
+TARGET="$1"
+HOSTNAME="$2"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 NIX_DIR="$SCRIPT_DIR/.."
-REPO_URL="https://github.com/andyattebery/homelab-infrastructure.git"
+DEPLOY_USER="services"
 REPO_PATH="/root/homelab-infrastructure"
-SSH="ssh -o StrictHostKeyChecking=accept-new root@$HOST_IP"
 
-ssh-keygen -R "$HOST_IP" 2>/dev/null || true
+# Extract hostname from user@host or plain host for ssh-keygen
+TARGET_HOST=$(echo "$TARGET" | sed 's/.*@//')
+ssh-keygen -R "$TARGET_HOST" 2>/dev/null || true
 
-echo "==> Generating age key on $HOST_IP"
-$SSH "mkdir -p /var/lib/sops-nix && chmod 700 /var/lib/sops-nix"
-if $SSH "test -f /var/lib/sops-nix/key.txt"; then
+echo "==> Generating age key on $TARGET"
+ssh -o StrictHostKeyChecking=accept-new "$TARGET" "sudo mkdir -p /var/lib/sops-nix && sudo chmod 700 /var/lib/sops-nix"
+if ssh "$TARGET" "sudo test -f /var/lib/sops-nix/key.txt"; then
   echo "    Key already exists, skipping generation"
 else
-  $SSH "age-keygen -o /var/lib/sops-nix/key.txt 2>/dev/null && chmod 600 /var/lib/sops-nix/key.txt"
+  ssh "$TARGET" "sudo sh -c 'age-keygen -o /var/lib/sops-nix/key.txt 2>/dev/null && chmod 600 /var/lib/sops-nix/key.txt'"
 fi
-AGE_PUB=$($SSH "age-keygen -y /var/lib/sops-nix/key.txt")
+AGE_PUB=$(ssh "$TARGET" "sudo age-keygen -y /var/lib/sops-nix/key.txt")
 echo "    Public key: $AGE_PUB"
 
 HOST_DIR="$NIX_DIR/hosts/$HOSTNAME"
@@ -71,13 +74,17 @@ git diff --cached --quiet || git commit -m "provision host $HOSTNAME"
 git push
 
 echo "==> Pulling on host"
-$SSH "git -C $REPO_PATH pull"
+ssh "$TARGET" "sudo git -C $REPO_PATH pull"
 
 echo "==> Syncing vars.nix to host"
-scp "$NIX_DIR/secrets/vars.nix" "root@$HOST_IP:$REPO_PATH/nix/secrets/vars.nix"
+scp "$NIX_DIR/secrets/vars.nix" "$TARGET:/tmp/vars.nix"
+ssh "$TARGET" "sudo cp /tmp/vars.nix $REPO_PATH/nix/secrets/vars.nix && rm /tmp/vars.nix"
 
 echo "==> Running nixos-rebuild on host"
-$SSH "nixos-rebuild switch --flake $REPO_PATH/nix#$HOSTNAME"
+ssh "$TARGET" "sudo nixos-rebuild switch --flake $REPO_PATH/nix#$HOSTNAME"
+
+echo "==> Setting up dotfiles"
+ssh "$DEPLOY_USER@$TARGET_HOST" "bash -c 'test -d ~/dotfiles || git clone https://github.com/andyattebery/dotfiles.git ~/dotfiles && cd ~/dotfiles && ./link_dotfiles.fish'"
 
 echo ""
 echo "==> Host $HOSTNAME provisioned successfully."

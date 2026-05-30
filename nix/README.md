@@ -115,11 +115,10 @@ nix/scripts/nix-shell.sh --x86 build ...   # x86 build (slow, QEMU emulation)
 ## Day-to-day workflow
 
 ```sh
-# Mac: edit config
+# Mac: edit config, commit, push
 vim nix/hosts/network-03/default.nix
 git commit && git push
 
-# Host (as services user): pull and rebuild
-cd /home/services/homelab-infrastructure/nix && git pull
-sudo nixos-rebuild switch --flake .#network-03
+# Mac: deploy
+nix/scripts/deploy-host.sh network-03 network-03
 ```
