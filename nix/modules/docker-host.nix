@@ -89,13 +89,13 @@ in {
           (lib.mapAttrsToList (dest: fileCfg: ''
             ${pkgs.coreutils}/bin/mkdir -p "$(dirname "${dataDir}/${dest}")"
             ${pkgs.coreutils}/bin/cp ${fileCfg.source} "${dataDir}/${dest}"
-            chown ${uid}:${gid} "${dataDir}/${dest}"
-            chmod ${fileCfg.mode} "${dataDir}/${dest}"
+            ${pkgs.coreutils}/bin/chown ${uid}:${gid} "${dataDir}/${dest}"
+            ${pkgs.coreutils}/bin/chmod ${fileCfg.mode} "${dataDir}/${dest}"
           '') stack.configFiles)
           ++ (lib.mapAttrsToList (dest: src: ''
             ${pkgs.coreutils}/bin/mkdir -p "${dataDir}/${dest}"
             ${pkgs.coreutils}/bin/cp -r ${src}/. "${dataDir}/${dest}"
-            chown -R ${uid}:${gid} "${dataDir}/${dest}"
+            ${pkgs.coreutils}/bin/chown -R ${uid}:${gid} "${dataDir}/${dest}"
           '') stack.configDirs)
         );
       in lib.nameValuePair "docker-compose-${name}" {

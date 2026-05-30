@@ -36,10 +36,10 @@ in {
   };
 
   system.activationScripts.hostname = lib.stringAfter [ "etc" ] ''
-    currentHostname=$(hostname)
+    currentHostname=$(${pkgs.hostname-debian}/bin/hostname)
     desiredHostname="${config.networking.hostName}"
     if [ -n "$desiredHostname" ] && [ "$currentHostname" != "$desiredHostname" ]; then
-      hostname "$desiredHostname"
+      ${pkgs.hostname-debian}/bin/hostname "$desiredHostname"
     fi
   '';
 
