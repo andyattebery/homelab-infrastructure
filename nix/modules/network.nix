@@ -102,8 +102,17 @@ in {
       };
     };
 
-    networking.firewall.allowedTCPPorts = [ 53 80 443 853 3000 9165 ];
-    networking.firewall.allowedUDPPorts = [ 53 ];
+    networking.firewall.allowedTCPPorts = [
+      53    # AdGuard Home DNS
+      80    # AdGuard Home HTTP
+      443   # AdGuard Home HTTPS
+      853   # AdGuard Home DNS-over-TLS
+      3000  # AdGuard Home admin
+      9165  # keepalived-exporter (Prometheus)
+    ];
+    networking.firewall.allowedUDPPorts = [
+      53    # AdGuard Home DNS
+    ];
 
     services.docker-compose-defaults.domainName = vars.domainName;
 

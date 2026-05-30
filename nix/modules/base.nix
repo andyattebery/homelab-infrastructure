@@ -1,4 +1,4 @@
-{ config, pkgs, vars, ... }:
+{ config, lib, pkgs, vars, ... }:
 let
   sshKeys = import ./ssh-keys.nix;
 in {
@@ -34,6 +34,14 @@ in {
       KbdInteractiveAuthentication = false;
     };
   };
+
+  system.activationScripts.hostname = lib.stringAfter [ "etc" ] ''
+    currentHostname=$(hostname)
+    desiredHostname="${config.networking.hostName}"
+    if [ -n "$desiredHostname" ] && [ "$currentHostname" != "$desiredHostname" ]; then
+      hostname "$desiredHostname"
+    fi
+  '';
 
   networking.firewall.enable = false;
 
