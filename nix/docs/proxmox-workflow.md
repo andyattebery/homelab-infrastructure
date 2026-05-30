@@ -71,14 +71,11 @@ This single command:
 6. Scps `vars.nix` (real values) to the host
 7. SSHs to the host, runs `nixos-rebuild switch`
 
-After provisioning, the `services` user exists. Optionally set up the services user repo for ongoing work:
+Deploy future changes with:
 
 ```sh
-ssh root@<host-ip> 'git clone <repo-url> /home/services/homelab-infrastructure && chown -R services:services /home/services/homelab-infrastructure'
-nix/scripts/sync-vars.sh <hostname>
+nix/scripts/deploy-host.sh <hostname> <hostname>
 ```
-
-Future rebuilds run as the services user from `/home/services/homelab-infrastructure`.
 
 ## Disk resize
 

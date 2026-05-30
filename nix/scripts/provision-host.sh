@@ -81,7 +81,4 @@ $SSH "nixos-rebuild switch --flake $REPO_PATH/nix#$HOSTNAME"
 
 echo ""
 echo "==> Host $HOSTNAME provisioned successfully."
-echo ""
-echo "Optional: set up services user repo (root SSH is now disabled)"
-echo "  ssh services@$HOST_IP 'git clone $REPO_URL /home/services/homelab-infrastructure'"
-echo "  $SCRIPT_DIR/sync-vars.sh services@$HOST_IP"
+echo "    Deploy future changes with: nix/scripts/deploy-host.sh $HOSTNAME $HOSTNAME"
