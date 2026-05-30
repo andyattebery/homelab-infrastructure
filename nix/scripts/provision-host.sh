@@ -31,23 +31,22 @@ REPO_PATH="/root/homelab-infrastructure"
 TARGET_HOST=$(echo "$TARGET" | sed 's/.*@//')
 ssh-keygen -R "$TARGET_HOST" 2>/dev/null || true
 
-echo "==> Generating age key on $TARGET"
-ssh -o StrictHostKeyChecking=accept-new "$TARGET" "sudo mkdir -p /var/lib/sops-nix && sudo chmod 700 /var/lib/sops-nix"
-if ssh "$TARGET" "sudo test -f /var/lib/sops-nix/key.txt"; then
-  echo "    Key already exists, skipping generation"
+if grep -q "&$HOSTNAME " "$NIX_DIR/secrets/.sops.yaml"; then
+  echo "==> Host $HOSTNAME already in .sops.yaml, skipping key setup"
 else
-  ssh "$TARGET" "sudo sh -c 'age-keygen -o /var/lib/sops-nix/key.txt 2>/dev/null && chmod 600 /var/lib/sops-nix/key.txt'"
-fi
-AGE_PUB=$(ssh "$TARGET" "sudo age-keygen -y /var/lib/sops-nix/key.txt")
-echo "    Public key: $AGE_PUB"
-
-HOST_DIR="$NIX_DIR/hosts/$HOSTNAME"
-if [ -d "$HOST_DIR" ]; then
-  echo "==> Host config already exists at $HOST_DIR, skipping add-host.sh"
-  echo "==> Adding age key to .sops.yaml"
-  if grep -q "$AGE_PUB" "$NIX_DIR/secrets/.sops.yaml"; then
-    echo "    Age key already in .sops.yaml, skipping"
+  echo "==> Generating age key on $TARGET"
+  ssh -o StrictHostKeyChecking=accept-new "$TARGET" "sudo mkdir -p /var/lib/sops-nix && sudo chmod 700 /var/lib/sops-nix"
+  if ssh "$TARGET" "sudo test -f /var/lib/sops-nix/key.txt"; then
+    echo "    Key already exists, skipping generation"
   else
+    ssh "$TARGET" "sudo sh -c 'age-keygen -o /var/lib/sops-nix/key.txt 2>/dev/null && chmod 600 /var/lib/sops-nix/key.txt'"
+  fi
+  AGE_PUB=$(ssh "$TARGET" "sudo age-keygen -y /var/lib/sops-nix/key.txt")
+  echo "    Public key: $AGE_PUB"
+
+  HOST_DIR="$NIX_DIR/hosts/$HOSTNAME"
+  if [ -d "$HOST_DIR" ]; then
+    echo "==> Host config already exists, adding age key to .sops.yaml"
     sed -i.bak "/^creation_rules:/i\\
   - &$HOSTNAME $AGE_PUB
 " "$NIX_DIR/secrets/.sops.yaml"
@@ -55,13 +54,13 @@ if [ -d "$HOST_DIR" ]; then
         - *$HOSTNAME
 " "$NIX_DIR/secrets/.sops.yaml"
     rm -f "$NIX_DIR/secrets/.sops.yaml.bak"
+  else
+    echo "==> Running add-host.sh"
+    ADD_HOST_FLAGS=""
+    if [ "$PROXMOX" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --proxmox"; fi
+    if [ "$TAILSCALE" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --tailscale"; fi
+    "$SCRIPT_DIR/add-host.sh" $ADD_HOST_FLAGS "$HOSTNAME" "$AGE_PUB"
   fi
-else
-  echo "==> Running add-host.sh"
-  ADD_HOST_FLAGS=""
-  if [ "$PROXMOX" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --proxmox"; fi
-  if [ "$TAILSCALE" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --tailscale"; fi
-  "$SCRIPT_DIR/add-host.sh" $ADD_HOST_FLAGS "$HOSTNAME" "$AGE_PUB"
 fi
 
 echo "==> Populating secrets from 1Password"
