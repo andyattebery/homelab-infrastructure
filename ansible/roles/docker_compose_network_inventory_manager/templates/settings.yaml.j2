@@ -1,0 +1,12 @@
+config_repo: andyattebery/homelab-infrastructure
+repo_config_path: network-inventory/network_hosts_inventory.yaml.tpl
+github_token: "{{ network_inventory_manager_github_token }}"
+dsm_url: https://dashboard-services-manager.omegaho.me
+adguardhome_url: http://192.168.1.224
+adguardhome_username: "{{ network_01_adguardhome_username }}"
+adguardhome_password: "{{ network_01_adguardhome_password }}"
+unifi_url: https://192.168.1.1
+unifi_username: "{{ network_inventory_manager_unifi_username }}"
+unifi_password: "{{ network_inventory_manager_unifi_password }}"
+op_service_account_token: "{{ network_inventory_manager_op_service_account_token }}"
+sync_interval: {{ network_inventory_manager_sync_interval }}

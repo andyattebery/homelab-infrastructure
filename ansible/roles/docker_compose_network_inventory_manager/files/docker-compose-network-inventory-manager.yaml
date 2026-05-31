@@ -1,0 +1,9 @@
+services:
+  network-inventory-manager:
+    image: ghcr.io/andyattebery/network-inventory-manager
+    container_name: network-inventory-manager
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/network-inventory-manager/settings.yaml:/config/settings.yaml:ro
+    ports:
+      - 8090:8080
+    restart: unless-stopped

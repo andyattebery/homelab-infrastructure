@@ -1,0 +1,10 @@
+---
+- name: Configure network-inventory-manager docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-network-inventory-manager.yaml
+    docker_compose_src_config_files:
+      - src_file_path: settings.yaml.j2
+        dst_relative_file_path: network-inventory-manager/settings.yaml
+        service_name_to_restart: network-inventory-manager
+  ansible.builtin.include_role:
+    name: docker_compose

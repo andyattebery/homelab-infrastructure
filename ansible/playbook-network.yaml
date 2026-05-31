@@ -45,15 +45,12 @@
   hosts: network-01
   become: true
   tasks:
-    - name: Clone settings repository # noqa latest[git]
-      become: false
-      ansible.builtin.git:
-        repo: git@github.com:andyattebery/settings.git
-        accept_newhostkey: true
-        dest: ~/settings
     - name: Configure adguardhome
       ansible.builtin.include_role:
         name: docker_compose_adguardhome
+    - name: Configure network-inventory-manager
+      ansible.builtin.include_role:
+        name: docker_compose_network_inventory_manager
     - name: Configure adguardhome-sync
       vars:
         adguardhome_sync_hostname: "{{ adguardhome_hostname }}"
