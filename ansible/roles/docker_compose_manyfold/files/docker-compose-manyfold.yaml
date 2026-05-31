@@ -36,14 +36,14 @@ services:
       POSTGRES_DB: ${MANYFOLD_DB_NAME}
       POSTGRES_USER: ${MANYFOLD_DB_USERNAME}
       POSTGRES_PASSWORD: ${MANYFOLD_DB_PASSWORD}
-    restart: on-failure
+    restart: unless-stopped
     networks:
       - manyfold
 
   manyfold-redis:
     image: redis:7
     container_name: manyfold-redis
-    restart: on-failure
+    restart: unless-stopped
     networks:
       - manyfold
 

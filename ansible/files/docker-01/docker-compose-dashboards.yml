@@ -8,6 +8,8 @@ services:
       PUID: ${PUID}
       PGID: ${PGID}
       HOSTNAME: ${HOSTNAME}
+    networks:
+      - traefik
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/dashy:/dashy_config
       - ${DOCKER_DATA_DIRECTORY}/homepage/config:/homepage_config
