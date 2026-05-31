@@ -64,6 +64,18 @@ in {
         dns = {
           bind_hosts = [ "0.0.0.0" ];
           port = 53;
+          upstream_dns = [
+            "https://dns.cloudflare.com/dns-query"
+            "https://doh.libredns.gr/ads"
+            "https://dns.quad9.net/dns-query"
+          ];
+          bootstrap_dns = [ "9.9.9.10" "149.112.112.10" "2620:fe::10" "2620:fe::fe:10" ];
+          upstream_mode = "load_balance";
+          ratelimit = 0;
+          cache_size = 4194304;
+          cache_enabled = true;
+          refuse_any = true;
+          trusted_proxies = [ "127.0.0.0/8" "::1/128" "10.0.0.0/24" "10.0.10.0/24" ];
         };
         tls = {
           enabled = true;
@@ -71,6 +83,16 @@ in {
           certificate_path = "/var/lib/acme/${cfg.adguardhome.hostname}/fullchain.pem";
           private_key_path = "/var/lib/acme/${cfg.adguardhome.hostname}/key.pem";
         };
+        filtering = {
+          filtering_enabled = true;
+          safebrowsing_enabled = true;
+          filters_update_interval = 24;
+        };
+        filters = [
+          { name = "AdGuard DNS filter"; url = "https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt"; enabled = true; id = 1; }
+          { name = "AdAway Default Blocklist"; url = "https://adaway.org/hosts.txt"; enabled = true; id = 2; }
+          { name = "HaGeZi's Normal Blocklist"; url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt"; enabled = true; id = 3; }
+        ];
       };
     };
     systemd.services.adguardhome.serviceConfig.SupplementaryGroups = [ "adguardhome-cert" ];
@@ -118,7 +140,24 @@ in {
     };
 
     services.docker-compose.dsm-provider = {
-      composeFile = ../../ansible/roles/docker_compose_dashboard_services_manager_provider/files/docker-compose-dsm-provider.yaml;
+      composeFile = ./compose/docker-compose-dsm-provider.yaml;
+      configFiles."provider-config.yaml".source = pkgs.writeText "dsm-provider-config.yaml" ''
+        ProviderOptions:
+          ApiUrl: https://dashboard-services-manager.${vars.domainName}
+          ServicesProviders:
+            - ServicesProviderType: Docker
+              DockerLabelPrefix: dsm
+              AreServiceHostsHttps: true
+              Hostname: ${config.networking.hostName}
+            - ServicesProviderType: YamlFile
+              ServicesYamlFilePath: /config/provider-services.yaml
+              AreServiceHostsHttps: true
+      '';
+      configFiles."provider-services.yaml".source = pkgs.writeText "dsm-provider-services.yaml" ''
+        - name: AdGuard Home
+          url: https://${cfg.adguardhome.hostname}
+          hostname: ${config.networking.hostName}
+      '';
     };
   };
 }

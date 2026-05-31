@@ -24,6 +24,11 @@
     };
   in {
     nixosConfigurations = {
+      network-01 = mkHost "network-01" [
+        ./modules/tailscale.nix
+        ./modules/docker-host.nix
+        ./modules/network.nix
+      ];
       network-03 = mkHost "network-03" [
         ./modules/tailscale.nix
         ./modules/docker-host.nix
