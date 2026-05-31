@@ -3,7 +3,6 @@
 adguardhome_hostname: "{{ network_01_adguardhome_hostname }}"
 adguardhome_username: "{{ network_01_adguardhome_username }}"
 adguardhome_password: "{{ network_01_adguardhome_password }}"
-adguardhome_config_directory: /home/services/settings/applications/adguardhome/config/conf/
 
 # docker_compose_keepalived
 keepalived_is_master: true

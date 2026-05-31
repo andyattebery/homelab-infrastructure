@@ -299,6 +299,12 @@ network_03_adguardhome_hostname: adguardhome-03.{{ domain_name }}
 network_03_adguardhome_username: "{{ vault_network_03_adguardhome_username }}"
 network_03_adguardhome_password: "{{ vault_network_03_adguardhome_password }}"
 
+# docker_compose_network_inventory_manager
+network_inventory_manager_op_service_account_token: "{{ vault_network_inventory_manager_op_service_account_token }}"
+network_inventory_manager_github_token: "{{ vault_network_inventory_manager_github_token }}"
+network_inventory_manager_unifi_username: "{{ vault_network_inventory_manager_unifi_username }}"
+network_inventory_manager_unifi_password: "{{ vault_network_inventory_manager_unifi_password }}"
+
 # docker_compose_adguardhome_sync
 adguardhome_origin_domain_name: "{{ network_01_adguardhome_hostname }}"
 adguardhome_origin_username: "{{ network_01_adguardhome_username }}"

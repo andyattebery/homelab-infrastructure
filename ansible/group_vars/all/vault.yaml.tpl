@@ -1,11 +1,11 @@
 vault_ansible_user: {{ op://Personal/ansible all group vars/variables/ansible_user}}
-vault_backup_01_mac_address: {{ op://Personal/backup-01/hardware/mac address }}
+vault_backup_01_mac_address: {{ op://Home Lab/backup-01/hardware/mac address }}
 vault_backup_01_syncoid_ssh_private_key: |
-{{ op://Personal/2ytdcuqc72zqrejql63gcmm6gi/add more/indented private key }}
-vault_backup_01_syncoid_ssh_public_key: {{ op://Personal/2ytdcuqc72zqrejql63gcmm6gi/public key }} backup-01_syncoid
-vault_backup_01_timemachine_password: {{ op://Personal/backup-01/time machine/password }}
-vault_backup_01_timemachine_path: {{ op://Personal/backup-01/time machine/path }}
-vault_backup_01_timemachine_username: {{ op://Personal/backup-01/time machine/username }}
+{{ op://Home Lab/backup-01 - syncoid - SSH Key/add more/indented private key }}
+vault_backup_01_syncoid_ssh_public_key: {{ op://Home Lab/backup-01 - syncoid - SSH Key/public key }} backup-01_syncoid
+vault_backup_01_timemachine_password: {{ op://Home Lab/backup-01/time machine/password }}
+vault_backup_01_timemachine_path: {{ op://Home Lab/backup-01/time machine/path }}
+vault_backup_01_timemachine_username: {{ op://Home Lab/backup-01/time machine/username }}
 vault_beszel_key: {{ op://Personal/Beszel/config/key }}
 vault_beszel_universal_token: {{ op://Personal/Beszel/config/universal token }}
 vault_beszel_username: {{ op://Personal/Beszel/email }}
@@ -32,11 +32,11 @@ vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
 vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
 vault_healthchecks_readonly_api_key: {{ op://Personal/Healthchecks/api keys/read only }}
-vault_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/ansible }}
+vault_homeassistant_access_token: {{ op://Home Lab/Home Assistant/access tokens/ansible }}
 vault_grafana_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/grafana }}
-vault_icecast_server_hostname: {{ op://Personal/pi-turntable/icecast/hostname }}
-vault_icecast_server_port: {{ op://Personal/pi-turntable/icecast/port }}
-vault_icecast_server_password: {{ op://Personal/pi-turntable/icecast/password }}
+vault_icecast_server_hostname: {{ op://Home Lab/pi-turntable/icecast/hostname }}
+vault_icecast_server_port: {{ op://Home Lab/pi-turntable/icecast/port }}
+vault_icecast_server_password: {{ op://Home Lab/pi-turntable/icecast/password }}
 vault_ideapad_3_ssh_public_key: {{ op://Personal/h3ycxizrlk7bsfnt5li3bqlcua/public key}}
 vault_immich_api_key_homepage: "{{ op://Personal/Immich/api keys/homepage}}"
 vault_immich_db_username: "{{ op://Personal/Immich/config/db_username }}"
@@ -72,16 +72,16 @@ vault_minio_username: {{ op://Personal/minio/username }}
 vault_myjdownloader_password: {{ op://Personal/MyJDownloader/password }}
 vault_myjdownloader_username: {{ op://Personal/MyJDownloader/validationKey }}
 vault_nas_01_syncoid_ssh_private_key: |
-{{ op://Personal/7qdbfxgaseannltp3kppbwks3e/indented private key }}
-vault_nas_01_syncoid_ssh_public_key: {{ op://Personal/7qdbfxgaseannltp3kppbwks3e/public key }} nas-01_syncoid
-vault_nas_01_tailscale_ip: {{ op://Personal/nas-01/tailscale/ip }}
-vault_nas_02_syncoid_password: {{ op://Personal/nas-02/syncoid/password }}
-vault_nas_02_syncoid_username: {{ op://Personal/nas-02/syncoid/username }}
-vault_nas_03_syncoid_password: {{ op://Personal/nas-03/syncoid/password }}
-vault_nas_03_syncoid_username: {{ op://Personal/nas-03/syncoid/username }}
-vault_nas_host_01_ipmi_password: {{ op://Personal/nas-host-01 IPMI/password }}
-vault_nas_host_01_ipmi_username: {{ op://Personal/nas-host-01 IPMI/username }}
-vault_nas_host_01_mac_address: {{ op://Personal/nas-host-01/hardware/mac address }}
+{{ op://Home Lab/nas-01 - syncoid - SSH Key/indented private key }}
+vault_nas_01_syncoid_ssh_public_key: {{ op://Home Lab/nas-01 - syncoid - SSH Key/public key }} nas-01_syncoid
+vault_nas_01_tailscale_ip: {{ op://Home Lab/nas-01/tailscale/ip }}
+vault_nas_02_syncoid_password: {{ op://Home Lab/nas-02/syncoid/password }}
+vault_nas_02_syncoid_username: {{ op://Home Lab/nas-02/syncoid/username }}
+vault_nas_03_syncoid_password: {{ op://Home Lab/nas-03/syncoid/password }}
+vault_nas_03_syncoid_username: {{ op://Home Lab/nas-03/syncoid/username }}
+vault_nas_host_01_ipmi_password: {{ op://Home Lab/nas-host-01 IPMI/password }}
+vault_nas_host_01_ipmi_username: {{ op://Home Lab/nas-host-01 IPMI/username }}
+vault_nas_host_01_mac_address: {{ op://Home Lab/nas-host-01/hardware/mac address }}
 vault_needledrop_lastfm_api_key: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/key }}
 vault_needledrop_lastfm_api_secret: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/shared secret }}
 vault_needledrop_lastfm_password_hash: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/add more/password md5 }}
@@ -92,6 +92,10 @@ vault_network_02_adguardhome_password: {{ op://Personal/adguardhome-02/password 
 vault_network_02_adguardhome_username: {{ op://Personal/adguardhome-02/username }}
 vault_network_03_adguardhome_password: {{ op://Personal/adguardhome-03/password }}
 vault_network_03_adguardhome_username: {{ op://Personal/adguardhome-03/username }}
+vault_network_inventory_manager_github_token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/network-inventory-manager }}
+vault_network_inventory_manager_op_service_account_token: {{ op://Home Lab/5p5muinzww2t5ltjnyabgxfwvy/credential }}
+vault_network_inventory_manager_unifi_password: {{ op://Home Lab/UniFi/users/network-inventory-manager password }}
+vault_network_inventory_manager_unifi_username: {{ op://Home Lab/UniFi/users/network-inventory-manager username }}
 vault_nextcloud_admin_password: {{ op://Personal/Nextcloud/password }}
 vault_nextcloud_admin_user: {{ op://Personal/Nextcloud/username }}
 vault_nextcloud_mysql_database: {{ op://Personal/Nextcloud/database/name }}
@@ -109,45 +113,45 @@ vault_omnivore_sso_jwt_secret: "{{ op://Personal/Omnivore/config/sso_jwt_secret 
 vault_omnivore_postgres_user: "{{ op://Personal/Omnivore/config/postgres_user }}"
 vault_omnivore_postgres_password: "{{ op://Personal/Omnivore/config/postgres_password }}"
 vault_omnivore_postgres_db: "{{ op://Personal/Omnivore/config/postgres_db }}"
-vault_offsite_nas_mac_address: {{ op://Personal/offsite-nas/hardware/mac address }}
-vault_offsite_nas_syncoid_username: {{ op://Personal/offsite-nas/syncoid/username }}
-vault_offsite_nas_smb_username: {{ op://Personal/offsite-nas/smb/username }}
-vault_offsite_nas_smb_password: {{ op://Personal/offsite-nas/smb/password }}
-vault_offsite_pikvm_auth_token: {{ op://Personal/offsite-pikvm/api/auth token }}
-vault_offsite_pikvm_web_username: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/username }}
-vault_offsite_pikvm_web_password: {{ op://Personal/qjy5n7brvlnnmdjnmwdwgslof4/password }}
+vault_offsite_nas_mac_address: {{ op://Home Lab/offsite-nas/hardware/mac address }}
+vault_offsite_nas_syncoid_username: {{ op://Home Lab/offsite-nas/syncoid/username }}
+vault_offsite_nas_smb_username: {{ op://Home Lab/offsite-nas/smb/username }}
+vault_offsite_nas_smb_password: {{ op://Home Lab/offsite-nas/smb/password }}
+vault_offsite_pikvm_auth_token: {{ op://Home Lab/offsite-pikvm/api/auth token }}
+vault_offsite_pikvm_web_username: {{ op://Home Lab/z4xlub3n6r2jtfyjivhwkefkv4/username }}
+vault_offsite_pikvm_web_password: {{ op://Home Lab/z4xlub3n6r2jtfyjivhwkefkv4/password }}
 vault_paperless_admin_user: "{{ op://Personal/Paperless-ngx/username }}"
 vault_paperless_admin_password: "{{ op://Personal/Paperless-ngx/password }}"
 vault_paperless_db_name: "{{ op://Personal/Paperless-ngx/database/name }}"
 vault_paperless_db_user: "{{ op://Personal/Paperless-ngx/database/username }}"
 vault_paperless_db_password: "{{ op://Personal/Paperless-ngx/database/password }}"
 vault_paperless_secret_key: "{{ op://Personal/Paperless-ngx/config/secret key }}"
-vault_pbs_fingerprint: {{ op://Personal/backup-01/add more/fingerprint }}
-vault_pbs_api_token_name: {{ op://Personal/backup-01/api/token name }}
-vault_pbs_api_token_value: {{ op://Personal/backup-01/api/token value }}
+vault_pbs_fingerprint: {{ op://Home Lab/backup-01/add more/fingerprint }}
+vault_pbs_api_token_name: {{ op://Home Lab/backup-01/api/token name }}
+vault_pbs_api_token_value: {{ op://Home Lab/backup-01/api/token value }}
 vault_pdu_rack_network_snmp_address: {{ op://Personal/pdu-rack-network/config/address }}
 vault_pdu_rack_network_snmp_read_write_community: {{ op://Personal/pdu-rack-network/snmp v1/read write community }}
-vault_pi_cluster_01_ansible_password: {{ op://Personal/pi-cluster-01/password }}
-vault_pi_cluster_02_ansible_password: {{ op://Personal/pi-cluster-02/password }}
-vault_pi_cluster_03_ansible_password: {{ op://Personal/pi-cluster-03/password }}
-vault_pi_cluster_04_ansible_password: {{ op://Personal/pi-cluster-04/password }}
-vault_pi_cluster_05_ansible_password: {{ op://Personal/pi-cluster-05/password }}
-vault_pi_cluster_06_ansible_password: {{ op://Personal/pi-cluster-06/password }}
-vault_pikvm_api_username: {{ op://Personal/xdhagq5ubzbr5iqoazkmqkdjcm/username }}
-vault_pikvm_api_password: {{ op://Personal/xdhagq5ubzbr5iqoazkmqkdjcm/password }}
-vault_pikvm_hid_api_username: {{ op://Personal/5vjainhr5zwkr7wo3oxaj4a3re/username }}
-vault_pikvm_hid_api_password: {{ op://Personal/5vjainhr5zwkr7wo3oxaj4a3re/password }}
+vault_pi_cluster_01_ansible_password: {{ op://Home Lab/pi-cluster-01/password }}
+vault_pi_cluster_02_ansible_password: {{ op://Home Lab/pi-cluster-02/password }}
+vault_pi_cluster_03_ansible_password: {{ op://Home Lab/pi-cluster-03/password }}
+vault_pi_cluster_04_ansible_password: {{ op://Home Lab/pi-cluster-04/password }}
+vault_pi_cluster_05_ansible_password: {{ op://Home Lab/pi-cluster-05/password }}
+vault_pi_cluster_06_ansible_password: {{ op://Home Lab/pi-cluster-06/password }}
+vault_pikvm_api_username: {{ op://Home Lab/a2ttpo3a7lr576kodz7yz7bnka/username }}
+vault_pikvm_api_password: {{ op://Home Lab/a2ttpo3a7lr576kodz7yz7bnka/password }}
+vault_pikvm_hid_api_username: {{ op://Home Lab/pq4deawt5ojibg6irq6mu7vmpe/username }}
+vault_pikvm_hid_api_password: {{ op://Home Lab/pq4deawt5ojibg6irq6mu7vmpe/password }}
 vault_pikvm_kvmd_ssh_private_key: |
 {{ op://Personal/pikvm - kvmd - SSH Key/add more/indented private key }}
 vault_pikvm_kvmd_ssh_public_key: {{ op://Personal/pikvm - kvmd - SSH Key/public key }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
-vault_proxmox_api_token_id_homepage: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/homepage api token/token id }}
-vault_proxmox_api_token_secret_homepage: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/homepage api token/secret }}
+vault_proxmox_api_token_id_homepage: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/homepage api token/token id }}
+vault_proxmox_api_token_secret_homepage: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/homepage api token/secret }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
-vault_proxmox_api_token_id_monitoring: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/monitoring api token/token id }}
-vault_proxmox_api_token_secret_monitoring: {{ op://Personal/mbmg5uixnqdb4p2xgr6ur5juuu/monitoring api token/secret }}
-vault_remote_power_control_homeassistant_access_token: {{ op://Personal/Home Assistant/access tokens/remote_power_control }}
+vault_proxmox_api_token_id_monitoring: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/monitoring api token/token id }}
+vault_proxmox_api_token_secret_monitoring: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/monitoring api token/secret }}
+vault_remote_power_control_homeassistant_access_token: {{ op://Home Lab/Home Assistant/access tokens/remote_power_control }}
 vault_scrutiny_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/scrutiny }}
 vault_servercat_ssh_public_key: {{ op://Personal/pibtry4hziwtyen2xklu5g2qzy/public key }}
 vault_searxng_secret_key: {{ op://Personal/searxng/config/secret key }}
@@ -155,10 +159,10 @@ vault_shinobi_db_name: "{{ op://Personal/Shinobi/database/name }}"
 vault_shinobi_db_username: "{{ op://Personal/Shinobi/database/username }}"
 vault_shinobi_db_password: "{{ op://Personal/Shinobi/database/password }}"
 vault_shinobi_db_root_password: "{{ op://Personal/Shinobi/database/root password }}"
-vault_smb_nas_01_gid: {{ op://Personal/nas-01/smb/gid }}
-vault_smb_nas_01_password: {{ op://Personal/nas-01/smb/password }}
-vault_smb_nas_01_uid: {{ op://Personal/nas-01/smb/uid }}
-vault_smb_nas_01_username: {{ op://Personal/nas-01/username }}
+vault_smb_nas_01_gid: {{ op://Home Lab/nas-01/smb/gid }}
+vault_smb_nas_01_password: {{ op://Home Lab/nas-01/smb/password }}
+vault_smb_nas_01_uid: {{ op://Home Lab/nas-01/smb/uid }}
+vault_smb_nas_01_username: {{ op://Home Lab/nas-01/username }}
 vault_smtp_host: {{ op://Personal/ansible SMTP/add more/host }}
 vault_smtp_port: {{ op://Personal/ansible SMTP/add more/port }}
 vault_smtp_password: {{ op://Personal/ansible SMTP/password }}
@@ -172,13 +176,13 @@ tsdproxy_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible tsdprox
 vault_tautulli_api_key: {{ op://Personal/Tautulli/anxdbqsd7twkt4ia265e4sv2xe/api key }}
 
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
-vault_ups_monitor_rack_nut_admin_password: {{ op://Personal/ups-monitor-rack/nut/admin password }}
-vault_ups_monitor_rack_nut_upsmon_password: {{ op://Personal/ups-monitor-rack/nut/upsmon password }}
-vault_ups_monitor_rack_nut_homeassistant_password: {{ op://Personal/ups-monitor-rack/nut/homeassistant password }}
-vault_ups_rack_snmp_address: {{ op://Personal/ups-rack/config/address }}
-vault_ups_rack_snmp_read_write_community: {{ op://Personal/ups-rack/snmp v1/read write community }}
-vault_vm_host_01_mac_address: {{ op://Personal/vm-host-01/hardware/mac address }}
-vault_vm_host_02_mac_address: {{ op://Personal/vm-host-02/hardware/mac address }}
-vault_vm_host_03_mac_address: {{ op://Personal/vm-host-03/hardware/mac address }}
+vault_ups_monitor_rack_nut_admin_password: {{ op://Home Lab/ups-monitor-rack/nut/admin password }}
+vault_ups_monitor_rack_nut_upsmon_password: {{ op://Home Lab/ups-monitor-rack/nut/upsmon password }}
+vault_ups_monitor_rack_nut_homeassistant_password: {{ op://Home Lab/ups-monitor-rack/nut/homeassistant password }}
+vault_ups_rack_snmp_address: {{ op://Home Lab/ups-rack/config/address }}
+vault_ups_rack_snmp_read_write_community: {{ op://Home Lab/ups-rack/snmp v1/read write community }}
+vault_vm_host_01_mac_address: {{ op://Home Lab/vm-host-01/hardware/mac address }}
+vault_vm_host_02_mac_address: {{ op://Home Lab/vm-host-02/hardware/mac address }}
+vault_vm_host_03_mac_address: {{ op://Home Lab/vm-host-03/hardware/mac address }}
 vault_work_laptop_01_ssh_public_key: {{ op://Work/uqd5fx77qsbcrgh3gtwb4ctv4u/public key }}
 vault_zed_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/zed }}

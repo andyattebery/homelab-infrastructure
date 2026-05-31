@@ -1,2 +1,2 @@
 vault_pve_cluster_initial_node_root_password: {{ op://Personal/snjs4u7t3bofhzkyy3wmjymme4/password }}
-vault_pve_cluster_fingerprint: {{ op://Personal/proxmox-01/add more/proxmox cluster fingerprint }}
+vault_pve_cluster_fingerprint: {{ op://Home Lab/proxmox-01/add more/proxmox cluster fingerprint }}
