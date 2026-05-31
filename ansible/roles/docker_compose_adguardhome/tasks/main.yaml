@@ -21,8 +21,11 @@
   when: not adguardhome_initial_setup_result.failed
   block:
     - name: AdGuardHome initial setup
-      vars:
-        setup_request:
+      ansible.builtin.uri:
+        url: "http://localhost:3000/control/install/configure"
+        method: POST
+        body_format: json
+        body:
           dns:
             can_autofix: false
             ip: "0.0.0.0"
@@ -36,33 +39,76 @@
           set_static_ip: false
           username: "{{ adguardhome_username }}"
           password: "{{ adguardhome_password }}"
+    - name: Configure TLS
       ansible.builtin.uri:
-        url: "http://localhost:3000/control/install/configure"
+        url: "http://localhost:80/control/tls/configure"
         method: POST
-        body: "{{ setup_request | to_json }}"
+        url_username: "{{ adguardhome_username }}"
+        url_password: "{{ adguardhome_password }}"
+        force_basic_auth: true
         body_format: json
-    - name: Get AdGuardHome.yaml
-      ansible.builtin.slurp:
-        src: "{{ adguardhome_config_file_path }}"
-      register: adguardhome_config_slurp_result
-    - name: Configure SSL
-      vars:
-        adguardhome_config: "{{ adguardhome_config_slurp_result.content | b64decode | from_yaml }}"
-        ssl_config:
-          tls:
-            enabled: true
-            server_name: "{{ adguardhome_hostname }}"
-            force_https: false
-            port_https: 443
-            port_dns_over_tls: 853
-            port_dns_over_quic: 784
-            certificate_path: "/certbot/config/live/{{ adguardhome_hostname }}/fullchain.pem"
-            private_key_path: "/certbot/config/live/{{ adguardhome_hostname }}/privkey.pem"
-        updated_adguardhome_config: "{{ adguardhome_config | combine(ssl_config) }}"
-      ansible.builtin.copy:
-        dest: "{{ adguardhome_config_file_path }}"
-        content: "{{ updated_adguardhome_config | to_yaml }}"
-        mode: "0644"
+        body:
+          enabled: true
+          server_name: "{{ adguardhome_hostname }}"
+          force_https: false
+          port_https: 443
+          port_dns_over_tls: 853
+          port_dns_over_quic: 784
+          certificate_path: "/certbot/config/live/{{ adguardhome_hostname }}/fullchain.pem"
+          private_key_path: "/certbot/config/live/{{ adguardhome_hostname }}/privkey.pem"
+          serve_plain_dns: true
+    - name: Configure DNS
+      ansible.builtin.uri:
+        url: "http://localhost:80/control/dns_config"
+        method: POST
+        url_username: "{{ adguardhome_username }}"
+        url_password: "{{ adguardhome_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          upstream_dns: "{{ adguardhome_upstream_dns }}"
+          bootstrap_dns: "{{ adguardhome_bootstrap_dns }}"
+          upstream_mode: "{{ adguardhome_upstream_mode }}"
+          ratelimit: 0
+          cache_size: 4194304
+          cache_enabled: true
+          refuse_any: true
+          trusted_proxies:
+            - "127.0.0.0/8"
+            - "::1/128"
+            - "10.0.0.0/24"
+            - "10.0.10.0/24"
+    - name: Add filter lists
+      ansible.builtin.uri:
+        url: "http://localhost:80/control/filtering/add_url"
+        method: POST
+        url_username: "{{ adguardhome_username }}"
+        url_password: "{{ adguardhome_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: "{{ item.name }}"
+          url: "{{ item.url }}"
+          enabled: true
+      loop: "{{ adguardhome_filters }}"
+    - name: Enable safe browsing
+      ansible.builtin.uri:
+        url: "http://localhost:80/control/safebrowsing/enable"
+        method: POST
+        url_username: "{{ adguardhome_username }}"
+        url_password: "{{ adguardhome_password }}"
+        force_basic_auth: true
+    - name: Configure filtering
+      ansible.builtin.uri:
+        url: "http://localhost:80/control/filtering/config"
+        method: POST
+        url_username: "{{ adguardhome_username }}"
+        url_password: "{{ adguardhome_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          enabled: true
+          interval: 24
     - name: Restart adguardhome
       ansible.builtin.command:
         cmd: docker restart adguardhome

@@ -1,3 +1,24 @@
 ---
 # adguardhome_docker_compose
 adguardhome_config_directory: "{{ (docker_compose_dst_directory_path, 'adguardhome', 'conf') | path_join }}"
+
+adguardhome_upstream_dns:
+  - https://dns.cloudflare.com/dns-query
+  - https://doh.libredns.gr/ads
+  - https://dns.quad9.net/dns-query
+
+adguardhome_bootstrap_dns:
+  - "9.9.9.10"
+  - "149.112.112.10"
+  - "2620:fe::10"
+  - "2620:fe::fe:10"
+
+adguardhome_upstream_mode: load_balance
+
+adguardhome_filters:
+  - name: AdGuard DNS filter
+    url: https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
+  - name: AdAway Default Blocklist
+    url: https://adaway.org/hosts.txt
+  - name: "HaGeZi's Normal Blocklist"
+    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt
