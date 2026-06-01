@@ -57,7 +57,31 @@ in {
     };
   };
 
-  config = let
+  config = lib.mkMerge [
+    {
+      sops.secrets."diun-pushover-token" = {};
+      sops.secrets."pushover-user-key" = {};
+      sops.templates."diun.yml" = {
+        content = builtins.readFile ./compose/diun.yml.tpl;
+      };
+      services.docker-compose.diun = {
+        composeFile = ../../ansible/roles/docker_compose_diun/files/docker-compose-diun.yaml;
+        configFiles."config/diun.yml".source = config.sops.templates."diun.yml".path;
+      };
+
+      services.dsm-provider = {
+        enable = true;
+        apiUrl = "https://dashboard-services-manager.${config.services.docker-compose-defaults.domainName}";
+        providers = [
+          {
+            type = "Docker";
+            hostname = config.networking.hostName;
+            dockerLabelPrefix = "dsm";
+          }
+        ];
+      };
+    }
+    (let
     defaults = config.services.docker-compose-defaults;
     userCfg = config.users.users.${defaults.user};
     defaultEnv = {
@@ -149,5 +173,6 @@ in {
         ${docker}/bin/docker system prune -f
       '')
     ];
-  };
+  })
+  ];
 }

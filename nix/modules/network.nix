@@ -136,35 +136,12 @@ in {
       };
     };
 
-    sops.secrets."diun-pushover-token" = {};
-    sops.secrets."pushover-user-key" = {};
-    sops.templates."diun.yml" = {
-      content = builtins.readFile ./compose/diun.yml.tpl;
-    };
-    services.docker-compose.diun = {
-      composeFile = ../../ansible/roles/docker_compose_diun/files/docker-compose-diun.yaml;
-      configFiles."config/diun.yml".source = config.sops.templates."diun.yml".path;
-    };
-
-    services.docker-compose.dsm-provider = {
-      composeFile = ./compose/docker-compose-dsm-provider.yaml;
-      configFiles."provider-config.yaml".source = pkgs.writeText "dsm-provider-config.yaml" ''
-        ProviderOptions:
-          ApiUrl: https://dashboard-services-manager.${vars.domainName}
-          ServicesProviders:
-            - ServicesProviderType: Docker
-              DockerLabelPrefix: dsm
-              AreServiceHostsHttps: true
-              Hostname: ${config.networking.hostName}
-            - ServicesProviderType: YamlFile
-              ServicesYamlFilePath: /config/provider-services.yaml
-              AreServiceHostsHttps: true
-      '';
-      configFiles."provider-services.yaml".source = pkgs.writeText "dsm-provider-services.yaml" ''
-        - name: AdGuard Home
-          url: https://${cfg.adguardhome.hostname}
-          hostname: ${config.networking.hostName}
-      '';
-    };
-  };
+    services.dsm-provider.services = [
+      {
+        name = "AdGuard Home";
+        url = "https://${cfg.adguardhome.hostname}";
+        hostname = config.networking.hostName;
+      }
+    ];
+};
 }
