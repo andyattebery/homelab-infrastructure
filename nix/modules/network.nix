@@ -136,7 +136,7 @@ in {
     };
     services.docker-compose.diun = {
       composeFile = ../../ansible/roles/docker_compose_diun/files/docker-compose-diun.yaml;
-      configFiles."diun/config/diun.yml".source = config.sops.templates."diun.yml".path;
+      configFiles."config/diun.yml".source = config.sops.templates."diun.yml".path;
     };
 
     services.docker-compose.dsm-provider = {

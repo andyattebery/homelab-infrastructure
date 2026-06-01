@@ -4,10 +4,10 @@ services:
     image: ghcr.io/mehdy/keepalived-exporter:latest
     container_name: keepalived-exporter
     restart: unless-stopped
+    pid: host
     network_mode: host
     volumes:
       - /tmp:/tmp:ro
       - /run/keepalived.pid:/run/keepalived.pid:ro
     command:
       - --ka.pid-path=/run/keepalived.pid
-      - --ka.json-path=/tmp/keepalived.data

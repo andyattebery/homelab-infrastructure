@@ -9,7 +9,7 @@
     adguardhomePasswordHash = "{{ op://Personal/adguardhome/config/password bcrypt hash }}";
   };
 
-  network-03 = {
+  network-02 = {
     adguardhomeUsername = "{{ op://Personal/adguardhome-02/username }}";
     adguardhomePasswordHash = "{{ op://Personal/adguardhome-02/config/password bcrypt hash }}";
   };
