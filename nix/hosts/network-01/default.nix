@@ -88,8 +88,6 @@
   };
 
   # --- adguardhome-sync textfile collector ---
-  systemd.tmpfiles.rules = [ "d /var/lib/node_exporter 0755 root root -" ];
-
   systemd.services.textfile-collector-adguardhome-sync = {
     description = "Textfile collector for adguardhome-sync";
     after = [ "docker-compose-adguardhome-sync.service" ];
