@@ -7,11 +7,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780297317,
-        "narHash": "sha256-VL1uA+4miLSOPfmOH9a+psav4Sk6HSYR5VOSyC+daCU=",
+        "lastModified": 1780319591,
+        "narHash": "sha256-rR3xbyCg7WMcVOXGLoUA/UI6qxxCySGvAgDl+VjspqI=",
         "owner": "andyattebery",
         "repo": "dashboard-services-manager",
-        "rev": "93dbf53455449c1659617cdc314cdfb7520bc7c1",
+        "rev": "64f1f2bfc86e950bc76cee0a40957f571d2c506d",
         "type": "github"
       },
       "original": {
