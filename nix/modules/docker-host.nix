@@ -62,7 +62,21 @@ in {
       sops.secrets."diun-pushover-token" = {};
       sops.secrets."pushover-user-key" = {};
       sops.templates."diun.yml" = {
-        content = builtins.readFile ./compose/diun.yml.tpl;
+        content = ''
+          watch:
+            workers: 20
+            schedule: "0 2 * * *"
+            firstCheckNotif: false
+          providers:
+            docker:
+              watchByDefault: true
+          notif:
+            pushover:
+              token: ${config.sops.placeholder."diun-pushover-token"}
+              recipient: ${config.sops.placeholder."pushover-user-key"}
+              templateTitle: '{{ .Meta.Hostname }}: {{ .Entry.Image.Path }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}'
+              templateBody: 'Image {{ if .Entry.Image.HubLink }}[**{{ .Entry.Image }}**]({{ .Entry.Image.HubLink }}){{ else }}**{{ .Entry.Image }}**{{ end }} {{ if (eq .Entry.Status "new") }}is available{{ else }}has been updated{{ end }}.'
+        '';
       };
       services.docker-compose.diun = {
         composeFile = ../../ansible/roles/docker_compose_diun/files/docker-compose-diun.yaml;
