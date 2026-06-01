@@ -125,8 +125,15 @@ in {
 
     services.docker-compose-defaults.domainName = vars.domainName;
 
-    services.docker-compose.keepalived-exporter = {
-      composeFile = ./compose/docker-compose-keepalived-exporter.yaml;
+    systemd.services.keepalived-exporter = {
+      description = "Prometheus keepalived exporter";
+      after = [ "keepalived.service" ];
+      wantedBy = [ "multi-user.target" ];
+      path = [ pkgs.bash pkgs.keepalived ];
+      serviceConfig = {
+        ExecStart = "${pkgs.callPackage ../pkgs/keepalived-exporter.nix {}}/bin/keepalived-exporter --ka.pid-path=/run/keepalived.pid";
+        Restart = "always";
+      };
     };
 
     sops.secrets."diun-pushover-token" = {};
