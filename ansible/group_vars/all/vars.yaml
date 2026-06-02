@@ -232,11 +232,11 @@ tailscale_tailnet: "{{ vault_tailscale_tailnet }}"
 
 tautulli_api_key: "{{ vault_tautulli_api_key }}"
 
-ups_monitor_rack_nut_ups_name: rack-ups
-ups_monitor_rack_nut_pdu_name: rack-pdu
-ups_monitor_rack_nut_server_address: "ups-monitor-rack.{{ domain_name }}"
-ups_monitor_rack_nut_upsmon_password: "{{ vault_ups_monitor_rack_nut_upsmon_password }}"
-ups_monitor_rack_nut_homeassistant_password: "{{ vault_ups_monitor_rack_nut_homeassistant_password }}"
+pi_rack_nut_ups_name: rack-ups
+pi_rack_nut_pdu_name: rack-pdu
+pi_rack_nut_server_address: "ups-monitor-rack.{{ domain_name }}"
+pi_rack_nut_upsmon_password: "{{ vault_pi_rack_nut_upsmon_password }}"
+pi_rack_nut_homeassistant_password: "{{ vault_pi_rack_nut_homeassistant_password }}"
 
 pdu_rack_network_snmp_address: "{{ vault_pdu_rack_network_snmp_address }}"
 pdu_rack_network_snmp_read_write_community: "{{ vault_pdu_rack_network_snmp_read_write_community }}"

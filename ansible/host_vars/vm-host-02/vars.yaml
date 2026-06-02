@@ -11,7 +11,6 @@ pve_node_ceph_osd_mode: activate_existing
 # ifupdown2 and result in no default route at all.
 ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
 ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
-security_ssh_permit_root_login: "prohibit-password"
 
 extra_packages:
   - intel-microcode

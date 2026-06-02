@@ -30,16 +30,16 @@ There is no reason to set both `nut_enable_server` and `nut_enable_client` to `t
     nut_enable_server: true
     nut_enable_server_remote_access: true
     nut_upses:
-      - name: "{{ ups_monitor_rack_nut_ups_name }}"
+      - name: "{{ pi_rack_nut_ups_name }}"
         driver: usbhid-ups # required
         port: auto # required
         desc: APC Back-UPS RS1000G
         vendorid: "051D"
         productid: "0002"
-    nut_monitor_primary_password: "{{ ups_monitor_rack_nut_upsmon_password }}"
+    nut_monitor_primary_password: "{{ pi_rack_nut_upsmon_password }}"
     nut_monitor_secondary_users:
       - name: homeassistant
-        password: "{{ ups_monitor_rack_nut_homeassistant_password }}"
+        password: "{{ pi_rack_nut_homeassistant_password }}"
     nut_notify_pushover_token: "{{ nut_pushover_token }}"
     nut_notify_pushover_user_key: "{{ pushover_user_key }}"
 ```

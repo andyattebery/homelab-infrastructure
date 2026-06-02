@@ -1,1 +1,1 @@
-vault_nut_client_password: {{ op://Home Lab/ups-monitor-rack/nut/backup-01 password }}
+vault_nut_client_password: {{ op://Home Lab/pi-rack/nut/backup-01 password }}

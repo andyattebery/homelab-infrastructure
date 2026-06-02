@@ -176,9 +176,9 @@ tsdproxy_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible tsdprox
 vault_tautulli_api_key: {{ op://Personal/Tautulli/anxdbqsd7twkt4ia265e4sv2xe/api key }}
 
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
-vault_ups_monitor_rack_nut_admin_password: {{ op://Home Lab/ups-monitor-rack/nut/admin password }}
-vault_ups_monitor_rack_nut_upsmon_password: {{ op://Home Lab/ups-monitor-rack/nut/upsmon password }}
-vault_ups_monitor_rack_nut_homeassistant_password: {{ op://Home Lab/ups-monitor-rack/nut/homeassistant password }}
+vault_pi_rack_nut_admin_password: {{ op://Home Lab/pi-rack/nut/admin password }}
+vault_pi_rack_nut_upsmon_password: {{ op://Home Lab/pi-rack/nut/upsmon password }}
+vault_pi_rack_nut_homeassistant_password: {{ op://Home Lab/pi-rack/nut/homeassistant password }}
 vault_ups_rack_snmp_address: {{ op://Home Lab/ups-rack/config/address }}
 vault_ups_rack_snmp_read_write_community: {{ op://Home Lab/ups-rack/snmp v1/read write community }}
 vault_vm_host_01_mac_address: {{ op://Home Lab/vm-host-01/hardware/mac address }}

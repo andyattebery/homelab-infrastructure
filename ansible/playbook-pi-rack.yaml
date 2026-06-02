@@ -15,19 +15,19 @@
         nut_enable_server_remote_access: true
         nut_enable_snmp: true
         nut_upses:
-          - name: "{{ ups_monitor_rack_nut_ups_name }}"
+          - name: "{{ pi_rack_nut_ups_name }}"
             driver: snmp-ups
             port: "{{ ups_rack_snmp_address }}"
             desc: APC Smart-UPS SMT1500RM2U via AP9630 (NMC2)
             snmp_version: v1
             community: "{{ ups_rack_snmp_read_write_community }}"
-          # - name: "{{ ups_monitor_rack_nut_ups_name }}"
+          # - name: "{{ pi_rack_nut_ups_name }}"
           #   driver: usbhid-ups # required
           #   port: auto # required
           #   desc: APC Smart-UPS SMT1500RM2U
           #   vendorid: "051D"
           #   productid: "0003"
-          # - name: "{{ ups_monitor_rack_nut_pdu_name }}"
+          # - name: "{{ pi_rack_nut_pdu_name }}"
           #   driver: snmp-ups
           #   mibs: cyberpower
           #   port: "{{ pdu_rack_network_snmp_address }}"
@@ -36,11 +36,11 @@
           #   community: "{{ pdu_rack_network_snmp_read_write_community }}"
         nut_server_listen_interfaces:
           - ups-monitor-rack.{{ domain_name }}
-        nut_monitor_primary_password: "{{ ups_monitor_rack_nut_upsmon_password }}"
+        nut_monitor_primary_password: "{{ pi_rack_nut_upsmon_password }}"
         nut_monitor_secondary_users: >-
           {{
-            [{'name': 'homeassistant', 'password': ups_monitor_rack_nut_homeassistant_password}]
-            + (groups['ups_monitor_rack_nut_clients']
+            [{'name': 'homeassistant', 'password': pi_rack_nut_homeassistant_password}]
+            + (groups['pi_rack_nut_clients']
                | map('extract', hostvars)
                | list
                | community.general.json_query('[].{name: nut_client_username, password: nut_client_password}'))

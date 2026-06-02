@@ -39,8 +39,6 @@ pve_backup_job_script_healthchecks_io_uuid: bcc471ae-d0f3-4e7f-8db5-4b5465721be0
 nut_client_username: "vm-host-01"
 nut_client_password: "{{ vault_nut_client_password }}"
 
-security_ssh_permit_root_login: "prohibit-password"
-
 # e1000e onboard NIC hits "Detected Hardware Unit Hang" every ~16-19h,
 # triggering a watchdog reset. Disabling TSO/GSO is a known workaround.
 e1000e_disable_offloads_nics:

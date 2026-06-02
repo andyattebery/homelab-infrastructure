@@ -65,8 +65,8 @@
       vars:
         nut_enable_client: true
         nut_client_servers:
-          - ups_name: "{{ ups_monitor_rack_nut_ups_name }}"
-            server_address: "{{ ups_monitor_rack_nut_server_address }}"
+          - ups_name: "{{ pi_rack_nut_ups_name }}"
+            server_address: "{{ pi_rack_nut_server_address }}"
             username: "{{ nut_client_username }}"
             password: "{{ nut_client_password }}"
       ansible.builtin.import_role:
