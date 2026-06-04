@@ -172,6 +172,8 @@ services:
     hostname: media-01
   s3:
     hostname: nas-01
+  ups-monitor-rack:
+    hostname: pi-rack
 
 # Hosts on a different domain (e.g., Tailscale)
 other_hosts:
