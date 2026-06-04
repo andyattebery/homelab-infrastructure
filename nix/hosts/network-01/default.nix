@@ -51,7 +51,7 @@
 
   services.docker-compose.adguardhome-sync = {
     composeFile = ../../../ansible/roles/docker_compose_adguardhome_sync/files/docker-compose-adguardhome-sync.yaml;
-    environment.ADGUARDHOME_HOSTNAME = "adguardhome.${vars.domainName}";
+    environment.ADGUARDHOME_SYNC_HOSTNAME = "adguardhome.${vars.domainName}";
     configFiles."adguardhome-sync.yaml".source =
       config.sops.templates."adguardhome-sync.yaml".path;
   };

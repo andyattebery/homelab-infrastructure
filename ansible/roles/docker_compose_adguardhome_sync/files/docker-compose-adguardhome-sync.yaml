@@ -9,4 +9,4 @@ services:
       - 8080:8080
     restart: unless-stopped
     labels:
-      - dsm.url=http://${ADGUARDHOME_HOSTNAME}:8080
+      - dsm.url=http://${ADGUARDHOME_SYNC_HOSTNAME}:8080
