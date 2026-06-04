@@ -52,6 +52,11 @@ in {
   # Firewall disabled — do not add allowedTCPPorts/allowedUDPPorts/openFirewall anywhere.
   networking.firewall.enable = false;
 
+  # UDM Pro sends option 24 (Path MTU Aging Timeout) with encoding dhcpcd can't parse as embedded.
+  networking.dhcpcd.extraConfig = ''
+    define 24 uint32 mtu_aging_timeout
+  '';
+
   environment.systemPackages = with pkgs; [
     git vim tmux mosh htop jq
   ];
