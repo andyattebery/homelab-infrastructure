@@ -23,3 +23,14 @@ nim-unifi-password: {{ op://Home Lab/UniFi/users/network-inventory-manager passw
 nim-op-service-account-token: {{ op://Home Lab/5p5muinzww2t5ltjnyabgxfwvy/credential }}
 diun-pushover-token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
 pushover-user-key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
+
+# nut
+nut-admin-password: {{ op://Home Lab/pi-rack/nut/admin password }}
+nut-monitor-primary-password: {{ op://Home Lab/pi-rack/nut/upsmon password }}
+nut-homeassistant-password: {{ op://Home Lab/pi-rack/nut/homeassistant password }}
+nut-client-nas-host-01-password: {{ op://Home Lab/pi-rack/nut/nas-host-01 password }}
+nut-client-vm-host-01-password: {{ op://Home Lab/pi-rack/nut/vm-host-01 password }}
+nut-client-vm-host-02-password: {{ op://Home Lab/pi-rack/nut/vm-host-02 password }}
+nut-client-network-02-password: {{ op://Home Lab/pi-rack/nut/network-02 password }}
+nut-client-backup-01-password: {{ op://Home Lab/pi-rack/nut/backup-01 password }}
+nut-pushover-token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/nut }}

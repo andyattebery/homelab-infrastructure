@@ -22,7 +22,7 @@ in {
   };
 
   config = lib.mkIf cfg.enable {
-    services.resolved.extraConfig = "DNSStubListener=no";
+    services.resolved.settings.Resolve.DNSStubListener = "no";
 
     sops.secrets."tailscale-auth-key" = {};
     services.tailscale.authKeyFile = config.sops.secrets."tailscale-auth-key".path;

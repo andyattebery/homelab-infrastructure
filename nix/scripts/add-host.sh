@@ -63,12 +63,12 @@ if [ "$TAILSCALE" = true ]; then
 fi
 if [ -n "$EXTRA_MODULES" ]; then
   MODULES_LIST=$(echo "$EXTRA_MODULES" | sed 's/ /\\n        /g')
-  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" [\\
+  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" \"x86_64-linux\" [\\
         $MODULES_LIST\\
       ];\\
       # END_HOSTS|" "$NIX_DIR/flake.nix"
 else
-  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" [];\\
+  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" \"x86_64-linux\" [];\\
       # END_HOSTS|" "$NIX_DIR/flake.nix"
 fi
 rm -f "$NIX_DIR/flake.nix.bak"

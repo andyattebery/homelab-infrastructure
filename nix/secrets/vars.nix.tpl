@@ -18,4 +18,9 @@
     adguardhomeUsername = "{{ op://Personal/adguardhome-03/username }}";
     adguardhomePasswordHash = "{{ op://Personal/adguardhome-03/config/password bcrypt hash }}";
   };
+
+  nut = {
+    upsSnmpAddress = "{{ op://Home Lab/ups-rack/config/address }}";
+    upsSnmpCommunity = "{{ op://Home Lab/ups-rack/snmp v1/read write community }}";
+  };
 }
