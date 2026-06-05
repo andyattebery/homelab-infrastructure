@@ -16,6 +16,25 @@ ManagerOptions:
     - Ollama
 
 # Override or extend bundled defaults (see service-defaults.yaml shipped with the app):
-# ServiceDefaultOptions:
-#   Services:
-
+ServiceDefaultOptions:
+  Services:
+    adguard home:
+      NameWithHostnameFormatString: AdGuard Home (%s)
+      Category: network
+      Icon: hl-adguard-home
+    adguard home sync:
+      Category: network
+    comfyui:
+      NameWithHostnameFormatString: ComfyUI
+      Category: ai
+    frigate:
+      Category: smart home
+    kohya ss:
+      NameWithHostnameFormatString: koyha-ss
+      Category: ai
+    swarmui:
+      NameWithHostnameFormatString: SwarmUI
+      Category: ai
+    tensorboard:
+      Category: ai
+      Icon: hl-tensorflow
