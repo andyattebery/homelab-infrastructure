@@ -8,6 +8,7 @@
   ];
 
   networking.hostName = "network-01";
+  services.docker-compose-defaults.domainName = vars.domainName;
 
   homelab.network = {
     enable = true;

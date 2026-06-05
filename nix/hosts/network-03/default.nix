@@ -3,7 +3,6 @@
     ../proxmox-vm-hardware.nix
     ../../modules/proxmox-guest.nix
     ../../modules/tailscale.nix
-    ../../modules/docker-host.nix
     ../../modules/network.nix
   ];
 

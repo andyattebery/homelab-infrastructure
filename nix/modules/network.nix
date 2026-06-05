@@ -1,4 +1,4 @@
-# Requires docker-host.nix and tailscale.nix to be imported alongside this module.
+# Requires tailscale.nix to be imported alongside this module.
 { config, lib, pkgs, vars, ... }:
 let
   cfg = config.homelab.network;
@@ -141,7 +141,10 @@ in {
         };
       };
 
-      services.docker-compose-defaults.domainName = vars.domainName;
+      services.dsm-provider = {
+        enable = true;
+        apiUrl = "https://dashboard-services-manager.${vars.domainName}";
+      };
 
       systemd.services.keepalived-exporter = {
         description = "Prometheus keepalived exporter";

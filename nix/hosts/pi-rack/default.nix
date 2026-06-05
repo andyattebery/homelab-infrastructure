@@ -2,12 +2,12 @@
   imports = [
     ../../modules/rpi4.nix
     ../../modules/tailscale.nix
-    ../../modules/docker-host.nix
     ../../modules/network.nix
     ../../modules/nut.nix
   ];
 
-  networking.hostName = "network-02";
+  networking.hostName = "pi-rack";
+  system.stateVersion = "26.05";
 
   hardware.raspberry-pi."4".poe-plus-hat = {
     enable = true;

@@ -49,9 +49,8 @@
           services.network-inventory-manager.package = pkgs.network-inventory-manager;
         })
       ];
-      network-02 = mkHost "network-02" "aarch64-linux" [
+      pi-rack = mkHost "pi-rack" "aarch64-linux" [
         ./modules/tailscale.nix
-        ./modules/docker-host.nix
         ./modules/network.nix
         ./modules/nut.nix
         nixos-hardware.nixosModules.raspberry-pi-4
@@ -59,7 +58,6 @@
       ];
       network-03 = mkHost "network-03" "x86_64-linux" [
         ./modules/tailscale.nix
-        ./modules/docker-host.nix
         ./modules/network.nix
         dsm.nixosModules.dsm-provider
       ];

@@ -83,17 +83,13 @@ in {
         configFiles."config/diun.yml".source = config.sops.templates."diun.yml".path;
       };
 
-      services.dsm-provider = {
-        enable = true;
-        apiUrl = "https://dashboard-services-manager.${config.services.docker-compose-defaults.domainName}";
-        providers = [
-          {
-            type = "Docker";
-            hostname = config.networking.hostName;
-            dockerLabelPrefix = "dsm";
-          }
-        ];
-      };
+      services.dsm-provider.providers = [
+        {
+          type = "Docker";
+          hostname = config.networking.hostName;
+          dockerLabelPrefix = "dsm";
+        }
+      ];
     }
     (let
     defaults = config.services.docker-compose-defaults;
