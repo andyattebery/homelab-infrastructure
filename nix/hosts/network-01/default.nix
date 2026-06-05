@@ -21,6 +21,13 @@
       priority = 200;
       isMaster = true;
     };
+    reverseProxy = {
+      enable = true;
+      virtualHosts = {
+        "adguardhome-sync" = { port = 8080; };
+        "network-inventory-manager" = { port = 8090; };
+      };
+    };
   };
 
   # --- adguardhome-sync ---
@@ -51,10 +58,17 @@
 
   services.docker-compose.adguardhome-sync = {
     composeFile = ../../../ansible/roles/docker_compose_adguardhome_sync/files/docker-compose-adguardhome-sync.yaml;
-    environment.ADGUARDHOME_SYNC_HOSTNAME = "adguardhome.${vars.domainName}";
     configFiles."adguardhome-sync.yaml".source =
       config.sops.templates."adguardhome-sync.yaml".path;
   };
+
+  services.dsm-provider.services = [
+    {
+      name = "AdGuard Home Sync";
+      url = "https://adguardhome-sync.${vars.domainName}";
+      hostname = config.networking.hostName;
+    }
+  ];
 
   # --- network-inventory-manager ---
   sops.secrets."nim-github-token" = {};

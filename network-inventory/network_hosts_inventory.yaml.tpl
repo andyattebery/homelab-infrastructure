@@ -29,9 +29,6 @@ homelab_hosts:
   pi-rack:
     ip: 192.168.1.226
     mac: {{ op://Home Lab/pi-rack/hardware/mac address }}
-  network-02:
-    ip: 192.168.1.226
-    mac: {{ op://Home Lab/pi-rack/hardware/mac address }}
   vm-host-01:
     ip: 192.168.1.241
     mac: {{ op://Home Lab/vm-host-01/hardware/mac address }}
@@ -164,6 +161,8 @@ services:
     hostname: docker-01
   netbootxyz-assets:
     hostname: nas-01
+  network-02:
+    hostname: pi-rack
   obico-ml:
     hostname: media-01
   ollama:
@@ -172,6 +171,8 @@ services:
     hostname: media-01
   s3:
     hostname: nas-01
+  network-inventory-manager:
+    hostname: network-01
   ups-monitor-rack:
     hostname: pi-rack
 

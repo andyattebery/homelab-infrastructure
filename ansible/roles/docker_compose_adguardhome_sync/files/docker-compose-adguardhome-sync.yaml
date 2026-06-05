@@ -8,5 +8,3 @@ services:
     ports:
       - 8080:8080
     restart: unless-stopped
-    labels:
-      - dsm.url=http://${ADGUARDHOME_SYNC_HOSTNAME}:8080
