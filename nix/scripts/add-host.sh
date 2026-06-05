@@ -27,7 +27,9 @@ if [ -d "$HOST_DIR" ]; then
   exit 1
 fi
 
-echo "==> Creating $HOST_DIR/default.nix"
+STATE_VERSION=$(grep 'nixpkgs.url' "$NIX_DIR/flake.nix" | sed 's/.*nixos-\([0-9.]*\).*/\1/')
+
+echo "==> Creating $HOST_DIR/default.nix (stateVersion $STATE_VERSION)"
 mkdir -p "$HOST_DIR"
 if [ "$PROXMOX" = true ]; then
   cat > "$HOST_DIR/default.nix" << EOF
@@ -37,12 +39,14 @@ if [ "$PROXMOX" = true ]; then
     ../../modules/proxmox-guest.nix
   ];
   networking.hostName = "$HOSTNAME";
+  system.stateVersion = "$STATE_VERSION";
 }
 EOF
 else
   cat > "$HOST_DIR/default.nix" << EOF
 { ... }: {
   networking.hostName = "$HOSTNAME";
+  system.stateVersion = "$STATE_VERSION";
 }
 EOF
 fi

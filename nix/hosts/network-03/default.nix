@@ -7,6 +7,7 @@
   ];
 
   networking.hostName = "network-03";
+  system.stateVersion = "25.11";
 
   homelab.network = {
     enable = true;

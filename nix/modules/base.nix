@@ -72,5 +72,4 @@ in {
 
   services.chrony.enable = true;
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  system.stateVersion = lib.mkDefault "26.05";
 }

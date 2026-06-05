@@ -10,6 +10,7 @@ in {
   ];
 
   networking.hostName = "network-01";
+  system.stateVersion = "25.11";
 
   homelab.network = {
     enable = true;
