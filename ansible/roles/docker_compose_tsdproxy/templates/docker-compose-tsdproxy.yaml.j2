@@ -17,6 +17,7 @@ services:
       - traefik.enable=true
       - "traefik.http.routers.tsdproxy.rule=Host(`tsdproxy.${HOSTNAME}.${DOMAIN_NAME}`)"
       - traefik.http.services.tsdproxy.loadbalancer.server.port=8080
+      - dsm.ignore=true
 
 networks:
   traefik:
