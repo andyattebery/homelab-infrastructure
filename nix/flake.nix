@@ -38,7 +38,6 @@
     nixosConfigurations = {
       network-01 = mkHost "network-01" "x86_64-linux" [
         ./modules/tailscale.nix
-        ./modules/docker-host.nix
         ./modules/network.nix
         dsm.nixosModules.dsm-provider
         nim.nixosModules.default

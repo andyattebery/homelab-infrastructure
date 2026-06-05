@@ -7,7 +7,6 @@
   ];
 
   networking.hostName = "pi-rack";
-  system.stateVersion = "26.05";
 
   hardware.raspberry-pi."4".poe-plus-hat = {
     enable = true;

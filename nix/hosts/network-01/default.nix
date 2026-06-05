@@ -1,14 +1,15 @@
-{ config, pkgs, vars, ... }: {
+{ config, pkgs, vars, ... }:
+let
+  adguardhome-sync = pkgs.callPackage ../../pkgs/adguardhome-sync.nix {};
+in {
   imports = [
     ../proxmox-vm-hardware.nix
     ../../modules/proxmox-guest.nix
     ../../modules/tailscale.nix
-    ../../modules/docker-host.nix
     ../../modules/network.nix
   ];
 
   networking.hostName = "network-01";
-  services.docker-compose-defaults.domainName = vars.domainName;
 
   homelab.network = {
     enable = true;
@@ -40,9 +41,14 @@
   sops.secrets."adguardhome-sync-replica-03-password" = {};
 
   sops.templates."adguardhome-sync.yaml" = {
+    owner = "services";
+    restartUnits = [ "adguardhome-sync.service" ];
     content = ''
       cron: "*/30 * * * *"
       runOnStart: true
+      api:
+        metrics:
+          enabled: true
       origin:
         url: https://adguardhome.${vars.domainName}
         username: ${config.sops.placeholder."adguardhome-sync-origin-username"}
@@ -57,10 +63,19 @@
     '';
   };
 
-  services.docker-compose.adguardhome-sync = {
-    composeFile = ../../../ansible/roles/docker_compose_adguardhome_sync/files/docker-compose-adguardhome-sync.yaml;
-    configFiles."adguardhome-sync.yaml".source =
-      config.sops.templates."adguardhome-sync.yaml".path;
+  systemd.services.adguardhome-sync = {
+    description = "AdGuard Home Sync";
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      User = "services";
+      Group = "services";
+      ExecStart = "${adguardhome-sync}/bin/adguardhome-sync run --config ${config.sops.templates."adguardhome-sync.yaml".path}";
+      Restart = "always";
+      RestartSec = 10;
+    };
   };
 
   services.dsm-provider.services = [
@@ -100,34 +115,4 @@
     environmentFile = config.sops.templates."nim-env".path;
   };
 
-  # --- adguardhome-sync textfile collector ---
-  systemd.services.textfile-collector-adguardhome-sync = {
-    description = "Textfile collector for adguardhome-sync";
-    after = [ "docker-compose-adguardhome-sync.service" ];
-    path = [ config.virtualisation.docker.package pkgs.gawk pkgs.coreutils ];
-    serviceConfig = {
-      Type = "oneshot";
-      ExecStart = pkgs.writeShellScript "textfile-collector-adguardhome-sync" ''
-        set -u
-        OUT_FILE="/var/lib/node_exporter/adguardhome-sync.prom"
-        TMP_FILE="$OUT_FILE.tmp.$$"
-        cleanup() { rm -f "$TMP_FILE"; }
-        trap cleanup EXIT
-        {
-          ts=$(docker logs --since=24h adguardhome-sync 2>&1 | grep 'Sync done' | tail -1 | awk '{print $1}')
-          [ -n "$ts" ] && printf 'adguardhome_sync_last_success_timestamp %d\n' "$(date -d "$ts" +%s)"
-        } > "$TMP_FILE"
-        mv "$TMP_FILE" "$OUT_FILE"
-      '';
-    };
-  };
-
-  systemd.timers.textfile-collector-adguardhome-sync = {
-    wantedBy = [ "timers.target" ];
-    timerConfig = {
-      OnBootSec = "30s";
-      OnUnitActiveSec = "300s";
-      AccuracySec = "1s";
-    };
-  };
 }
