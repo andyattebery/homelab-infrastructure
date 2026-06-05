@@ -15,11 +15,9 @@ adguardhome-sync-replica-03-username: {{ op://Personal/adguardhome-03/username }
 adguardhome-sync-replica-03-password: {{ op://Personal/adguardhome-03/password }}
 
 # network-inventory-manager
-nim-github-token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/network-inventory-manager }}
-nim-adguardhome-username: {{ op://Personal/adguardhome/username }}
 nim-adguardhome-password: {{ op://Personal/adguardhome/password }}
-nim-unifi-username: {{ op://Home Lab/UniFi/users/network-inventory-manager username }}
 nim-unifi-password: {{ op://Home Lab/UniFi/users/network-inventory-manager password }}
+nim-github-token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/network-inventory-manager }}
 nim-op-service-account-token: {{ op://Home Lab/5p5muinzww2t5ltjnyabgxfwvy/credential }}
 diun-pushover-token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
 pushover-user-key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}

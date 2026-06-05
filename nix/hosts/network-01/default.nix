@@ -71,34 +71,32 @@
   ];
 
   # --- network-inventory-manager ---
-  sops.secrets."nim-github-token" = {};
-  sops.secrets."nim-adguardhome-username" = {};
   sops.secrets."nim-adguardhome-password" = {};
-  sops.secrets."nim-unifi-username" = {};
   sops.secrets."nim-unifi-password" = {};
+  sops.secrets."nim-github-token" = {};
   sops.secrets."nim-op-service-account-token" = {};
 
-  sops.templates."nim-settings.yaml" = {
-    content = ''
-      config_repo: andyattebery/homelab-infrastructure
-      repo_config_path: network-inventory/network_hosts_inventory.yaml.tpl
-      github_token: "${config.sops.placeholder."nim-github-token"}"
-      dsm_url: https://dashboard-services-manager.${vars.domainName}
-      adguardhome_url: http://192.168.1.224:3000
-      adguardhome_username: "${config.sops.placeholder."nim-adguardhome-username"}"
-      adguardhome_password: "${config.sops.placeholder."nim-adguardhome-password"}"
-      unifi_url: https://192.168.1.1
-      unifi_username: "${config.sops.placeholder."nim-unifi-username"}"
-      unifi_password: "${config.sops.placeholder."nim-unifi-password"}"
-      op_service_account_token: "${config.sops.placeholder."nim-op-service-account-token"}"
-      sync_interval: 1800
-    '';
-  };
+  sops.templates."nim-env".content = ''
+    ADGUARDHOME_PASSWORD=${config.sops.placeholder."nim-adguardhome-password"}
+    UNIFI_PASSWORD=${config.sops.placeholder."nim-unifi-password"}
+    GITHUB_TOKEN=${config.sops.placeholder."nim-github-token"}
+    OP_SERVICE_ACCOUNT_TOKEN=${config.sops.placeholder."nim-op-service-account-token"}
+  '';
 
-  services.docker-compose.network-inventory-manager = {
-    composeFile = ../../../ansible/roles/docker_compose_network_inventory_manager/files/docker-compose-network-inventory-manager.yaml;
-    configFiles."settings.yaml".source =
-      config.sops.templates."nim-settings.yaml".path;
+  services.network-inventory-manager = {
+    enable = true;
+    settings = {
+      dsmUrl = "https://dashboard-services-manager.${vars.domainName}";
+      adguardhomeUrl = "http://localhost:3000";
+      adguardhomeUsername = vars.network-01.adguardhomeUsername;
+      unifiUrl = "https://192.168.1.1";
+      unifiUsername = vars.nim.unifiUsername;
+      configRepo = "andyattebery/homelab-infrastructure";
+      repoConfigPath = "network-inventory/network_hosts_inventory.yaml.tpl";
+      syncInterval = 1800;
+      port = 8090;
+    };
+    environmentFile = config.sops.templates."nim-env".path;
   };
 
   # --- adguardhome-sync textfile collector ---

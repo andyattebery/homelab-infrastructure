@@ -20,6 +20,26 @@
         "type": "github"
       }
     },
+    "nim": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1780613935,
+        "narHash": "sha256-b+Bx9vozCvUHO50fZhDDTPwUN8dPkGkzkWI0k/71f2s=",
+        "owner": "andyattebery",
+        "repo": "network-inventory-manager",
+        "rev": "c2b071e7ca24db678f9f6accb63c497ffeda47e9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "andyattebery",
+        "repo": "network-inventory-manager",
+        "type": "github"
+      }
+    },
     "nixos-hardware": {
       "inputs": {
         "nixpkgs": [
@@ -59,6 +79,7 @@
     "root": {
       "inputs": {
         "dsm": "dsm",
+        "nim": "nim",
         "nixos-hardware": "nixos-hardware",
         "nixpkgs": "nixpkgs",
         "sops-nix": "sops-nix"

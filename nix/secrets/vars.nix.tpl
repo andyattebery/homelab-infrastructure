@@ -19,6 +19,10 @@
     adguardhomePasswordHash = "{{ op://Personal/adguardhome-03/config/password bcrypt hash }}";
   };
 
+  nim = {
+    unifiUsername = "{{ op://Home Lab/UniFi/users/network-inventory-manager username }}";
+  };
+
   nut = {
     upsSnmpAddress = "{{ op://Home Lab/ups-rack/config/address }}";
     upsSnmpCommunity = "{{ op://Home Lab/ups-rack/snmp v1/read write community }}";

@@ -9,13 +9,17 @@
       url = "github:andyattebery/dashboard-services-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nim = {
+      url = "github:andyattebery/network-inventory-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-hardware = {
       url = "github:NixOS/nixos-hardware";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, sops-nix, dsm, nixos-hardware, ... }:
+  outputs = { self, nixpkgs, sops-nix, dsm, nim, nixos-hardware, ... }:
   let
     mkHost = hostname: system: extraModules: nixpkgs.lib.nixosSystem {
       specialArgs = {
@@ -37,6 +41,13 @@
         ./modules/docker-host.nix
         ./modules/network.nix
         dsm.nixosModules.dsm-provider
+        nim.nixosModules.default
+        ({ lib, pkgs, ... }: {
+          nixpkgs.overlays = [ nim.overlays.default ];
+          nixpkgs.config.allowUnfreePredicate = pkg:
+            builtins.elem (lib.getName pkg) [ "1password-cli" ];
+          services.network-inventory-manager.package = pkgs.network-inventory-manager;
+        })
       ];
       network-02 = mkHost "network-02" "aarch64-linux" [
         ./modules/tailscale.nix
