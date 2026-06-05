@@ -125,7 +125,7 @@ homelab_hosts:
     ip: 192.168.1.186
 
   # Gaming
-  bazzite:
+  htpc-01:
     ip: 192.168.1.180
     mac: {{ op://Home Lab/bazzite/hardware/mac address }}
   rg35xxsp:
@@ -161,8 +161,6 @@ services:
     hostname: docker-01
   netbootxyz-assets:
     hostname: nas-01
-  network-02:
-    hostname: pi-rack
   obico-ml:
     hostname: media-01
   ollama:
@@ -173,6 +171,11 @@ services:
     hostname: nas-01
   network-inventory-manager:
     hostname: network-01
+  # aliases
+  bazzite:
+    hostname: htpc-01
+  network-02:
+    hostname: pi-rack
   ups-monitor-rack:
     hostname: pi-rack
 
