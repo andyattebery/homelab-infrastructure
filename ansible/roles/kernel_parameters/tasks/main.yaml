@@ -27,13 +27,27 @@
           when: "(proxmox_boot_tool_status_result.rc == 0)"
           ansible.builtin.set_fact:
             __kernel_parameters_is_proxmox_systemd_boot: true
-    # Assume Ubuntu is using grub
-    - name: Ubuntu or Fedora
-      when: ansible_facts['distribution'] == 'Ubuntu' or ansible_facts['distribution'] == 'Fedora'
+    - name: Check for rpm-ostree
+      ansible.builtin.command:
+        cmd: which rpm-ostree
+      register: __kernel_parameters_rpm_ostree_check
+      changed_when: false
+      failed_when: false
+    - name: Set __kernel_parameters_is_rpm_ostree
+      when: __kernel_parameters_rpm_ostree_check.rc == 0
+      ansible.builtin.set_fact:
+        __kernel_parameters_is_rpm_ostree: true
+    - name: Ubuntu or Fedora (grub)
+      when:
+        - not __kernel_parameters_is_rpm_ostree | default(false)
+        - ansible_facts['distribution'] in ['Ubuntu', 'Fedora']
       ansible.builtin.set_fact:
         __kernel_parameters_is_grub: true
     - name: Throw unsupported distribution error
-      when: (not __kernel_parameters_is_grub is defined or not __kernel_parameters_is_grub) and (not __kernel_parameters_is_proxmox_systemd_boot is defined or not __kernel_parameters_is_proxmox_systemd_boot)
+      when: >-
+        (not __kernel_parameters_is_grub | default(false))
+        and (not __kernel_parameters_is_proxmox_systemd_boot | default(false))
+        and (not __kernel_parameters_is_rpm_ostree | default(false))
       ansible.builtin.fail:
         msg: "Only Proxmox, Ubuntu, and Fedora are supported. Other distributions that use grub 2 can be supported by setting __kernel_parameters_is_grub to true."
     - name: Configure grub
@@ -44,3 +58,7 @@
       when: __kernel_parameters_is_proxmox_systemd_boot is defined and __kernel_parameters_is_proxmox_systemd_boot
       ansible.builtin.import_tasks:
         file: configure_proxmox_systemd_boot.yaml
+    - name: Configure rpm-ostree
+      when: __kernel_parameters_is_rpm_ostree is defined and __kernel_parameters_is_rpm_ostree
+      ansible.builtin.import_tasks:
+        file: configure_rpm_ostree.yaml

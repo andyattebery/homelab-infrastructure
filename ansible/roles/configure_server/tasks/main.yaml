@@ -1,72 +1,17 @@
 ---
-- name: Copy Github SSH authorized keys
-  ansible.posix.authorized_key:
-    user: "{{ ansible_user }}"
-    key: https://github.com/andyattebery.keys
-    state: present
-- name: Add SSH authorized keys
-  ansible.posix.authorized_key:
-    user: "{{ ansible_user }}"
-    key: "{{ ssh_public_key }}"
-    state: present
-  loop:
-    - "{{ blink_ssh_public_key }}"
-    - "{{ ideapad_3_ssh_public_key }}"
-    - "{{ servercat_ssh_public_key }}"
-    - "{{ steamdeck_ssh_public_key }}"
-  loop_control:
-    loop_var: ssh_public_key
-- name: Enable SSH forwarding for sudo
-  ansible.builtin.lineinfile:
-    dest: /etc/sudoers
-    insertafter: '^#?\s*Defaults\s+env_keep\b'
-    line: 'Defaults    env_keep += "SSH_AUTH_SOCK"'
-- name: Install packages
-  ansible.builtin.package:
-    name:
-      - git
-      - gpg
-      - mosh
-      - tmux
-      - vim
-- name: Set locale
-  ansible.builtin.include_role:
-    name: oefenweb.locales
-  vars:
-    locales_present:
-      - "{{ locale }}"
-    locales_default:
-      lang: "{{ locale }}"
-- name: Set timezone
-  community.general.timezone:
-    name: "{{ timezone }}"
-- name: Disable ubuntu ads
-  when: ansible_facts['distribution'] == 'Ubuntu'
-  ansible.builtin.include_role:
-    name: ubuntu_disable_ads
-- name: Run roles
-  ansible.builtin.include_role:
-    name: "{{ role_item }}"
-  loop:
-    - geerlingguy.security
-    - fish_install
-    - configure_dotfiles
-    - beszel_agent
-    - topgrade
-  loop_control:
-    loop_var: role_item
-  vars:
-    fish_install_change_shell: true
-    settings_repo_application_dotfiles:
-      - fish
-      - git
-      - ssh
-      - tmux
-- name: Configure node_exporter
-  when: configure_server_node_exporter | default(true)
-  ansible.builtin.include_role:
-    name: prometheus.prometheus.node_exporter
-- name: Configure apt-updates textfile collector
-  when: configure_server_node_exporter | default(true)
-  ansible.builtin.include_role:
-    name: textfile_collector_apt_updates
+- name: Check for rpm-ostree
+  ansible.builtin.command:
+    cmd: which rpm-ostree
+  register: __configure_server_rpm_ostree_check
+  changed_when: false
+  failed_when: false
+
+- name: Configure Fedora Atomic
+  when: __configure_server_rpm_ostree_check.rc == 0
+  ansible.builtin.include_tasks:
+    file: fedora_immutable.yaml
+
+- name: Configure standard server
+  when: __configure_server_rpm_ostree_check.rc != 0
+  ansible.builtin.include_tasks:
+    file: standard.yaml

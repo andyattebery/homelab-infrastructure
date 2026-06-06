@@ -1,0 +1,56 @@
+---
+- name: Configure htpc-01
+  hosts: htpc-01
+  become: true
+
+  vars:
+    htpc_data_mount_path: /run/media/system/data
+
+  tasks:
+    - name: Configure server
+      ansible.builtin.include_role:
+        name: configure_server
+
+    - name: Set kernel parameters
+      ansible.builtin.include_role:
+        name: kernel_parameters
+      vars:
+        kernel_parameters_new_parameters:
+          amdgpu.cwsr_enable: "0"
+
+    - name: Reboot if kernel parameters were staged
+      when: kernel_parameters_reboot_required | default(false)
+      ansible.builtin.reboot:
+
+    - name: Assert data drive is mounted
+      ansible.builtin.command:
+        cmd: mountpoint -q {{ htpc_data_mount_path }}
+      changed_when: false
+
+    - name: Copy Caddy network file
+      ansible.builtin.copy:
+        src: files/htpc-01/caddy.network
+        dest: /etc/containers/systemd/caddy.network
+        mode: "0644"
+
+    - name: Deploy ComfyUI quadlet
+      ansible.builtin.include_role:
+        name: podman_quadlet
+      vars:
+        podman_quadlet_src: files/htpc-01/comfyui.container
+        podman_quadlet_volume_owner: "{{ ansible_user }}"
+        podman_quadlet_volume_group: "{{ ansible_user }}"
+
+    - name: Deploy Caddy reverse proxy
+      ansible.builtin.include_role:
+        name: podman_quadlet
+      vars:
+        podman_quadlet_src: files/htpc-01/caddy.container
+        podman_quadlet_volume_owner: root
+        podman_quadlet_volume_group: root
+        podman_quadlet_config_files:
+          - src: files/htpc-01/Caddyfile.j2
+            dest: "{{ htpc_data_mount_path }}/caddy/caddyfile/Caddyfile"
+          - src: files/htpc-01/caddy.env.j2
+            dest: "{{ htpc_data_mount_path }}/caddy/caddy.env"
+            mode: "0600"

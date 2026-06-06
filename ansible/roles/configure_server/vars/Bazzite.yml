@@ -1,0 +1,6 @@
+---
+# Bazzite is Fedora-based (RedHat family). This file provides the vars that
+# geerlingguy.security looks up via ansible_facts.os_family, which Bazzite
+# reports as "Bazzite" instead of "RedHat".
+security_ssh_config_path: /etc/ssh/sshd_config
+security_sshd_name: sshd

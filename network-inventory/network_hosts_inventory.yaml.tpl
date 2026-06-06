@@ -147,6 +147,8 @@ homelab_hosts:
 services:
   calibre-web:
     hostname: docker-01
+  comfyui.htpc-01:
+    hostname: htpc-01
   dashboard-services-manager:
     hostname: docker-01
   dashy:

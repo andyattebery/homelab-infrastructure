@@ -1,0 +1,55 @@
+---
+- name: Create volume directories
+  vars:
+    __content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ podman_quadlet_src) }}"
+    __volume_dirs: "{{ __content | regex_findall('^Volume=([^:]+):', multiline=True) }}"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ podman_quadlet_volume_owner }}"
+    group: "{{ podman_quadlet_volume_group }}"
+    mode: "0755"
+  loop: "{{ __volume_dirs }}"
+
+- name: Copy config files
+  when: podman_quadlet_config_files | length > 0
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: "{{ podman_quadlet_volume_owner }}"
+    group: "{{ podman_quadlet_volume_group }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop: "{{ podman_quadlet_config_files }}"
+
+- name: Copy quadlet file
+  ansible.builtin.copy:
+    src: "{{ podman_quadlet_src }}"
+    dest: "/etc/containers/systemd/{{ podman_quadlet_src | basename }}"
+    mode: "0644"
+  notify: Reload systemd for podman quadlet
+
+- name: Install pqup script
+  ansible.builtin.copy:
+    src: pqup
+    dest: /usr/local/bin/pqup
+    mode: "0755"
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Pull image
+  vars:
+    __content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ podman_quadlet_src) }}"
+    __image: "{{ __content | regex_search('^Image=(.+)$', '\\1', multiline=True) | first }}"
+  ansible.builtin.command:
+    cmd: "podman pull {{ __image }}"
+  register: __podman_quadlet_pull
+  changed_when: "'Pulling' in __podman_quadlet_pull.stdout"
+
+- name: Enable and start service
+  vars:
+    __service: "{{ (podman_quadlet_src | basename | splitext)[0] }}.service"
+  ansible.builtin.systemd:
+    name: "{{ __service }}"
+    state: started
+    enabled: true

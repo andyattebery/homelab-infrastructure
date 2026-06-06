@@ -1,0 +1,17 @@
+---
+- name: Apply kernel parameters via rpm-ostree kargs
+  ansible.builtin.command:
+    cmd: "rpm-ostree kargs --append-if-missing={{ item.key }}{% if item.value %}={{ item.value }}{% endif %}"
+  loop: "{{ kernel_parameters_new_parameters | dict2items }}"
+  register: __kernel_parameters_rpm_ostree_result
+  changed_when: false
+
+- name: Check if reboot needed
+  ansible.builtin.command:
+    cmd: rpm-ostree status --json
+  register: __kernel_parameters_rpm_ostree_status
+  changed_when: false
+
+- name: Set reboot flag if parameters were staged
+  ansible.builtin.set_fact:
+    kernel_parameters_reboot_required: "{{ __kernel_parameters_rpm_ostree_status.stdout | from_json | json_query('deployments[0].staged') | default(false) }}"

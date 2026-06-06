@@ -1,0 +1,7 @@
+---
+# Bazzite's terminal emits escape sequences on PTY allocation that break
+# Ansible's sudo prompt detection when a become password is needed.
+# SetEnv requires AcceptEnv on the sshd side, but after the first run
+# geerlingguy.security enables passwordless sudo so it's no longer needed.
+# Keeping it for bootstrap on a fresh install.
+ansible_ssh_extra_args: "-o SetEnv=TERM=dumb"
