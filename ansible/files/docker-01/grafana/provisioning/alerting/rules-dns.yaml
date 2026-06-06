@@ -5,8 +5,8 @@
 #   0=Init, 1=Backup, 2=Master, 3=Fault.
 #   Exporter uses --ka.container.pid-path to send signals via docker exec
 #   (not docker kill), avoiding s6-overlay signal conflicts.
-# - adguardhome_sync_last_success_timestamp (textfile_collector on network-01):
-#   Unix epoch seconds of the most recent "Sync done" log entry.
+# - adguard_home_sync_sync_successful (built-in metrics on network-01:8080/metrics):
+#   1 if last sync succeeded, 0 if it failed. Per-replica hostname label.
 apiVersion: 1
 groups:
   - orgId: 1
@@ -45,7 +45,7 @@ groups:
             peers: `docker logs keepalived` on network-01, network-03, pi-rack.
 
       - uid: adguardhome-sync-drift
-        title: AdGuard sync older than 1h
+        title: AdGuard sync failing
         condition: A
         data:
           - refId: A
@@ -57,7 +57,7 @@ groups:
               datasource:
                 type: prometheus
                 uid: fe8ew4zkvbf28a
-              expr: (time() - adguardhome_sync_last_success_timestamp) > 3600
+              expr: min(adguard_home_sync_sync_successful) == 0
               instant: true
               refId: A
         for: 10m
@@ -68,8 +68,7 @@ groups:
           severity: warning
           component: dns
         annotations:
-          summary: 'AdGuard sync has not succeeded for {{ $value | humanizeDuration }}'
+          summary: 'AdGuard sync failing for at least one replica'
           description: |
-            The adguardhome-sync container on network-01 has not logged a
-            successful "Sync done" in over 1 hour. Check `docker logs adguardhome-sync`
-            on network-01 for errors.
+            At least one replica's last sync has been failing for 10+ minutes.
+            Check `journalctl -u adguardhome-sync` on network-01 for errors.
