@@ -180,6 +180,8 @@ services:
     hostname: pi-rack
   ups-monitor-rack:
     hostname: pi-rack
+  wsl-01:
+    hostname: eta
 
 # Hosts on a different domain (e.g., Tailscale)
 other_hosts:
