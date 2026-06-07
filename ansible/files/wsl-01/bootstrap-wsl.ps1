@@ -1,6 +1,8 @@
 #Requires -RunAsAdministrator
 $ErrorActionPreference = 'Stop'
 
+$wslDistribution = 'Ubuntu-24.04'
+
 # 1. Write .wslconfig (mirrored networking, prevent VM shutdown)
 $wslConfig = @'
 [wsl2]
@@ -14,17 +16,17 @@ instanceIdleTimeout=-1
 Set-Content -Path "$env:USERPROFILE\.wslconfig" -Value $wslConfig -Encoding UTF8
 
 # 2. Enable systemd in WSL2
-wsl -d Ubuntu -- bash -c 'grep -q "systemd=true" /etc/wsl.conf 2>/dev/null || echo -e "[boot]\nsystemd=true" | sudo tee /etc/wsl.conf'
+wsl -d "$wslDistribution" -- bash -c 'grep -q "systemd=true" /etc/wsl.conf 2>/dev/null || echo -e "[boot]\nsystemd=true" | sudo tee /etc/wsl.conf'
 
 # 3. Restart WSL to apply .wslconfig and wsl.conf
 Write-Host "Restarting WSL..."
 wsl --shutdown
-do { Start-Sleep -Seconds 1 } while ((wsl --list --running 2>$null | Out-String) -match 'Ubuntu')
-wsl -d Ubuntu -- echo "WSL restarted with new configuration"
+do { Start-Sleep -Seconds 1 } while ((wsl --list --running 2>$null | Out-String) -match "$wslDistribution")
+wsl -d "$wslDistribution" -- echo "WSL restarted with new configuration"
 
 # 4. Install and enable SSH server in WSL2
 Write-Host "Installing SSH server in WSL2..."
-wsl -d Ubuntu -- bash -c 'sudo apt-get update && sudo apt-get install -y openssh-server && sudo systemctl enable ssh && sudo systemctl start ssh'
+wsl -d "$wslDistribution" -- bash -c 'sudo apt-get update && sudo apt-get install -y openssh-server && sudo systemctl enable ssh && sudo systemctl start ssh'
 
 # 5. Create Hyper-V firewall rules for inbound traffic
 Write-Host "Configuring Hyper-V firewall rules..."
@@ -44,11 +46,11 @@ foreach ($p in $ports) {
 
 # 6. Create scheduled task to start WSL on Windows boot (before user login)
 Write-Host "Creating WSL boot task..."
-$action = New-ScheduledTaskAction -Execute "wsl.exe" -Argument "-d Ubuntu --exec /bin/true"
+$action = New-ScheduledTaskAction -Execute "wsl.exe" -Argument "-d $wslDistribution --exec /bin/true"
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 Register-ScheduledTask -TaskName "WSL Boot" -Action $action -Trigger $trigger -Principal $principal -Force
 
 # 7. Verify GPU passthrough
 Write-Host "`nVerifying GPU access in WSL2..."
-wsl -d Ubuntu -- nvidia-smi
+wsl -d "$wslDistribution" -- nvidia-smi
