@@ -1,0 +1,39 @@
+---
+services:
+  tabbyapi:
+    image: ghcr.io/theroyallab/tabbyapi:latest
+    container_name: tabbyapi
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: "8g"
+    ulimits:
+      memlock: -1
+      nofile: 1048576
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/tabbyapi/config.yml:/app/config.yml
+      - ${DOCKER_DATA_DIRECTORY}/tabbyapi/models:/app/models
+    ports:
+      - "5000:5000"
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+
+networks:
+  traefik:
+    name: traefik
+    external: true

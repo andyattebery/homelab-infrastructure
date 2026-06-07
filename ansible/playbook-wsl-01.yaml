@@ -1,0 +1,33 @@
+---
+- name: Configure wsl-01
+  hosts: wsl-01
+  become: true
+
+  vars:
+    docker_compose_dst_data_directory_path: "/opt/docker-compose"
+
+  tasks:
+    - name: Configure server
+      ansible.builtin.include_role:
+        name: configure_server
+
+    - name: Install Docker
+      ansible.builtin.include_role:
+        name: geerlingguy.docker
+
+    - name: Install NVIDIA Container Toolkit
+      ansible.builtin.include_role:
+        name: nvidia_container_toolkit
+
+    - name: Deploy Traefik
+      ansible.builtin.include_role:
+        name: docker_compose_traefik
+
+    - name: Deploy TabbyAPI
+      ansible.builtin.include_role:
+        name: docker_compose
+      vars:
+        docker_compose_src_file_path: files/wsl-01/docker-compose-tabbyapi.yml
+        docker_compose_src_config_files:
+          - src_file_path: files/wsl-01/tabbyapi-config.yml
+            dst_relative_file_path: tabbyapi/config.yml
