@@ -42,6 +42,8 @@ homelab_hosts:
   eta:
     ip: 192.168.1.207
     mac: {{ op://Home Lab/eta/hardware/mac address }}
+  wsl-01:
+    ip: 192.168.1.207
 
   # VMs
   docker-01:
@@ -180,8 +182,6 @@ services:
     hostname: pi-rack
   ups-monitor-rack:
     hostname: pi-rack
-  wsl-01:
-    hostname: eta
 
 # Hosts on a different domain (e.g., Tailscale)
 other_hosts:
