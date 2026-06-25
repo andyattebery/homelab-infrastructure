@@ -1,7 +1,12 @@
-{ config, lib, pkgs, vars, ... }:
+{ config, lib, pkgs, vars, nixpkgs-unstable, ... }:
 let
   sshKeys = import ./ssh-keys.nix;
+  pkgs-unstable = import nixpkgs-unstable {
+    inherit (pkgs.stdenv.hostPlatform) system;
+    inherit (config.nixpkgs) config;
+  };
 in {
+  _module.args.pkgs-unstable = pkgs-unstable;
   sops.defaultSopsFile = ../secrets/secrets.yaml;
   sops.age.keyFile = "/var/lib/sops-nix/key.txt";
 
@@ -66,10 +71,39 @@ in {
     enable = true;
     environment = {
       HUB_URL = "https://beszel.${vars.domainName}";
+      DATA_DIR = "/var/lib/beszel-agent";
     };
     environmentFile = config.sops.secrets."beszel-agent-env".path;
   };
+  # Workaround: NixOS beszel module sets DynamicUser=true but no StateDirectory,
+  # so the agent can't persist its fingerprint. nixpkgs PR #500866.
+  systemd.services.beszel-agent.serviceConfig.StateDirectory = "beszel-agent";
 
-  services.chrony.enable = true;
+  systemd.services.dotfiles = {
+    description = "Clone/update and link dotfiles for services user";
+    wantedBy = [ "multi-user.target" ];
+    after = [ "network-online.target" ];
+    wants = [ "network-online.target" ];
+    path = [ pkgs.git pkgs.fish pkgs.findutils pkgs.coreutils ];
+    serviceConfig = {
+      Type = "oneshot";
+      User = "services";
+      Group = "services";
+      RemainAfterExit = true;
+    };
+    script = ''
+      if [ -d "$HOME/dotfiles" ]; then
+        cd "$HOME/dotfiles"
+        git pull --ff-only || true
+      else
+        git clone https://github.com/andyattebery/dotfiles.git "$HOME/dotfiles"
+        cd "$HOME/dotfiles"
+      fi
+      fish --no-config ./link_dotfiles.fish
+    '';
+  };
+
+  services.timesyncd.enable = true;
+  networking.timeServers = [ "0.us.pool.ntp.org" "1.us.pool.ntp.org" "2.us.pool.ntp.org" "3.us.pool.ntp.org" ];
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
 }

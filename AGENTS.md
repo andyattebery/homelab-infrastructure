@@ -46,6 +46,14 @@ When a config key, flag, or setting is missing from output, do not assume what t
 
 When researching changelogs, release notes, or API differences between specific versions, the agent prompt MUST name both versions explicitly (e.g., "changes between release-25.05 and release-25.11"). Never compare against `master` or `unstable` unless the user asked for that. Default to the versions actually used in the codebase.
 
+## Nix
+
+- Nix is not installed on the Mac. All nix commands run in Docker via `nix/scripts/nix-shell.sh`.
+- `nix/scripts/nix-shell.sh flake check` to validate after changes.
+- See `nix/README.md` for full details.
+- **Secrets pipeline**: `nix/secrets/` has `.tpl` template files (`vars.nix.tpl`, `secrets.yaml.tpl`) that use `{{ op://... }}` 1Password references. `nix/scripts/populate-secrets-from-op.sh` runs `op inject` to generate the real files (`vars.nix`, `secrets.yaml`). Never edit `vars.nix` or `secrets.yaml` directly — edit the `.tpl` files.
+- **Verify before asserting**: do not predict what a Nix expression evaluates to, what gets built, or where it gets built. Use `nix eval`, `nix build --dry-run`, or `nix derivation show` to verify. These are safe (read-only). "I think this will..." is not acceptable — show the output.
+
 ## Ansible
 
 - ansible directory holds homelab provisioning playbooks/roles.

@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     sops-nix = {
       url = "github:Mic92/sops-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -17,13 +18,17 @@
       url = "github:NixOS/nixos-hardware";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    deploy-rs = {
+      url = "github:serokell/deploy-rs";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, sops-nix, dsm, nim, nixos-hardware, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, ... }:
   let
     mkHost = hostname: system: extraModules: nixpkgs.lib.nixosSystem {
       specialArgs = {
-        inherit sops-nix;
+        inherit sops-nix nixpkgs-unstable;
         vars = import ./secrets/vars.nix;
       };
       modules = [
@@ -68,5 +73,44 @@
       };
       # END_HOSTS
     };
+
+    deploy.nodes = let
+      vars = import ./secrets/vars.nix;
+      fqdn = name: "${name}.${vars.domainName}";
+    in {
+      network-01 = {
+        hostname = fqdn "network-01";
+        sshUser = "services";
+        remoteBuild = true;
+        profiles.system = {
+          user = "root";
+          path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.network-01;
+        };
+      };
+      network-03 = {
+        hostname = fqdn "network-03";
+        sshUser = "services";
+        remoteBuild = true;
+        profiles.system = {
+          user = "root";
+          path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.network-03;
+        };
+      };
+      pi-rack = {
+        hostname = fqdn "pi-rack";
+        sshUser = "services";
+        remoteBuild = true;
+        profiles.system = {
+          user = "root";
+          path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.pi-rack;
+        };
+      };
+    };
+
+    packages.x86_64-linux.deploy-rs = deploy-rs.packages.x86_64-linux.default;
+    packages.aarch64-linux.deploy-rs = deploy-rs.packages.aarch64-linux.default;
+    packages.aarch64-darwin.deploy-rs = deploy-rs.packages.aarch64-darwin.default;
+
+    # checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };
 }

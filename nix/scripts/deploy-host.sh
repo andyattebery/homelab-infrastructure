@@ -1,27 +1,87 @@
-#!/usr/bin/env sh
-# Deploys the current config to a NixOS host.
-# Run from the repo root on Mac after committing and pushing.
+#!/usr/bin/env bash
 set -euo pipefail
 
-if [ $# -lt 2 ]; then
-  echo "Usage: $0 <ssh-target> <hostname> [repo-path]"
-  echo "  repo-path defaults to /root/homelab-infrastructure"
-  exit 1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    echo "Usage: $(basename "$0") [-r|--reboot] <hostname>"
+    echo
+    echo "Deploy a NixOS host via deploy-rs."
+    echo
+    echo "Options:"
+    echo "  -r, --reboot    Reboot the host after deploy if the system closure changed"
+    echo
+    echo "Examples:"
+    echo "  $(basename "$0") network-01"
+    echo "  $(basename "$0") --reboot network-01"
+    exit 1
+}
+
+REBOOT=false
+HOSTNAME=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -r|--reboot)
+            REBOOT=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            usage
+            ;;
+        *)
+            if [[ -n "$HOSTNAME" ]]; then
+                echo "Error: multiple hostnames specified"
+                usage
+            fi
+            HOSTNAME="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ -z "$HOSTNAME" ]]; then
+    echo "Error: no hostname specified"
+    usage
 fi
 
-TARGET="$1"
-HOSTNAME="$2"
-REPO_PATH="${3:-/root/homelab-infrastructure}"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DOMAIN=$(grep 'domainName' "$SCRIPT_DIR/../secrets/vars.nix" | sed 's/.*= *"\(.*\)".*/\1/')
+FQDN="${HOSTNAME}.${DOMAIN}"
 
-echo "==> Pulling on $TARGET ($REPO_PATH)"
-ssh "$TARGET" "sudo git -C $REPO_PATH pull"
+echo "Deploying $HOSTNAME..."
+"$SCRIPT_DIR/nix-shell.sh" --ssh run .#deploy-rs -- ".#$HOSTNAME"
+echo "Deploy complete."
 
-echo "==> Syncing vars.nix"
-scp "$SCRIPT_DIR/../secrets/vars.nix" "$TARGET:/tmp/vars.nix"
-ssh "$TARGET" "sudo cp /tmp/vars.nix $REPO_PATH/nix/secrets/vars.nix && rm /tmp/vars.nix"
+NEEDS_REBOOT=$(ssh "$FQDN" 'bash -c "
+    booted=\$(readlink /run/booted-system)
+    current=\$(readlink /nix/var/nix/profiles/system)
+    if [ \"\$booted\" != \"\$current\" ]; then echo yes; else echo no; fi
+"')
 
-echo "==> Running nixos-rebuild switch"
-ssh "$TARGET" "sudo nixos-rebuild switch --flake $REPO_PATH/nix#$HOSTNAME"
-
-echo "==> Done."
+if [[ "$NEEDS_REBOOT" == "yes" ]]; then
+    if [[ "$REBOOT" == "true" ]]; then
+        echo "System closure changed — rebooting $HOSTNAME..."
+        ssh "$FQDN" 'sudo reboot' || true
+        echo "Waiting for $HOSTNAME to come back..."
+        sleep 10
+        timeout=300
+        elapsed=0
+        until ssh -o ConnectTimeout=5 -o BatchMode=yes "$FQDN" true 2>/dev/null; do
+            sleep 5
+            elapsed=$((elapsed + 5))
+            if [[ $elapsed -ge $timeout ]]; then
+                echo "Error: $HOSTNAME did not come back after ${timeout}s"
+                exit 1
+            fi
+        done
+        echo "$HOSTNAME is back online."
+    else
+        echo "Reboot required — booted system differs from current profile. Run with --reboot to reboot automatically."
+    fi
+else
+    echo "No reboot needed — booted system matches current profile."
+fi

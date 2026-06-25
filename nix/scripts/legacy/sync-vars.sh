@@ -12,5 +12,5 @@ REPO_PATH="${2:-/home/services/homelab-infrastructure}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "==> Syncing vars.nix to $TARGET:$REPO_PATH/nix/secrets/"
-scp "$SCRIPT_DIR/../secrets/vars.nix" "$TARGET:$REPO_PATH/nix/secrets/vars.nix"
+scp "$SCRIPT_DIR/../../secrets/vars.nix" "$TARGET:$REPO_PATH/nix/secrets/vars.nix"
 echo "Done."

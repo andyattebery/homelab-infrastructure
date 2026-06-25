@@ -23,7 +23,7 @@ fi
 TARGET="$1"
 HOSTNAME="$2"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NIX_DIR="$SCRIPT_DIR/.."
+NIX_DIR="$SCRIPT_DIR/../.."
 DEPLOY_USER="services"
 REPO_PATH="/root/homelab-infrastructure"
 
@@ -59,12 +59,12 @@ else
     ADD_HOST_FLAGS=""
     if [ "$PROXMOX" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --proxmox"; fi
     if [ "$TAILSCALE" = true ]; then ADD_HOST_FLAGS="$ADD_HOST_FLAGS --tailscale"; fi
-    "$SCRIPT_DIR/add-host.sh" $ADD_HOST_FLAGS "$HOSTNAME" "$AGE_PUB"
+    "$SCRIPT_DIR/../add-host.sh" $ADD_HOST_FLAGS "$HOSTNAME" "$AGE_PUB"
   fi
 fi
 
 echo "==> Populating secrets from 1Password"
-"$SCRIPT_DIR/populate-secrets-from-op.sh"
+"$SCRIPT_DIR/../populate-secrets-from-op.sh"
 
 echo "==> Committing and pushing"
 git update-index --no-assume-unchanged "$NIX_DIR/secrets/secrets.yaml" 2>/dev/null || true
