@@ -40,7 +40,6 @@ in {
       PasswordAuthentication = false;
       PermitRootLogin = "no";
       KbdInteractiveAuthentication = false;
-      GSSAPIAuthentication = false;
       X11Forwarding = false;
       PermitEmptyPasswords = false;
     };

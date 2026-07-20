@@ -108,6 +108,12 @@ nix/scripts/nix-shell.sh --x86 build ...   # x86 build (slow, QEMU emulation)
 nix/scripts/nix-shell.sh --ssh run ...     # run with SSH agent forwarding (for deploy-rs)
 ```
 
+The `nixos/nix` image is **pinned** in `scripts/nix-image` (tracked in git, so the Nix version
+shows up in `git diff` next to `flake.lock`). `update.sh` bumps this pin to the current release
+alongside the flake inputs. The wrapper caches the Nix store in a per-image Docker volume
+(`nix-store`, `nix-store-amd64`) labelled with the pin; when the pin changes it recreates the
+volume automatically (re-downloading the cached store once). No manual volume management.
+
 ## Deploying with deploy-rs
 
 Deployments use [deploy-rs](https://github.com/serokell/deploy-rs) via the Docker wrapper. deploy-rs evaluates the flake locally, sends the derivation to the host, the host builds it natively, and deploy-rs activates the new configuration. If activation breaks SSH connectivity, deploy-rs automatically reverts to the previous generation (magic rollback).

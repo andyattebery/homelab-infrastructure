@@ -26,6 +26,25 @@
 
   outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, ... }:
   let
+    # nixpkgs with the deploy-rs overlay applied, but forcing deploy-rs's binary
+    # to come from nixpkgs (served from the binary cache) instead of being built
+    # from source. Keeps the flake's `lib` for activation. Per deploy-rs README.
+    deployPkgs = let
+      mk = system: let pkgs = import nixpkgs { inherit system; };
+      in import nixpkgs {
+        inherit system;
+        overlays = [
+          deploy-rs.overlays.default
+          (final: prev: {
+            deploy-rs = { inherit (pkgs) deploy-rs; lib = prev.deploy-rs.lib; };
+          })
+        ];
+      };
+    in {
+      x86_64-linux = mk "x86_64-linux";
+      aarch64-linux = mk "aarch64-linux";
+      aarch64-darwin = mk "aarch64-darwin";
+    };
     mkHost = hostname: system: extraModules: nixpkgs.lib.nixosSystem {
       specialArgs = {
         inherit sops-nix nixpkgs-unstable;
@@ -84,7 +103,7 @@
         remoteBuild = true;
         profiles.system = {
           user = "root";
-          path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.network-01;
+          path = deployPkgs.x86_64-linux.deploy-rs.lib.activate.nixos self.nixosConfigurations.network-01;
         };
       };
       network-03 = {
@@ -93,7 +112,7 @@
         remoteBuild = true;
         profiles.system = {
           user = "root";
-          path = deploy-rs.lib.x86_64-linux.activate.nixos self.nixosConfigurations.network-03;
+          path = deployPkgs.x86_64-linux.deploy-rs.lib.activate.nixos self.nixosConfigurations.network-03;
         };
       };
       pi-rack = {
@@ -102,14 +121,14 @@
         remoteBuild = true;
         profiles.system = {
           user = "root";
-          path = deploy-rs.lib.aarch64-linux.activate.nixos self.nixosConfigurations.pi-rack;
+          path = deployPkgs.aarch64-linux.deploy-rs.lib.activate.nixos self.nixosConfigurations.pi-rack;
         };
       };
     };
 
-    packages.x86_64-linux.deploy-rs = deploy-rs.packages.x86_64-linux.default;
-    packages.aarch64-linux.deploy-rs = deploy-rs.packages.aarch64-linux.default;
-    packages.aarch64-darwin.deploy-rs = deploy-rs.packages.aarch64-darwin.default;
+    packages.x86_64-linux.deploy-rs = deployPkgs.x86_64-linux.deploy-rs.deploy-rs;
+    packages.aarch64-linux.deploy-rs = deployPkgs.aarch64-linux.deploy-rs.deploy-rs;
+    packages.aarch64-darwin.deploy-rs = deployPkgs.aarch64-darwin.deploy-rs.deploy-rs;
 
     # checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };
