@@ -145,11 +145,13 @@ homelab_hosts:
   rgcubexx:
     ip: 192.168.1.176
 
-# Services (that work like ones returns by dashboard-services-manager)
+# Services (that work like ones returned by dashboard-services-manager)
 services:
   calibre-web:
     hostname: docker-01
   comfyui.htpc-01:
+    hostname: htpc-01
+  llama-swap.htpc-01:
     hostname: htpc-01
   dashboard-services-manager:
     hostname: docker-01
@@ -182,10 +184,3 @@ services:
     hostname: pi-rack
   ups-monitor-rack:
     hostname: pi-rack
-
-# Hosts on a different domain (e.g., Tailscale)
-other_hosts:
-  - hostname: offsite-nas.taile0128.ts.net
-    ip: 100.108.158.127
-  - hostname: offsite-pikvm.taile0128.ts.net
-    ip: 100.113.201.54
