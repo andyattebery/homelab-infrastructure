@@ -19,9 +19,64 @@
       ansible.builtin.include_role:
         name: nvidia_container_toolkit
 
+    - name: Install mise
+      ansible.builtin.include_role:
+        name: mise
+
     - name: Deploy Traefik
       ansible.builtin.include_role:
         name: docker_compose_traefik
+        # `apply` is required: tags on an include_role task gate the include itself, they do not
+        # propagate to the tasks inside the role. Without this, `--tags traefik` runs the include
+        # and then silently skips every task in it.
+        apply:
+          tags: traefik
+      vars:
+        docker_compose_traefik_enable_dashboard: true
+      tags: traefik
+
+    - name: Deploy dashboard-services-manager provider
+      ansible.builtin.include_role:
+        name: docker_compose_dashboard_services_manager_provider
+
+    - name: Create BtbN ffmpeg directory
+      ansible.builtin.file:
+        path: /opt/ffmpeg-btbn/bin
+        state: directory
+        mode: "0755"
+        owner: root
+
+    - name: Install BtbN FFmpeg (master build with av1_nvenc tune uhq support)
+      ansible.builtin.include_role:
+        name: github_release_install
+      vars:
+        github_release_install_repo: BtbN/FFmpeg-Builds
+        github_release_install_asset_patterns:
+          x86_64: "ffmpeg-master-latest-linux64-gpl.tar.xz"
+        github_release_install_archive_type: tarball
+        github_release_install_binary_in_archive: ffmpeg-master-latest-linux64-gpl/bin/ffmpeg
+        github_release_install_binary_path: /opt/ffmpeg-btbn/bin/ffmpeg
+        github_release_install_version_command: "echo latest"
+        github_release_install_version_regex: "(.*)"
+
+    - name: Deploy Tdarr node
+      ansible.builtin.include_role:
+        name: docker_compose_tdarr
+      vars:
+        docker_compose_tdarr_node: true
+        docker_compose_tdarr_storage_host: nas-01
+        docker_compose_tdarr_nvidia_gpu: true
+        docker_compose_tdarr_nvidia_gpu_wsl: true
+        docker_compose_tdarr_transcode_gpu_workers: 3
+        docker_compose_tdarr_transcode_cpu_workers: 0
+        docker_compose_tdarr_custom_ffmpeg_path: /opt/ffmpeg-btbn/bin
+        docker_compose_tdarr_hardlink_disks:
+          - data01
+          - data02
+          - data03
+          - data08
+          - data11
+          - data12
 
     - name: Deploy TabbyAPI
       ansible.builtin.include_role:

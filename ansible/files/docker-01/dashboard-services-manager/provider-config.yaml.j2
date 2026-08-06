@@ -17,4 +17,8 @@ ProviderOptions:
       TraefikApiUrl: https://traefik.nas-01.{{ domain_name }}
       AreServiceHostsHttps: true
       Hostname: nas-01
+    - ServicesProviderType: Traefik
+      TraefikApiUrl: https://traefik.wsl-01.{{ domain_name }}
+      AreServiceHostsHttps: true
+      Hostname: wsl-01
 
