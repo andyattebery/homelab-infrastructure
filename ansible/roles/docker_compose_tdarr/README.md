@@ -80,8 +80,6 @@ Node, on a transcoding host:
     docker_compose_tdarr_custom_ffmpeg_path: /opt/ffmpeg-btbn/bin
 ```
 
-Group-wide node defaults live in `group_vars/tdarr_nodes.yaml`.
-
 ## What this role does not deploy
 
 Three kinds of artefact used to live in this role and were moved out, because they are one

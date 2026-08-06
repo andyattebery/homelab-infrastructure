@@ -1,5 +1,0 @@
----
-tdarr_node_name: tdarr-node
-tdarr_server_port: 8266
-tdarr_directory: /opt/tdarr
-tdarr_updater_zip_url: https://f000.backblazeb2.com/file/tdarrs/versions/2.00.15/linux_x64/Tdarr_Updater.zip
