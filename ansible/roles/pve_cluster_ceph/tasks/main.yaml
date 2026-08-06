@@ -5,7 +5,7 @@
 # PGs settle). `pveceph init` and the per-node services live in pve_node_ceph.
 - name: Create ceph pool
   ansible.builtin.command:
-    cmd: pveceph pool create pve_pool --pg_num 32 --add_storages
+    cmd: pveceph pool create pve_pool --pg_num 32 --pg_autoscale_mode on --add_storages
   register: pveceph_pool_create_pve_pool_result
   changed_when: "'already defined' not in pveceph_pool_create_pve_pool_result.stdout"
 - name: Create cephfs
