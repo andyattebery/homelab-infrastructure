@@ -25,7 +25,7 @@ services:
       # interpreter start because PYTHONPATH points here (see environment below). It works
       # around an upstream bug where SearXNG never receives `use_full_search` and therefore
       # never fetches the pages it cites -- the patch documents the whole trace, and
-      # bench/harness/test_patch.py guards it.
+      # research/local-llm/bench/harness/test_patch.py guards it.
       #
       # Deliberately NOT a bind mount over site-packages: that path embeds the interpreter
       # version (/install/.venv/lib/python3.14/...), and this image is `latest` with

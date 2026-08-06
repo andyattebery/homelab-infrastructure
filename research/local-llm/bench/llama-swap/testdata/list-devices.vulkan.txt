@@ -1,0 +1,2 @@
+Available devices:
+  Vulkan0: AMD Radeon RX 9070 XT (RADV GFX1201) (16304 MiB, 15656 MiB free)

@@ -4,7 +4,7 @@ set -uo pipefail
 # Busy while a benchmark holds the GPU, declared by a lock file rather than inferred.
 #
 # WHY THE OTHER CHECKS DO NOT COVER THIS: the backend A/B
-# (bench/llama-swap/run_matrix.py) STOPS llama-swap.service for its entire ~92-minute run.
+# (research/local-llm/bench/llama-swap/run_matrix.py) STOPS llama-swap.service for its entire ~92-minute run.
 # llama-swap.sh then fails its `podman exec` and reports idle — correctly, for its own
 # purposes. comfyui.sh is idle because `gpu-mode llm` is a precondition of any measurement
 # run, and ansible.sh is idle unless a playbook is writing. So without this check all three

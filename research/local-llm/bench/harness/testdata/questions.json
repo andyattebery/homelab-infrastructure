@@ -1,0 +1,102 @@
+[
+ {
+  "id": "simpleqa-s42-0000",
+  "question": "At which university did Jurgen Aschoff study medicine?",
+  "correct_answer": "University of Bonn."
+ },
+ {
+  "id": "simpleqa-s42-0001",
+  "question": "In which specific issue did Black Condor II perish?",
+  "correct_answer": "Infinite Crisis #1"
+ },
+ {
+  "id": "simpleqa-s42-0002",
+  "question": "Where is Sagg Eco Village located in Jammu & Kashmir, India?",
+  "correct_answer": "Ganderbal"
+ },
+ {
+  "id": "simpleqa-s42-0003",
+  "question": "What is the birth name of the Mexican artist Peso Pluma?",
+  "correct_answer": "Hassan Emilio Kabande Laija"
+ },
+ {
+  "id": "simpleqa-s42-0004",
+  "question": "Can you provide me with the DOI of the paper \"Generating Semantic Maps through Multidimensional Scaling: Linguistic Applications and Theory\"?",
+  "correct_answer": "10.1515/cllt-2021-0018"
+ },
+ {
+  "id": "simpleqa-s42-0005",
+  "question": "What were the month, day, and year when the construction of the UN headquarters in New York City was completed?",
+  "correct_answer": "October 9, 1952"
+ },
+ {
+  "id": "simpleqa-s42-0006",
+  "question": "What's the month, day, and year of the online publication of the paper \"Articulatory constraints on stop insertion and elision in consonant clusters\"?",
+  "correct_answer": "5th September, 2011"
+ },
+ {
+  "id": "simpleqa-s42-0007",
+  "question": "What's the secret identity of the third Phantom Lady?",
+  "correct_answer": "Stormy Knight"
+ },
+ {
+  "id": "simpleqa-s42-0008",
+  "question": "At the 2006 census, what was the population of Darrud, Iran?",
+  "correct_answer": "4,979"
+ },
+ {
+  "id": "simpleqa-s42-0009",
+  "question": "What month, day, and year was House Resolution 7004, \"Addressing the Governor's unacceptable actions in matters related to the appraiser certification program,\" introduced against Governor Kristi Noem?",
+  "correct_answer": "February 24, 2022"
+ },
+ {
+  "id": "simpleqa-s42-0010",
+  "question": "In TWD Season 11, Episode 10, we learn that Connie got whose uncle kicked out of Congress before the apocalypse?",
+  "correct_answer": "Pamela Milton's uncle"
+ },
+ {
+  "id": "simpleqa-s42-0011",
+  "question": "What year did Kinoko Teikoku release their first single \"Taikutsu Shinogi\" (\u9000\u5c48\u3057\u306e\u304e)?",
+  "correct_answer": "2012"
+ },
+ {
+  "id": "simpleqa-s42-0012",
+  "question": "In which year did Clint Ballard Jr. adopt the alias Buddy Clinton to cut a two-sided single?",
+  "correct_answer": "1960"
+ },
+ {
+  "id": "simpleqa-s42-0013",
+  "question": "In which year did Habiba Ghribi win the junior race of the Pan Arab Cross Country Championships?",
+  "correct_answer": "2002"
+ },
+ {
+  "id": "simpleqa-s42-0014",
+  "question": "What change did Patch 0.7 make to the spell Crusader Strike in the beta of World of Warcraft?",
+  "correct_answer": "Damage increased and instant cast spell."
+ },
+ {
+  "id": "simpleqa-s42-0015",
+  "question": "After the War of 1812, Edward William McBride (1791-1834) worked as what for the king's printer, John Cameron, on the York Gazette until April 1815?",
+  "correct_answer": "Assistant"
+ },
+ {
+  "id": "simpleqa-s42-0016",
+  "question": "What patch changed the required amount of titanium ore to make a titanium bar from 5 to 4 in Terraria?",
+  "correct_answer": "Desktop 1.4.1"
+ },
+ {
+  "id": "simpleqa-s42-0017",
+  "question": "Who appointed the Chief Justice of India, Kailas Nath Wanchoo, in 1967?",
+  "correct_answer": "Sarvepalli Radhakrishnan"
+ },
+ {
+  "id": "simpleqa-s42-0018",
+  "question": "What Serbian player played in the quarterfinals of the 2018 Madrid Open men's singles?",
+  "correct_answer": "Du\u0161an Lajovi\u0107"
+ },
+ {
+  "id": "simpleqa-s42-0019",
+  "question": "What year did Seiko release their first 300m diver watch?",
+  "correct_answer": "1968"
+ }
+]

@@ -1,0 +1,1603 @@
+{
+  "provenance": {
+    "image_id": "sha256:bf8f828ad0a0c0bd79aeba470cd68c4fa35a57a1aac72cf48a395281ec74e9a8",
+    "python": "3.14.6",
+    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.41",
+    "node": "f0ea27cedc6a",
+    "local_deep_research_version": "1.10.0"
+  },
+  "probes": {
+    "quick_summary_signature": {
+      "probe": "quick_summary_signature",
+      "ok": true,
+      "value": {
+        "qualname": "quick_summary",
+        "module": "local_deep_research.api.research_functions",
+        "text": "(query: str, research_id: str | None = None, retrievers: dict[str, Any] | None = None, llms: dict[str, Any] | None = None, username: str | None = None, provider: str | None = None, api_key: str | None = None, temperature: float | None = None, max_search_results: int | None = None, settings: dict[str, Any] | None = None, settings_override: dict[str, Any] | None = None, search_original_query: bool = True, **kwargs: Any) -> dict[str, typing.Any]",
+        "parameters": [
+          {
+            "name": "query",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": false,
+            "default": null,
+            "annotation": "<class 'str'>"
+          },
+          {
+            "name": "research_id",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "retrievers",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "llms",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "username",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "provider",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "api_key",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "temperature",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "float | None"
+          },
+          {
+            "name": "max_search_results",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "int | None"
+          },
+          {
+            "name": "settings",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "settings_override",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "search_original_query",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "True",
+            "annotation": "<class 'bool'>"
+          },
+          {
+            "name": "kwargs",
+            "kind": "VAR_KEYWORD",
+            "has_default": false,
+            "default": null,
+            "annotation": "typing.Any"
+          }
+        ],
+        "named": [
+          "query",
+          "research_id",
+          "retrievers",
+          "llms",
+          "username",
+          "provider",
+          "api_key",
+          "temperature",
+          "max_search_results",
+          "settings",
+          "settings_override",
+          "search_original_query"
+        ],
+        "accepts_var_keyword": true,
+        "accepts_timeout": false,
+        "was_wrapped": true,
+        "wrapper_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/utilities/db_utils.py",
+        "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/research_functions.py",
+        "source_line": 165
+      }
+    },
+    "create_settings_snapshot_signature": {
+      "probe": "create_settings_snapshot_signature",
+      "ok": true,
+      "value": {
+        "qualname": "create_settings_snapshot",
+        "module": "local_deep_research.api.settings_utils",
+        "text": "(overrides: dict[str, Any] | None = None, base_settings: dict[str, Any] | None = None, **kwargs) -> dict[str, typing.Any]",
+        "parameters": [
+          {
+            "name": "overrides",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "base_settings",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "kwargs",
+            "kind": "VAR_KEYWORD",
+            "has_default": false,
+            "default": null,
+            "annotation": null
+          }
+        ],
+        "named": [
+          "overrides",
+          "base_settings"
+        ],
+        "accepts_var_keyword": true,
+        "accepts_timeout": false,
+        "was_wrapped": false,
+        "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/settings_utils.py",
+        "source_line": 215
+      }
+    },
+    "init_search_system_signature": {
+      "probe": "init_search_system_signature",
+      "ok": true,
+      "value": {
+        "qualname": "_init_search_system",
+        "module": "local_deep_research.api.research_functions",
+        "text": "(model_name: str | None = None, temperature: float = 0.7, provider: str | None = None, openai_endpoint_url: str | None = None, progress_callback: Callable[[str, int, dict], NoneType] | None = None, search_tool: str | None = None, search_strategy: str = 'source_based', iterations: int = 1, questions_per_iteration: int = 1, retrievers: dict[str, Any] | None = None, llms: dict[str, Any] | None = None, username: str | None = None, research_id: str | None = None, research_context: dict[str, Any] | None = None, programmatic_mode: bool = True, search_original_query: bool = True, settings_snapshot: dict[str, Any] | None = None, **kwargs: Any) -> local_deep_research.search_system.AdvancedSearchSystem",
+        "parameters": [
+          {
+            "name": "model_name",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "temperature",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "0.7",
+            "annotation": "<class 'float'>"
+          },
+          {
+            "name": "provider",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "openai_endpoint_url",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "progress_callback",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "typing.Callable[[str, int, dict], NoneType] | None"
+          },
+          {
+            "name": "search_tool",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "search_strategy",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "'source_based'",
+            "annotation": "<class 'str'>"
+          },
+          {
+            "name": "iterations",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "1",
+            "annotation": "<class 'int'>"
+          },
+          {
+            "name": "questions_per_iteration",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "1",
+            "annotation": "<class 'int'>"
+          },
+          {
+            "name": "retrievers",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "llms",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "username",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "research_id",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "str | None"
+          },
+          {
+            "name": "research_context",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "programmatic_mode",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "True",
+            "annotation": "<class 'bool'>"
+          },
+          {
+            "name": "search_original_query",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "True",
+            "annotation": "<class 'bool'>"
+          },
+          {
+            "name": "settings_snapshot",
+            "kind": "POSITIONAL_OR_KEYWORD",
+            "has_default": true,
+            "default": "None",
+            "annotation": "dict[str, typing.Any] | None"
+          },
+          {
+            "name": "kwargs",
+            "kind": "VAR_KEYWORD",
+            "has_default": false,
+            "default": null,
+            "annotation": "typing.Any"
+          }
+        ],
+        "named": [
+          "model_name",
+          "temperature",
+          "provider",
+          "openai_endpoint_url",
+          "progress_callback",
+          "search_tool",
+          "search_strategy",
+          "iterations",
+          "questions_per_iteration",
+          "retrievers",
+          "llms",
+          "username",
+          "research_id",
+          "research_context",
+          "programmatic_mode",
+          "search_original_query",
+          "settings_snapshot"
+        ],
+        "accepts_var_keyword": true,
+        "accepts_timeout": false,
+        "was_wrapped": false,
+        "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/research_functions.py",
+        "source_line": 33
+      }
+    },
+    "quick_summary_forwarding": {
+      "probe": "quick_summary_forwarding",
+      "ok": true,
+      "value": {
+        "file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/research_functions.py",
+        "total_lines": 776,
+        "hits": {
+          "_init_search_system": [
+            {
+              "line": 33,
+              "text": "def _init_search_system("
+            },
+            {
+              "line": 198,
+              "text": "`_init_search_system()`."
+            },
+            {
+              "line": 307,
+              "text": "# Remove research_mode from kwargs before passing to _init_search_system"
+            },
+            {
+              "line": 314,
+              "text": "system = _init_search_system(llms=llms, **init_kwargs)"
+            },
+            {
+              "line": 471,
+              "text": "system = _init_search_system("
+            },
+            {
+              "line": 587,
+              "text": "system = _init_search_system("
+            }
+          ],
+          "settings_snapshot": [
+            {
+              "line": 19,
+              "text": "from .settings_utils import create_settings_snapshot"
+            },
+            {
+              "line": 50,
+              "text": "settings_snapshot: dict[str, Any] | None = None,"
+            },
+            {
+              "line": 97,
+              "text": "# Use settings_snapshot from parameter, or fall back to kwargs"
+            },
+            {
+              "line": 98,
+              "text": "if settings_snapshot is None:"
+            },
+            {
+              "line": 99,
+              "text": "settings_snapshot = kwargs.get(\"settings_snapshot\")"
+            },
+            {
+              "line": 109,
+              "text": "settings_snapshot=settings_snapshot,"
+            },
+            {
+              "line": 116,
+              "text": "# If no search_tool provided, get from settings_snapshot"
+            },
+            {
+              "line": 117,
+              "text": "if not search_tool and settings_snapshot:"
+            },
+            {
+              "line": 119,
+              "text": "\"search.tool\", settings_snapshot=settings_snapshot"
+            },
+            {
+              "line": 127,
+              "text": "settings_snapshot=settings_snapshot,"
+            },
+            {
+              "line": 144,
+              "text": "settings_snapshot=settings_snapshot,"
+            },
+            {
+              "line": 227,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 244,
+              "text": "\"No settings_snapshot or explicit config provided to quick_summary(). \""
+            },
+            {
+              "line": 246,
+              "text": "\"pass settings_snapshot=create_settings_snapshot(...).\""
+            },
+            {
+              "line": 249,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot("
+            },
+            {
+              "line": 255,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 260,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 301,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 387,
+              "text": "from local_deep_research.api.settings_utils import create_settings_snapshot"
+            },
+            {
+              "line": 388,
+              "text": "settings = create_settings_snapshot({\"programmatic_mode\": True})"
+            },
+            {
+              "line": 389,
+              "text": "result = generate_report(\"AI research\", settings_snapshot=settings)"
+            },
+            {
+              "line": 395,
+              "text": "settings_snapshot=settings"
+            },
+            {
+              "line": 400,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 417,
+              "text": "\"No settings_snapshot or explicit config provided to generate_report(). \""
+            },
+            {
+              "line": 419,
+              "text": "\"pass settings_snapshot=create_settings_snapshot(...).\""
+            },
+            {
+              "line": 422,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot("
+            },
+            {
+              "line": 428,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 433,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 465,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 486,
+              "text": "settings_snapshot=kwargs.get(\"settings_snapshot\"),"
+            },
+            {
+              "line": 499,
+              "text": "settings_snapshot=kwargs.get(\"settings_snapshot\"),"
+            },
+            {
+              "line": 530,
+              "text": "**kwargs: Configuration for the search system. Pass settings_snapshot"
+            },
+            {
+              "line": 531,
+              "text": "(via create_settings_snapshot()) to configure provider, temperature, etc."
+            },
+            {
+              "line": 538,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 540,
+              "text": "\"No settings_snapshot provided to detailed_research(). \""
+            },
+            {
+              "line": 542,
+              "text": "\"pass settings_snapshot=create_settings_snapshot(provider=..., \""
+            },
+            {
+              "line": 545,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot()"
+            },
+            {
+              "line": 580,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 629,
+              "text": "settings_snapshot: dict[str, Any] | None = None,"
+            },
+            {
+              "line": 644,
+              "text": "settings_snapshot: Settings snapshot for the user's stored configuration"
+            },
+            {
+              "line": 657,
+              "text": "if settings_snapshot is None:"
+            },
+            {
+              "line": 658,
+              "text": "settings_snapshot = create_settings_snapshot()"
+            },
+            {
+              "line": 669,
+              "text": "temperature=temperature, settings_snapshot=settings_snapshot"
+            },
+            {
+              "line": 677,
+              "text": "settings_snapshot=settings_snapshot,"
+            },
+            {
+              "line": 765,
+              "text": "settings_snapshot=settings_snapshot,"
+            }
+          ],
+          "kwargs": [
+            {
+              "line": 51,
+              "text": "**kwargs: Any,"
+            },
+            {
+              "line": 97,
+              "text": "# Use settings_snapshot from parameter, or fall back to kwargs"
+            },
+            {
+              "line": 99,
+              "text": "settings_snapshot = kwargs.get(\"settings_snapshot\")"
+            },
+            {
+              "line": 179,
+              "text": "**kwargs: Any,"
+            },
+            {
+              "line": 197,
+              "text": "**kwargs: Additional configuration for the search system. Will be forwarded to"
+            },
+            {
+              "line": 227,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 228,
+              "text": "snapshot_kwargs = {}"
+            },
+            {
+              "line": 230,
+              "text": "snapshot_kwargs[\"provider\"] = provider"
+            },
+            {
+              "line": 232,
+              "text": "snapshot_kwargs[\"api_key\"] = api_key"
+            },
+            {
+              "line": 234,
+              "text": "snapshot_kwargs[\"temperature\"] = temperature"
+            },
+            {
+              "line": 236,
+              "text": "snapshot_kwargs[\"max_search_results\"] = max_search_results"
+            },
+            {
+              "line": 239,
+              "text": "not snapshot_kwargs"
+            },
+            {
+              "line": 249,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot("
+            },
+            {
+              "line": 252,
+              "text": "**snapshot_kwargs,"
+            },
+            {
+              "line": 255,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 260,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 291,
+              "text": "\"research_mode\": kwargs.get(\"research_mode\", \"quick\"),"
+            },
+            {
+              "line": 294,
+              "text": "\"search_engine_selected\": kwargs.get(\"search_tool\"),"
+            },
+            {
+              "line": 296,
+              "text": "\"user_password\": kwargs.get("
+            },
+            {
+              "line": 301,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 307,
+              "text": "# Remove research_mode from kwargs before passing to _init_search_system"
+            },
+            {
+              "line": 308,
+              "text": "init_kwargs = {k: v for k, v in kwargs.items() if k != \"research_mode\"}"
+            },
+            {
+              "line": 310,
+              "text": "init_kwargs[\"username\"] = username"
+            },
+            {
+              "line": 311,
+              "text": "init_kwargs[\"research_id\"] = research_id"
+            },
+            {
+              "line": 312,
+              "text": "init_kwargs[\"research_context\"] = search_context"
+            },
+            {
+              "line": 313,
+              "text": "init_kwargs[\"search_original_query\"] = search_original_query"
+            },
+            {
+              "line": 314,
+              "text": "system = _init_search_system(llms=llms, **init_kwargs)"
+            },
+            {
+              "line": 358,
+              "text": "**kwargs: Any,"
+            },
+            {
+              "line": 377,
+              "text": "**kwargs: Additional configuration for the search system."
+            },
+            {
+              "line": 400,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 401,
+              "text": "snapshot_kwargs = {}"
+            },
+            {
+              "line": 403,
+              "text": "snapshot_kwargs[\"provider\"] = provider"
+            },
+            {
+              "line": 405,
+              "text": "snapshot_kwargs[\"api_key\"] = api_key"
+            },
+            {
+              "line": 407,
+              "text": "snapshot_kwargs[\"temperature\"] = temperature"
+            },
+            {
+              "line": 409,
+              "text": "snapshot_kwargs[\"max_search_results\"] = max_search_results"
+            },
+            {
+              "line": 412,
+              "text": "not snapshot_kwargs"
+            },
+            {
+              "line": 422,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot("
+            },
+            {
+              "line": 425,
+              "text": "**snapshot_kwargs,"
+            },
+            {
+              "line": 428,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 433,
+              "text": "kwargs[\"settings_snapshot\"],"
+            },
+            {
+              "line": 462,
+              "text": "\"search_engine_selected\": kwargs.get(\"search_tool\"),"
+            },
+            {
+              "line": 464,
+              "text": "\"user_password\": kwargs.get(\"user_password\"),"
+            },
+            {
+              "line": 465,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 472,
+              "text": "retrievers=retrievers, llms=llms, username=username, **kwargs"
+            },
+            {
+              "line": 486,
+              "text": "settings_snapshot=kwargs.get(\"settings_snapshot\"),"
+            },
+            {
+              "line": 499,
+              "text": "settings_snapshot=kwargs.get(\"settings_snapshot\"),"
+            },
+            {
+              "line": 517,
+              "text": "**kwargs: Any,"
+            },
+            {
+              "line": 530,
+              "text": "**kwargs: Configuration for the search system. Pass settings_snapshot"
+            },
+            {
+              "line": 538,
+              "text": "if \"settings_snapshot\" not in kwargs:"
+            },
+            {
+              "line": 545,
+              "text": "kwargs[\"settings_snapshot\"] = create_settings_snapshot()"
+            },
+            {
+              "line": 577,
+              "text": "\"search_engine_selected\": kwargs.get(\"search_tool\"),"
+            },
+            {
+              "line": 579,
+              "text": "\"user_password\": kwargs.get(\"user_password\"),"
+            },
+            {
+              "line": 580,
+              "text": "\"settings_snapshot\": kwargs.get(\"settings_snapshot\") or {},"
+            },
+            {
+              "line": 588,
+              "text": "retrievers=retrievers, llms=llms, username=username, **kwargs"
+            },
+            {
+              "line": 608,
+              "text": "\"search_tool\": kwargs.get(\"search_tool\", \"searxng\"),"
+            },
+            {
+              "line": 609,
+              "text": "\"iterations_requested\": kwargs.get(\"iterations\", 1),"
+            },
+            {
+              "line": 610,
+              "text": "\"strategy\": kwargs.get(\"search_strategy\", \"source_based\"),"
+            }
+          ],
+          "search_strategy": [
+            {
+              "line": 40,
+              "text": "search_strategy: str = \"source_based\","
+            },
+            {
+              "line": 67,
+              "text": "search_strategy: Search strategy to use (modular, source_based, etc.). If None, uses default"
+            },
+            {
+              "line": 70,
+              "text": "search_strategy: The name of the search strategy to use."
+            },
+            {
+              "line": 136,
+              "text": "logger.info(\"Search strategy: {}\", search_strategy)"
+            },
+            {
+              "line": 140,
+              "text": "strategy_name=search_strategy,"
+            },
+            {
+              "line": 610,
+              "text": "\"strategy\": kwargs.get(\"search_strategy\", \"source_based\"),"
+            }
+          ],
+          "questions_per_iteration": [
+            {
+              "line": 42,
+              "text": "questions_per_iteration: int = 1,"
+            },
+            {
+              "line": 69,
+              "text": "questions_per_iteration: Number of questions to generate per cycle"
+            },
+            {
+              "line": 156,
+              "text": "system.questions_per_iteration = questions_per_iteration"
+            }
+          ]
+        }
+      }
+    },
+    "settings_snapshot_shape": {
+      "probe": "settings_snapshot_shape",
+      "ok": true,
+      "value": {
+        "type": "dict",
+        "key_count": 580,
+        "strategy_keys": {
+          "search.search_strategy": {
+            "descriptor": true,
+            "value": "langgraph-agent",
+            "options": [
+              {
+                "label": "Source-Based (Best for small <16,000 context window)",
+                "value": "source-based"
+              },
+              {
+                "label": "Focused Iteration - Quick (Minimal text output)",
+                "value": "focused-iteration"
+              },
+              {
+                "label": "Focused Iteration - Comprehensive (Needs >16,000 context window)",
+                "value": "focused-iteration-standard"
+              },
+              {
+                "label": "Topic Organization (Clusters by topic)",
+                "value": "topic-organization"
+              },
+              {
+                "label": "LangGraph Agent (Autonomous agentic research)",
+                "value": "langgraph-agent"
+              }
+            ],
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          }
+        },
+        "known_keys": {
+          "search.tool": {
+            "descriptor": true,
+            "value": "searxng",
+            "options": [
+              {
+                "label": "Arxiv",
+                "value": "arxiv"
+              },
+              {
+                "label": "Wikipedia",
+                "value": "wikipedia"
+              },
+              {
+                "label": "Wikinews",
+                "value": "wikinews"
+              },
+              {
+                "label": "Pubmed",
+                "value": "pubmed"
+              },
+              {
+                "label": "OpenAlex",
+                "value": "openalex"
+              },
+              {
+                "label": "Semantic Scholar",
+                "value": "semantic_scholar"
+              },
+              {
+                "label": "Github",
+                "value": "github"
+              },
+              {
+                "label": "SerpAPI (Google)",
+                "value": "serpapi"
+              },
+              {
+                "label": "ScaleSerp (Google + Caching)",
+                "value": "scaleserp"
+              },
+              {
+                "label": "Serper (Google)",
+                "value": "serper"
+              },
+              {
+                "label": "SearXNG (Self-hosted)",
+                "value": "searxng"
+              },
+              {
+                "label": "Google Programmable Search Engine",
+                "value": "google_pse"
+              },
+              {
+                "label": "DuckDuckGo",
+                "value": "duckduckgo"
+              },
+              {
+                "label": "Brave",
+                "value": "brave"
+              },
+              {
+                "label": "Mojeek",
+                "value": "mojeek"
+              },
+              {
+                "label": "Wayback",
+                "value": "wayback"
+              },
+              {
+                "label": "Local All",
+                "value": "local_all"
+              }
+            ],
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.max_results": {
+            "descriptor": true,
+            "value": 50,
+            "options": null,
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": 1,
+            "max_value": 50.0,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.max_filtered_results": {
+            "descriptor": true,
+            "value": 20,
+            "options": null,
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": 1,
+            "max_value": 100,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.snippets_only": {
+            "descriptor": true,
+            "value": true,
+            "options": null,
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.fetch.mode": {
+            "descriptor": true,
+            "value": "summary_focus_query",
+            "options": [
+              {
+                "label": "Focused Summary (Page-Specific Question + Overall Query)",
+                "value": "summary_focus_query"
+              },
+              {
+                "label": "Focused Summary (Page-Specific Question Only)",
+                "value": "summary_focus"
+              },
+              {
+                "label": "Full Page Text",
+                "value": "full"
+              },
+              {
+                "label": "Disabled (Snippets Only)",
+                "value": "disabled"
+              }
+            ],
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.iterations": {
+            "descriptor": true,
+            "value": 3,
+            "options": null,
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": 1,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "search.questions_per_iteration": {
+            "descriptor": true,
+            "value": 1,
+            "options": null,
+            "type": "SEARCH",
+            "editable": true,
+            "min_value": 1.0,
+            "max_value": 10.0,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "llm.provider": {
+            "descriptor": true,
+            "value": "openai_endpoint",
+            "options": [
+              {
+                "label": "OpenAI API",
+                "value": "openai"
+              },
+              {
+                "label": "Anthropic API",
+                "value": "anthropic"
+              },
+              {
+                "label": "Ollama (Local)",
+                "value": "ollama"
+              },
+              {
+                "label": "LM Studio (Local)",
+                "value": "lmstudio"
+              },
+              {
+                "label": "Llama.cpp (Local GGUF files only)",
+                "value": "llamacpp"
+              },
+              {
+                "label": "OpenAI-Compatible Endpoint (llama.cpp, vLLM, etc.)",
+                "value": "openai_endpoint"
+              },
+              {
+                "label": "Anthropic-Compatible Endpoint (Messages API)",
+                "value": "anthropic_endpoint"
+              },
+              {
+                "label": "Google Gemini API",
+                "value": "google"
+              },
+              {
+                "label": "OpenRouter API",
+                "value": "openrouter"
+              },
+              {
+                "label": "Requesty API",
+                "value": "requesty"
+              }
+            ],
+            "type": "LLM",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "llm.model": {
+            "descriptor": true,
+            "value": "",
+            "options": [
+              {
+                "label": "GPT-4o (OpenAI)",
+                "value": "gpt-4o"
+              },
+              {
+                "label": "GPT-3.5 Turbo (OpenAI)",
+                "value": "gpt-3.5-turbo"
+              },
+              {
+                "label": "Claude 3.5 Sonnet (Anthropic)",
+                "value": "claude-3-5-sonnet-latest"
+              },
+              {
+                "label": "Claude 3 Opus (Anthropic)",
+                "value": "claude-3-opus-20240229"
+              },
+              {
+                "label": "Llama 3 (Meta)",
+                "value": "llama3"
+              },
+              {
+                "label": "Mistral (Mistral AI)",
+                "value": "mistral"
+              },
+              {
+                "label": "Mixtral (Mistral AI)",
+                "value": "mixtral"
+              }
+            ],
+            "type": "LLM",
+            "editable": true,
+            "min_value": null,
+            "max_value": null,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          },
+          "llm.temperature": {
+            "descriptor": true,
+            "value": 0.7,
+            "options": null,
+            "type": "LLM",
+            "editable": true,
+            "min_value": 0.0,
+            "max_value": 1.0,
+            "other_fields": [
+              "category",
+              "description",
+              "name",
+              "step",
+              "ui_element",
+              "visible"
+            ]
+          }
+        },
+        "sample_keys": [
+          "app.allow_registrations",
+          "app.debug",
+          "app.enable_file_logging",
+          "app.enable_notifications",
+          "app.enable_web",
+          "app.external_url",
+          "app.host",
+          "app.lock_settings",
+          "app.max_concurrent_researches",
+          "app.max_global_concurrent_researches",
+          "app.max_user_query_length",
+          "app.port",
+          "app.queue_mode",
+          "app.theme",
+          "app.timezone",
+          "app.warnings.dismiss_adaptive_scope_info",
+          "app.warnings.dismiss_cloud_embeddings",
+          "app.warnings.dismiss_cloud_llm",
+          "app.warnings.dismiss_context_below_history",
+          "app.warnings.dismiss_context_truncation_history",
+          "app.warnings.dismiss_egress_policy",
+          "app.warnings.dismiss_high_context",
+          "app.warnings.dismiss_legacy_config",
+          "app.warnings.dismiss_model_mismatch",
+          "app.warnings.dismiss_searxng_recommendation",
+          "app.web_interface",
+          "backup.enabled",
+          "backup.max_age_days",
+          "backup.max_count",
+          "benchmark.evaluation.endpoint_url",
+          "benchmark.evaluation.model",
+          "benchmark.evaluation.provider",
+          "benchmark.evaluation.temperature",
+          "chat.followup_context_mode",
+          "chat.llm_title_generation",
+          "chat.max_findings_to_include",
+          "chat.title_llm_timeout_seconds",
+          "document_scheduler.download_pdfs",
+          "document_scheduler.enabled",
+          "document_scheduler.extract_text",
+          "document_scheduler.generate_rag",
+          "document_scheduler.interval_seconds",
+          "document_scheduler.sweep_library_collections",
+          "embeddings.ollama.num_ctx",
+          "embeddings.ollama.url",
+          "embeddings.openai.api_key",
+          "embeddings.openai.base_url",
+          "embeddings.openai.chunk_size",
+          "embeddings.openai.dimensions",
+          "embeddings.openai.model",
+          "embeddings.require_local",
+          "focused_iteration.adaptive_questions",
+          "focused_iteration.knowledge_summary_limit",
+          "focused_iteration.previous_searches_limit",
+          "focused_iteration.prompt_knowledge_truncate",
+          "focused_iteration.question_generator",
+          "focused_iteration.snippet_truncate",
+          "general.enable_fact_checking",
+          "general.knowledge_accumulation",
+          "general.knowledge_accumulation_context_limit"
+        ]
+      }
+    },
+    "ldrclient_signatures": {
+      "probe": "ldrclient_signatures",
+      "ok": true,
+      "value": {
+        "quick_research": {
+          "qualname": "LDRClient.quick_research",
+          "module": "local_deep_research.api.client",
+          "text": "(self, query: str, model: str | None = None, search_engines: list[str] | None = None, iterations: int = 2, wait_for_result: bool = True, timeout: int = 300) -> dict[str, typing.Any]",
+          "parameters": [
+            {
+              "name": "self",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": null
+            },
+            {
+              "name": "query",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": "<class 'str'>"
+            },
+            {
+              "name": "model",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "None",
+              "annotation": "str | None"
+            },
+            {
+              "name": "search_engines",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "None",
+              "annotation": "list[str] | None"
+            },
+            {
+              "name": "iterations",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "2",
+              "annotation": "<class 'int'>"
+            },
+            {
+              "name": "wait_for_result",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "True",
+              "annotation": "<class 'bool'>"
+            },
+            {
+              "name": "timeout",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "300",
+              "annotation": "<class 'int'>"
+            }
+          ],
+          "named": [
+            "self",
+            "query",
+            "model",
+            "search_engines",
+            "iterations",
+            "wait_for_result",
+            "timeout"
+          ],
+          "accepts_var_keyword": false,
+          "accepts_timeout": true,
+          "was_wrapped": false,
+          "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/client.py",
+          "source_line": 171
+        },
+        "wait_for_research": {
+          "qualname": "LDRClient.wait_for_research",
+          "module": "local_deep_research.api.client",
+          "text": "(self, research_id: str, timeout: int = 300) -> dict[str, typing.Any]",
+          "parameters": [
+            {
+              "name": "self",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": null
+            },
+            {
+              "name": "research_id",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": "<class 'str'>"
+            },
+            {
+              "name": "timeout",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": true,
+              "default": "300",
+              "annotation": "<class 'int'>"
+            }
+          ],
+          "named": [
+            "self",
+            "research_id",
+            "timeout"
+          ],
+          "accepts_var_keyword": false,
+          "accepts_timeout": true,
+          "was_wrapped": false,
+          "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/client.py",
+          "source_line": 250
+        },
+        "login": {
+          "qualname": "LDRClient.login",
+          "module": "local_deep_research.api.client",
+          "text": "(self, username: str, password: str) -> bool",
+          "parameters": [
+            {
+              "name": "self",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": null
+            },
+            {
+              "name": "username",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": "<class 'str'>"
+            },
+            {
+              "name": "password",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": "<class 'str'>"
+            }
+          ],
+          "named": [
+            "self",
+            "username",
+            "password"
+          ],
+          "accepts_var_keyword": false,
+          "accepts_timeout": false,
+          "was_wrapped": false,
+          "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/client.py",
+          "source_line": 92
+        },
+        "get_settings": {
+          "qualname": "LDRClient.get_settings",
+          "module": "local_deep_research.api.client",
+          "text": "(self) -> dict[str, typing.Any]",
+          "parameters": [
+            {
+              "name": "self",
+              "kind": "POSITIONAL_OR_KEYWORD",
+              "has_default": false,
+              "default": null,
+              "annotation": null
+            }
+          ],
+          "named": [
+            "self"
+          ],
+          "accepts_var_keyword": false,
+          "accepts_timeout": false,
+          "was_wrapped": false,
+          "source_file": "/install/.venv/lib/python3.14/site-packages/local_deep_research/api/client.py",
+          "source_line": 302
+        }
+      }
+    },
+    "control_matrix": {
+      "probe": "control_matrix",
+      "ok": true,
+      "value": {
+        "strategy": "source-based",
+        "arms": [
+          {
+            "arm": "kwargs only (what every trial did until 2026-08-02)",
+            "overrides": {},
+            "kwargs": {
+              "iterations": 1,
+              "questions_per_iteration": 2
+            },
+            "strategy_class": "SourceBasedSearchStrategy",
+            "system_max_iterations": 1,
+            "effective_iterations": 3,
+            "effective_questions": 3
+          },
+          {
+            "arm": "snapshot search.iterations",
+            "overrides": {
+              "search.iterations": 1
+            },
+            "kwargs": {},
+            "strategy_class": "SourceBasedSearchStrategy",
+            "system_max_iterations": 1,
+            "effective_iterations": 1,
+            "effective_questions": 3
+          },
+          {
+            "arm": "snapshot search.questions_per_iteration (the DECOY key)",
+            "overrides": {
+              "search.questions_per_iteration": 2
+            },
+            "kwargs": {},
+            "strategy_class": "SourceBasedSearchStrategy",
+            "system_max_iterations": 1,
+            "effective_iterations": 3,
+            "effective_questions": 3
+          },
+          {
+            "arm": "snapshot search.questions (the key the strategy reads)",
+            "overrides": {
+              "search.questions": 2
+            },
+            "kwargs": {},
+            "strategy_class": "SourceBasedSearchStrategy",
+            "system_max_iterations": 1,
+            "effective_iterations": 3,
+            "effective_questions": 2
+          },
+          {
+            "arm": "snapshot both, i=4 q=5",
+            "overrides": {
+              "search.iterations": 4,
+              "search.questions": 5
+            },
+            "kwargs": {},
+            "strategy_class": "SourceBasedSearchStrategy",
+            "system_max_iterations": 1,
+            "effective_iterations": 4,
+            "effective_questions": 5
+          }
+        ],
+        "reads_iterations_from": "settings_snapshot['search.iterations']",
+        "reads_questions_from": "settings_snapshot['search.questions']",
+        "kwargs_control_iterations": false,
+        "kwargs_control_questions": false,
+        "snapshot_controls_both": true
+      }
+    },
+    "live_call": {
+      "probe": "live_call",
+      "ok": true,
+      "value": {
+        "request": {
+          "query": "What is the capital of France?",
+          "settings": {
+            "search.tool": "searxng",
+            "llm.provider": "openai_endpoint",
+            "llm.model": "gemma-4-12b-it",
+            "search.iterations": 1,
+            "search.questions": 1
+          },
+          "search_strategy": "'source-based'",
+          "programmatic_mode": "True"
+        },
+        "result": {
+          "type": "dict",
+          "keys": [
+            "findings",
+            "formatted_findings",
+            "iterations",
+            "questions",
+            "research_id",
+            "sources",
+            "summary"
+          ],
+          "by_key": {
+            "findings": {
+              "type": "list",
+              "len": 2,
+              "repr": "[{'phase': 'Iteration 1', 'content': 'Searched with 1 questions, found 33 results.', 'question': 'What is the capital of France?', 'documents': []}, {'phase': 'Final synthesis', 'content': 'The capital of France is Paris [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,...<+26709 chars>"
+            },
+            "formatted_findings": {
+              "type": "str",
+              "len": 16635,
+              "repr": "\"The capital of France is Paris [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]. It is the country's only official capital and serves as its primary political, cultural, and economic center [16].\\n\\n**Geography and Demographics**\\nParis is situated in the ...<+5 chars>"
+            },
+            "iterations": {
+              "type": "int",
+              "repr": "1"
+            },
+            "questions": {
+              "type": "dict",
+              "len": 0,
+              "dict_keys": [],
+              "repr": "{}"
+            },
+            "research_id": {
+              "type": "str",
+              "len": 36,
+              "repr": "'0cdb0ad7-8d26-4d42-aaf2-5f94a0bfc31c'"
+            },
+            "sources": {
+              "type": "list",
+              "len": 27,
+              "repr": "[{'id': 'https://en.wikipedia.org/wiki/Paris', 'title': 'Paris - Wikipedia', 'link': 'https://en.wikipedia.org/wiki/Paris', 'snippet': 'Paris[a] is the capital and largest city of France, with an estimated city population of 2.04 million in an area of 105.4 km2 (40.7 sq mi), and a metropolitan popul...<+13343 chars>"
+            },
+            "summary": {
+              "type": "str",
+              "len": 2030,
+              "repr": "\"The capital of France is Paris [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]. It is the country's only official capital and serves as its primary political, cultural, and economic center [16].\\n\\n**Geography and Demographics**\\nParis is situated in the ...<+5 chars>"
+            }
+          },
+          "sources_detail": {
+            "present": true,
+            "type": "list",
+            "len": 27,
+            "element_type": "dict",
+            "element_repr": "{'id': 'https://en.wikipedia.org/wiki/Paris', 'title': 'Paris - Wikipedia', 'link': 'https://en.wikipedia.org/wiki/Paris', 'snippet': 'Paris[a] is the capital and largest city of France, with an estimated city population of 2.04 million in an area of 105.4 km2 (40.7 sq mi), and a metropolitan popula...<+292 chars>",
+            "element_is_str": false,
+            "element_looks_like_url": false,
+            "element_dict_keys": [
+              "category",
+              "engine",
+              "id",
+              "index",
+              "link",
+              "snippet",
+              "title"
+            ],
+            "all_element_types": [
+              "dict"
+            ],
+            "str_of_first": "'{\\'id\\': \\'https://en.wikipedia.org/wiki/Paris\\', \\'title\\': \\'Paris - Wikipedia\\', \\'link\\': \\'https://en.wikipedia.org/wiki/Paris\\', \\'snippet\\': \\'Paris[a] is the capital and largest city of France, with an estimated city population of 2.04 million in an area of 105.4 km2 (40.7 sq mi), and a met...<+322 chars>"
+          }
+        },
+        "iterations_requested": 1,
+        "iterations_returned": 1,
+        "iterations_agree": true
+      }
+    }
+  },
+  "summary": {
+    "probes": 8,
+    "failed": [],
+    "ok": true
+  }
+}

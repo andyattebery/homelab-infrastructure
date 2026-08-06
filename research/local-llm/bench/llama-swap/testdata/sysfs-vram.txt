@@ -1,0 +1,3 @@
+/sys/class/drm/card1/device
+mem_info_vram_used=678518784
+mem_info_vram_total=17095983104

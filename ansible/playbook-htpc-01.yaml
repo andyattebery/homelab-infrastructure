@@ -36,7 +36,7 @@
         repo: unsloth/gemma-4-12b-it-GGUF
         file: gemma-4-12b-it-UD-Q6_K_XL.gguf
         # 65536, raised from 32768 for experiment E1 and KEPT on its results
-        # (docs/research-assistant/llm-tuning.md). E1 measured real Onyx research traffic: the peak
+        # (research/local-llm/docs/llm-tuning.md). E1 measured real Onyx research traffic: the peak
         # turn reached a 25,316-token prompt and 30,349 tokens total, with zero
         # truncation across 21 agent calls. 32768 could not have run that set — it
         # clears the peak by only 2,419 tokens, and the largest input budget it allows
@@ -62,7 +62,7 @@
         # 2807 MB free, because Gemma 4 uses sliding-window attention on most layers
         # and so has a far smaller KV cache than Qwen3's dense 40 layers.
         extra_flags: "--cache-type-k q8_0 --cache-type-v q8_0"
-      # Added for the local-deep-research harness comparison (docs/research-assistant/harness-comparison.md).
+      # Added for the local-deep-research harness comparison (research/local-llm/docs/harness-comparison.md).
       # Chosen over Qwen3-14B because it is the only candidate with a published number in
       # THAT harness (91.2% SimpleQA, 59.0% xbench-DeepSearch, upstream's own figures),
       # and because a many-call research pipeline makes generation speed a primary
@@ -90,7 +90,7 @@
         file: Qwen3.5-9B-Q8_0.gguf
         # 65536 to match Gemma so context is not a confound in the comparison.
         # MEASURED at UD-Q6_K_XL on 2026-07-31: 10,371 MB used, 5,933 MB free at a
-        # 15,657 MB baseline (bench/llama-swap/results.md) -- 2.4 GB more headroom
+        # 15,657 MB baseline (research/local-llm/bench/llama-swap/results.md) -- 2.4 GB more headroom
         # than Gemma at the same context, because its hybrid attention caches only
         # 8 of 32 layers (~33 MB per 1k, vs ~88 for dense Qwen3-14B).
         # Q8_0 is ~1 GB larger, so expect ~4,900 MB free. TO BE RE-MEASURED.
@@ -100,7 +100,7 @@
         # presence_penalty=1.5. Qwen3 wanted temperature 0.6 -- do not copy that here.
         sampler_flags: "--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 1.5"
       # Added 2026-08-01 for the Vulkan-vs-ROCm backend A/B, and as the candidate for
-      # the "is an MoE the bigger lever" question (docs/research-assistant/current-work.md
+      # the "is an MoE the bigger lever" question (research/local-llm/docs/current-work.md
       # step 3). Every other model here is dense, so every generated token reads all
       # ~10 GiB of weights; this one activates 3.8B of 25.2B (8 of 128 experts + 1
       # shared). At a 83-98% generation share of wall time that is potentially a larger

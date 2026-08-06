@@ -24,7 +24,7 @@ at 35-400 characters where a fetched page is thousands.
 Searched before writing this: no upstream issue mentions `snippets_only`, `use_full_search`
 or `supports_full_search`; no open PR touches the factory; the relevant branch is byte
 identical in v1.10.1 and main. **We are not filing it upstream**, so this patch is permanent
-and its guards (bench/harness/test_patch.py) matter more than they would for a stopgap.
+and its guards (research/local-llm/bench/harness/test_patch.py) matter more than they would for a stopgap.
 
 WHY A WRAPPER AND NOT A PATCHED FILE
 ------------------------------------
