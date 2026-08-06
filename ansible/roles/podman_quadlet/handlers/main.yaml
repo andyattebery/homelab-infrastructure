@@ -1,4 +1,21 @@
 ---
+# Only restart a unit the caller actually wants running. A deploy that asks for
+# `stopped` (or only a daemon-reload) must not be started as a side effect of the
+# unit file changing. A deliberately uninstalled unit (stopped, no WantedBy) is
+# excluded for the same reason — `restarted` would start it.
+- name: Restart podman quadlet service
+  when:
+    - __podman_quadlet_state == 'started'
+    - not (__podman_quadlet_installed_off | bool)
+  ansible.builtin.systemd:
+    name: "{{ __podman_quadlet_service_name }}"
+    daemon_reload: true
+    state: restarted
+
+# A changed unit file still needs the generator re-run even when we are not starting
+# it — including for an uninstalled unit, so the regenerated definition is in place
+# for whenever it is installed again.
 - name: Reload systemd for podman quadlet
+  when: __podman_quadlet_state != 'started' or (__podman_quadlet_installed_off | bool)
   ansible.builtin.systemd:
     daemon_reload: true

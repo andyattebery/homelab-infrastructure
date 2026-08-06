@@ -1,15 +1,35 @@
 ---
+- name: Assert quadlet type is supported
+  ansible.builtin.assert:
+    that: __podman_quadlet_type in __podman_quadlet_service_suffixes
+    fail_msg: >-
+      {{ podman_quadlet_src | basename }} has extension
+      '.{{ __podman_quadlet_type }}', which Quadlet does not generate a service for.
+      Supported: {{ __podman_quadlet_service_suffixes.keys() | list | join(', ') }}.
+
+# Exposed to the handler, which cannot see role vars scoped to this include.
+- name: Set quadlet service facts
+  ansible.builtin.set_fact:
+    __podman_quadlet_service_name: "{{ __podman_quadlet_service }}"
+    __podman_quadlet_state: "{{ podman_quadlet_service_state }}"
+
+# Queried with no state/enabled set, so this only reports status. failed_when covers
+# the first deploy, when the unit does not exist yet.
+- name: Check whether the service is already running
+  ansible.builtin.systemd:
+    name: "{{ __podman_quadlet_service_name }}"
+  register: __podman_quadlet_active_before
+  failed_when: false
+  changed_when: false
+
 - name: Create volume directories
-  vars:
-    __content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ podman_quadlet_src) }}"
-    __volume_dirs: "{{ __content | regex_findall('^Volume=([^:]+):', multiline=True) }}"
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: "{{ podman_quadlet_volume_owner }}"
     group: "{{ podman_quadlet_volume_group }}"
     mode: "0755"
-  loop: "{{ __volume_dirs }}"
+  loop: "{{ __podman_quadlet_volume_dirs }}"
 
 - name: Copy config files
   when: podman_quadlet_config_files | length > 0
@@ -20,13 +40,27 @@
     group: "{{ podman_quadlet_volume_group }}"
     mode: "{{ item.mode | default('0644') }}"
   loop: "{{ podman_quadlet_config_files }}"
+  register: __podman_quadlet_config_files_result
+
+- name: Template quadlet file
+  when: __podman_quadlet_is_template | bool
+  ansible.builtin.template:
+    src: "{{ podman_quadlet_src }}"
+    dest: "/etc/containers/systemd/{{ __podman_quadlet_dest_name }}"
+    mode: "0644"
+  notify:
+    - Restart podman quadlet service
+    - Reload systemd for podman quadlet
 
 - name: Copy quadlet file
+  when: not (__podman_quadlet_is_template | bool)
   ansible.builtin.copy:
     src: "{{ podman_quadlet_src }}"
-    dest: "/etc/containers/systemd/{{ podman_quadlet_src | basename }}"
+    dest: "/etc/containers/systemd/{{ __podman_quadlet_dest_name }}"
     mode: "0644"
-  notify: Reload systemd for podman quadlet
+  notify:
+    - Restart podman quadlet service
+    - Reload systemd for podman quadlet
 
 - name: Install pqup script
   ansible.builtin.copy:
@@ -38,18 +72,62 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Pull image
+  when: __podman_quadlet_type in __podman_quadlet_pullable_types
   vars:
-    __content: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/' ~ podman_quadlet_src) }}"
-    __image: "{{ __content | regex_search('^Image=(.+)$', '\\1', multiline=True) | first }}"
+    __image: "{{ __podman_quadlet_content | regex_search('^Image=(.+)$', '\\1', multiline=True) | first }}"
   ansible.builtin.command:
     cmd: "podman pull {{ __image }}"
   register: __podman_quadlet_pull
   changed_when: "'Pulling' in __podman_quadlet_pull.stdout"
 
+# Visible rather than silent: the playbook is deliberately not reconciling this
+# service, and that should be obvious in the run output rather than inferred from a
+# skipped task.
+- name: Report uninstalled service left untouched
+  when: __podman_quadlet_installed_off | bool
+  ansible.builtin.debug:
+    msg: >-
+      {{ __podman_quadlet_service_name }} exists, is stopped, and has no WantedBy, so it
+      has been deliberately uninstalled — leaving it stopped rather than starting it.
+      To bring it back, restore its [Install] section (typically an
+      /etc/systemd/system/<unit>.d drop-in) and re-run, or start it by hand.
+
 - name: Enable and start service
+  when: not (__podman_quadlet_installed_off | bool)
   vars:
-    __service: "{{ (podman_quadlet_src | basename | splitext)[0] }}.service"
+    # An explicit podman_quadlet_service_enabled always wins. Otherwise enable the
+    # types that generate an [Install] section, and leave `enabled` unmanaged for the
+    # rest — `systemctl enable` fails on a unit with no installation config, and
+    # disabling one is meaningless.
+    __enabled: >-
+      {{ podman_quadlet_service_enabled
+         if podman_quadlet_service_enabled is not none
+         else (true
+               if __podman_quadlet_type in __podman_quadlet_enableable_types
+               else omit) }}
   ansible.builtin.systemd:
-    name: "{{ __service }}"
-    state: started
-    enabled: true
+    name: "{{ __podman_quadlet_service_name }}"
+    state: "{{ podman_quadlet_service_state }}"
+    enabled: "{{ __enabled }}"
+
+# Config files are read when the container starts, so changing one leaves the running
+# container serving its old config. docker_compose solves this with a per-file
+# service_name_to_restart; the quadlet equivalent is a boolean, since the unit is known.
+# Opt-in per file: not every config is read only at startup.
+#
+# Skipped when the service was not already running — `Enable and start service` above
+# has just started it with the new config, so a restart would be redundant, and a
+# deliberately-stopped unit must not be started as a side effect.
+- name: Restart service for changed config files
+  when:
+    - not (__podman_quadlet_installed_off | bool)
+    - __podman_quadlet_active_before.status.ActiveState | default('') == 'active'
+    - podman_quadlet_service_state == 'started'
+    - __podman_quadlet_config_files_result.results | default([])
+      | selectattr('changed')
+      | selectattr('item.restart_service', 'defined')
+      | selectattr('item.restart_service')
+      | list | length > 0
+  ansible.builtin.systemd:
+    name: "{{ __podman_quadlet_service_name }}"
+    state: restarted

@@ -2,3 +2,11 @@
 podman_quadlet_volume_owner: "{{ ansible_user }}"
 podman_quadlet_volume_group: "{{ ansible_user }}"
 podman_quadlet_config_files: []
+
+# Service lifecycle. Defaults are computed per quadlet type in tasks/main.yaml:
+# .container and .kube generate a service with an [Install] section and are enabled;
+# .network, .volume, .pod, .image, .build and .artifact are pulled in as dependencies
+# of the units that reference them and have no [Install], so enabling them fails.
+# Override either to deploy a unit without starting it.
+podman_quadlet_service_state: started
+podman_quadlet_service_enabled: ~

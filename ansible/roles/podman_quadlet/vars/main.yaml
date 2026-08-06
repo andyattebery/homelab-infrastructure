@@ -1,0 +1,78 @@
+---
+# Quadlet generates a .service per unit file. Most types get a suffix; .container and
+# .kube do not. Verified against podman-systemd.unit(5) for Podman 5.8.
+# Any unit may override the generated name with ServiceName=, which is honoured first.
+__podman_quadlet_service_suffixes:
+  container: ""
+  kube: ""
+  volume: "-volume"
+  network: "-network"
+  pod: "-pod"
+  image: "-image"
+  build: "-build"
+  artifact: "-artifact"
+
+# Only these types embed an Image= to pull.
+__podman_quadlet_pullable_types:
+  - container
+
+# Only these types carry an [Install] section in this repo's unit files. The rest are
+# activated as dependencies of their referrers.
+#
+# NOTE: `enabled` is effectively a no-op for Quadlet units regardless of type.
+# podman-systemd.unit(5): "The services created by Podman are considered transient by
+# systemd ... it is not possible to `systemctl enable` them"; instead "the generator
+# manually applies the [Install] section ... during generation". Their UnitFileState
+# is `generated`, which Ansible reads as already-enabled, so the task reports ok and
+# changes nothing. Boot behaviour is controlled by [Install] WantedBy= in the
+# .container/.network file itself — edit that, not this list.
+__podman_quadlet_enableable_types:
+  - container
+  - kube
+
+# "Installed off": the unit exists, is not running, and has no WantedBy — i.e. nothing
+# will start it at boot and nothing is running it now. That combination only happens
+# when an operator deliberately uninstalled it — e.g. a GPU-arbitration script that
+# adds and removes the [Install] drop-in Quadlet turns into WantedBy. The playbook runs
+# rarely and must not silently re-start something that was turned off on purpose.
+#
+# Deliberately narrow. It does NOT fire for:
+#   - a brand-new unit (LoadState=not-found), so first deploys still start normally
+#   - a unit that is currently active, so nothing running is ever left behind
+#   - .network/.volume units, which are `active (exited)` oneshots
+__podman_quadlet_installed_off: >-
+  {{ (__podman_quadlet_active_before.status.LoadState | default('not-found')) != 'not-found'
+     and (__podman_quadlet_active_before.status.ActiveState | default('')) != 'active'
+     and (__podman_quadlet_active_before.status.WantedBy | default('') | trim) == '' }}
+
+# A .j2 source is templated on the way out and loses the suffix at the destination.
+__podman_quadlet_is_template: "{{ podman_quadlet_src is match('.*\\.j2$') }}"
+__podman_quadlet_dest_name: >-
+  {{ (podman_quadlet_src | basename | regex_replace('\.j2$', '')) }}
+__podman_quadlet_type: "{{ (__podman_quadlet_dest_name | splitext)[1] | replace('.', '') }}"
+
+# Render templates before scanning so Volume=/Image= reflect final values, not Jinja.
+__podman_quadlet_content: >-
+  {{ lookup('ansible.builtin.template', podman_quadlet_src)
+     if __podman_quadlet_is_template | bool
+     else lookup('ansible.builtin.file', podman_quadlet_src) }}
+
+# regex_findall always yields a list, so there is no list-or-None ambiguity to handle.
+__podman_quadlet_service_name_overrides: >-
+  {{ __podman_quadlet_content
+     | regex_findall('^ServiceName=(.+)$', multiline=True) }}
+
+__podman_quadlet_service: >-
+  {{ (__podman_quadlet_service_name_overrides | first | trim ~ '.service')
+     if (__podman_quadlet_service_name_overrides | length > 0)
+     else ((__podman_quadlet_dest_name | splitext)[0]
+           ~ __podman_quadlet_service_suffixes[__podman_quadlet_type]
+           ~ '.service') }}
+
+# Bind-mount sources only. A named volume or a *.volume reference is not a host path,
+# and creating a directory for it would land somewhere arbitrary.
+__podman_quadlet_volume_dirs: >-
+  {{ __podman_quadlet_content
+     | regex_findall('^Volume=([^:]+):', multiline=True)
+     | select('match', '^/')
+     | list }}
