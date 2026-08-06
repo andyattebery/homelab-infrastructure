@@ -1,3 +1,4 @@
 ---
 obico_no_machine_learning: false
 obico_only_machine_learning: false
+obico_machine_learning_cuda: false

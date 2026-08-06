@@ -33,6 +33,13 @@ x-base: &obico-base
     DJANGO_SECRET_KEY: '${OBICO_DJANGO_SECRET_KEY-}'
     SYNDICATE: '${OBICO_SYNDICATE-}'
     VERSION:
+    LLM_API_KEY: '${OBICO_LLM_API_KEY-}'
+    LLM_BASE_URL: '${OBICO_LLM_BASE_URL-https://api.openai.com/v1}'
+    LLM_MODEL_NAME: '${OBICO_LLM_MODEL_NAME-gpt-4o}'
+    VLM_API_KEY: '${OBICO_VLM_API_KEY-}'
+    VLM_BASE_URL: '${OBICO_VLM_BASE_URL-https://api.openai.com/v1}'
+    VLM_MODEL_NAME: '${OBICO_VLM_MODEL_NAME-gpt-4o}'
+    JUSPRIN_BRAND_NAME: '${OBICO_JUSPRIN_BRAND_NAME-JusPrin}'
   volumes:
     - ${DOCKER_DATA_DIRECTORY}/obico/data:/data
     - ${DOCKER_DATA_DIRECTORY}/obico/media:/app/static_build/media
