@@ -5,10 +5,11 @@
     docker_compose_envs:
       SEARXNG_DOMAIN_NAME: "searxng.{{ domain_name }}"
       SEARXNG_SECRET: "{{ searxng_secret_key }}"
-    # docker_compose_src_config_files:
-    #   - src_file_path: templates/limiter.toml.j2
-    #     dst_relative_file_path: searxng/limiter.toml
-    #   - src_file_path: templates/settings.yml.j2
-    #     dst_relative_file_path: searxng/settings.yml
+    docker_compose_src_config_files:
+      - src_file_path: templates/limiter.toml.j2
+        dst_relative_file_path: searxng/limiter.toml
+      - src_file_path: templates/settings.yml.j2
+        dst_relative_file_path: searxng/settings.yml
+        service_name_to_restart: searxng
   ansible.builtin.include_role:
     name: docker_compose
