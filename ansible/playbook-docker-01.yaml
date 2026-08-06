@@ -13,6 +13,7 @@
     - role: docker_compose_traefik
       vars:
         docker_compose_traefik_enable_dashboard: true
+      tags: traefik
     - role: docker_compose_tsdproxy
     # - role: docker_compose_diun
     # - role: docker_compose_obico

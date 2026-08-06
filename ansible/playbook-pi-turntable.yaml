@@ -9,6 +9,7 @@
       vars:
         docker_compose_traefik_enable_dashboard: true
         docker_compose_traefik_enable_host_network: true
+      tags: traefik
     - role: docker_compose_dashboard_services_manager_provider
     - role: docker_compose_owntone
     - role: alsa_dsnoop
