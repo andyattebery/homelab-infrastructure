@@ -86,3 +86,4 @@
         docker_compose_src_config_files:
           - src_file_path: files/wsl-01/tabbyapi-config.yml
             dst_relative_file_path: tabbyapi/config.yml
+            service_name_to_restart: tabbyapi

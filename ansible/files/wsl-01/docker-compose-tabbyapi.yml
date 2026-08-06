@@ -3,6 +3,7 @@ services:
   tabbyapi:
     image: ghcr.io/theroyallab/tabbyapi:latest
     container_name: tabbyapi
+    entrypoint: ["/bin/bash", "-c", "apt-get update -qq && apt-get install -y -qq python3.12-dev > /dev/null 2>&1; exec python3 main.py --host 0.0.0.0"]
     restart: unless-stopped
     runtime: nvidia
     deploy:
@@ -23,6 +24,7 @@ services:
       retries: 3
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - LIBRARY_PATH=/usr/local/cuda-12.8/compat
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/tabbyapi/config.yml:/app/config.yml
       - ${DOCKER_DATA_DIRECTORY}/tabbyapi/models:/app/models
