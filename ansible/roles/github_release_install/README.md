@@ -33,8 +33,28 @@ Optional:
   the binary uses a non-standard flag (e.g. `-V`, `-v`).
 - `github_release_install_version_regex` — default
   `'([0-9]+\.[0-9]+\.[0-9]+)'`. Capture group 1 is compared
-  string-equal against `releases/latest.tag_name` with leading `v`
+  string-equal against the release `tag_name` with leading `v`
   stripped.
+- `github_release_install_release_tag` — default empty, meaning
+  `releases/latest`. Set to a tag to pin, e.g.
+  `autobuild-2026-05-31-13-22`.
+
+  Pinning **requires** matching idempotency settings, because the
+  default `version_command` asks the binary for a semver that a
+  pinned tag may not contain:
+
+  ```yaml
+  github_release_install_release_tag: autobuild-2026-05-31-13-22
+  github_release_install_version_command: "echo autobuild-2026-05-31-13-22"
+  github_release_install_version_regex: "(.*)"
+  ```
+
+  That makes the comparison "pinned tag vs release `tag_name`", which
+  is stable. Leave the defaults in place and the role re-downloads on
+  every run, or fails to match at all.
+
+  The same pattern tracks a rolling tag such as `latest`:
+  `version_command: "echo latest"` with `version_regex: "(.*)"`.
 
 ## Examples
 

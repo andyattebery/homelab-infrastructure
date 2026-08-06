@@ -21,9 +21,14 @@
       '{{ ansible_facts['architecture'] }}' in github_release_install_asset_patterns.
       Caller declared: {{ github_release_install_asset_patterns.keys() | list }}.
 
-- name: Get latest release from GitHub
+- name: Get release from GitHub (pinned tag if set, else latest)
   ansible.builtin.uri:
-    url: "https://api.github.com/repos/{{ github_release_install_repo }}/releases/latest"
+    url: >-
+      https://api.github.com/repos/{{ github_release_install_repo }}/releases/{{
+        ('tags/' + github_release_install_release_tag)
+        if (github_release_install_release_tag | default('') | length > 0)
+        else 'latest'
+      }}
     return_content: true
   register: github_release_install_release_response
 

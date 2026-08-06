@@ -9,3 +9,9 @@ github_release_install_version_command: "{{ github_release_install_binary_path }
 # in the version-command output, which covers clap's `<bin> X.Y.Z`,
 # urfave/cli's `<bin> version vX.Y.Z`, and similar.
 github_release_install_version_regex: '([0-9]+\.[0-9]+\.[0-9]+)'
+
+# Pin to a specific release tag (e.g. 'autobuild-2026-05-31-13-22'). Empty =
+# use the repo's 'latest' release (default behaviour). When pinned, set
+# _version_command to `echo <tag>` (+ regex '(.*)') so idempotency compares
+# the pinned tag against the release tag_name.
+github_release_install_release_tag: ""
