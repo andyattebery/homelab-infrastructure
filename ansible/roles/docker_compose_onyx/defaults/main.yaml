@@ -1,0 +1,110 @@
+---
+# Onyx: RAG / retrieval layer. Upstream compose is vendored at templates/ from
+# v4.4.7; see the version-drift note in tasks/main.yaml before bumping.
+onyx_image_tag: latest
+onyx_domain_name: "onyx.{{ domain_name }}"
+# WEB_DOMAIN. Onyx builds absolute URLs from this; the upstream default is
+# http://localhost:3000, which produces broken links behind a reverse proxy.
+onyx_web_domain: "https://{{ onyx_domain_name }}"
+
+# "postgres" avoids running MinIO at all. Upstream documents this as a first-class
+# alternative to the default s3/MinIO backend.
+onyx_file_store_backend: postgres
+
+# Reached cross-host through docker-01's Traefik: SearXNG runs there, Onyx here, so
+# there is no shared Docker network. Consumed when registering the web-search
+# provider, which is a database row rather than an env var.
+onyx_searxng_base_url: "https://searxng.{{ domain_name }}"
+
+# OpenSearch JVM heap. Upstream's own value; media-01 has ample RAM so there is no
+# reason to trim it.
+onyx_opensearch_heap: 2g
+
+# Seconds Onyx will wait between response chunks from the LLM before giving up.
+# Upstream defaults to 60, which is too tight here: the first chunk cannot arrive
+# until llama-swap cold-loads the model (39 s measured) and finishes prefill (~18 s
+# at 22.5k tokens), landing at ~57 s. 300 restores a real margin. The cost of the
+# larger value is that a genuinely hung llama-swap ties up the request for 5 minutes
+# instead of 1 — acceptable, since llama-swap's own healthCheckTimeout is already 900.
+onyx_llm_socket_read_timeout: 300
+
+# Sampling temperature. Onyx defaults this to 0 and sends it on every request, which
+# overrides whatever llama-swap put on llama-server's command line — so leaving it
+# unset means the model runs greedy no matter what the per-model sampler_flags say.
+# 1.0 is Google's recommendation for Gemma 4 and matches llama_swap_models[].sampler_flags
+# in playbook-htpc-01.yaml. If the default model changes, change this to match that
+# publisher's recommendation (Qwen3 wants 0.6, and its model card warns against greedy).
+onyx_gen_ai_temperature: 1.0
+
+# Memory limits. api_server / background / model servers / postgres are upstream's own
+# figures from docker-compose.resources.yml. OpenSearch has no entry in that file (its
+# only block is commented out and still uses VESPA_* names), so 4g is chosen here as
+# 2x the JVM heap.
+onyx_memory_api_server: 4g
+onyx_memory_background: 10g
+onyx_memory_model_server: 5g
+onyx_memory_postgres: 4g
+onyx_memory_opensearch: 4g
+
+# Bind-mount owners, verified from each image's registry config rather than assumed.
+# postgres:15.2-alpine runs docker-entrypoint.sh as root and chowns PGDATA itself;
+# opensearch declares User=1000; onyx-model-server declares User=onyx (1001) on a
+# near-distroless base with no shell to fix permissions at runtime.
+onyx_opensearch_uid: 1000
+onyx_model_server_uid: 1001
+
+# ZFS dataset parent for the database paths. Empty means "just make directories" and
+# keeps this role usable on a non-ZFS host; set it to the pool name to get dedicated
+# datasets, which is the only way per-path properties can be set at all.
+onyx_zfs_parent_dataset: ""
+
+# LLM provider seeded at api_server startup. Built as a structure and rendered with
+# to_json so the result is valid JSON by construction — a malformed value here raises
+# during startup. `openai_compatible` is the right provider: multi_llm.py treats it as
+# a passthrough proxy and sends the model name unprefixed, which is what llama-server
+# expects. The model name must match the llama-swap config key exactly.
+onyx_llm_provider_name: llama-swap
+
+# REQUIRED, no default: which host serves the models is a deployment fact, not a property
+# of this role. Set it in host_vars, e.g. "https://llama-swap.<host>.{{ domain_name }}/v1".
+onyx_llm_api_base: ""
+
+# Models advertised in the Onyx UI. Empty here on purpose — the list is host config,
+# because every entry has to match the llama-swap instance at onyx_llm_api_base. Set it in
+# host_vars; the derivation rule stays here, with the values.
+#
+# Each `name` must match a key in llama-swap's models: map exactly — llama-swap advertises
+# its config keys on /v1/models and routes by the model field in the request. Requesting
+# one unloads another; they are hot-swapped, not concurrent. Listing several is what makes
+# an A/B comparison a dropdown choice in the Onyx UI rather than a redeploy.
+#
+# max_input_tokens is deliberately BELOW each model's llama.cpp -c, not equal to it.
+# llama.cpp's context covers the prompt *and* the generation, so an input budget of the
+# full context leaves nothing to answer with. Thinking tokens come out of it too.
+#
+#     max_input_tokens = ctx - 8192 out - 2048 reserve
+#
+# Each value MUST be recomputed when that model's ctx changes in playbook-htpc-01.yaml —
+# they are two halves of one setting in two files.
+#
+# The reserve is not padding-by-feel: it covers what neither number accounts for — the chat
+# template, BOS, system/tool scaffolding, and any disagreement between Onyx's tokenizer and
+# each model's own vocabulary (Onyx enforces the limit with its own tokenizer, not
+# llama-server's). An earlier 24576/8192 split summed to exactly 32768 with zero slack for
+# any of that, which under --no-context-shift is a hard 400 rather than a graceful trim.
+#
+# Raising a value does not buy more retrieved context — it makes long queries fail later
+# rather than sooner. The fix for a turn that still does not fit is better retrieval before
+# more context: arXiv 2606.06758 found retrieved top-k context beats full context, measured
+# at ~16k, below where this already runs.
+onyx_llm_models: []
+
+onyx_seed_configuration:
+  llms:
+    - name: "{{ onyx_llm_provider_name }}"
+      provider: openai_compatible
+      api_base: "{{ onyx_llm_api_base }}"
+      # llama-server does not check the key, but the provider requires one present.
+      api_key: dummy
+      is_public: true
+      model_configurations: "{{ onyx_llm_models }}"

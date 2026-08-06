@@ -1,0 +1,141 @@
+---
+# The compose file under templates/ is vendored from upstream v4.4.7 while IMAGE_TAG
+# floats on `latest`. Measured churn across v4.0.14 -> v4.5.0-beta.0: patch releases
+# change it not at all, minor bumps move ~10-14 lines and only ever comments, build
+# hints or deletions. So re-vendor when the *minor* version moves, not on patches.
+
+- name: Assert Onyx secrets are provided
+  ansible.builtin.assert:
+    that:
+      - onyx_user_auth_secret | default('') | length > 0
+      - onyx_postgres_password | default('') | length > 0
+      - onyx_opensearch_admin_password | default('') | length > 0
+    fail_msg: >-
+      Onyx requires onyx_user_auth_secret, onyx_postgres_password and
+      onyx_opensearch_admin_password. The API server refuses to start on an empty
+      USER_AUTH_SECRET, and OpenSearch rejects a weak admin password.
+      Populate host_vars via scripts/vault-populate-from-op.sh.
+
+# Both are host config with no sensible default. Without them Onyx seeds a provider whose
+# api_base is empty and whose model list is empty, then starts and offers no model at all —
+# a working container with nothing to talk to, which is worse than a failed play.
+- name: Assert Onyx LLM provider is configured
+  ansible.builtin.assert:
+    that:
+      - onyx_llm_api_base | length > 0
+      - onyx_llm_models | length > 0
+    fail_msg: >-
+      Set onyx_llm_api_base and onyx_llm_models in host_vars. Each model name must match a
+      key in the llama-swap `models:` map at onyx_llm_api_base, and max_input_tokens must
+      be that model's llama.cpp ctx minus 8192 output minus 2048 reserve.
+
+# Datasets before directories: `zfs create` creates the mountpoint, so making the
+# directory first would leave the dataset unmountable.
+# The pool already sets compression=lz4 and recordsize=64K, which is inside the range
+# OpenZFS recommends for PostgreSQL ("64K also work well, as does the 128K default"),
+# so those are inherited rather than overridden. Only atime is set here.
+- name: Create Onyx ZFS datasets
+  when: onyx_zfs_parent_dataset | length > 0
+  community.general.zfs:
+    name: "{{ onyx_zfs_parent_dataset }}/onyx/{{ item }}"
+    state: present
+    extra_zfs_properties:
+      atime: "off"
+  loop:
+    - postgres
+    - opensearch
+
+- name: Create Onyx data directories
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_data_directory_path }}/onyx/{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group | default(item.owner) }}"
+    mode: "0755"
+  # onyx/nginx is deliberately absent: docker_compose creates it for the config files
+  # it places there, owned by docker_compose_uid. Creating it here as root too would
+  # make the two tasks flip its ownership back and forth on every run.
+  #
+  # Every Onyx volume is a bind mount under here — none are named volumes. That is the
+  # host convention, and it is also what keeps this data off the root filesystem:
+  # named volumes live in /var/lib/docker/volumes on `/`, while this path is the ZFS
+  # pool. `file-system` in particular is persistent document storage and can grow
+  # without bound, so it must not sit on `/`.
+  #
+  # Owners are taken from each image's declared user, not assumed:
+  #   onyx-backend       -> no User set, runs as root  (api-server, background, file-system)
+  #   onyx-model-server  -> User=onyx (1001)           (both model-server log dirs, both caches)
+  #   opensearch         -> User=1000
+  #   postgres           -> root; docker-entrypoint.sh chowns PGDATA itself
+  loop:
+    - { path: postgres, owner: root }
+    - { path: opensearch, owner: "{{ onyx_opensearch_uid }}" }
+    - { path: inference-model-cache, owner: "{{ onyx_model_server_uid }}" }
+    - { path: indexing-model-cache, owner: "{{ onyx_model_server_uid }}" }
+    - { path: api-server-logs, owner: root }
+    - { path: background-logs, owner: root }
+    - { path: file-system, owner: root }
+    - { path: inference-model-server-logs, owner: "{{ onyx_model_server_uid }}" }
+    - { path: indexing-model-server-logs, owner: "{{ onyx_model_server_uid }}" }
+
+- name: Onyx docker compose setup
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-onyx.yml.j2
+    docker_compose_dst_file_name: docker-compose-onyx.yml
+    # The role's default `up --detach` returns before healthchecks settle. Upstream
+    # relies on depends_on: condition: service_healthy, so wait for it.
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --wait"
+    docker_compose_envs:
+      IMAGE_TAG: "{{ onyx_image_tag }}"
+      ONYX_DOMAIN_NAME: "{{ onyx_domain_name }}"
+      WEB_DOMAIN: "{{ onyx_web_domain }}"
+      AUTH_TYPE: basic
+      FILE_STORE_BACKEND: "{{ onyx_file_store_backend }}"
+      USER_AUTH_SECRET: "{{ onyx_user_auth_secret }}"
+      ENCRYPTION_KEY_SECRET: "{{ onyx_encryption_key_secret | default('') }}"
+      POSTGRES_PASSWORD: "{{ onyx_postgres_password }}"
+      OPENSEARCH_ADMIN_PASSWORD: "{{ onyx_opensearch_admin_password }}"
+      OPENSEARCH_JAVA_OPTS: "-Xms{{ onyx_opensearch_heap }} -Xmx{{ onyx_opensearch_heap }}"
+      # Raised from the upstream default of 60. This is the max gap between response
+      # chunks, not a total request timeout (onyx/llm/multi_llm.py:358), and the first
+      # chunk cannot arrive until llama-swap has cold-loaded the model AND finished
+      # prefill. Measured: a ~10 GiB cold load is 39 s and a 22.5k-token prefill ~18 s,
+      # so the worst case lands around 57 s against a 60 s limit. htpc-01 has 32 GB RAM
+      # against 20 GB of GGUFs, so after a sleep, reboot or model swap the file really
+      # is read from disk. Reached both api_server and background via the .env file.
+      LLM_SOCKET_READ_TIMEOUT: "{{ onyx_llm_socket_read_timeout }}"
+      # Sampling temperature Onyx sends on every completion. Onyx's default is 0
+      # (configs/model_configs.py:92, `float(os.environ.get("GEN_AI_TEMPERATURE") or 0)`)
+      # and a request parameter OVERRIDES llama-server's command line — verified
+      # directly: with no temperature in the request the same prompt returned a
+      # different word list each time, with "temperature": 0 it returned byte-identical
+      # output twice. So llama-swap's `--temp 1.0 --top-p 0.95 --top-k 64` was dead
+      # config for every Onyx query, and the model ran greedy.
+      #
+      # That matters beyond sampling quality: greedy decoding makes the search /
+      # no-search branch deterministic, so a question the model marginally prefers to
+      # answer from memory is answered from memory EVERY time. Set to match the value
+      # llama-swap already passes, which is Google's own recommendation for Gemma 4.
+      GEN_AI_TEMPERATURE: "{{ onyx_gen_ai_temperature }}"
+      ONYX_API_SERVER_MEM_LIMIT: "{{ onyx_memory_api_server }}"
+      ONYX_BACKGROUND_MEM_LIMIT: "{{ onyx_memory_background }}"
+      ONYX_MODEL_SERVER_MEM_LIMIT: "{{ onyx_memory_model_server }}"
+      ONYX_POSTGRES_MEM_LIMIT: "{{ onyx_memory_postgres }}"
+      ONYX_OPENSEARCH_MEM_LIMIT: "{{ onyx_memory_opensearch }}"
+      # Seeds the LLM provider so it is captured in the repo rather than clicked into
+      # the admin UI. Undocumented upstream: it appears only in
+      # docker-compose.search-testing.yml and a test helper, and is read by the EE
+      # lifespan, which loads by default. Verification checks it actually fired.
+      ENV_SEED_CONFIGURATION: "{{ onyx_seed_configuration | to_json }}"
+    # Vendored verbatim from upstream, so copy them rather than template them:
+    # copy_config_dirs uses ansible.builtin.copy, which does not render Jinja. That is
+    # the role's own guidance for static trees, and it keeps these files byte-identical
+    # to upstream so re-vendoring on a minor bump stays a clean diff.
+    # run-nginx.sh needs to stay executable, hence the 0755 file mode.
+    docker_compose_src_config_dirs:
+      - src_dir_path: files/nginx
+        dst_relative_dir_path: onyx/nginx
+        mode: "0755"
+        service_name_to_restart: onyx-nginx
+  ansible.builtin.include_role:
+    name: docker_compose

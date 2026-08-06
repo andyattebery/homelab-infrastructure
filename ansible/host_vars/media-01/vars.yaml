@@ -1,0 +1,40 @@
+---
+# Onyx secrets. Populated from 1Password by scripts/vault-populate-from-op.sh into the
+# encrypted vault.yaml alongside this file.
+#
+# user auth secret / encryption key secret: openssl rand -hex 32
+# opensearch admin password: 8+ chars with upper, lower, digit and a special character,
+#   or OpenSearch's security plugin refuses the password and the container will not start.
+# encryption key secret encrypts stored connector credentials — set it before any
+#   connector exists, because changing it later orphans them.
+onyx_user_auth_secret: "{{ vault_onyx_user_auth_secret }}"
+onyx_encryption_key_secret: "{{ vault_onyx_encryption_key_secret }}"
+onyx_postgres_password: "{{ vault_onyx_postgres_password }}"
+onyx_opensearch_admin_password: "{{ vault_onyx_opensearch_admin_password }}"
+
+# `data` is the ZFS pool mounted at /mnt/data, which is also
+# docker_compose_dst_data_directory_path for this host. Gives Onyx's Postgres and
+# OpenSearch paths their own datasets rather than plain directories.
+onyx_zfs_parent_dataset: data
+
+# llama-swap runs on htpc-01 and serves every model below.
+onyx_llm_api_base: "https://llama-swap.htpc-01.{{ domain_name }}/v1"
+
+# One entry per key in llama-swap's `models:` map — see llama_swap_models in
+# playbook-htpc-01.yaml, which is where each ctx below comes from. The derivation rule
+# (ctx - 8192 out - 2048 reserve) and the reasoning behind it live in
+# roles/docker_compose_onyx/defaults/main.yaml. Change a ctx there and you must change the
+# matching value here.
+onyx_llm_models:
+  - name: gemma-4-12b-it # ctx 65536
+    is_visible: true
+    max_input_tokens: 55296
+  - name: qwen3-14b # ctx 32768
+    is_visible: true
+    max_input_tokens: 22528
+  - name: qwen3.5-9b # ctx 65536
+    is_visible: true
+    max_input_tokens: 55296
+  - name: gemma-4-26b-a4b # ctx 65536
+    is_visible: true
+    max_input_tokens: 55296

@@ -55,6 +55,11 @@
     - role: docker_compose
       vars:
         docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
+    # Retrieval layer in front of llama-swap on htpc-01. Lives here rather than
+    # docker-01 for the A4000: a GPU turns on multipass indexing, which indexes at two
+    # chunk granularities and is the retrieval-quality lever this deployment is about.
+    - role: docker_compose_onyx
+      tags: onyx
     # Tdarr uses the ffmpeg shipped inside its own container (jellyfin-ffmpeg 7.1.4-3,
     # /usr/lib/jellyfin-ffmpeg/ffmpeg). The iPad-kids flow tonemaps with tonemap_cuda,
     # which is a jellyfin-only filter, so no custom ffmpeg is mounted here and there is
