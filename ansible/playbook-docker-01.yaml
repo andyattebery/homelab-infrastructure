@@ -42,6 +42,12 @@
     #     perplexica_searxng_api_url: "https://searxng.{{ domain_name }}"
     #     perplexica_ollama_api_url: "https://ollama.{{ domain_name }}"
     # - role: docker_compose_searxng
+    # Web research assistant, trialled against Onyx on media-01. Lands here rather than
+    # with Onyx because it needs no GPU and SearXNG already runs on this host, so it
+    # reaches it by container name instead of a cross-host Traefik round trip. Attaches
+    # to the searxng network, which the (commented out, but running) searxng stack owns.
+    - role: docker_compose_local_deep_research
+      tags: ldr
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-3d-printing.yml

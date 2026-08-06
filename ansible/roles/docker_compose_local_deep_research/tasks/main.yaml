@@ -1,0 +1,31 @@
+---
+- name: Assert local-deep-research LLM endpoint is set
+  ansible.builtin.assert:
+    that: ldr_llm_endpoint_url | length > 0
+    fail_msg: >-
+      Set ldr_llm_endpoint_url in host_vars to an OpenAI-compatible endpoint, e.g.
+      https://llama-swap.<host>.{{ domain_name }}/v1. Left empty, the container starts and
+      every research run fails at the first model call.
+
+- name: Initial local-deep-research docker compose setup
+  vars:
+    docker_compose_src_file_path: files/docker-compose-local-deep-research.yml
+    # The role's default `up --detach` returns as soon as the container starts. The
+    # IMAGE (not the compose file) defines a healthcheck hitting /api/v1/health with a
+    # 60s start_period, so --wait is meaningful: it holds until the app actually serves,
+    # rather than until the process exists.
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --wait"
+    # config_dirs, NOT config_files: the role's README is explicit that config_files goes
+    # through ansible.builtin.template and RENDERS Jinja, while config_dirs uses
+    # ansible.builtin.copy and does not. sitecustomize.py is Python and must be copied
+    # verbatim. service_name_to_restart matters because `site` reads it once, at interpreter
+    # start -- a changed patch does nothing until the container restarts.
+    docker_compose_src_config_dirs:
+      - src_dir_path: patches
+        dst_relative_dir_path: local-deep-research/patches
+        service_name_to_restart: local-deep-research
+    docker_compose_envs:
+      LDR_LLM_ENDPOINT_URL: "{{ ldr_llm_endpoint_url }}"
+      LDR_LLM_API_KEY: "{{ ldr_llm_api_key }}"
+  ansible.builtin.include_role:
+    name: docker_compose

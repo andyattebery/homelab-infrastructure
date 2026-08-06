@@ -1,0 +1,20 @@
+---
+# local-deep-research. Trialled alongside Onyx rather than replacing it, so the two can
+# be compared on the same query set, the same model and the same SearXNG.
+#
+# The reason it exists: Onyx delegates "should I search?" to the model, and a 12B model
+# answers no most of the time -- measured at 0/3 under the greedy sampling Onyx was
+# silently using, and 1/4 after that was fixed. local-deep-research can run search as a
+# fixed pipeline stage instead of a tool call the model may decline.
+
+# REQUIRED, no default: which host serves the model is a deployment fact, not a property of
+# this role. Set it in host_vars, e.g. "https://llama-swap.<host>.{{ domain_name }}/v1".
+#
+# No model runs in this container regardless: the image ships CPU-only torch wheels and
+# faiss-cpu, and upstream's GPU override targets only the bundled ollama service, which this
+# deployment drops.
+ldr_llm_endpoint_url: ""
+
+# llama-server does not check the key, but the openai_endpoint provider requires one to
+# be present.
+ldr_llm_api_key: dummy

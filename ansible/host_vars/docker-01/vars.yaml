@@ -1,0 +1,3 @@
+---
+# llama-swap runs on htpc-01; nothing on this host serves a model.
+ldr_llm_endpoint_url: "https://llama-swap.htpc-01.{{ domain_name }}/v1"

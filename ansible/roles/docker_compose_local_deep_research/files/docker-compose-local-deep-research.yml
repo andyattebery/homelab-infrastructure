@@ -1,0 +1,134 @@
+---
+# local-deep-research: web research assistant that treats search as a pipeline stage
+# rather than a tool call the model may decline. Vendored from upstream's
+# docker-compose.yml (github.com/LearningCircuit/local-deep-research) with the bundled
+# ollama and searxng services removed -- llama-swap on htpc-01 serves the model and this
+# host already runs SearXNG.
+services:
+  local-deep-research:
+    container_name: local-deep-research
+    image: localdeepresearch/local-deep-research:latest
+    restart: unless-stopped
+    networks:
+      # Both external: this file attaches to networks another compose file owns.
+      - searxng
+      - traefik
+    volumes:
+      # /data is the real user state: the entrypoint creates logs/, cache/ and
+      # encrypted_databases/ under it, and the image pins LDR_DATA_DIR=/data.
+      - ${DOCKER_DATA_DIRECTORY}/local-deep-research/data:/data
+      # Legacy config path, declared VOLUME by the image. Bound to the host so container
+      # recreation does not leave a new anonymous volume behind each time. The image
+      # creates it empty, so nothing is masked.
+      - ${DOCKER_DATA_DIRECTORY}/local-deep-research/config:/app/.config/local_deep_research
+      # Read-only: holds sitecustomize.py, which CPython's `site` module imports at
+      # interpreter start because PYTHONPATH points here (see environment below). It works
+      # around an upstream bug where SearXNG never receives `use_full_search` and therefore
+      # never fetches the pages it cites -- the patch documents the whole trace, and
+      # bench/harness/test_patch.py guards it.
+      #
+      # Deliberately NOT a bind mount over site-packages: that path embeds the interpreter
+      # version (/install/.venv/lib/python3.14/...), and this image is `latest` with
+      # AutoUpdate=registry, so a Python bump would silently break it -- and a bind mount
+      # whose source does not match its target creates a DIRECTORY, breaking the package.
+      - ${DOCKER_DATA_DIRECTORY}/local-deep-research/patches:/patches:ro
+      #
+      # Deliberately NOT mounting /scripts. Upstream's compose still carries a
+      # `ldr_scripts:/scripts` named volume, but the Dockerfile removed the VOLUME
+      # directive on it and says why: /scripts is image content (it holds
+      # ollama_entrypoint.sh), and bind-mounting it "silently shadows the script".
+      # A named volume gets seeded from the image; a bind mount to an empty host
+      # directory just masks it. We do not run the bundled ollama, so the script is
+      # unused either way -- but masking image content to no purpose is a bug.
+    environment:
+      # Forced by the Docker packaging itself. LDR_DATA_DIR must match the mount above
+      # and LDR_WEB_PORT must match the Traefik port label below.
+      # LDR_WEB_HOST=0.0.0.0 is safe ONLY because no port is published: the container is
+      # reachable solely on the Docker networks below. Upstream's reverse-proxy guide
+      # requires binding to loopback or an internal network, because ProxyFix trusts
+      # X-Forwarded-* unconditionally -- anything that can reach the app directly can
+      # forge a client IP. Never add a `ports:` mapping here without revisiting that.
+      - LDR_WEB_HOST=0.0.0.0
+      - LDR_WEB_PORT=5000
+      - LDR_DATA_DIR=/data
+      # Makes CPython import /patches/sitecustomize.py at interpreter start. The patch is
+      # LAZY -- it installs a meta_path hook and does nothing until something imports
+      # local_deep_research.web_search_engines.search_engine_factory. Measured in this
+      # container: that import costs 5.7s against a 0.02s bare-interpreter baseline, so
+      # patching eagerly here would add ~6s to EVERY python process. Overhead as written: 2ms.
+      #
+      # Set LDR_DISABLE_SEARXNG_FULLTEXT_PATCH=1 to turn the patch off without unmounting.
+      - PYTHONPATH=/patches
+      # LDR_APP_ALLOW_REGISTRATIONS deliberately NOT set, leaving upstream's default of
+      # open self-signup. Upstream's reverse-proxy guide advises closing it, but that
+      # advice is scoped to "if you expose LDR publicly" -- this host is LAN-only behind
+      # split-horizon DNS, the same posture as Onyx on media-01. Revisit if this
+      # hostname ever becomes internet-reachable.
+      # SearXNG already runs on this host, reached by container name over the shared
+      # network. Being able to do that instead of a cross-host Traefik round trip is the
+      # reason this lands on docker-01 rather than alongside Onyx on media-01.
+      - LDR_SEARCH_ENGINE_WEB_SEARXNG_DEFAULT_PARAMS_INSTANCE_URL=http://searxng:8080
+      # llama-swap on htpc-01, cross-host over TLS.
+      #
+      # NOTE: every LDR_* env var here LOCKS that setting and removes it from the web UI
+      # entirely -- upstream calls them "permanent overrides", not defaults. So only the
+      # infrastructure wiring is forced.
+      - LDR_LLM_PROVIDER=openai_endpoint
+      - LDR_LLM_OPENAI_ENDPOINT_URL=${LDR_LLM_ENDPOINT_URL}
+      - LDR_LLM_OPENAI_ENDPOINT_API_KEY=${LDR_LLM_API_KEY}
+      # LDR_LLM_MODEL is deliberately NOT set. Locking it would remove the model selector
+      # from the UI, and comparing models is the planned follow-up -- a dropdown beats a
+      # playbook run per swap. Which model a given run actually used stays recoverable
+      # from llama-swap's /running and its upstream log, so reproducibility does not
+      # depend on pinning it here.
+    ulimits:
+      # SQLCipher mlock() without noisy kernel warnings.
+      memlock:
+        soft: -1
+        hard: -1
+    # Security block kept verbatim from upstream. The entrypoint runs as root only long
+    # enough to chown /data, then setpriv's down to uid 1000 with an empty capability
+    # set. Upstream warns that removing the cap_add entries breaks startup -- the chown
+    # fails with "Operation not permitted".
+    security_opt:
+      - "no-new-privileges:true"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+    labels:
+      # Traefik's defaultRule on this host builds the hostname from the compose SERVICE
+      # name plus $DOMAIN_NAME (see the --providers.docker.defaultRule flag in
+      # docker_compose_traefik). So the service name above yields
+      # local-deep-research.$DOMAIN_NAME with no explicit router rule, and renaming the
+      # service renames the URL.
+      #
+      # NOTE: this file is run through Jinja by the docker_compose role, so a literal
+      # Go template in a comment is a parse error, not documentation.
+      - traefik.enable=true
+      # Belt and braces: the upstream Dockerfile has a single `EXPOSE 5000`, so Traefik
+      # would auto-detect the port exactly as it does for searxng. Stating it explicitly
+      # survives an upstream EXPOSE change.
+      - traefik.http.services.local-deep-research.loadbalancer.server.port=5000
+      # No dsm.ignore here, deliberately: this is a user-facing app and should appear in
+      # the dashboard like every other service on this host.
+
+networks:
+  # `external: true` alone would look for a network literally named "searxng". The
+  # searxng compose file declares `searxng:` unqualified, and every compose file on this
+  # host shares the project name "docker-compose" (derived from /opt/docker-compose), so
+  # the real Docker name carries that prefix.
+  searxng:
+    external: true
+    name: docker-compose_searxng
+  traefik:
+    external: true
