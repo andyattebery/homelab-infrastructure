@@ -61,6 +61,7 @@
   loop_control:
     loop_var: script
 - name: Run docker compose pull
+  when: docker_compose_should_pull
   ansible.builtin.include_tasks:
     file: "docker_compose_pull.yaml"
 - name: Run docker compose up
