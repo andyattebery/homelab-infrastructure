@@ -79,11 +79,19 @@ in {
             port = 53;
             upstream_dns = [
               "https://dns.cloudflare.com/dns-query"
-              "https://doh.libredns.gr/ads"
               "https://dns.quad9.net/dns-query"
+              "https://dns.google/dns-query"
             ];
-            bootstrap_dns = [ "9.9.9.10" "149.112.112.10" "2620:fe::10" "2620:fe::fe:10" ];
-            upstream_mode = "load_balance";
+            # Bootstrap resolves the DoH hostnames above, so it must not depend on a
+            # single operator — otherwise no DoH upstream can start. One per operator.
+            bootstrap_dns = [
+              "9.9.9.10" "149.112.112.10" "2620:fe::10" "2620:fe::fe:10"
+              "1.1.1.1" "1.0.0.1" "2606:4700:4700::1111"
+              "8.8.8.8" "8.8.4.4" "2001:4860:4860::8888"
+            ];
+            # parallel: query every upstream, take the first answer. load_balance sends
+            # each query to one upstream, so a slow upstream slows that share of queries.
+            upstream_mode = "parallel";
             ratelimit = 0;
             cache_size = 4194304;
             cache_enabled = true;
