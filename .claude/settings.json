@@ -1,6 +1,42 @@
 {
   "permissions": {
     "allow": [
+      "Bash(ansible-galaxy collection *)",
+      "Bash(ansible-galaxy role *)",
+      "Bash(.venv/bin/ansible-lint *)",
+      "Bash(.venv/bin/ansible-playbook --syntax-check *)",
+      "Bash(curl -s \"https://api.github.com/*\")",
+      "Bash(curl -s \"https://galaxy.ansible.com/api/v3/*\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/*\")",
+      "Bash(curl -s https://api.github.com/*)",
+      "Bash(curl -s https://raw.githubusercontent.com/*)",
+      "Bash(curl -sL https://api.github.com/*)",
+      "Bash(curl -sL https://raw.githubusercontent.com/*)",
+      "Bash(gh api *)",
+      "Bash(gh issue *)",
+      "Bash(gh pr *)",
+      "Bash(gh search *)",
+      "Bash(git check-ignore *)",
+      "Bash(git ls-tree *)",
+      "Bash(grep *)",
+      "Bash(rg *)",
+      "Bash(ssh * 'docker logs *)",
+      "WebFetch(*)",
+      "WebSearch",
+      "Read(//Users/andy/.ansible/roles/geerlingguy.security/**)",
+      "Bash(ssh pi-turntable *)",
+      "Bash(nix/scripts/nix-shell.sh flake *)",
+      "Bash(curl -sL 'https://raw.githubusercontent.com/*)",
+      "Bash(git update-index *)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(ssh network-01 *)",
+      "Bash(/Users/andy/Projects/homelab-infrastructure/nix/scripts/nix-shell.sh flake *)",
+      "Bash(nix/scripts/deploy-host.sh network-01 *)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/*)",
+      "Bash(curl -sL \"https://api.github.com/search/code*)",
+      "Bash(docker run *)"
     ]
   }
 }
