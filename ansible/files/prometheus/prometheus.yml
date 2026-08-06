@@ -27,13 +27,6 @@ scrape_configs:
   static_configs:
   - targets:
       - media-01.{{ domain_name }}:9400
-- job_name: cadvisor
-  scrape_interval: 5s
-  static_configs:
-  - targets:
-      - docker-01.{{ domain_name }}:8080
-      - media-01.{{ domain_name }}:8080
-      - nas-01.{{ domain_name }}:8080
 - job_name: zfs
   static_configs:
   - targets:

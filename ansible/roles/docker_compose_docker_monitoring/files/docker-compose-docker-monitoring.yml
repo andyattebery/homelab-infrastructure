@@ -8,6 +8,9 @@ services:
     privileged: true
     command:
       - --docker_only=true
+      - --housekeeping_interval=30s
+      - --max_housekeeping_interval=60s
+      - --disable_metrics=disk,diskIO,tcp,udp,advtcp,referenced_memory,resctrl,cpu_topology,memory_numa,process,hugetlb
     devices:
       - /dev/kmsg
     volumes:

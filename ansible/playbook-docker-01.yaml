@@ -36,7 +36,6 @@
         certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
         certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
         certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
-    - role: docker_compose_docker_monitoring
     - role: docker_compose_telegraf
     # - role: docker_compose_perplexica
     #   vars:
