@@ -63,6 +63,12 @@
 {% if samba_share.read_only is defined %}
   read only= {{ 'yes' if samba_share.read_only else 'no'}}
 {% endif %}
+{% if samba_share.vfs_objects is defined %}
+  vfs objects = {{ samba_share.vfs_objects }}
+{% endif %}
+{% if samba_share.veto_files is defined %}
+  veto files = {{ samba_share.veto_files }}
+{% endif %}
 {% endfor %}
 
 {% if samba_timemachine is defined %}

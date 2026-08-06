@@ -120,23 +120,53 @@
     #       sink:
     #         use_template: template
     #         recursive: true
-    # - role: samba
-    #   vars:
-    #     samba_users:
-    #       - username: "{{ smb_nas_01_username }}"
-    #         password: "{{ smb_nas_01_password }}"
-    #     samba_homes_enabled: true
-    #     samba_shares:
-    #       - name: depot
-    #         path: /mnt/depot
-    #       - name: proxmox
-    #         path: /mnt/tank/proxmox
-    #       - name: sink
-    #         path: /mnt/sink
-    #       - name: storage
-    #         path: /mnt/storage
-    #       - name: tank
-    #         path: /mnt/tank
+    - role: samba
+      vars:
+        samba_users:
+          - username: "{{ smb_nas_01_username }}"
+            password: "{{ smb_nas_01_password }}"
+        samba_homes_enabled: true
+        samba_shares:
+          - name: depot
+            path: /mnt/depot
+          - name: proxmox
+            path: /mnt/tank/proxmox
+          - name: sink
+            path: /mnt/sink
+          - name: storage
+            path: /mnt/storage
+          - name: tank
+            path: /mnt/tank
+          - name: data01
+            path: /mnt/data/data01
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
+          - name: data02
+            path: /mnt/data/data02
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
+          - name: data03
+            path: /mnt/data/data03
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
+          - name: data08
+            path: /mnt/data/data08
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
+          - name: data11
+            path: /mnt/data/data11
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
+          - name: data12
+            path: /mnt/data/data12
+            browseable: false
+            vfs_objects: streams_xattr
+            veto_files: /.snapshots/
     # - role: mise
     # - role: docker_compose_traefik
     #   vars:
@@ -402,19 +432,6 @@
                 syncoid_destination_dataset: backups/sink
                 syncoid_destination_dataset_mountpoint: /mnt/backups/sink
                 syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
-    # - name: Configure samba
-    #   ansible.builtin.copy:
-    #     src: "files/nas-01/smb.conf"
-    #     dest: "/etc/samba/smb.conf"
-    #     owner: root
-    #     group: root
-    #     mode: '0644'
-    #   register: copy_smb_conf_result
-    # - name: Restart smbd # noqa no-handler
-    #   when: copy_smb_conf_result.changed
-    #   ansible.builtin.systemd:
-    #     name: smbd
-    #     state: restarted
     # - name: Configure nfs
     #   vars:
     #     nfs_exports:
