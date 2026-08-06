@@ -1,0 +1,11 @@
+output_dir: /isos
+
+defaults:
+  preferred_download_method: {{ distro_iso_feed_downloader_preferred_download_method }}
+  torrent: {{ (distro_iso_feed_downloader_torrent | bool) | lower }}
+  prune: {{ (distro_iso_feed_downloader_prune | bool) | lower }}
+
+select:
+{% for key in distro_iso_feed_downloader_select %}
+  {{ key }}: {}
+{% endfor %}

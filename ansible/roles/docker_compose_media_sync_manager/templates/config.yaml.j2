@@ -1,0 +1,35 @@
+media_root: {{ media_sync_manager_media_root }}
+transcode_root: "{{ media_sync_manager_transcode_root }}"
+poll_interval_seconds: {{ media_sync_manager_poll_interval_seconds }}
+input_mode: {{ media_sync_manager_input_mode }}
+
+jellyfin:
+  url: {{ media_sync_manager_jellyfin_url }}
+  api_key: "{{ media_sync_manager_jellyfin_api_key }}"
+  user_id: "{{ media_sync_manager_jellyfin_user_id }}"
+
+tdarr:
+  url: {{ media_sync_manager_tdarr_url }}
+  request_timeout_seconds: {{ media_sync_manager_tdarr_request_timeout_seconds }}
+{% if media_sync_manager_path_maps %}
+path_maps:
+{% for m in media_sync_manager_path_maps %}
+  - { local: {{ m.local }}, jellyfin: {{ m.jellyfin }} }
+{% endfor %}
+{% endif %}
+{% if media_sync_manager_tdarr_path_maps %}
+tdarr_path_maps:
+{% for m in media_sync_manager_tdarr_path_maps %}
+  - { local: {{ m.local }}, tdarr: {{ m.tdarr }} }
+{% endfor %}
+{% endif %}
+
+targets:
+{% for t in media_sync_manager_targets %}
+  - name: "{{ t.name }}"
+    library_id: "{{ t.library_id }}"
+    playlists:
+{% for p in t.playlists %}
+      - { playlist: "{{ p.playlist }}", segment: "{{ p.segment }}"{% if p.library_id is defined %}, library_id: "{{ p.library_id }}"{% endif %} }
+{% endfor %}
+{% endfor %}

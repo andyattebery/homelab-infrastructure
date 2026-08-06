@@ -4,7 +4,6 @@
   become: true
 
   vars:
-    docker_compose_dst_data_directory_path: "/mnt/docker"
     power_saving_hard_drives:
       - dev: /dev/disk/by-id/scsi-SATA_ST18000NM000J-2T_ZR5BA9B5
         epc_idle_a: enable
@@ -83,7 +82,8 @@
         epc_standby_z: enable
 
   roles:
-    - ansible_non_become_user_facts
+    - role: ansible_non_become_user_facts
+      tags: always
     # - configure_server
     # # - geerlingguy.docker
     # - role: mergerfs_install
@@ -146,6 +146,39 @@
     # - role: docker_compose_tsdproxy
     # - role: docker_compose_dashboard_services_manager_provider
     - role: docker_compose_hardlink_manager
+    # Runs here, not on media-01: inputs are symlinks into the mergerfs pool, and creating a symlink
+    # requires the filesystem to be local (SMB has no symlink-create operation).
+    - role: docker_compose_media_sync_manager
+      tags: media_sync_manager
+    - role: docker_compose_distro_iso_feed_downloader
+      vars:
+        distro_iso_feed_downloader_output_dir: "/mnt/storage/Software/Linux"
+        distro_iso_feed_downloader_select:
+          - almalinux:minimal
+          - arch:iso
+          - batocera:x86_64
+          - bazzite:deck
+          - clonezilla:default
+          - debian:netinst
+          - debian:live-gnome
+          - debian:live-standard
+          - fedora:server
+          - fedora:workstation
+          - kali:live
+          - kali:live-everything
+          - memtest:iso
+          - mint:cinnamon
+          - nixos:graphical
+          - nixos:minimal
+          - openmediavault:default
+          - opnsense:dvd
+          - pop-os:intel
+          - proxmox:backup-server
+          - proxmox:ve
+          - tails:iso
+          - truenas:scale
+          - ubuntu:desktop-lts
+          - ubuntu:live-server-lts
     # - role: docker_compose_diun
     # - role: docker_compose_frigate
     #   vars:

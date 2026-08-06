@@ -1,0 +1,11 @@
+---
+- name: Configure media-sync-manager docker compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-media-sync-manager.yaml.j2
+    docker_compose_dst_file_name: docker-compose-media-sync-manager.yaml
+    docker_compose_src_config_files:
+      - src_file_path: config.yaml.j2
+        dst_relative_file_path: media-sync-manager/config.yaml
+        service_name_to_restart: media-sync-manager
+  ansible.builtin.include_role:
+    name: docker_compose

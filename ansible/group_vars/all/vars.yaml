@@ -34,6 +34,8 @@ smb_nas_01_password: "{{ vault_smb_nas_01_password }}"
 smb_nas_01_uid: "{{ vault_smb_nas_01_uid }}"
 smb_nas_01_gid: "{{ vault_smb_nas_01_gid }}"
 
+nas_01_ai_image_path: "{{ vault_nas_01_ai_image_path }}"
+
 nas_host_01_ipmi_username: "{{ vault_nas_host_01_ipmi_username }}"
 nas_host_01_ipmi_password: "{{ vault_nas_host_01_ipmi_password }}"
 nas_host_01_mac_address: "{{ vault_nas_host_01_mac_address }}"
@@ -93,6 +95,7 @@ esphome_api_encryption_key_vm_host_01_outlet: "{{ vault_esphome_api_encryption_k
 esphome_api_encryption_key_vm_host_02_outlet: "{{ vault_esphome_api_encryption_key_vm_host_02_outlet }}"
 esphome_api_encryption_key_vm_host_03_outlet: "{{ vault_esphome_api_encryption_key_vm_host_03_outlet }}"
 
+filebot_license: "{{ vault_filebot_license }}"
 filebot_pushover_token: "{{ vault_filebot_pushover_token }}"
 
 freshrss_email: "{{ vault_freshrss_email }}"
@@ -130,6 +133,7 @@ influxdb_healthchecks_read_token: "{{ vault_influxdb_healthchecks_read_token }}"
 influxdb_proxmox_read_token: "{{ vault_influxdb_proxmox_read_token }}"
 influxdb_proxmox_write_token: "{{ vault_influxdb_proxmox_write_token }}"
 
+jellyfin_api_key_filebot: "{{ vault_jellyfin_api_key_filebot }}"
 jellyfin_api_key_homepage: "{{ vault_jellyfin_api_key_homepage }}"
 
 jellystat_db_name: "{{ vault_jellystat_db_name }}"
@@ -307,6 +311,21 @@ network_inventory_manager_op_service_account_token: "{{ vault_network_inventory_
 network_inventory_manager_github_token: "{{ vault_network_inventory_manager_github_token }}"
 network_inventory_manager_unifi_username: "{{ vault_network_inventory_manager_unifi_username }}"
 network_inventory_manager_unifi_password: "{{ vault_network_inventory_manager_unifi_password }}"
+
+# docker_compose_media_sync_manager
+media_sync_manager_jellyfin_api_key: "{{ vault_media_sync_manager_jellyfin_api_key }}"
+media_sync_manager_jellyfin_user_id: "d0175a83f20940e78db1d5d70ac22d6f"
+media_sync_manager_transcode_root: "/media/Transcoded Videos"
+media_sync_manager_targets: # one target per device
+  # `name` is a path component, not just a label: media-sync-manager derives
+  # <transcode_root>/<name>/<segment>/... from it. Renaming it repoints the tool at a new
+  # directory, so the old one has to be moved on nas-01 or everything re-transcodes.
+  - name: Kid iPad
+    library_id: "VJIq5lXoS" # REQUIRED — Tdarr library _id
+    playlists:
+      # Exact-match Jellyfin lookups — these must equal the playlist names in Jellyfin.
+      - { playlist: "Sync - Kid iPad - 2D Animation", segment: 2d-animation }
+      - { playlist: "Sync - Kid iPad - Standard", segment: standard }
 
 # docker_compose_adguardhome_sync
 adguardhome_origin_domain_name: "{{ network_01_adguardhome_hostname }}"

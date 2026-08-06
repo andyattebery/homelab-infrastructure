@@ -1,0 +1,21 @@
+---
+services:
+  distro-iso-feed-downloader:
+    image: ghcr.io/andyattebery/distro-iso-feed-downloader:latest
+    container_name: distro-iso-feed-downloader
+    restart: unless-stopped
+    user: "${PUID}:${PGID}"
+    network_mode: host
+    command:
+      - "-c"
+      - "/config/downloader.yaml"
+      - "--interval"
+      - "${DISTRO_ISO_INTERVAL}"
+    volumes:
+      - ${DISTRO_ISO_OUTPUT_DIR}:/isos
+      - ${DOCKER_DATA_DIRECTORY}/distro-iso-feed-downloader/downloader.yaml:/config/downloader.yaml:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"

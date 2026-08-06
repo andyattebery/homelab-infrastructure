@@ -1,0 +1,40 @@
+services:
+  media-sync-manager:
+    image: ghcr.io/andyattebery/media-sync-manager:latest
+    container_name: media-sync-manager
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/media-sync-manager/config.yaml:/etc/media-sync-manager/config.yaml:ro
+      # The mergerfs pool, LOCAL on this host. Required: symlink creation is impossible over
+      # CIFS/SMB, and hardlinks into the pool fail EXDEV. Same /media view as Jellyfin & Tdarr.
+      - type: bind
+        source: {{ media_sync_manager_pool_host_path }}
+        target: /media
+        bind:
+          propagation: rslave
+
+  # Playlist editor (bulk-remove items). Same image, `web` command. Deliberately NO /media mount:
+  # it only talks to Jellyfin over HTTP, so it cannot touch media files.
+  media-sync-manager-web:
+    image: ghcr.io/andyattebery/media-sync-manager:latest
+    container_name: media-sync-manager-web
+    user: "${PUID}:${PGID}"
+    restart: unless-stopped
+    # `--config` is a TOP-LEVEL argument and must precede the subcommand; `web --config …` exits 2.
+    command: ["--config", "/etc/media-sync-manager/config.yaml", "web", "--port", "8087"]
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/media-sync-manager/config.yaml:/etc/media-sync-manager/config.yaml:ro
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      # Explicit rule: Traefik's defaultRule would name this after the compose service
+      # (media-sync-manager-web.$DOMAIN_NAME). Defining a router disables that default.
+      # Port is auto-derived from the image's single EXPOSE 8087.
+      - traefik.http.routers.media-sync-manager.rule=Host(`{{ media_sync_manager_web_hostname }}.$DOMAIN_NAME`)
+
+networks:
+  traefik:
+    name: traefik
+    external: true

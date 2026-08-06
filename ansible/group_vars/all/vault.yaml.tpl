@@ -22,6 +22,8 @@ vault_esphome_api_encryption_key_nas_host_01_outlet: {{ op://Personal/ESPHome/na
 vault_esphome_api_encryption_key_vm_host_01_outlet: {{ op://Personal/ESPHome/vm-host-01 outlet/api encryption key }}
 vault_esphome_api_encryption_key_vm_host_02_outlet: {{ op://Personal/ESPHome/vm-host-02 outlet/api encryption key }}
 vault_esphome_api_encryption_key_vm_host_03_outlet: {{ op://Personal/ESPHome/vm-host-03 outlet/api encryption key }}
+vault_filebot_license: |
+{{ op://Personal/Filebot - FileBot_License_PX15295690.psm/add more/indented }}
 vault_filebot_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/filebot }}
 vault_freshrss_api_password: {{ op://Personal/FreshRSS/add more/api password }}
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
@@ -49,6 +51,7 @@ vault_influxdb_init_bucket: "{{ op://Personal/InfluxDB/config/bucket }}"
 vault_influxdb_healthchecks_read_token: "{{ op://Personal/InfluxDB/tokens/healthchecks read }}"
 vault_influxdb_proxmox_read_token: "{{ op://Personal/InfluxDB/tokens/proxmox read }}"
 vault_influxdb_proxmox_write_token: "{{ op://Personal/InfluxDB/tokens/proxmox write }}"
+vault_jellyfin_api_key_filebot: "{{ op://Personal/Jellyfin/api keys/filebot }}"
 vault_jellyfin_api_key_homepage: "{{ op://Personal/Jellyfin/api keys/homepage }}"
 vault_jellystat_db_name: "{{ op://Personal/jellystat/database/name }}"
 vault_jellystat_db_username: "{{ op://Personal/jellystat/database/username }}"
@@ -63,6 +66,7 @@ vault_manyfold_db_name: "{{ op://Personal/Manyfold/database/name }}"
 vault_manyfold_db_user: "{{ op://Personal/Manyfold/database/username }}"
 vault_manyfold_db_password: "{{ op://Personal/Manyfold/database/password }}"
 vault_manyfold_secret_key_base: "{{ op://Personal/Manyfold/config/secret key base }}"
+vault_media_sync_manager_jellyfin_api_key: {{ op://Personal/Jellyfin/api keys/media-sync-manager }}
 vault_miniflux_admin_username: "{{ op://Personal/miniflux/username }}"
 vault_miniflux_admin_password: "{{ op://Personal/miniflux/password }}"
 vault_miniflux_db_name: "{{ op://Personal/miniflux/database/name }}"
@@ -72,6 +76,7 @@ vault_minio_password: {{ op://Personal/minio/password }}
 vault_minio_username: {{ op://Personal/minio/username }}
 vault_myjdownloader_password: {{ op://Personal/MyJDownloader/password }}
 vault_myjdownloader_username: {{ op://Personal/MyJDownloader/validationKey }}
+vault_nas_01_ai_image_path: {{ op://Home Lab/nas-01/smb share paths/ai output }}
 vault_nas_01_syncoid_ssh_private_key: |
 {{ op://Home Lab/nas-01 - syncoid - SSH Key/indented private key }}
 vault_nas_01_syncoid_ssh_public_key: {{ op://Home Lab/nas-01 - syncoid - SSH Key/public key }} nas-01_syncoid

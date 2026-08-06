@@ -1,0 +1,14 @@
+---
+- name: Configure distro-iso-feed-downloader docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-distro-iso-feed-downloader.yml
+    docker_compose_copy_scripts: false
+    docker_compose_envs:
+      DISTRO_ISO_OUTPUT_DIR: "{{ distro_iso_feed_downloader_output_dir }}"
+      DISTRO_ISO_INTERVAL: "{{ distro_iso_feed_downloader_interval }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/downloader.yaml.j2
+        dst_relative_file_path: distro-iso-feed-downloader/downloader.yaml
+        service_name_to_restart: distro-iso-feed-downloader
+  ansible.builtin.include_role:
+    name: docker_compose

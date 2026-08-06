@@ -1,0 +1,7 @@
+---
+distro_iso_feed_downloader_output_dir: "{{ docker_compose_dst_data_directory_path }}/distro-iso-feed-downloader/isos"
+distro_iso_feed_downloader_interval: 86400
+distro_iso_feed_downloader_preferred_download_method: torrent
+distro_iso_feed_downloader_torrent: true
+distro_iso_feed_downloader_prune: true
+distro_iso_feed_downloader_select: []

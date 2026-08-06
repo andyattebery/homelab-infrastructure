@@ -1,0 +1,34 @@
+---
+media_sync_manager_poll_interval_seconds: 45
+
+media_sync_manager_jellyfin_url: "https://jellyfin.{{ domain_name }}"
+media_sync_manager_jellyfin_user_id: "" # REQUIRED — real Jellyfin user id (set in group_vars/all)
+
+media_sync_manager_tdarr_url: "https://tdarr.{{ domain_name }}"
+media_sync_manager_tdarr_request_timeout_seconds: 20
+
+# Host path of the mergerfs pool, bind-mounted to /media in the container. Must be LOCAL to the
+# host running this role: symlink creation is impossible over CIFS/SMB (no such SMB operation).
+media_sync_manager_pool_host_path: /mnt/storage
+
+# Hostname (before .{{ domain_name }}) for the playlist editor's Traefik route. Set explicitly so
+# the route is not named after the compose service (media-sync-manager-web).
+media_sync_manager_web_hostname: media-sync-manager
+
+# Inputs are symlinks, not hardlinks. Pinned rather than left at "auto" on purpose: the auto probe
+# links a temp file from transcode_root, which lands on whichever mergerfs branch mspmfs picks, so
+# it can report success and still leave real files failing EXDEV one by one.
+media_sync_manager_input_mode: symlink
+
+# Container sees the mergerfs pool at /media, the same view Jellyfin & Tdarr have, so no remap.
+# transcode_root MUST stay UNDER media_root: inputs are relative symlinks, and a link between two
+# sibling roots resolves outside the SMB share, where Samba's default `wide links = no` hides the
+# file from Tdarr entirely instead of showing a broken link. `doctor` checks this.
+# Derived per (target, segment): input  <transcode_root>/<name>/<segment>/<source_rel>
+#                                output <transcode_root>/<name>/sync/<segment>/<source_rel>
+media_sync_manager_media_root: /media
+media_sync_manager_transcode_root: "/media/Transcoded Videos"
+media_sync_manager_path_maps: [] # jellyfin-view == glue-view (/media)
+media_sync_manager_tdarr_path_maps: [] # Tdarr also sees storage at /media
+
+media_sync_manager_targets: [] # real value in group_vars/all
