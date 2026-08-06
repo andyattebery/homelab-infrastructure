@@ -1,4 +1,4 @@
-homelab_domain: omegaho.me
+homelab_domain: {{ op://Personal/Home Lab/domains/internal }}
 
 homelab_hosts:
 
