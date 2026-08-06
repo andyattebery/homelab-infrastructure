@@ -77,6 +77,10 @@ scrape_configs:
   static_configs:
   - targets:
       - adguard-exporter:9618
+- job_name: adguardhome-sync
+  static_configs:
+  - targets:
+      - network-01.{{ domain_name }}:8080
 - job_name: keepalived
   static_configs:
   - targets:
