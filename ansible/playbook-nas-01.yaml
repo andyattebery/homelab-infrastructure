@@ -168,13 +168,14 @@
             vfs_objects: streams_xattr
             veto_files: /.snapshots/
     # - role: mise
-    # - role: docker_compose_traefik
-    #   vars:
-    #     docker_compose_traefik_enable_dashboard: true
-    #     docker_compose_traefik_enable_tailscale: true
-    #     docker_compose_traefik_log_level: ERROR
+    - role: docker_compose_traefik
+      vars:
+        docker_compose_traefik_enable_dashboard: true
+        docker_compose_traefik_enable_tailscale: true
+        docker_compose_traefik_log_level: ERROR
+      tags: traefik
     # - role: docker_compose_tsdproxy
-    # - role: docker_compose_dashboard_services_manager_provider
+    - role: docker_compose_dashboard_services_manager_provider
     - role: docker_compose_hardlink_manager
     # Runs here, not on media-01: inputs are symlinks into the mergerfs pool, and creating a symlink
     # requires the filesystem to be local (SMB has no symlink-create operation).
@@ -218,12 +219,12 @@
     #   vars:
     #     shinobi_data_directory: "/mnt/tank/shinobi/data"
     #     shinobi_db_directory: "/mnt/tank/shinobi/db"
-    # - role: docker_compose_immich
-    #   vars:
-    #     immich_no_machine_learning: true
-    #     immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
-    #     immich_photos_directory: "/mnt/tank/immich/photos"
-    #     immich_db_directory: "/mnt/tank/immich/db"
+    - role: docker_compose_immich
+      vars:
+        immich_no_machine_learning: true
+        immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
+        immich_photos_directory: "/mnt/tank/immich/photos"
+        immich_db_directory: "/mnt/tank/immich/db"
     # - role: docker_compose_manyfold
     # - role: docker_compose_nextcloud
     #   vars:

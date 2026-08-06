@@ -14,6 +14,8 @@ services:
       - DB_PASSWORD=${IMMICH_DB_PASSWORD}
       - DB_USERNAME=${IMMICH_DB_USERNAME}
       - REDIS_HOSTNAME=immich-redis
+    healthcheck:
+      disable: false
     networks:
       - traefik
       - tsdproxy
@@ -32,21 +34,26 @@ services:
 
   immich-redis:
     container_name: immich-redis
-    image: redis:6.2-alpine
+    image: docker.io/valkey/valkey:9@sha256:4963247afc4cd33c7d3b2d2816b9f7f8eeebab148d29056c2ca4d7cbc966f2d9
     restart: unless-stopped
+    healthcheck:
+      test: redis-cli ping || exit 1
     networks:
       - immich
 
   immich-database:
     container_name: immich-postgres
-    image: tensorchord/pgvecto-rs:pg14-v0.2.0
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
     environment:
       POSTGRES_PASSWORD: ${IMMICH_DB_PASSWORD}
       POSTGRES_USER: ${IMMICH_DB_USERNAME}
       POSTGRES_DB: ${IMMICH_DB_DATABASE_NAME}
     volumes:
       - ${IMMICH_DB_DIRECTORY}:/var/lib/postgresql/data
+    shm_size: 128mb
     restart: unless-stopped
+    healthcheck:
+      disable: false
     networks:
       - immich
 
