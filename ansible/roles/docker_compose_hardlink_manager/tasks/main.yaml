@@ -1,0 +1,18 @@
+---
+- name: Configure hardlink-manager docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-hardlink-manager.yaml
+    docker_compose_envs:
+      HARDLINK_MANAGER_DATA_PATH: "{{ hardlink_manager_data_path }}"
+      HARDLINK_MANAGER_ALLOWED_PATH_PREFIX: "{{ hardlink_manager_allowed_path_prefix }}"
+    # The whole directory is the image build context — Dockerfile, app.py, requirements.txt.
+    # config_dirs (copy) rather than config_files (template) because app.py is Python and
+    # must be copied verbatim.
+    docker_compose_src_config_dirs:
+      - src_dir_path: hardlink-manager
+        dst_relative_dir_path: hardlink-manager/app
+        service_name_to_restart: hardlink-manager
+    docker_compose_should_pull: false
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --build"
+  ansible.builtin.include_role:
+    name: docker_compose

@@ -1,0 +1,26 @@
+services:
+  hardlink-manager:
+    build:
+      context: ${DOCKER_DATA_DIRECTORY}/hardlink-manager/app
+    container_name: hardlink-manager
+    user: "${PUID}:${PGID}"
+    volumes:
+      # Same path on both sides, so ALLOWED_PATH_PREFIX below describes the host and the
+      # container identically. rslave so per-disk mounts appearing under it become visible
+      # without recreating the container.
+      - type: bind
+        source: ${HARDLINK_MANAGER_DATA_PATH}
+        target: ${HARDLINK_MANAGER_DATA_PATH}
+        bind:
+          propagation: rslave
+    networks:
+      - traefik
+    environment:
+      - ALLOWED_PATH_PREFIX=${HARDLINK_MANAGER_ALLOWED_PATH_PREFIX}
+    labels:
+      - traefik.enable=true
+    restart: unless-stopped
+
+networks:
+  traefik:
+    external: true

@@ -1,0 +1,15 @@
+---
+# Host path bind-mounted into the container at the same path, and the root the API is
+# allowed to operate under. Must contain every file the manager may hardlink: sibling
+# detection and replacement never cross it, so a file outside is invisible to /detect and
+# rejected by /replace.
+#
+# Mounted with rslave propagation, so mounts appearing underneath it (the per-disk
+# filesystems in a mergerfs pool) become visible to the container without a restart.
+hardlink_manager_data_path: /mnt/data
+
+# Prefix the API refuses to operate outside of, as ALLOWED_PATH_PREFIX. Container-side, but
+# the bind mount uses the same path on both sides, so it tracks the value above. The
+# trailing slash is required — the app compares by string prefix, so without it
+# `/mnt/database` would also pass.
+hardlink_manager_allowed_path_prefix: "{{ hardlink_manager_data_path }}/"

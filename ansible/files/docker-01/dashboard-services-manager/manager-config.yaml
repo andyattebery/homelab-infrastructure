@@ -10,6 +10,7 @@ ManagerOptions:
   IgnoredServiceNames:
     - Dashy
     - Dashboard Services Manager
+    - Hardlink Manager
     - Homepage
     - Minio S3
     - Netbootxyz Assets
