@@ -113,6 +113,22 @@ Connected to the case backplane that all of the hard drives are connected to.
 
 Empty
 
+## Summary
+
+- **CPU**: AMD EPYC 7282 — 16 cores / 32 threads
+- **RAM**: 192 GB DDR4-3200 (146 GB used, 41 GB available at host level)
+
+### VMs (as of 2026-06-06)
+
+| VMID | VM | Status | vCPUs | RAM Allocated | RAM Used | RAM Available |
+| --- | --- | --- | --- | --- | --- | --- |
+| 200 | nas-01 | running | 24 | 110 GB | 16 GB | 90 GB |
+| 201 | media-01 | running | 8 | 24 GB | 18 GB | 5.3 GB |
+| 202 | network-03 | stopped | 2 | 4 GB | — | — |
+| 203 | network-03 | running | 2 | 4 GB | 1.3 GB | 2.5 GB |
+
+**Running totals**: 34 vCPUs allocated (overcommitted by 2 vs 32 threads), 138 GB RAM allocated of 192 GB
+
 ## Use
 
 ### Host
@@ -125,6 +141,20 @@ Empty
     - Intel Optane 905P - 960 GB
 
 ### nas-01 VM Passthrough
+
+PCI passthrough devices (`hostpciN` on VM 200, as of 2026-06-18). All are conventional PCI passthrough (no `pcie=1`):
+
+| `hostpciN` | PCI address | Slot | Device | PCI ID | Role |
+| --- | --- | --- | --- | --- | --- |
+| `hostpci0` | `0000:01:00` (`rombar=0`) | PCIE2 | Broadcom/LSI SAS3224 (9305-24e HBA) | `1000:00c4` | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
+| `hostpci1` | `0000:c4:00` | PCIE5 | Solidigm P44 Pro 2 TB | `025e:f1ac` | ZFS sink pool |
+| `hostpci2` | `0000:c5:00` | PCIE5 | Solidigm P44 Pro 2 TB | `025e:f1ac` | ZFS sink pool |
+| `hostpci3` | `0000:c6:00` | PCIE5 | Samsung 980 Pro 2 TB | `144d:a80a` | ZFS sink pool |
+| `hostpci4` | `0000:c7:00` | PCIE5 | Samsung 980 Pro 2 TB | `144d:a80a` | ZFS sink pool |
+| `hostpci5` | `0000:83:00` | PCIE7 (U.2 via Linkreal) | SK hynix PE6011 / HPE VK003840KWWFP 3.84 TB | `1c5c:2429` | Staging/temp |
+| `hostpci6` | `0000:c2:00` | PCIE3 (splitter) | Intel Optane P1600X 118 GB | `8086:2525` | ZFS tank metadata special device |
+| `hostpci7` | `0000:c3:00` | PCIE3 (splitter) | Intel Optane P1600X 118 GB | `8086:2525` | ZFS tank metadata special device |
+| `hostpci8` | `0000:c1:00.1` | PCIE3 (splitter) | Mellanox ConnectX-4 Lx — port 2 | `15b3:1015` | 25 GbE NIC. IOMMU group 17; port 1 (`c1:00.0`) stays on the host. Must **not** use `pcie=1` — it breaks guest enumeration. |
 
 - ZFS Mirror Pool (tank) - 16 TB
     - 4x WD Red 8 TB

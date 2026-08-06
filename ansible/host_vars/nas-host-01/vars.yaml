@@ -4,17 +4,12 @@ pbs_backup_01_password: "{{ vault_pbs_backup_01_password }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-INTEL_SSDPE21D960GA_PHM2911300BM960CGN
 pve_node_ceph_osd_mode: activate_existing
 
-# Ceph cluster network NIC — currently eno1, 10.1.40.13/24. Identified by
-# MAC so we don't depend on the pinned interface name.
+# Ceph cluster network NIC — currently enp193s0f1np1 (Mellanox ConnectX-4 Lx port 2),
+# 10.1.40.13/24. Moved off the onboard Intel eno1, which this host no longer has.
+# Identified by MAC so we don't depend on the pinned interface name — which is the whole
+# point here, since the name changed with the hardware and the config did not have to.
 ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
 ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
-
-# Additional NICs beyond vmbr0 + the Ceph cluster NIC. eno2 is the second
-# onboard Intel port; declared dhcp so the playbook owns it.
-extra_network_interfaces:
-  - filename: eno2
-    mac: "{{ vault_eno2_mac }}"
-    method: dhcp
 
 extra_packages:
   - amd64-microcode
