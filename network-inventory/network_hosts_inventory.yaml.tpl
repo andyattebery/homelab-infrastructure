@@ -1,4 +1,4 @@
-homelab_domain: {{ op://Personal/Home Lab/domains/internal }}
+homelab_domain: {{ op://Home Lab/Home Lab/domains/internal }}
 
 homelab_hosts:
 
