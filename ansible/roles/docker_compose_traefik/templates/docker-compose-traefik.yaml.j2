@@ -27,6 +27,13 @@ services:
       - --certificatesresolvers.cloudflare.acme.dnschallenge.provider=cloudflare
       - --certificatesresolvers.cloudflare.acme.email=${CERTBOT_EMAIL}
       - --certificatesresolvers.cloudflare.acme.storage=/letsencrypt/acme.json
+      # lego v5 (bundled in Traefik >=3.7.6) enables the recursive-nameserver propagation check by
+      # default, and Traefik only disables it when a propagation.* option is set. That check asks
+      # the container's resolver (Docker embedded DNS -> AdGuard) for the _acme-challenge TXT lego
+      # just created; AdGuard answers NXDOMAIN and caches it for 1800s (the zone's SOA minimum),
+      # which outlives lego's ~2min window, so every issue and renewal fails. The authoritative-
+      # nameserver check still runs and is the one that actually proves propagation.
+      - --certificatesresolvers.cloudflare.acme.dnschallenge.propagation.requireallrns=false
 {% if docker_compose_traefik_enable_access_log %}
       - --accessLog=true
       - --accessLog.filePath=/logs/access.log
