@@ -1,0 +1,52 @@
+---
+- name: Create kohya_ss data directories
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_data_directory_path | default('/opt/docker-compose') }}/kohya-ss/{{ item }}"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+  loop:
+    - dataset
+    - dataset/images
+    - dataset/logs
+    - dataset/outputs
+    - dataset/regularization
+    - cache/config
+    - cache/user
+    - cache/triton
+    - cache/nv
+    - cache/keras
+- name: Create tensorboard build context directory
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}/tensorboard"
+    state: directory
+    mode: "0755"
+
+- name: Copy tensorboard Dockerfile
+  ansible.builtin.copy:
+    src: tensorboard/Dockerfile
+    dest: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}/tensorboard/Dockerfile"
+    mode: "0644"
+
+- name: Create kohya_ss models directory
+  ansible.builtin.file:
+    path: "{{ kohya_ss_models_path }}"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+
+- name: Deploy kohya_ss with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-kohya-ss.yml
+    # The bundled tensorboard service is build:-only, and the pull loops over every
+    # service from `config --services`. kohya-ss's own image is pinned, and
+    # `up --build` fetches it if missing, so nothing is lost by skipping the pull.
+    docker_compose_should_pull: false
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --build"
+    docker_compose_envs:
+      KOHYA_SS_IMAGE: "{{ kohya_ss_image }}"
+      KOHYA_SS_MODELS_PATH: "{{ kohya_ss_models_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose

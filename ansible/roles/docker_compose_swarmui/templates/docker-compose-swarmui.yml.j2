@@ -1,0 +1,45 @@
+---
+services:
+  swarmui:
+    build:
+      context: ./swarmui
+      dockerfile: launchtools/StandardDockerfile.docker
+      args:
+        UID: ${PUID:-1000}
+    container_name: swarmui
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    cap_drop:
+      - ALL
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/swarmui/Data:/SwarmUI/Data
+      - ${DOCKER_DATA_DIRECTORY}/swarmui/dlbackend:/SwarmUI/dlbackend
+      - ${DOCKER_DATA_DIRECTORY}/swarmui/Output:/SwarmUI/Output
+      - ${SWARMUI_MODELS_PATH}:/SwarmUI/Models
+    networks:
+      - traefik
+{% for network in swarmui_extra_networks %}
+      - {{ network }}
+{% endfor %}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.swarmui.rule=Host(`swarmui.${DOMAIN_NAME}`)
+      - traefik.http.services.swarmui.loadbalancer.server.port=7801
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+{% for network in swarmui_extra_networks %}
+  {{ network }}:
+    name: {{ network }}
+    external: true
+{% endfor %}

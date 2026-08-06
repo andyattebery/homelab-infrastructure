@@ -1,0 +1,9 @@
+---
+# Pinned, not floating: :latest moved to v26.0.0 (2026-07-09), whose GUI refactor makes
+# Gradio's url_ok() startup self-check time out, crash-looping the container.
+kohya_ss_image: ghcr.io/bmaltais/kohya-ss-gui:v25.2.2
+
+# Host path mounted at /app/models. Defaults to this role's own directory so it is
+# self-contained; point it at another app's model store to share one download, which is a
+# host decision rather than something this role should assume.
+kohya_ss_models_path: "{{ docker_compose_dst_data_directory_path }}/kohya-ss/models"

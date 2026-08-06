@@ -1,0 +1,14 @@
+---
+# SwarmUI is built from source: upstream ships no image, only
+# launchtools/StandardDockerfile.docker inside the repo. The clone therefore doubles as the
+# build context and lives beside the compose file.
+swarmui_repo: https://github.com/mcmonkeyprojects/SwarmUI.git
+swarmui_version: master
+
+# Extra Docker networks to join beyond traefik. Each must already exist.
+swarmui_extra_networks: []
+
+# Host path mounted at /SwarmUI/Models. Defaults to this role's own directory so it is
+# self-contained; point it at another app's model store to share one download, which is a
+# host decision rather than something this role should assume.
+swarmui_models_path: "{{ docker_compose_dst_data_directory_path }}/swarmui/Models"

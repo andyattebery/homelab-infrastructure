@@ -1,0 +1,66 @@
+---
+services:
+  comfyui:
+    build:
+      context: ./comfyui
+      args:
+        BASE_TAG: ${COMFYUI_BASE_TAG}
+    container_name: comfyui
+    command: ["--use-sage-attention"]
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - USER_ID=${PUID}
+      - GROUP_ID=${PGID}
+      - TZ=${TZ}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/comfyui/models:/opt/comfyui/models
+      - ${DOCKER_DATA_DIRECTORY}/comfyui/custom_nodes:/opt/comfyui/custom_nodes
+{% if comfyui_output_share %}
+      - {{ comfyui_output_volume_name }}:/opt/comfyui/output
+{% else %}
+      - ${DOCKER_DATA_DIRECTORY}/comfyui/output:/opt/comfyui/output
+{% endif %}
+      - ${DOCKER_DATA_DIRECTORY}/comfyui/user:/opt/comfyui/user
+      - ${DOCKER_DATA_DIRECTORY}/comfyui/input:/opt/comfyui/input
+{% for node in comfyui_extra_custom_nodes %}
+      - {{ node.source }}:/opt/comfyui/custom_nodes/{{ node.name }}:ro
+{% endfor %}
+    networks:
+      - traefik
+{% for network in comfyui_extra_networks %}
+      - {{ network }}
+{% endfor %}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.comfyui.rule=Host(`comfyui.${DOMAIN_NAME}`)
+      - traefik.http.services.comfyui.loadbalancer.server.port=8188
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+{% for network in comfyui_extra_networks %}
+  {{ network }}:
+    name: {{ network }}
+    external: true
+{% endfor %}
+
+{% if comfyui_output_share %}
+volumes:
+  {{ comfyui_output_volume_name }}:
+    name: {{ comfyui_output_volume_name }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "{{ comfyui_output_share }}"
+      o: noserverino,username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% endif %}

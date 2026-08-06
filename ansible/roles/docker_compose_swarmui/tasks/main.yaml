@@ -1,0 +1,48 @@
+---
+# `| default('/opt/docker-compose')` is load-bearing, not decorative:
+# docker_compose_dst_directory_path is a default of the docker_compose role, and role
+# defaults are only in scope inside their own role. Before the include below runs, it is
+# defined here only if some earlier docker_compose invocation in this play set_fact-ed it.
+- name: Create SwarmUI data directories
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_data_directory_path | default('/opt/docker-compose') }}/swarmui/{{ item }}"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+  loop:
+    - Data
+    - dlbackend
+    - Output
+
+# Created here rather than assumed, so this role never depends on another having run first.
+# When swarmui_models_path points at another app's store, that app owns the contents; this
+# only guarantees the directory exists before Docker bind-mounts it (and would otherwise
+# create it root-owned).
+- name: Create SwarmUI models directory
+  ansible.builtin.file:
+    path: "{{ swarmui_models_path }}"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+
+# Doubles as the Docker build context — upstream publishes no image.
+- name: Clone SwarmUI repository
+  become: false
+  ansible.builtin.git:
+    repo: "{{ swarmui_repo }}"
+    dest: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}/swarmui"
+    version: "{{ swarmui_version }}"
+
+- name: Deploy swarmui with docker_compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-swarmui.yml.j2
+    # Required — see the same note in docker_compose_comfyui.
+    docker_compose_dst_file_name: docker-compose-swarmui.yml
+    docker_compose_should_pull: false
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --build"
+    docker_compose_envs:
+      SWARMUI_MODELS_PATH: "{{ swarmui_models_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose

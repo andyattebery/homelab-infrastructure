@@ -1,0 +1,34 @@
+---
+# Tag of ghcr.io/lecode-official/comfyui-docker used as the build base. The role builds on
+# top of it (see files/comfyui/Dockerfile) rather than running it directly.
+comfyui_base_tag: latest
+
+# Extra Docker networks to join beyond traefik. Each must already exist — the role marks
+# them external and will not create them.
+comfyui_extra_networks: []
+
+# Optional CIFS-backed output volume. Empty means output goes to a local directory under
+# the data dir instead, which is what makes this role usable on a host with no NAS share.
+# When set, give a full SMB path, e.g. "//storage-host.example.com/storage/ai/images".
+comfyui_output_share: ""
+comfyui_output_volume_name: comfyui_output
+
+# Credentials for comfyui_output_share. Ignored when the share is unset.
+#
+# These are written to the host's shared .env under SMB_STORAGE_* — deliberately the same
+# four names docker_compose_tdarr uses. On a host running both, the .env is a single shared
+# file (see roles/docker_compose/README.md), so the names collide by design: whichever role
+# runs last wins, and both callers must therefore pass the same credentials.
+comfyui_smb_username: ""
+comfyui_smb_password: ""
+comfyui_smb_uid: ""
+comfyui_smb_gid: ""
+
+# Extra custom-node trees to bind-mount read-only into /opt/comfyui/custom_nodes/<name>.
+# Each entry: { source, name }.
+#
+# `source` is resolved by Docker Compose relative to the compose file's directory, so a
+# path like ./swarmui/src/... refers to something another role placed alongside it. It is
+# NOT an Ansible path and must not be built from docker_compose_dst_directory_path: that
+# variable belongs to the docker_compose role and is not in scope here.
+comfyui_extra_custom_nodes: []

@@ -1,0 +1,37 @@
+---
+- name: Create comfyui build context directory
+  ansible.builtin.file:
+    path: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}/comfyui"
+    state: directory
+    mode: "0755"
+
+- name: Copy comfyui Dockerfile
+  ansible.builtin.copy:
+    src: comfyui/Dockerfile
+    dest: "{{ docker_compose_dst_directory_path | default('/opt/docker-compose') }}/comfyui/Dockerfile"
+    mode: "0644"
+
+- name: Deploy comfyui with docker_compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-comfyui.yml.j2
+    # Required: the destination name defaults to the source basename, so without this the
+    # deployed file would be docker-compose-comfyui.yml.j2 — which files/dc cannot see,
+    # because it globs docker-compose*.y*ml.
+    docker_compose_dst_file_name: docker-compose-comfyui.yml
+    # comfyui is a build:-only service, so there is no image to pull.
+    docker_compose_should_pull: false
+    docker_compose_up_command: "{{ docker_compose_base_command }} up --detach --build"
+    docker_compose_envs: >-
+      {{
+        {'COMFYUI_BASE_TAG': comfyui_base_tag}
+        | combine(
+            {
+              'SMB_STORAGE_USERNAME': comfyui_smb_username,
+              'SMB_STORAGE_PASSWORD': comfyui_smb_password,
+              'SMB_STORAGE_UID': comfyui_smb_uid,
+              'SMB_STORAGE_GID': comfyui_smb_gid,
+            } if comfyui_output_share else {}
+          )
+      }}
+  ansible.builtin.include_role:
+    name: docker_compose

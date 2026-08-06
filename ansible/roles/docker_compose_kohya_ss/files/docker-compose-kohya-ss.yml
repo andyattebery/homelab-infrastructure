@@ -1,0 +1,54 @@
+---
+services:
+  kohya-ss:
+    image: ${KOHYA_SS_IMAGE}
+    container_name: kohya-ss
+    user: "${PUID:-1000}:0"
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - SAFETENSORS_FAST_GPU=1
+      - TZ=${TZ}
+    tmpfs:
+      - /tmp
+    volumes:
+      - ${KOHYA_SS_MODELS_PATH}:/app/models
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset:/dataset
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset/images:/app/data
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset/logs:/app/logs
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset/outputs:/app/outputs
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset/regularization:/app/regularization
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/config:/app/config
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/user:/home/1000/.cache
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/triton:/home/1000/.triton
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/nv:/home/1000/.nv
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/keras:/home/1000/.keras
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/cache/config:/home/1000/.config
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+
+  tensorboard:
+    build:
+      context: ./tensorboard
+    container_name: tensorboard
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/kohya-ss/dataset/logs:/app/logs
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+
+networks:
+  traefik:
+    name: traefik
+    external: true
