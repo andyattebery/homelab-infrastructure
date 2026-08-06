@@ -1,0 +1,527 @@
+{
+  "name": "iPad Kids \u2014 HEVC/SDR mp4 (2d-animation + standard)",
+  "description": "Derivative iPad-kids copies. Branch profile by /2d-animation/ path segment and HDR by checkHdr. HDR->SDR via tonemap_cuda bt2390 (param=0.5, limited range, 10-bit p010). Fully GPU-resident: nvdec -> scale_cuda -> tonemap_cuda -> hevc_nvenc, no hwupload/hwdownload. standard = <=1080p ceiling (downscale-only) p4 cq32; 2d-animation = NATIVE res (no scale) p3 cq34. HDR and SDR share the same cq per profile. mp4, AAC stereo, no subs. Integrity guard then Move To Directory (library output_dir, keep relative path). Never replaces originals. Requires the Tdarr container's shipped jellyfin-ffmpeg: tonemap_cuda is a jellyfin-only filter, and -tune uhq is deliberately absent because jellyfin-ffmpeg compiles it out (nv-codec-headers n12.0.16.1).",
+  "tags": "video,hevc,ipad,kids,tonemap,derivative",
+  "flowPlugins": [
+    {
+      "name": "Input File",
+      "sourceRepo": "Community",
+      "pluginName": "inputFile",
+      "version": "1.0.0",
+      "id": "input1",
+      "inputsDB": {},
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "name": "Begin Command",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandStart",
+      "version": "1.0.0",
+      "id": "ffStart1",
+      "inputsDB": {},
+      "position": {
+        "x": 300,
+        "y": 0
+      }
+    },
+    {
+      "name": "Set Container",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandSetContainer",
+      "version": "1.0.0",
+      "id": "ffContainer1",
+      "inputsDB": {
+        "container": "mp4",
+        "forceConform": "true"
+      },
+      "position": {
+        "x": 600,
+        "y": 0
+      }
+    },
+    {
+      "name": "Check HDR",
+      "sourceRepo": "Community",
+      "pluginName": "checkHdr",
+      "version": "1.0.0",
+      "id": "checkHdr1",
+      "inputsDB": {},
+      "position": {
+        "x": 900,
+        "y": 0
+      }
+    },
+    {
+      "name": "Profile? (HDR)",
+      "sourceRepo": "Community",
+      "pluginName": "checkFileNameIncludes",
+      "version": "2.0.0",
+      "id": "cfniHdr",
+      "inputsDB": {
+        "terms": "/2d-animation/",
+        "pattern": "",
+        "includeFileDirectory": "true",
+        "fileToCheck": "originalFile"
+      },
+      "position": {
+        "x": 1200,
+        "y": -150
+      }
+    },
+    {
+      "name": "Profile? (SDR)",
+      "sourceRepo": "Community",
+      "pluginName": "checkFileNameIncludes",
+      "version": "2.0.0",
+      "id": "cfniSdr",
+      "inputsDB": {
+        "terms": "/2d-animation/",
+        "pattern": "",
+        "includeFileDirectory": "true",
+        "fileToCheck": "originalFile"
+      },
+      "position": {
+        "x": 1200,
+        "y": 150
+      }
+    },
+    {
+      "name": "STD+HDR (<=1080p p4 cq32)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafStdHdr",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih),tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 32 -tag:v hvc1"
+      },
+      "position": {
+        "x": 1500,
+        "y": -100
+      }
+    },
+    {
+      "name": "STD+SDR (<=1080p p4 cq32)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafStdSdr",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih):format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 32 -tag:v hvc1"
+      },
+      "position": {
+        "x": 1500,
+        "y": 300
+      }
+    },
+    {
+      "name": "2DANIM+HDR (native p3 cq34)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafAnimHdr",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1"
+      },
+      "position": {
+        "x": 1500,
+        "y": -300
+      }
+    },
+    {
+      "name": "2DANIM+SDR (native p3 cq34)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafAnimSdr",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf scale_cuda=format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1"
+      },
+      "position": {
+        "x": 1500,
+        "y": 100
+      }
+    },
+    {
+      "name": "Check Audio Codec",
+      "sourceRepo": "Community",
+      "pluginName": "checkAudioCodec",
+      "version": "1.0.0",
+      "id": "checkAudio1",
+      "inputsDB": {
+        "codec": "aac"
+      },
+      "position": {
+        "x": 1800,
+        "y": 0
+      }
+    },
+    {
+      "name": "Args (copy AAC)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "audioCopy",
+      "inputsDB": {
+        "inputArguments": "",
+        "outputArguments": "-c:a copy"
+      },
+      "position": {
+        "x": 2100,
+        "y": -100
+      }
+    },
+    {
+      "name": "Args (encode AAC)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "audioEnc",
+      "inputsDB": {
+        "inputArguments": "",
+        "outputArguments": "-c:a aac -ac 2 -b:a 160k"
+      },
+      "position": {
+        "x": 2100,
+        "y": 100
+      }
+    },
+    {
+      "name": "Keep primary audio only",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandRemoveStreamByProperty",
+      "version": "1.0.0",
+      "id": "trimAudio",
+      "inputsDB": {
+        "codecType": "audio",
+        "propertyToCheck": "disposition.default",
+        "valuesToRemove": "1",
+        "condition": "not_equals"
+      },
+      "position": {
+        "x": 2280,
+        "y": 0
+      }
+    },
+    {
+      "name": "Remove Subtitles",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandRemoveSubtitles",
+      "version": "1.0.0",
+      "id": "ffRemoveSubs",
+      "inputsDB": {},
+      "position": {
+        "x": 2400,
+        "y": 0
+      }
+    },
+    {
+      "name": "Remove Data Streams",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandRemoveDataStreams",
+      "version": "1.0.0",
+      "id": "ffRemoveData",
+      "inputsDB": {},
+      "position": {
+        "x": 2550,
+        "y": 0
+      }
+    },
+    {
+      "name": "Execute",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandExecute",
+      "version": "1.0.0",
+      "id": "ffExec1",
+      "inputsDB": {},
+      "position": {
+        "x": 2850,
+        "y": 0
+      }
+    },
+    {
+      "name": "Check Duration Ratio",
+      "sourceRepo": "Community",
+      "pluginName": "compareFileDurationRatio",
+      "version": "1.0.0",
+      "id": "checkDuration1",
+      "inputsDB": {},
+      "position": {
+        "x": 3150,
+        "y": 0
+      }
+    },
+    {
+      "name": "Check Size Ratio",
+      "sourceRepo": "Community",
+      "pluginName": "compareFileSizeRatio",
+      "version": "2.0.0",
+      "id": "checkSize1",
+      "inputsDB": {
+        "greaterThan": "1",
+        "lessThan": "110"
+      },
+      "position": {
+        "x": 3450,
+        "y": 0
+      }
+    },
+    {
+      "name": "Health Check",
+      "sourceRepo": "Community",
+      "pluginName": "runHealthCheck",
+      "version": "1.0.0",
+      "id": "healthCheck1",
+      "inputsDB": {
+        "checkType": "thorough"
+      },
+      "position": {
+        "x": 3750,
+        "y": 0
+      }
+    },
+    {
+      "name": "Move To Directory",
+      "sourceRepo": "Community",
+      "pluginName": "moveToDirectory",
+      "version": "2.0.0",
+      "id": "move1",
+      "inputsDB": {
+        "outputDirectory": "{{{args.userVariables.library.output_dir}}}",
+        "keepRelativePath": "true"
+      },
+      "position": {
+        "x": 4050,
+        "y": 0
+      }
+    },
+    {
+      "name": "Fail (Bad Duration)",
+      "sourceRepo": "Community",
+      "pluginName": "failFlow",
+      "version": "1.0.0",
+      "id": "failDuration",
+      "inputsDB": {},
+      "position": {
+        "x": 3450,
+        "y": -200
+      }
+    },
+    {
+      "name": "Fail (Bad Size)",
+      "sourceRepo": "Community",
+      "pluginName": "failFlow",
+      "version": "1.0.0",
+      "id": "failSize",
+      "inputsDB": {},
+      "position": {
+        "x": 3750,
+        "y": -200
+      }
+    }
+  ],
+  "flowEdges": [
+    {
+      "source": "input1",
+      "sourceHandle": "1",
+      "target": "ffStart1",
+      "targetHandle": null,
+      "id": "e1"
+    },
+    {
+      "source": "ffStart1",
+      "sourceHandle": "1",
+      "target": "ffContainer1",
+      "targetHandle": null,
+      "id": "e2"
+    },
+    {
+      "source": "ffContainer1",
+      "sourceHandle": "1",
+      "target": "checkHdr1",
+      "targetHandle": null,
+      "id": "e3"
+    },
+    {
+      "source": "checkHdr1",
+      "sourceHandle": "1",
+      "target": "cfniHdr",
+      "targetHandle": null,
+      "id": "e4"
+    },
+    {
+      "source": "checkHdr1",
+      "sourceHandle": "2",
+      "target": "cfniSdr",
+      "targetHandle": null,
+      "id": "e5"
+    },
+    {
+      "source": "cfniHdr",
+      "sourceHandle": "1",
+      "target": "leafAnimHdr",
+      "targetHandle": null,
+      "id": "e6"
+    },
+    {
+      "source": "cfniHdr",
+      "sourceHandle": "2",
+      "target": "leafStdHdr",
+      "targetHandle": null,
+      "id": "e7"
+    },
+    {
+      "source": "cfniSdr",
+      "sourceHandle": "1",
+      "target": "leafAnimSdr",
+      "targetHandle": null,
+      "id": "e8"
+    },
+    {
+      "source": "cfniSdr",
+      "sourceHandle": "2",
+      "target": "leafStdSdr",
+      "targetHandle": null,
+      "id": "e9"
+    },
+    {
+      "source": "leafAnimHdr",
+      "sourceHandle": "1",
+      "target": "checkAudio1",
+      "targetHandle": null,
+      "id": "e10"
+    },
+    {
+      "source": "leafStdHdr",
+      "sourceHandle": "1",
+      "target": "checkAudio1",
+      "targetHandle": null,
+      "id": "e11"
+    },
+    {
+      "source": "leafAnimSdr",
+      "sourceHandle": "1",
+      "target": "checkAudio1",
+      "targetHandle": null,
+      "id": "e12"
+    },
+    {
+      "source": "leafStdSdr",
+      "sourceHandle": "1",
+      "target": "checkAudio1",
+      "targetHandle": null,
+      "id": "e13"
+    },
+    {
+      "source": "checkAudio1",
+      "sourceHandle": "1",
+      "target": "audioCopy",
+      "targetHandle": null,
+      "id": "e14"
+    },
+    {
+      "source": "checkAudio1",
+      "sourceHandle": "2",
+      "target": "audioEnc",
+      "targetHandle": null,
+      "id": "e15"
+    },
+    {
+      "source": "audioCopy",
+      "sourceHandle": "1",
+      "target": "trimAudio",
+      "targetHandle": null,
+      "id": "e16"
+    },
+    {
+      "source": "audioEnc",
+      "sourceHandle": "1",
+      "target": "trimAudio",
+      "targetHandle": null,
+      "id": "e17"
+    },
+    {
+      "source": "trimAudio",
+      "sourceHandle": "1",
+      "target": "ffRemoveSubs",
+      "targetHandle": null,
+      "id": "e16b"
+    },
+    {
+      "source": "ffRemoveSubs",
+      "sourceHandle": "1",
+      "target": "ffRemoveData",
+      "targetHandle": null,
+      "id": "e18"
+    },
+    {
+      "source": "ffRemoveData",
+      "sourceHandle": "1",
+      "target": "ffExec1",
+      "targetHandle": null,
+      "id": "e19"
+    },
+    {
+      "source": "ffExec1",
+      "sourceHandle": "1",
+      "target": "checkDuration1",
+      "targetHandle": null,
+      "id": "e20"
+    },
+    {
+      "source": "checkDuration1",
+      "sourceHandle": "1",
+      "target": "checkSize1",
+      "targetHandle": null,
+      "id": "e21"
+    },
+    {
+      "source": "checkDuration1",
+      "sourceHandle": "2",
+      "target": "failDuration",
+      "targetHandle": null,
+      "id": "e22"
+    },
+    {
+      "source": "checkDuration1",
+      "sourceHandle": "3",
+      "target": "failDuration",
+      "targetHandle": null,
+      "id": "e23"
+    },
+    {
+      "source": "checkSize1",
+      "sourceHandle": "1",
+      "target": "healthCheck1",
+      "targetHandle": null,
+      "id": "e24"
+    },
+    {
+      "source": "checkSize1",
+      "sourceHandle": "2",
+      "target": "failSize",
+      "targetHandle": null,
+      "id": "e25"
+    },
+    {
+      "source": "checkSize1",
+      "sourceHandle": "3",
+      "target": "failSize",
+      "targetHandle": null,
+      "id": "e26"
+    },
+    {
+      "source": "healthCheck1",
+      "sourceHandle": "1",
+      "target": "move1",
+      "targetHandle": null,
+      "id": "e27"
+    }
+  ]
+}

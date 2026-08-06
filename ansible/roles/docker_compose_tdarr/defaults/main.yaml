@@ -1,0 +1,32 @@
+---
+docker_compose_tdarr_server: false
+docker_compose_tdarr_node: false
+
+docker_compose_tdarr_server_ip: "tdarr.{{ domain_name }}"
+docker_compose_tdarr_server_port: 8266
+docker_compose_tdarr_node_name: "{{ inventory_hostname }}"
+docker_compose_tdarr_api_key: ""
+
+docker_compose_tdarr_transcode_gpu_workers: 0
+docker_compose_tdarr_transcode_cpu_workers: 2
+docker_compose_tdarr_healthcheck_gpu_workers: 0
+docker_compose_tdarr_healthcheck_cpu_workers: 1
+
+docker_compose_tdarr_nvidia_gpu: false
+docker_compose_tdarr_nvidia_gpu_wsl: false
+docker_compose_tdarr_intel_gpu: false
+
+docker_compose_tdarr_transcode_cache_path: /transcode_cache
+
+# Host serving the media over SMB, and the share holding the merged library. The volumes
+# are named "<storage_host>_<share>" so two roles mounting the same share on one host
+# converge on one Docker volume instead of two.
+docker_compose_tdarr_storage_host: ""
+docker_compose_tdarr_storage_share: storage
+
+# Per-disk shares mounted at /media-raw/<disk>, WITHOUT noserverino so inode numbers are
+# stable and hardlink detection works. The merged share above uses noserverino and cannot
+# be used for that. Empty when no flow manipulates hardlinks.
+docker_compose_tdarr_hardlink_disks: []
+
+docker_compose_tdarr_image_tag: latest

@@ -55,6 +55,36 @@
     - role: docker_compose
       vars:
         docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
+    # Tdarr uses the ffmpeg shipped inside its own container (jellyfin-ffmpeg 7.1.4-3,
+    # /usr/lib/jellyfin-ffmpeg/ffmpeg). The iPad-kids flow tonemaps with tonemap_cuda,
+    # which is a jellyfin-only filter, so no custom ffmpeg is mounted here and there is
+    # no NVENC-API/driver pin to maintain. wsl-01 still installs BtbN for av1_nvenc.
+    - role: docker_compose_tdarr
+      vars:
+        docker_compose_tdarr_server: true
+        docker_compose_tdarr_storage_host: nas-01
+        docker_compose_tdarr_nvidia_gpu: true
+        # Custom flow plugins. Listed per file rather than as a config_dir because
+        # config_dirs copy verbatim while config_files template — and detectHardlinks /
+        # replaceHardlinks embed the hardlink-manager URL as {{ domain_name }}.
+        # The flows themselves are imported through the Tdarr UI, not deployed.
+        docker_compose_src_config_files:
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/checkVideoProperties/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/checkVideoProperties/1.0.0/index.js
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/detectHardlinks/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/detectHardlinks/1.0.0/index.js
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/keepOriginalDate/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/keepOriginalDate/1.0.0/index.js
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
+        docker_compose_tdarr_hardlink_disks:
+          - data01
+          - data02
+          - data03
+          - data08
+          - data11
+          - data12
+      tags: tdarr
     # - role: docker_compose
     #   vars:
     #     docker_compose_copy_scripts: true

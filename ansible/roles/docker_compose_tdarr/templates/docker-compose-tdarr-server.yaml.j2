@@ -1,0 +1,85 @@
+---
+services:
+  tdarr:
+    container_name: tdarr
+    image: ghcr.io/haveagitgat/tdarr:${TDARR_IMAGE_TAG}
+    restart: unless-stopped
+{% if docker_compose_tdarr_nvidia_gpu %}
+    runtime: nvidia
+{% endif %}
+    ports:
+      - 8266:8266
+    networks:
+      - traefik
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK_SET=002
+      - serverIP=0.0.0.0
+      - serverPort=8266
+      - webUIPort=8265
+      - internalNode=true
+      - inContainer=true
+      - ffmpegVersion=7
+      - nodeName=${TDARR_NODE_NAME}
+      - auth=false
+      - maxLogSizeMB=10
+      - cronPluginUpdate=
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - ffmpegPath=/ffmpeg/ffmpeg
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu %}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+{% endif %}
+    volumes:
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - {{ docker_compose_tdarr_custom_ffmpeg_path }}:/ffmpeg:ro
+{% endif %}
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/server:/app/server
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/configs:/app/configs
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/logs:/app/logs
+      - {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:/media
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+      - {{ docker_compose_tdarr_storage_host }}_{{ disk }}:/media-raw/{{ disk }}
+{% endfor %}
+      - ${TDARR_TRANSCODE_CACHE_PATH}:/temp
+{% if docker_compose_tdarr_intel_gpu %}
+    devices:
+      - /dev/dri:/dev/dri
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+{% endif %}
+    labels:
+      - traefik.enable=true
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+
+volumes:
+  {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ docker_compose_tdarr_storage_share }}"
+      o: noserverino,username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+  {{ docker_compose_tdarr_storage_host }}_{{ disk }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ disk }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ disk }}"
+      o: username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% endfor %}

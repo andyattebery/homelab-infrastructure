@@ -1,0 +1,85 @@
+---
+services:
+  tdarr-node:
+    container_name: tdarr-node
+    image: ghcr.io/haveagitgat/tdarr_node:${TDARR_IMAGE_TAG}
+    restart: unless-stopped
+{% if docker_compose_tdarr_nvidia_gpu %}
+    runtime: nvidia
+{% endif %}
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK_SET=002
+      - nodeName=${TDARR_NODE_NAME}
+      - serverIP=${TDARR_SERVER_IP}
+      - serverPort=${TDARR_SERVER_PORT}
+      - inContainer=true
+      - ffmpegVersion=7
+      - nodeType=mapped
+      - priority=-1
+      - cronPluginUpdate=
+      - apiKey=${TDARR_API_KEY}
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - ffmpegPath=/ffmpeg/ffmpeg
+{% endif %}
+      - maxLogSizeMB=10
+      - pollInterval=2000
+      - startPaused=false
+      - transcodegpuWorkers=${TDARR_TRANSCODE_GPU_WORKERS}
+      - transcodecpuWorkers=${TDARR_TRANSCODE_CPU_WORKERS}
+      - healthcheckgpuWorkers=${TDARR_HEALTHCHECK_GPU_WORKERS}
+      - healthcheckcpuWorkers=${TDARR_HEALTHCHECK_CPU_WORKERS}
+{% if docker_compose_tdarr_nvidia_gpu %}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu_wsl %}
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib:/usr/lib/x86_64-linux-gnu
+{% endif %}
+    volumes:
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - {{ docker_compose_tdarr_custom_ffmpeg_path }}:/ffmpeg:ro
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu_wsl %}
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+{% endif %}
+      - ${DOCKER_DATA_DIRECTORY}/tdarr-node/configs:/app/configs
+      - ${DOCKER_DATA_DIRECTORY}/tdarr-node/logs:/app/logs
+      - {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:/media
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+      - {{ docker_compose_tdarr_storage_host }}_{{ disk }}:/media-raw/{{ disk }}
+{% endfor %}
+      - ${TDARR_TRANSCODE_CACHE_PATH}:/temp
+{% if docker_compose_tdarr_intel_gpu %}
+    devices:
+      - /dev/dri:/dev/dri
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+{% endif %}
+
+volumes:
+  {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ docker_compose_tdarr_storage_share }}"
+      o: noserverino,username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+  {{ docker_compose_tdarr_storage_host }}_{{ disk }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ disk }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ disk }}"
+      o: username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% endfor %}

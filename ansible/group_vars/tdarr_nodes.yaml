@@ -1,3 +1,4 @@
 ---
-tdarr_node_name: "{{ inventory_hostname }}"
-tdarr_server_ip: "tdarr.{{ domain_name }}"
+docker_compose_tdarr_node: true
+docker_compose_tdarr_node_name: "{{ inventory_hostname }}"
+docker_compose_tdarr_server_ip: "tdarr.{{ domain_name }}"

@@ -1,0 +1,53 @@
+---
+# Custom flow plugins are NOT deployed here. They are host config, and two of them embed a
+# hardlink-manager URL that has to be templated — which this role cannot do, because the
+# only directory-copy mechanism (docker_compose_src_config_dirs) uses ansible.builtin.copy
+# and never renders Jinja. The caller passes them as docker_compose_src_config_files
+# entries instead; see playbook-media-01.yaml.
+
+- name: Assert tdarr storage host is set
+  ansible.builtin.assert:
+    that: docker_compose_tdarr_storage_host | length > 0
+    fail_msg: >-
+      Set docker_compose_tdarr_storage_host to the host serving the media over SMB.
+      Without it the CIFS volume names and device paths render empty, and the containers
+      start with nothing mounted at /media.
+
+- name: Configure tdarr server
+  when: docker_compose_tdarr_server
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-tdarr-server.yaml.j2
+    docker_compose_dst_file_name: docker-compose-tdarr-server.yaml
+    docker_compose_envs:
+      TDARR_IMAGE_TAG: "{{ docker_compose_tdarr_image_tag }}"
+      TDARR_NODE_NAME: "{{ docker_compose_tdarr_node_name }}"
+      TDARR_TRANSCODE_CACHE_PATH: "{{ docker_compose_tdarr_transcode_cache_path }}"
+      SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
+      SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
+      SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
+      SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
+  ansible.builtin.include_role:
+    name: docker_compose
+
+- name: Configure tdarr node
+  when: docker_compose_tdarr_node
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-tdarr-node.yaml.j2
+    docker_compose_dst_file_name: docker-compose-tdarr-node.yaml
+    docker_compose_envs:
+      TDARR_IMAGE_TAG: "{{ docker_compose_tdarr_image_tag }}"
+      TDARR_NODE_NAME: "{{ docker_compose_tdarr_node_name }}"
+      TDARR_SERVER_IP: "{{ docker_compose_tdarr_server_ip }}"
+      TDARR_SERVER_PORT: "{{ docker_compose_tdarr_server_port }}"
+      TDARR_API_KEY: "{{ docker_compose_tdarr_api_key }}"
+      TDARR_TRANSCODE_GPU_WORKERS: "{{ docker_compose_tdarr_transcode_gpu_workers }}"
+      TDARR_TRANSCODE_CPU_WORKERS: "{{ docker_compose_tdarr_transcode_cpu_workers }}"
+      TDARR_HEALTHCHECK_GPU_WORKERS: "{{ docker_compose_tdarr_healthcheck_gpu_workers }}"
+      TDARR_HEALTHCHECK_CPU_WORKERS: "{{ docker_compose_tdarr_healthcheck_cpu_workers }}"
+      TDARR_TRANSCODE_CACHE_PATH: "{{ docker_compose_tdarr_transcode_cache_path }}"
+      SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
+      SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
+      SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
+      SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
+  ansible.builtin.include_role:
+    name: docker_compose
