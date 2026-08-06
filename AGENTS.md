@@ -59,3 +59,121 @@ When researching changelogs, release notes, or API differences between specific 
 - ansible directory holds homelab provisioning playbooks/roles.
 - ansible runs from `ansible/.venv` (managed by mise).
 - `gh` and `yq` are in `$PATH`.
+
+## Git
+
+Never run `git commit`. Stage only; the user commits. This holds when a commit is the
+obvious next step, and after the user approves a commit plan — approval covers the staging,
+not the commit.
+
+Required artifact: after each `git add`, print `git diff --cached --stat` and
+`git status --short`. No staged-state output = not done.
+
+## Roles must not bake in host config
+
+A role is reusable infrastructure. This homelab's specifics belong in the playbook,
+`group_vars/`, `host_vars/`, or `ansible/files/<host>/`. Inside `ansible/roles/<name>/`
+there must be no hostname, domain, share path, absolute host path, model list, device name,
+or credential *as a value*. A host-shaped path is allowed only in `defaults/main.yaml`,
+where a caller can override it.
+
+One role deploys one application. A role that builds a second, unrelated service gets split.
+
+Triggered by: adding or editing a role.
+
+Required artifact — both greps, as visible tool calls:
+
+    grep -rn 'nas-01\|media-01\|htpc-01\|docker-01\|wsl-01\|<domain>' ansible/roles/<name>/
+    grep -rn '/mnt/\|/run/media' ansible/roles/<name>/ | grep -v '/defaults/main.yaml:'
+
+Hostname or domain hits are a miss anywhere — including a comment that states a real value
+rather than an example. Path hits outside `defaults/main.yaml` are a miss. No greps = not
+done.
+
+## Every role has a README
+
+Adding or editing a role means adding or updating `ansible/roles/<name>/README.md`. House
+style: purpose line, `## Status:`, Required/Optional inputs each with its default and what
+happens if it is wrong, a real example lifted from the calling playbook, then narrative
+sections for the traps.
+
+Required artifact:
+
+    git status --porcelain --untracked-files=all \
+      | grep -oE 'ansible/roles/[a-z_0-9]+' | sort -u \
+      | while read -r r; do [ -f "$r/README.md" ] || echo "MISSING: $r"; done
+
+Must print nothing. Re-run it at the end — editing a role's file pulls it into scope, so the
+set grows as the work proceeds.
+
+`## Status: WIP` on a role that is deployed is a stale marker, not documentation. Fix it.
+
+## Playbooks: no silent commented-out blocks
+
+A commented-out role or task needs a comment directly above saying why. The only exception
+is a reference to a role that is not complete or not working — say that.
+
+Triggered by: any playbook edit that comments something out.
+Required artifact: the why-comment, visible in the diff. No comment = uncomment it or delete
+it, not both-and-neither.
+
+## Before editing any `docker_compose_*` role
+
+Read `ansible/roles/docker_compose/` in full — all 16 files — and produce the file-by-file
+accounting the Reading-files rule requires. Its behaviour decides things that are invisible
+from the calling role:
+
+- the compose file always goes through `ansible.builtin.template`, so it renders Jinja
+  whether or not it is named `.j2`
+- `docker_compose_dst_file_name` defaults to the source basename, so a `.j2` source deploys
+  a `.j2` destination — and `files/dc` globs `docker-compose*.y*ml`, so it will not see it
+- `docker_compose_src_config_files` templates; `docker_compose_src_config_dirs` copies and
+  never renders Jinja
+- `.env` is shared per host and accumulates every role's vars — env names are a host-global
+  namespace
+- `docker_compose_dst_directory_path` is `set_fact`-ed, so it outranks host_vars and play
+  vars for the rest of the play
+
+## Ansible semantics are looked up, not recalled
+
+Variable precedence, where vars are searched from, role search path, tag inheritance,
+`apply:`, and `is defined` behaviour are checked, never remembered.
+
+Docs, pinned to the `ansible-core` version from `.venv/bin/ansible --version` — never
+`latest`, never `devel`:
+`raw.githubusercontent.com/ansible/ansible-documentation/stable-<X.Y>/docs/docsite/rst/…`
+
+Anything testable locally gets tested instead of cited:
+
+    .venv/bin/ansible localhost -c local -m debug -a 'msg={{ … }}' -e '{…}'
+
+Required artifact: the quoted doc line or the command output. Neither = the claim does not
+go in.
+
+## This repo is public
+
+`github.com/andyattebery/homelab-infrastructure` is public, and the domain is a secret —
+`research/local-llm/bench/harness/test_sweep.py` asserts no literal URL reaches a committed file.
+
+- Anything Ansible renders: `{{ domain_name }}`
+- Prose, comments, READMEs, docs: `<domain_name>`
+- An `op inject` `.tpl`: `{{ op://Personal/Home Lab/domains/internal }}`
+
+Triggered by: before staging anything.
+Required artifact — the domain is read from the local, never-committed secrets file rather
+than written here, because spelling it out to grep for it would publish it:
+
+    DOMAIN=$(sed -n 's/.*domainName = "\(.*\)".*/\1/p' nix/secrets/vars.nix)
+    test -n "$DOMAIN" || { echo "run nix/scripts/populate-secrets-from-op.sh first"; }
+    git diff --cached --name-only -z | xargs -0 grep -Fin "$DOMAIN"; echo "exit=$?"
+
+`exit=1` is the pass. Per commit, not once per session.
+
+## Audit the index, not the working tree
+
+`git grep` and `grep` read the working tree, which for generated and `assume-unchanged`
+files is not what is committed. `nix/secrets/vars.nix` is the live example: real values
+locally, placeholders in `HEAD`, and `assume-unchanged` set (`git ls-files -v` shows `h`).
+
+Before reporting that something is or is not committed, check it — `git show HEAD:<path>` or
+`git diff --cached`. A working-tree grep is not evidence about repository content.
