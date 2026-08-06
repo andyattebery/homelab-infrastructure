@@ -108,6 +108,9 @@ healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 healthchecks_readonly_api_key: "{{ vault_healthchecks_readonly_api_key }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
+# Raises HuggingFace's download rate limit, which is the binding constraint when pulling
+# ~10 GiB GGUFs. Consumed by the `hf` CLI on htpc-01 via a token file, not an env var.
+hugging_face_access_token: "{{ vault_hugging_face_access_token }}"
 
 grafana_pushover_token: "{{ vault_grafana_pushover_token }}"
 

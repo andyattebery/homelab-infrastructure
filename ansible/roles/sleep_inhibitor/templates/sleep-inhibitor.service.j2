@@ -1,0 +1,14 @@
+[Unit]
+Description=Inhibit sleep while monitored workloads are active
+After=multi-user.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/sleep-inhibitor.sh
+Restart=on-failure
+RestartSec=10
+Environment=GRACE_PERIOD={{ sleep_inhibitor_grace_period }}
+Environment=POLL_INTERVAL={{ sleep_inhibitor_poll_interval }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,6 @@
+---
+- name: Restart sleep-inhibitor
+  ansible.builtin.systemd:
+    name: sleep-inhibitor
+    state: restarted
+    daemon_reload: true

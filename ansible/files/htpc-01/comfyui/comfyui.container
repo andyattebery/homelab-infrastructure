@@ -1,0 +1,87 @@
+[Unit]
+Description=ComfyUI (ROCm 7 / RX 9070 XT)
+RequiresMountsFor=/run/media/system/data /run/media/system/nas_01_ai_images
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Container]
+Image=docker.io/yanwk/comfyui-boot:rocm7
+ContainerName=comfyui
+AutoUpdate=registry
+
+AddDevice=/dev/kfd
+AddDevice=/dev/dri
+SecurityLabelDisable=true
+
+Environment=HSA_OVERRIDE_GFX_VERSION=12.0.1
+Environment=HSA_ENABLE_SDMA=0
+Environment=HIP_VISIBLE_DEVICES=0
+Environment=CLI_ARGS="--use-sage-attention --fp16-vae"
+
+Volume=/run/media/system/data/comfyui/user-scripts:/root/user-scripts
+Volume=/run/media/system/data/comfyui/models:/root/ComfyUI/models
+Volume=/run/media/system/nas_01_ai_images:/root/ComfyUI/output
+Volume=/run/media/system/data/comfyui/custom_nodes:/root/ComfyUI/custom_nodes
+Volume=/run/media/system/data/comfyui/input:/root/ComfyUI/input
+Volume=/run/media/system/data/comfyui/user:/root/ComfyUI/user
+
+PublishPort=127.0.0.1:8188:8188
+Network=caddy.network
+
+# This container can only ever be stopped by SIGKILL, so keep the pointless wait short.
+#
+# Read from the image, not assumed: /runner-scripts/entrypoint.sh ends with
+#   python3 ./ComfyUI/main.py --listen --port 8188 ${CLI_ARGS}
+# with no `exec`. PID 1 is therefore bash with python3 as a foreground child, and a
+# non-interactive bash waiting on a foreground child does not act on SIGTERM until
+# that child returns. Python never sees the signal, so podman always escalates to
+# SIGKILL after StopTimeout.
+#
+# Consequences, both verified rather than guessed:
+#   - Raising StopTimeout does NOT give a graceful shutdown; it only makes every
+#     `gpu-mode` switch slower by that many seconds. 10 (the podman default, set
+#     explicitly here so nobody "fixes" it upward) is the right value.
+#   - RunInit=true would not help either: catatonit would forward SIGTERM to bash, and
+#     bash still would not forward it to python.
+# Must stay below TimeoutStopSec — podman-systemd.unit(5): "this value should be lower
+# than the actual systemd unit timeout to make sure the podman rm command is not
+# killed by systemd."
+StopTimeout=10
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+# Comfortably above StopTimeout=10 so podman is never killed mid `rm`.
+TimeoutStopSec=30
+# 137 = 128+9, i.e. SIGKILL — the *expected* end of a stop for this image, per the
+# entrypoint analysis above, not a fault.
+#
+# This has always happened, on every stop; it was simply invisible. A successful start
+# clears a failed state, and until gpu-mode existed every stop was immediately followed
+# by a start (a playbook restart, or a manual one). Confirmed in the journal: three
+# stops on 2026-07-30 all logged `status=137` then `Failed with result 'exit-code'`,
+# and only the one with no start after it stayed visibly failed. Note `Restart=always`
+# does not re-trigger after an explicit `systemctl stop`, which is why gpu-mode's stop
+# is the case that leaves it sitting in `failed`.
+#
+# Without this the unit needs a manual `systemctl reset-failed` after every mode
+# switch, and `gpu-mode status` reports a healthy, deliberately-stopped container as
+# failed. An in-flight generation is lost on SIGKILL, which is acceptable: stopping
+# ComfyUI is a deliberate operator action to hand the GPU to something else. Nothing
+# durable is lost — the shutdown `finally` only does asset_seeder.shutdown() and
+# cleanup_temp(), and cleanup_temp() (an rmtree of the temp dir) also runs at startup
+# (main.py:497), so the next start does it anyway.
+SuccessExitStatus=137
+
+# No [Install] here on purpose — boot policy is owned by gpu-mode, not by this file.
+#
+# ComfyUI, llama-server and gaming cannot share the 16 GB card, so exactly one of them
+# may start at boot. podman-systemd.unit(5) documents the mechanism: "The Install
+# section can be part of the main file, or it can be in a separate drop-in file ...
+# The latter allows you to install an non-enabled unit and then later enabling it by
+# installing the drop-in." gpu-mode writes/removes
+# comfyui.container.d/50-gpu-mode.conf accordingly.
+#
+# Consequence: on a freshly provisioned host this container does not start at boot
+# until `gpu-mode comfy` (or `llm`) has been run once. That is deliberate — picking a
+# GPU owner is a decision, not a default.

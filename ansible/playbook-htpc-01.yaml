@@ -6,6 +6,195 @@
   vars:
     htpc_data_mount_path: /run/media/system/data
 
+    # llama-swap / llama.cpp. Sizes and checksums verified against the HuggingFace
+    # repo listings, not estimated.
+    #
+    # Quants are chosen so the weights are comparable — Gemma 9.95 GiB, Qwen3
+    # 9.82 GiB — so an A/B comparison isolates the model rather than the
+    # quantisation. Qwen3-14B at Q6_K would be 11.29 GiB, which does not leave room
+    # for its KV cache and compute buffers.
+    #
+    # The two no longer share a context size: Gemma is at 65536 for experiment E1 and
+    # Qwen3 is at 32768, so a Gemma-vs-Qwen3 comparison is NOT like-for-like until
+    # both are settled. Qwen3 cannot follow — measured at 88 MB of VRAM per 1k of
+    # context, it hits the 1.5 GB free-VRAM floor at ~48k.
+    #
+    # Note that comparable weight sizes do NOT imply comparable VRAM footprints:
+    # Gemma 4 uses sliding-window attention on most layers while Qwen3-14B is dense
+    # over 40 layers, so at the same context Qwen3's KV cache is far larger. That is
+    # why the two need different flags below despite the near-identical file sizes.
+    #
+    # Sampler flags differ per model because each publisher recommends its own:
+    # Google's for Gemma 4, and Qwen's thinking-mode defaults for Qwen3 (whose model
+    # card explicitly warns against greedy decoding).
+    #
+    # extra_flags is optional. Omitted means the llama.cpp defaults apply — in
+    # practice an f16 KV cache. It exists because Qwen3 needs a quantised KV cache to
+    # keep a safe VRAM margin and Gemma does not; see the measurements below.
+    llama_swap_models:
+      - id: gemma-4-12b-it
+        repo: unsloth/gemma-4-12b-it-GGUF
+        file: gemma-4-12b-it-UD-Q6_K_XL.gguf
+        # 65536, raised from 32768 for experiment E1 and KEPT on its results
+        # (docs/research-assistant/llm-tuning.md). E1 measured real Onyx research traffic: the peak
+        # turn reached a 25,316-token prompt and 30,349 tokens total, with zero
+        # truncation across 21 agent calls. 32768 could not have run that set — it
+        # clears the peak by only 2,419 tokens, and the largest input budget it allows
+        # (22528, after the 8192 output and 2048 reserve) was exceeded by two calls.
+        # Cost measured on this card: 12,815 MB used, 3,489 MB free — well clear of
+        # the 1.5 GB floor. Gemma costs only ~17 MB per 1k of context because most of
+        # its layers use sliding-window attention.
+        # Onyx's gemma max_input_tokens is 55296 to match, in
+        # roles/docker_compose_onyx/defaults/main.yaml. Change one and you must change
+        # the other: max_input_tokens = ctx - 8192 out - 2048 reserve.
+        ctx: 65536
+        sampler_flags: "--temp 1.0 --top-p 0.95 --top-k 64"
+      - id: qwen3-14b
+        repo: unsloth/Qwen3-14B-GGUF
+        file: Qwen3-14B-UD-Q5_K_XL.gguf
+        ctx: 32768
+        sampler_flags: "--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0"
+        # Measured on this card at -c 32768 -fa 1: an f16 KV cache leaves only 264 MB
+        # of VRAM free, which is the same near-zero margin that was measured to cause
+        # amdgpu to thrash allocations between VRAM and GTT (EVICTED_TIME ~772,000 ms).
+        # q8_0 leaves 2624 MB free at the same speed — 1853 vs 1884 tok/s prefill,
+        # 41.2 vs 44.3 tok/s generation. Gemma needs no equivalent: it already leaves
+        # 2807 MB free, because Gemma 4 uses sliding-window attention on most layers
+        # and so has a far smaller KV cache than Qwen3's dense 40 layers.
+        extra_flags: "--cache-type-k q8_0 --cache-type-v q8_0"
+      # Added for the local-deep-research harness comparison (docs/research-assistant/harness-comparison.md).
+      # Chosen over Qwen3-14B because it is the only candidate with a published number in
+      # THAT harness (91.2% SimpleQA, 59.0% xbench-DeepSearch, upstream's own figures),
+      # and because a many-call research pipeline makes generation speed a primary
+      # metric -- Qwen3-14B measured the slowest of anything here, 28 tok/s at 25k with
+      # a q8_0 KV cache.
+      #
+      # Q8_0 from the MTP repo, replacing base-repo UD-Q6_K_XL (8.16 GiB) on 2026-08-01.
+      # Two decisions collapse into one download:
+      #   - Q8_0 over Q6_K_XL because the metric for this deployment is factual
+      #     correctness, and there were 5,933 MB free to spend on precision. The old
+      #     tier-matching-with-Gemma argument was about keeping a model comparison
+      #     unconfounded, which is not a quality argument.
+      #   - The MTP repo rather than the base one because it costs only +0.24 GiB over
+      #     the base Q8_0 and makes speculative decoding an extra_flags toggle instead
+      #     of a second ~9 GiB download later. config.json: mtp_num_hidden_layers 1,
+      #     mtp_use_dedicated_embeddings false -- one extra layer reusing the embedding
+      #     table, which is exactly why the delta is that small.
+      #
+      # NO extra_flags: --spec-type stays UNSET here. The MTP head is inert until it is
+      # passed, so this is the plain-Q8_0 baseline. Enabling it is
+      # `--spec-type draft-mtp --spec-draft-n-max 6` (llama.cpp renamed `mtp` ->
+      # `draft-mtp` on 2026-05-13), and the on/off speedup is a Phase 0 measurement.
+      - id: qwen3.5-9b
+        repo: unsloth/Qwen3.5-9B-MTP-GGUF
+        file: Qwen3.5-9B-Q8_0.gguf
+        # 65536 to match Gemma so context is not a confound in the comparison.
+        # MEASURED at UD-Q6_K_XL on 2026-07-31: 10,371 MB used, 5,933 MB free at a
+        # 15,657 MB baseline (bench/llama-swap/results.md) -- 2.4 GB more headroom
+        # than Gemma at the same context, because its hybrid attention caches only
+        # 8 of 32 layers (~33 MB per 1k, vs ~88 for dense Qwen3-14B).
+        # Q8_0 is ~1 GB larger, so expect ~4,900 MB free. TO BE RE-MEASURED.
+        ctx: 65536
+        # Qwen3.5's recommendation is NOT Qwen3's. Its model card gives, for thinking
+        # mode on general tasks: temperature=1.0, top_p=0.95, top_k=20, min_p=0.0,
+        # presence_penalty=1.5. Qwen3 wanted temperature 0.6 -- do not copy that here.
+        sampler_flags: "--temp 1.0 --top-p 0.95 --top-k 20 --min-p 0 --presence-penalty 1.5"
+      # Added 2026-08-01 for the Vulkan-vs-ROCm backend A/B, and as the candidate for
+      # the "is an MoE the bigger lever" question (docs/research-assistant/current-work.md
+      # step 3). Every other model here is dense, so every generated token reads all
+      # ~10 GiB of weights; this one activates 3.8B of 25.2B (8 of 128 experts + 1
+      # shared). At a 83-98% generation share of wall time that is potentially a larger
+      # speedup than any backend or parameter change.
+      #
+      # It also decides whether the backend result generalises: llama.cpp discussion
+      # #21043 reports ROCm winning for dense >20B but Vulkan winning for MoE with <20B
+      # active, which puts this model and the dense ones on opposite sides of the rule.
+      #
+      # UD-Q3_K_XL (12.9 GB) not UD-IQ4_XS (13.6 GB) or UD-Q4_K_XL (17 GB, does not
+      # fit): it is the variant most likely to leave the 1.5 GB VRAM floor free. Low-bit
+      # quants degrade factual accuracy, so this is a THROUGHPUT probe -- quality is
+      # judged separately in step 3, where the QAT repo is the better starting point.
+      #
+      # config.json: Gemma4ForConditionalGeneration, 30 layers with full attention at
+      # only 6/12/18/24 (the other 26 are sliding-window 1024), 16 heads / 8 KV heads,
+      # head_dim 256, 262144 trained context. Half the 12B's 8 full-attention layers,
+      # so its growing KV cache should be CHEAPER than the 12B's at equal context --
+      # direction only; read `KV self size` from the load log for the magnitude.
+      #
+      # NOTE: this repo ships `mtp-gemma-4-26B-A4B-it.gguf` at its root and recent
+      # llama.cpp auto-discovers a drafter via the -hf integration. We fetch one named
+      # file to a local dir, so it is not downloaded and cannot be picked up -- but
+      # confirm "no draft model loaded" in the startup log before trusting a benchmark.
+      - id: gemma-4-26b-a4b
+        repo: unsloth/gemma-4-26B-A4B-it-GGUF
+        file: gemma-4-26B-A4B-it-UD-Q3_K_XL.gguf
+        # 65536, matching the other two models. An earlier revision set 49152 to avoid
+        # eviction seen at 65536 during the fit search; the backend A/B (2026-08-01,
+        # n=5 per row, both backends) contradicts that reasoning outright:
+        #
+        #   -c 65536  1,468 MB free  EVICTED 216  prefill 2,357.7  gen 67.4
+        #   -c 49152  1,804 MB free  EVICTED 271  prefill 2,362.1  gen 67.4
+        #
+        # Eviction was HIGHER at the smaller context, and throughput is identical to
+        # within noise. So the larger context is free, and 49152 bought nothing — it only
+        # made the MoE incomparable to gemma and qwen3.5, which run at 65536, and to
+        # ldr-tuning-methodology.md's held-constant -c 65536.
+        #
+        # More generally: EVICTED is not a function of headroom. The row with the least
+        # free VRAM in the entire matrix (-ub 2048, 1,060 MB) recorded 0 ms.
+        #
+        # KV shape from the load log, which is why the arithmetic from config.json missed:
+        # 5 full-attention layers grow with -c (1,280 MiB at 65536), while the other 25
+        # are sliding-window and stay pinned at 1,536 cells / 300 MiB regardless.
+        ctx: 65536
+        # Its model card's recommendation, which is identical to the 12B's.
+        sampler_flags: "--temp 1.0 --top-p 0.95 --top-k 64"
+
+    # Seconds idle before a model is unloaded and its VRAM released.
+    llama_swap_ttl: 900
+
+    # One server slot. llama.cpp's default is -1 ("auto"), which picked 4 slots
+    # sharing a single unified KV cache of -c tokens. That is wrong for this
+    # workload: a RAG prompt is ~25k tokens, so two concurrent Onyx requests would
+    # need ~50k of a 32k cache. With one slot each request gets the full context and
+    # concurrent requests queue, which is the right trade for a single-user research
+    # assistant — a queued request is slower, a KV-exhausted one fails.
+    llama_swap_parallel_slots: 1
+
+    # Thinking budget, in tokens. -1 is unrestricted, 0 ends thinking immediately, and
+    # a positive value caps it (verified: the parser is stoi, so 4096 is accepted and
+    # only non-numeric values are rejected).
+    #
+    # This was -1, and that broke a real Onyx query. One call generated 17,534+ tokens
+    # of reasoning at 38 tok/s for 472 s, hit the -c 32768 ceiling
+    # (`n_tokens = 32767, truncated = 1`) and returned with no content and no tool
+    # call, so Onyx raised EmptyLLMResponseError. The prompt was only 11,173 tokens —
+    # the input budget was never the constraint; unbounded thinking was.
+    #
+    # 4096 sits above the measured reasoning length (1,764-1,921 typical, one outlier
+    # past 3,000) and still leaves ~17.5k of the ~21.6k output allowance for the answer.
+    # Note --no-context-shift does NOT protect this case: it returns a clean 400 when
+    # the *prompt* is too long, but generation filling the context just stops with
+    # truncated=1 inside a normal 200 stream.
+    llama_swap_reasoning_budget: 4096
+    llama_swap_health_check_timeout: 900
+    llama_swap_log_level: info
+    # Flash attention ON. An earlier value of 0 came from the llama.cpp ROCm
+    # scoreboard's pp512 figure (5055 -> 4903), which does not transfer to these
+    # models on this card. Measured here with a 4.1-4.5k-token prompt, -fa 1 wins on
+    # every axis:
+    #   Gemma 32k: prefill 151.7 -> 1264.9 tok/s, VRAM 15266 -> 13497 MB
+    #   Qwen3 32k: does not load at all with -fa 0 (the 2668 MiB compute buffer OOMs);
+    #              loads and runs at 1853 tok/s prefill with -fa 1
+    # Flash attention also removes the materialised attention matrix, which is what
+    # made the compute buffer the binding constraint rather than the KV cache.
+    llama_swap_flash_attn: 1
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
   tasks:
     - name: Configure server
       ansible.builtin.include_role:
@@ -17,40 +206,245 @@
       vars:
         kernel_parameters_new_parameters:
           amdgpu.cwsr_enable: "0"
+          pm_debug_messages: ""
 
     - name: Reboot if kernel parameters were staged
       when: kernel_parameters_reboot_required | default(false)
       ansible.builtin.reboot:
+
+    - name: Create journald conf.d directory
+      ansible.builtin.file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        mode: "0755"
+
+    - name: Increase journald max size
+      ansible.builtin.copy:
+        dest: /etc/systemd/journald.conf.d/override.conf
+        content: |
+          [Journal]
+          SystemMaxUse=1G
+        mode: "0644"
+      register: __journald_conf
+
+    - name: Restart journald
+      when: __journald_conf.changed
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
 
     - name: Assert data drive is mounted
       ansible.builtin.command:
         cmd: mountpoint -q {{ htpc_data_mount_path }}
       changed_when: false
 
-    - name: Copy Caddy network file
-      ansible.builtin.copy:
-        src: files/htpc-01/caddy.network
-        dest: /etc/containers/systemd/caddy.network
+    - name: Create NAS output mount point
+      ansible.builtin.file:
+        path: /run/media/system/nas_01_ai_images
+        state: directory
+        mode: "0755"
+
+    - name: Template SMB credentials
+      ansible.builtin.template:
+        src: files/htpc-01/nas-mount/smb-credentials.j2
+        dest: /etc/smb-credentials-nas-01
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Template NAS output mount unit
+      ansible.builtin.template:
+        src: files/htpc-01/nas-mount/nas-output.mount.j2
+        dest: /etc/systemd/system/run-media-system-nas_01_ai_images.mount
+        owner: root
+        group: root
         mode: "0644"
+
+    - name: Enable and start NAS output mount
+      ansible.builtin.systemd:
+        name: run-media-system-nas_01_ai_images.mount
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    # Ahead of every container that declares Network=caddy.network, since the network
+    # unit has to exist before those units are generated. Caddy resolves upstreams
+    # lazily per request, so it starting before its backends is fine.
+    - name: Deploy Caddy reverse proxy
+      ansible.builtin.include_role:
+        name: podman_quadlet_caddy
+      vars:
+        podman_quadlet_caddy_data_dir: "{{ htpc_data_mount_path }}/caddy"
+        podman_quadlet_caddy_sites:
+          - host: "comfyui.htpc-01.{{ domain_name }}"
+            upstream: "comfyui:8188"
+          - host: "llama-swap.htpc-01.{{ domain_name }}"
+            upstream: "llama-swap:8080"
 
     - name: Deploy ComfyUI quadlet
       ansible.builtin.include_role:
         name: podman_quadlet
       vars:
-        podman_quadlet_src: files/htpc-01/comfyui.container
+        podman_quadlet_src: files/htpc-01/comfyui/comfyui.container
+        # Must stay ansible_user, not root. One of this container's Volume= entries is
+        # /run/media/system/nas_01_ai_images, a CIFS mount whose ownership is pinned by
+        # its uid=/gid= mount options (smb_nas_01_uid, which resolves to the same uid as
+        # ansible_user). The role chowns every bind-mount source, so anything other than
+        # that uid means chowning a CIFS mountpoint — which does not stick, and reports
+        # changed forever or fails outright.
+        #
+        # The four local comfyui dirs do report changed on every run, and that is the
+        # image's doing rather than a fault here: /root is a volume, so main.py is gone
+        # after each container recreate, which re-runs entrypoint.sh's
+        # `cp --archive --update=none` of the root-owned bundle and resets them to root.
+        # Cosmetic — nothing depends on those dirs being user-owned.
         podman_quadlet_volume_owner: "{{ ansible_user }}"
         podman_quadlet_volume_group: "{{ ansible_user }}"
+        podman_quadlet_config_files:
+          - src: files/htpc-01/comfyui/pre-start.sh
+            dest: "{{ htpc_data_mount_path }}/comfyui/user-scripts/pre-start.sh"
+            mode: "0755"
 
-    - name: Deploy Caddy reverse proxy
+    # Tagging, so tuning iterations do not need a full playbook run:
+    #   --tags llama-swap          config + restart only. This is the tuning loop.
+    #   --tags models              install the hf CLI + token, then download any missing
+    #                              GGUFs. Fast when there is nothing to do: `hf` compares
+    #                              metadata rather than hashing ~30 GB like get_url did.
+    #   --tags llama-swap,models   both
+    # An untagged run still does everything, so a fresh host is unaffected.
+    - name: Create llama.cpp model directory
+      ansible.builtin.file:
+        path: "{{ htpc_data_mount_path }}/llamacpp/models"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags: [llama-swap, models]
+
+    # The HuggingFace CLI, used instead of get_url for two reasons: unauthenticated pulls
+    # are rate-limited hard, and get_url's `checksum:` (its only idempotency mechanism)
+    # re-hashed ~30 GB of local GGUFs on every run. `hf` decides freshness from metadata.
+    #
+    # Homebrew is the supported package path on Bazzite: rpm-ostree makes /usr read-only,
+    # so the role's dnf-based Fedora path cannot work here (see roles/mise/README.md for
+    # the same trap). become: false because Homebrew refuses to run as root — the install
+    # tree is owned by `bazzite`, which is also ansible_user.
+    - name: Install the HuggingFace CLI
+      become: false
+      community.general.homebrew:
+        name: hf
+        state: present
+      tags: [llama-swap, models]
+
+    # `copy` does not create parent directories, and root has never run `hf` on a fresh
+    # host, so this will not exist. HF_TOKEN_PATH defaults to $HF_HOME/token and root's
+    # home is /root (verified with getent).
+    - name: Create HuggingFace config directory
+      ansible.builtin.file:
+        path: /root/.cache/huggingface
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      tags: [llama-swap, models]
+
+    # The CLI reads a token file; HF_TOKEN would merely override it. A file avoids putting
+    # the secret in any task's environment. no_log is scoped HERE, so it hides the token
+    # without hiding download failures on the task below.
+    - name: Install HuggingFace token
+      no_log: true
+      ansible.builtin.copy:
+        content: "{{ hugging_face_access_token }}"
+        dest: /root/.cache/huggingface/token
+        owner: root
+        group: root
+        mode: "0600"
+      tags: [llama-swap, models]
+
+    # ~8-10 GiB each. Runs as root: the models directory is root-owned because the
+    # llama-swap quadlet deploys with podman_quadlet_volume_owner: root, and root holds
+    # the token. `hf` itself lives under the brew user, hence the absolute path.
+    #
+    # --local-dir writes real files (plus a .cache/huggingface metadata directory that
+    # prevents re-downloading), so the container's bind mount sees ordinary files.
+    #
+    # No HF_XET_* tuning: this formula is built `without: "hf-xet"`, so the Xet backend
+    # is not present and HF_XET_HIGH_PERFORMANCE would be a no-op.
+    - name: Download GGUF models
+      environment:
+        HF_HUB_DISABLE_UPDATE_CHECK: "1"
+        HF_HUB_DISABLE_TELEMETRY: "1"
+      ansible.builtin.command:
+        cmd: >-
+          /home/linuxbrew/.linuxbrew/bin/hf download {{ item.repo }} {{ item.file }}
+          --local-dir {{ htpc_data_mount_path }}/llamacpp/models
+        creates: "{{ htpc_data_mount_path }}/llamacpp/models/{{ item.file }}"
+      loop: "{{ llama_swap_models }}"
+      loop_control:
+        label: "{{ item.id }} ({{ item.file }})"
+      register: __llama_swap_model_download
+      retries: 3
+      delay: 10
+      until: __llama_swap_model_download is succeeded
+      tags: [llama-swap, models]
+
+    # `apply` is required, not decorative: a tag on include_role selects the include
+    # task itself, and the role's own tasks carry no tags, so `--tags llama-swap`
+    # without this runs the include and then nothing (ok=3, changed=0).
+    - name: Deploy llama-swap quadlet
+      tags: llama-swap
       ansible.builtin.include_role:
         name: podman_quadlet
+        apply:
+          tags: llama-swap
       vars:
-        podman_quadlet_src: files/htpc-01/caddy.container
+        podman_quadlet_src: files/htpc-01/llama-swap/llama-swap.container.j2
         podman_quadlet_volume_owner: root
         podman_quadlet_volume_group: root
         podman_quadlet_config_files:
-          - src: files/htpc-01/Caddyfile.j2
-            dest: "{{ htpc_data_mount_path }}/caddy/caddyfile/Caddyfile"
-          - src: files/htpc-01/caddy.env.j2
-            dest: "{{ htpc_data_mount_path }}/caddy/caddy.env"
-            mode: "0600"
+          - src: files/htpc-01/llama-swap/llama-swap.yaml.j2
+            dest: "{{ htpc_data_mount_path }}/llamacpp/config/llama-swap.yaml"
+            # llama-swap reads this once at startup; without this the container keeps
+            # serving the model list it booted with.
+            restart_service: true
+
+    # Manual GPU arbitration. ComfyUI, llama-server and gaming cannot share the 16 GB
+    # card — measured: the same 8k prompt took >900 s with ComfyUI resident vs 45 s
+    # without. There is no automatic fix here; this is a script the operator runs.
+    - name: Install gpu-mode script
+      tags: gpu-mode
+      ansible.builtin.copy:
+        src: files/htpc-01/gpu-mode.sh
+        dest: /usr/local/bin/gpu-mode
+        mode: "0755"
+
+    # The runner and its unit are generic; only the checks are about this host — they
+    # probe ComfyUI's queue, llama-swap's loaded model, the benchmark lock, and Ansible's
+    # own temp files.
+    - name: Inhibit sleep while GPU work is running
+      tags: sleep-inhibitor
+      ansible.builtin.include_role:
+        name: sleep_inhibitor
+        apply:
+          tags: sleep-inhibitor
+      vars:
+        sleep_inhibitor_checks_src: files/htpc-01/sleep-inhibitor.d/
+
+    - name: Install CEC onboot wrapper
+      ansible.builtin.copy:
+        src: files/htpc-01/cec/cec-onboot-wrapper.sh
+        dest: /usr/local/bin/cec-onboot-wrapper.sh
+        mode: "0755"
+
+    - name: Create CEC onboot drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/cec-onboot.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Install CEC onboot drop-in to skip WoL wakes
+      ansible.builtin.copy:
+        src: files/htpc-01/cec/cec-onboot-skip-wol.conf
+        dest: /etc/systemd/system/cec-onboot.service.d/skip-wol.conf
+        mode: "0644"
+      notify: Reload systemd

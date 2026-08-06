@@ -13,5 +13,13 @@
   changed_when: false
 
 - name: Set reboot flag if parameters were staged
+  # stdout is empty under --check, because the two command tasks above are skipped
+  # there. Default to an empty object so from_json has something valid to parse and a
+  # dry run reports "no reboot needed", instead of the role erroring out.
   ansible.builtin.set_fact:
-    kernel_parameters_reboot_required: "{{ __kernel_parameters_rpm_ostree_status.stdout | from_json | json_query('deployments[0].staged') | default(false) }}"
+    # default(false, true) rather than default(false): json_query returns None when
+    # `staged` is absent, and plain default() only substitutes for *undefined*, so the
+    # fact would be None and the caller's `when:` would fail on a non-boolean.
+    kernel_parameters_reboot_required: >-
+      {{ __kernel_parameters_rpm_ostree_status.stdout | default('{}', true)
+         | from_json | json_query('deployments[0].staged') | default(false, true) | bool }}

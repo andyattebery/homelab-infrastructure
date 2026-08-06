@@ -1,0 +1,70 @@
+[Unit]
+Description=llama-swap (llama.cpp server, Vulkan/RADV / RX 9070 XT)
+RequiresMountsFor={{ htpc_data_mount_path }}
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Container]
+# VULKAN, not ROCm — decided by measurement on 2026-08-01. See
+# bench/llama-swap/results.md -> "Backend A/B — RESULT". 18 rows, both arms, same
+# llama.cpp build on each side, A-B-A drift -0.26%:
+#
+#   generation  gemma +10.3%, qwen3.5 +6.5%, gemma-4-26B-A4B +35.2%  (no overlapping ranges)
+#   prefill     +52.8% / +17.8% / +21.1%
+#
+# Prefill is the reason ROCm was originally chosen, and Vulkan now wins it outright —
+# consistent with llama.cpp #26220, which removed the rocWMMA FlashAttention kernel three
+# days before the build we run.
+#
+# The :vulkan tag is the LEGACY variant, layered on llama.cpp's own Vulkan image. Do not
+# switch to the "unified" tag: it is built from source and bundles ik-llama/whisper/sd.cpp,
+# which would change the build system as well as the backend. Floating + AutoUpdate matches
+# every other service here; verified 2026-08-01 that it carries the exact llama.cpp build
+# the A/B measured, `version: 10200 (5f55650a7)`.
+Image=ghcr.io/mostlygeek/llama-swap:vulkan
+ContainerName=llama-swap
+AutoUpdate=registry
+
+# MANDATORY, not tuning. The Vulkan image ships EIGHT ICDs — radeon, lvp (lavapipe, a
+# SOFTWARE rasterizer), intel, intel_hasvk, nouveau, virtio, gfxstream, asahi — and no
+# AMDVLK at all. Without this pin, ICD auto-selection could land on lavapipe and run
+# inference on the CPU: not an error, just catastrophically slow. Every row in the A/B was
+# measured with this set. Confirm after any image change with
+#   sudo podman exec llama-swap /app/llama-server --list-devices
+# which must name "Vulkan0: AMD Radeon RX 9070 XT (RADV GFX1201)" at normal verbosity.
+Environment=VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
+
+# /dev/kfd is the ROCm compute node and is not required by the Vulkan backend, but it was
+# present in every container the A/B measured. Kept so the deployed shape matches the
+# measured one; removing it is a separate change that would need its own verification.
+AddDevice=/dev/kfd
+AddDevice=/dev/dri
+GroupAdd=keep-groups
+SecurityLabelDisable=true
+
+Volume={{ htpc_data_mount_path }}/llamacpp/models:/models:ro
+Volume={{ htpc_data_mount_path }}/llamacpp/config:/config:ro
+
+# No PublishPort: Caddy reaches this by container name on caddy.network, the same way
+# it reaches comfyui:8188. Also sidesteps steamwebhelper, which already holds 8080.
+Network=caddy.network
+
+# The image ENTRYPOINT is ["/app/llama-swap", "-config", "/app/config.yaml"] with no
+# CMD, and Quadlet's Exec= appends. Resetting the entrypoint means -config is passed
+# once, instead of twice and relying on Go's flag package taking the last occurrence.
+Entrypoint=/app/llama-swap
+Exec=-config /config/llama-swap.yaml -listen 0.0.0.0:8080
+
+[Service]
+Restart=always
+# llama-swap itself starts fast; the model is loaded lazily on first request.
+TimeoutStartSec=900
+
+# No [Install] here on purpose — boot policy is owned by gpu-mode. See the matching
+# note in comfyui.container. podman-systemd.unit(5) documents installing a unit via a
+# drop-in rather than the base file; gpu-mode writes/removes
+# llama-swap.container.d/50-gpu-mode.conf.
+#
+# Consequence: after a fresh provision or if `gpu-mode game` was the last mode set,
+# llama-swap does not start at boot, so Onyx cannot generate until `gpu-mode llm` is
+# run. Onyx itself stays up — retrieval, indexing and web search are unaffected.

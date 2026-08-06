@@ -1,0 +1,14 @@
+[Unit]
+Description=NAS AI images (nas-01 CIFS)
+Requires=network-online.target
+After=network-online.target nss-lookup.target
+
+[Mount]
+What=//nas-01.{{ domain_name }}/{{ nas_01_ai_image_path }}
+Where=/run/media/system/nas_01_ai_images
+Type=cifs
+Options=rw,noserverino,uid={{ smb_nas_01_uid }},gid={{ smb_nas_01_gid }},nofail,credentials=/etc/smb-credentials-nas-01,_netdev
+TimeoutSec=15
+
+[Install]
+WantedBy=multi-user.target

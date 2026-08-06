@@ -1,0 +1,15 @@
+---
+# Directory of executable check scripts, relative to the playbook. Every file in it is
+# copied to /etc/sleep-inhibitor.d and run on each poll; exit 0 means "busy, stay awake".
+#
+# REQUIRED, no default: the checks are what this role exists to run, and which workloads
+# count as busy is a property of the host, not of the mechanism. Asserted in tasks.
+sleep_inhibitor_checks_src: ""
+
+# Seconds every check must report idle before the inhibitor is released. Guards against
+# flapping — a check that briefly reports idle between two jobs should not drop the lock.
+sleep_inhibitor_grace_period: 300
+
+# Seconds between polls. Each check is given a 10s timeout, so keep this comfortably above
+# the number of checks times that ceiling.
+sleep_inhibitor_poll_interval: 30

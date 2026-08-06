@@ -1,0 +1,43 @@
+---
+# llama-swap starts llama-server on the first request for a model and stops it after
+# `ttl` seconds idle, releasing VRAM. Models are hot-swapped: requesting one unloads
+# the other, which is what makes several models workable on a single 16 GB card.
+#
+# Generous because a cold start loads ~10 GiB from disk into VRAM.
+#
+# llama-swap reads this file once, at process start — it does not watch it. So this
+# entry is opted into `restart_service: true` in playbook-htpc-01.yaml; without that,
+# editing this file deploys the new config while the running container keeps serving
+# the model list it booted with.
+healthCheckTimeout: {{ llama_swap_health_check_timeout }}
+logLevel: {{ llama_swap_log_level }}
+
+models:
+{% for m in llama_swap_models %}
+  {{ m.id }}:
+    # Release VRAM after this many seconds idle. 0 would mean never unload.
+    ttl: {{ llama_swap_ttl }}
+    # ${PORT} is llama-swap's per-model port macro (startPort defaults to 10001).
+    # Sampler flags are per model on purpose — each publisher recommends its own.
+    # extra_flags is optional; omitting it leaves the llama.cpp defaults in place.
+    #
+    # --no-context-shift matters specifically for RAG. The default is to shift, which
+    # silently drops the oldest tokens when a prompt overruns the context — in this
+    # workload those are retrieved source documents, so the model would answer
+    # confidently from evidence that had been thrown away. Failing the request is the
+    # correct behaviour: Onyx surfaces the error instead of an ungrounded answer.
+    cmd: |
+      /app/llama-server --port ${PORT}
+      -m /models/{{ m.file }}
+      --jinja
+      -ngl 999
+      -c {{ m.ctx }}
+      -fa {{ llama_swap_flash_attn }}
+      --no-context-shift
+      -np {{ llama_swap_parallel_slots }}
+      --reasoning-budget {{ llama_swap_reasoning_budget }}
+      {{ m.sampler_flags }}
+{% if m.extra_flags is defined %}
+      {{ m.extra_flags }}
+{% endif %}
+{% endfor %}

@@ -1,0 +1,44 @@
+---
+- name: Assert sleep inhibitor checks are provided
+  ansible.builtin.assert:
+    that: sleep_inhibitor_checks_src | length > 0
+    fail_msg: >-
+      Set sleep_inhibitor_checks_src to a directory of executable check scripts. Without
+      checks the service runs, finds nothing busy, and never holds the inhibitor — a unit
+      that looks healthy while doing nothing.
+
+- name: Install sleep inhibitor script
+  ansible.builtin.copy:
+    src: sleep-inhibitor.sh
+    dest: /usr/local/bin/sleep-inhibitor.sh
+    mode: "0755"
+  notify: Restart sleep-inhibitor
+
+- name: Create sleep inhibitor check directory
+  ansible.builtin.file:
+    path: /etc/sleep-inhibitor.d
+    state: directory
+    mode: "0755"
+
+# Checks must be executable — the runner skips anything that is not, so a check copied
+# without the bit is silently ignored rather than reported.
+- name: Install sleep inhibitor checks
+  ansible.builtin.copy:
+    src: "{{ sleep_inhibitor_checks_src }}"
+    dest: /etc/sleep-inhibitor.d/
+    mode: "0755"
+  notify: Restart sleep-inhibitor
+
+- name: Install sleep inhibitor service
+  ansible.builtin.template:
+    src: sleep-inhibitor.service.j2
+    dest: /etc/systemd/system/sleep-inhibitor.service
+    mode: "0644"
+  notify: Restart sleep-inhibitor
+
+- name: Enable and start sleep inhibitor
+  ansible.builtin.systemd:
+    name: sleep-inhibitor
+    enabled: true
+    state: started
+    daemon_reload: true
