@@ -17,8 +17,10 @@ populate_vault_from_onepassword() {
   # fi
 }
 
-script_dir="$(dirname $0)/.."
+# Optional first arg: the ansible dir to scan for *vault.yaml.tpl (so this can populate the vault of any
+# repo.) Defaults to the ansible dir above this script (unchanged).
+target_dir="${1:-"$(dirname "$0")/.."}"
 
 export -f get_input_vault_all
 export -f populate_vault_from_onepassword
-find "$script_dir" -name '*vault.yaml.tpl' -exec /usr/bin/env sh -c 'populate_vault_from_onepassword "$1"' _ {} \;
+find "$target_dir" -name '*vault.yaml.tpl' -exec /usr/bin/env sh -c 'populate_vault_from_onepassword "$1"' _ {} \;
