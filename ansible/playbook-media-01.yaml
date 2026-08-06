@@ -15,56 +15,37 @@
           - cifs-utils
           - nvtop
 
-    # The GPT-OSS 120B / Qwen3-VL hybrid-offload experiment. Both services sat behind
-    # compose profiles with docker_compose_should_run_up: false, so no container was
-    # ever created and there is nothing to stop or remove from Docker.
-    # The 87 GB of GGUFs under /mnt/data/llamacpp are deliberately NOT removed here —
-    # that is an irreversible delete and belongs in a confirmed manual step. (Already
-    # done manually: /mnt/data/llamacpp no longer exists.)
-    #
-    # llm-swap is removed for the same reason: it only ever switched between the two
-    # compose profiles in the file above, so with that file gone it can do nothing but
-    # fail. It was previously installed by a post_task in this playbook, which has been
-    # removed along with ansible/files/media-01/{llm-swap,README-llamacpp.md}.
-    - name: Remove retired llamacpp artefacts
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - /opt/docker-compose/docker-compose-llamacpp.yml
-        - /usr/local/bin/llm-swap
-
   roles:
     - configure_server
     - role: zfs_conf
       vars:
         zfs_arc_max_gb: 2
-    # - geerlingguy.docker
+    - geerlingguy.docker
     - role: mise
-    # - role: nvidia.nvidia_driver
-    #   vars:
-    #     nvidia_driver_branch: "580"
-    #     nvidia_driver_ubuntu_cuda_keyring_package: cuda-keyring_1.1-1_all.deb
-    #     nvidia_driver_ubuntu_install_from_cuda_repo: true
-    #     nvidia_driver_add_repos: true
-    #     nvidia_driver_skip_reboot: true
-    # - role: nvidia_container_toolkit
-    # - role: power_saving
-    #   vars:
-    #     power_saving_configure_cpu: false
-    # - role: beszel_agent
+    - role: nvidia.nvidia_driver
+      vars:
+        nvidia_driver_branch: "580"
+        nvidia_driver_ubuntu_cuda_keyring_package: cuda-keyring_1.1-1_all.deb
+        nvidia_driver_ubuntu_install_from_cuda_repo: true
+        nvidia_driver_add_repos: true
+        nvidia_driver_skip_reboot: true
+    - role: nvidia_container_toolkit
+    - role: power_saving
+      vars:
+        power_saving_configure_cpu: false
+    - role: beszel_agent
     - role: docker_compose_traefik
       vars:
         docker_compose_traefik_enable_dashboard: true
         docker_compose_traefik_enable_host_network: true
       tags: traefik
-    # - docker_compose_dashboard_services_manager_provider
-    # - docker_compose_diun
-    # - role: docker_compose_immich
-    #   vars:
-    #     immich_only_machine_learning: true
-    #     immich_machine_learning_cuda: true
-    #     immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"
+    - docker_compose_dashboard_services_manager_provider
+    - docker_compose_diun
+    - role: docker_compose_immich
+      vars:
+        immich_only_machine_learning: true
+        immich_machine_learning_cuda: true
+        immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"
     # - role: docker_compose_obico
     #   vars:
     #     obico_only_machine_learning: true
@@ -139,13 +120,13 @@
         # Share comfyui's model store rather than keeping a second copy.
         kohya_ss_models_path: "{{ docker_compose_dst_data_directory_path }}/comfyui/models"
       tags: kohya_ss
-    # - role: docker_compose
-    #   vars:
-    #     docker_compose_copy_scripts: true
-    #     docker_compose_src_file_path: files/media-01/docker-compose-media.yml
-    #     docker_compose_envs:
-    #       PLEX_CLAIM_TOKEN: "{{ plex_claim_token }}"
-    #       SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
-    #       SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
-    #       SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
-    #       SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
+    - role: docker_compose
+      vars:
+        docker_compose_copy_scripts: true
+        docker_compose_src_file_path: files/media-01/docker-compose-media.yml
+        docker_compose_envs:
+          PLEX_CLAIM_TOKEN: "{{ plex_claim_token }}"
+          SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
+          SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
+          SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
+          SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
