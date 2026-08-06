@@ -21,6 +21,7 @@
       vars:
         zfs_arc_max_gb: 2
     # - geerlingguy.docker
+    - role: mise
     # - role: nvidia.nvidia_driver
     #   vars:
     #     nvidia_driver_branch: "580"
