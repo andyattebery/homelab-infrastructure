@@ -9,3 +9,11 @@ ansible/.claude/settings.local.json
 # sops decrypted temp files
 nix/secrets/*.dec
 nix/secrets/*.cleartext
+
+# agent working notes — hold unvaulted hostnames, IPs, and WAN details
+status/
+handoffs/
+plans/
+
+# compiled bytecode
+__pycache__/
