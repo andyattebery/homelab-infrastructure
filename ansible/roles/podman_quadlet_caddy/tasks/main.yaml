@@ -1,0 +1,33 @@
+---
+- name: Assert Caddy inputs are provided
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_caddy_sites | length > 0
+      - podman_quadlet_caddy_data_dir | length > 0
+    fail_msg: >-
+      podman_quadlet_caddy requires both podman_quadlet_caddy_sites (at least one
+      {host, upstream} entry — an empty list deploys Caddy with a Caddyfile serving
+      nothing) and podman_quadlet_caddy_data_dir (no default: it holds the certificate
+      store, so a guessed path would silently work and lose the certs on the next change).
+
+# The network must exist before any container that declares Network=caddy.network,
+# so this role is invoked ahead of those containers in the playbook.
+- name: Deploy Caddy network
+  vars:
+    podman_quadlet_src: "files/caddy.network"
+  ansible.builtin.include_role:
+    name: podman_quadlet
+
+- name: Deploy Caddy container
+  vars:
+    podman_quadlet_src: "templates/caddy.container.j2"
+    podman_quadlet_volume_owner: root
+    podman_quadlet_volume_group: root
+    podman_quadlet_config_files:
+      - src: "templates/Caddyfile.j2"
+        dest: "{{ podman_quadlet_caddy_data_dir }}/caddyfile/Caddyfile"
+      - src: "templates/caddy.env.j2"
+        dest: "{{ podman_quadlet_caddy_data_dir }}/caddy.env"
+        mode: "0600"
+  ansible.builtin.include_role:
+    name: podman_quadlet

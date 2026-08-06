@@ -1,0 +1,25 @@
+[Unit]
+Description=Caddy reverse proxy
+RequiresMountsFor={{ podman_quadlet_caddy_data_dir }}
+
+[Container]
+Image={{ podman_quadlet_caddy_image }}
+ContainerName=caddy
+AutoUpdate=registry
+
+PublishPort=80:80
+PublishPort=443:443
+Network={{ podman_quadlet_caddy_network }}
+SecurityLabelDisable=true
+
+Volume={{ podman_quadlet_caddy_data_dir }}/data:/data
+Volume={{ podman_quadlet_caddy_data_dir }}/config:/config
+Volume={{ podman_quadlet_caddy_data_dir }}/caddyfile:/etc/caddy:ro
+
+EnvironmentFile={{ podman_quadlet_caddy_data_dir }}/caddy.env
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+{% for site in podman_quadlet_caddy_sites %}
+{{ site.host }} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	reverse_proxy {{ site.upstream }}
+}
+{% endfor %}

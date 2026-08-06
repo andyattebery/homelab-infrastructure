@@ -1,0 +1,22 @@
+---
+# REQUIRED — no default on purpose. Any value here would be one host's layout (the first
+# caller was an rpm-ostree box with its data on /run/media/...), and a wrong default
+# silently plants Caddy's certificate store and config somewhere unintended rather than
+# failing. Asserted in tasks/main.yaml.
+podman_quadlet_caddy_data_dir: ""
+
+podman_quadlet_caddy_image: ghcr.io/caddybuilds/caddy-cloudflare:latest
+
+# Cloudflare token for the DNS-01 challenge, written to the container's EnvironmentFile.
+# Defaults to the repo-wide value so callers rarely set it, but it is a role input rather
+# than a global the template reaches out to grab.
+podman_quadlet_caddy_cloudflare_api_token: "{{ cloudflare_api_token }}"
+
+# Quadlet network unit this Caddy joins. Containers it proxies to must join the same
+# one so they resolve by ContainerName.
+podman_quadlet_caddy_network: caddy.network
+
+# Virtual hosts, each rendered into the Caddyfile with a Cloudflare DNS-01 TLS block:
+#   - { host: "comfyui.gpu-host.example.com", upstream: "comfyui:8188" }
+# `upstream` is a container name and port on podman_quadlet_caddy_network.
+podman_quadlet_caddy_sites: []
