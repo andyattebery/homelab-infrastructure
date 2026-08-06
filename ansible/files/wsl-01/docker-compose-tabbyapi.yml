@@ -3,6 +3,20 @@ services:
   tabbyapi:
     image: ghcr.io/theroyallab/tabbyapi:latest
     container_name: tabbyapi
+    # Installs python3.12-dev, then runs upstream's own start command
+    # (ENTRYPOINT ["python3"] + CMD ["main.py", "--host", "0.0.0.0"]).
+    #
+    # The dev package is required, not optional. Upstream builds on
+    # nvidia/cuda:12.8.1-RUNTIME-ubuntu24.04 and installs build-essential, python3.12,
+    # python3-pip and python3.12-venv — but not python3.12-dev — while depending on
+    # triton (directly, and via flash-linear-attention). Triton JIT-compiles a launcher
+    # as a *Python C extension* on first kernel use: runtime/build.py adds
+    # sysconfig.get_paths()["include"] to the compiler's -I flags, so it needs Python.h.
+    # Without it the failure appears at model load, not at startup.
+    #
+    # Cost of doing it here: an apt round-trip on every container start, against a
+    # floating :latest tag. A derived image with the package baked in (the pattern
+    # docker_compose_comfyui uses) would remove both, at the price of maintaining a build.
     entrypoint: ["/bin/bash", "-c", "apt-get update -qq && apt-get install -y -qq python3.12-dev > /dev/null 2>&1; exec python3 main.py --host 0.0.0.0"]
     restart: unless-stopped
     runtime: nvidia
@@ -24,6 +38,16 @@ services:
       retries: 3
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      # UNVERIFIED — kept because it is in a working deployment, not because its effect is
+      # understood. LIBRARY_PATH is gcc's link-search variable; Triton does not read it.
+      # Triton resolves libcuda itself, in order: TRITON_LIBCUDA_PATH, then `ldconfig -p`,
+      # then LD_LIBRARY_PATH (nvidia/backend/driver.py:26-45) — and asserts if none match,
+      # which would fail before gcc ever runs. So this can only act as a compiler-level
+      # backstop after Triton has already chosen its -L flags.
+      #
+      # If it ever needs revisiting: TRITON_LIBCUDA_PATH=/usr/local/cuda-12.8/compat is the
+      # supported knob (knobs.py:514). Removing this line is safe to TEST but should not be
+      # assumed — the original failure it fixed was not recorded.
       - LIBRARY_PATH=/usr/local/cuda-12.8/compat
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/tabbyapi/config.yml:/app/config.yml
