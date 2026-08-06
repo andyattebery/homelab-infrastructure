@@ -15,6 +15,25 @@
           - cifs-utils
           - nvtop
 
+    # The GPT-OSS 120B / Qwen3-VL hybrid-offload experiment. Both services sat behind
+    # compose profiles with docker_compose_should_run_up: false, so no container was
+    # ever created and there is nothing to stop or remove from Docker.
+    # The 87 GB of GGUFs under /mnt/data/llamacpp are deliberately NOT removed here —
+    # that is an irreversible delete and belongs in a confirmed manual step. (Already
+    # done manually: /mnt/data/llamacpp no longer exists.)
+    #
+    # llm-swap is removed for the same reason: it only ever switched between the two
+    # compose profiles in the file above, so with that file gone it can do nothing but
+    # fail. It was previously installed by a post_task in this playbook, which has been
+    # removed along with ansible/files/media-01/{llm-swap,README-llamacpp.md}.
+    - name: Remove retired llamacpp artefacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/docker-compose/docker-compose-llamacpp.yml
+        - /usr/local/bin/llm-swap
+
   roles:
     - configure_server
     - role: zfs_conf
