@@ -15,7 +15,7 @@ vault_certbot_email: {{ op://Personal/Certbot Email/notesPlain }}
 vault_cloudflare_account_id: {{ op://Personal/Cloudflare Account ID/credential }}
 vault_cloudflare_api_token: {{ op://Personal/Cloudflare API Token - Ansible Vault DNS Edit/credential }}
 vault_diun_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
-vault_dns_server_vip: {{ op://Personal/Home Lab/dns/vip }}
+vault_dns_server_vip: {{ op://Home Lab/Home Lab/dns/vip }}
 vault_esphome_api_encryption_key_backup_01_outlet: {{ op://Personal/ESPHome/backup-01 outlet/api encryption key }}
 vault_esphome_api_encryption_key_mac_mini_01_outlet: {{ op://Personal/ESPHome/mac-mini-01 outlet/api encryption key }}
 vault_esphome_api_encryption_key_nas_host_01_outlet: {{ op://Personal/ESPHome/nas-host-01 outlet/api encryption key }}
@@ -99,7 +99,7 @@ vault_network_02_adguardhome_username: {{ op://Personal/adguardhome-02/username 
 vault_network_03_adguardhome_password: {{ op://Personal/adguardhome-03/password }}
 vault_network_03_adguardhome_username: {{ op://Personal/adguardhome-03/username }}
 vault_network_inventory_manager_github_token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/network-inventory-manager }}
-vault_network_inventory_manager_op_service_account_token: {{ op://Home Lab/5p5muinzww2t5ltjnyabgxfwvy/credential }}
+vault_network_inventory_manager_op_service_account_token: {{ op://Personal/qwncbnwvw5xb4irgum6uzmbgku/credential }}
 vault_network_inventory_manager_unifi_password: {{ op://Home Lab/UniFi/users/network-inventory-manager password }}
 vault_network_inventory_manager_unifi_username: {{ op://Home Lab/UniFi/users/network-inventory-manager username }}
 vault_nextcloud_admin_password: {{ op://Personal/Nextcloud/password }}

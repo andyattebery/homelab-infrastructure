@@ -1,7 +1,7 @@
 {
-  domainName = "{{ op://Personal/Home Lab/domains/internal }}";
-  subnetCidr = "{{ op://Personal/Home Lab/network/internal subnet cidr }}";
-  dnsServerVip = "{{ op://Personal/Home Lab/dns/vip }}";
+  domainName = "{{ op://Home Lab/Home Lab/domains/internal }}";
+  subnetCidr = "{{ op://Home Lab/Home Lab/network/internal subnet cidr }}";
+  dnsServerVip = "{{ op://Home Lab/Home Lab/dns/vip }}";
   acmeEmail = "{{ op://Personal/Certbot Email/notesPlain }}";
 
   network-01 = {

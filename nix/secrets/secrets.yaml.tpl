@@ -18,7 +18,7 @@ adguardhome-sync-replica-03-password: {{ op://Personal/adguardhome-03/password }
 nim-adguardhome-password: {{ op://Personal/adguardhome/password }}
 nim-unifi-password: {{ op://Home Lab/UniFi/users/network-inventory-manager password }}
 nim-github-token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/network-inventory-manager }}
-nim-op-service-account-token: {{ op://Home Lab/5p5muinzww2t5ltjnyabgxfwvy/credential }}
+nim-op-service-account-token: {{ op://Personal/qwncbnwvw5xb4irgum6uzmbgku/credential }}
 diun-pushover-token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/diun }}
 pushover-user-key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
 

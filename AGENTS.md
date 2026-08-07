@@ -157,7 +157,7 @@ go in.
 
 - Anything Ansible renders: `{{ domain_name }}`
 - Prose, comments, READMEs, docs: `<domain_name>`
-- An `op inject` `.tpl`: `{{ op://Personal/Home Lab/domains/internal }}`
+- An `op inject` `.tpl`: `{{ op://Home Lab/Home Lab/domains/internal }}`
 
 Triggered by: before staging anything.
 Required artifact — the domain is read from the local, never-committed secrets file rather
