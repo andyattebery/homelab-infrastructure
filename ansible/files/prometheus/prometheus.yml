@@ -81,6 +81,10 @@ scrape_configs:
   static_configs:
   - targets:
       - network-01.{{ domain_name }}:8080
+- job_name: network-inventory-manager
+  static_configs:
+  - targets:
+      - network-01.{{ domain_name }}:8090
 - job_name: keepalived
   static_configs:
   - targets:
