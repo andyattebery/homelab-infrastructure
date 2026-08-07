@@ -29,11 +29,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780462663,
-        "narHash": "sha256-dnpo1sreS0PwZKtJ6QSyErQFkPDuDawD59hvYPg4JmY=",
+        "lastModified": 1786084285,
+        "narHash": "sha256-EaZ5HzYo3vUuWnTsOm13m2H1JjbGxjmyBWzsjJlgPFE=",
         "owner": "andyattebery",
         "repo": "dashboard-services-manager",
-        "rev": "fc7a59a2115ec28c0dc2de1b1e63f05dbd10e2cc",
+        "rev": "98d0948603b106efadc2eccd7d028b886727cbde",
         "type": "github"
       },
       "original": {
@@ -65,11 +65,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1780636261,
-        "narHash": "sha256-2zhHowpAWIWEhJWSldM0ZwQWwCmZl3O3Oh1z0bip52o=",
+        "lastModified": 1786085182,
+        "narHash": "sha256-qejQLllMp9V/YPtvsQmtH3KehPhLiG0kr4iZkRIBtqc=",
         "owner": "andyattebery",
         "repo": "network-inventory-manager",
-        "rev": "c6cc514025082369c0fd05f4d3267dc7edec190b",
+        "rev": "e0da03d150b1af884646fc31595130d84306bb63",
         "type": "github"
       },
       "original": {
