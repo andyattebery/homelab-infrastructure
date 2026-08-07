@@ -1,2 +1,17 @@
 ---
 network_inventory_manager_sync_interval: 1800
+
+# Consecutive sync cycles an entry must be absent from the desired state before it
+# is deleted from AdGuard Home. At the default sync interval this is four hours, so
+# a service stopped for debugging keeps its DNS rewrite. 0 deletes immediately.
+network_inventory_manager_removal_grace_cycles: 8
+
+# Endpoints NIM talks to. Host-shaped by nature, so they live here where a caller
+# can override them rather than being baked into the template.
+#
+# dsm_url deliberately does NOT go through Traefik: reaching DSM by DNS makes NIM
+# depend on a rewrite NIM itself manages, so a bad sync deletes the record its own
+# recovery needs. Point it at the host's published port.
+network_inventory_manager_dsm_url: "http://192.168.1.238:8080"
+network_inventory_manager_adguardhome_url: "http://192.168.1.224"
+network_inventory_manager_unifi_url: "https://192.168.1.1"
