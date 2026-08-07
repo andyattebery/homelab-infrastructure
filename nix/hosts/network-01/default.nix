@@ -103,7 +103,12 @@ in {
   services.network-inventory-manager = {
     enable = true;
     settings = {
-      dsmUrl = "https://dashboard-services-manager.${vars.domainName}";
+      # Straight to docker-01's published port, not the Traefik name. Reaching DSM
+      # by DNS made NIM depend on a rewrite NIM itself manages: the 2026-08-06 sync
+      # deleted that record, DSM then went unreachable, and an unreachable DSM
+      # blocks removals — so the bad entries it had just written could not be
+      # cleaned up for 76 minutes. An IP has no such loop.
+      dsmUrl = "http://192.168.1.238:8080";
       adguardhomeUrl = "http://localhost:3000";
       adguardhomeUsername = vars.network-01.adguardhomeUsername;
       unifiUrl = "https://192.168.1.1";

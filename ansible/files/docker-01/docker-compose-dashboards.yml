@@ -4,6 +4,13 @@ services:
     image: ghcr.io/andyattebery/dashboard-services-manager:api-latest
     container_name: dashboard-services-manager
     restart: unless-stopped
+    # Published so network-inventory-manager can read the service list at
+    # http://<docker-01>:8080 instead of through Traefik. Going through Traefik
+    # meant NIM depended on a DNS rewrite that NIM itself manages, so a bad sync
+    # deleted the record its own recovery needed. Traefik still serves the
+    # browser-facing name; this is the machine-facing path.
+    ports:
+      - 8080:8080
     environment:
       PUID: ${PUID}
       PGID: ${PGID}
