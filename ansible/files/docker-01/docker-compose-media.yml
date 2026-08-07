@@ -25,6 +25,10 @@ services:
       - traefik.http.routers.calibre-server.rule=Host(`calibre-server.$DOMAIN_NAME`)
       - traefik.http.routers.calibre-server.service=calibre-server
       - traefik.http.services.calibre-server.loadbalancer.server.port=8081
+      # Two routers on one container, so dashboard-services-manager has to pick
+      # which host it advertises. Without this it picks nondeterministically and
+      # calibre.$DOMAIN_NAME flaps in and out of DNS.
+      - dsm.traefik.router=calibre
   jellystat:
     image: cyfershepard/jellystat:latest
     container_name: jellystat

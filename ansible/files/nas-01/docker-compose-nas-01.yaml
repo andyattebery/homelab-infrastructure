@@ -90,6 +90,10 @@ services:
       - traefik.http.routers.minio.rule=Host(`minio.$DOMAIN_NAME`)
       - traefik.http.routers.minio.service=minio
       - traefik.http.services.minio.loadbalancer.server.port=9001
+      # Two routers on one container, so dashboard-services-manager has to pick
+      # which host it advertises. Without this it picks nondeterministically and
+      # minio.$DOMAIN_NAME flaps in and out of DNS. See netbootxyz below.
+      - dsm.traefik.router=minio
   netbootxyz:
     image: ghcr.io/netbootxyz/netbootxyz
     container_name: netbootxyz
