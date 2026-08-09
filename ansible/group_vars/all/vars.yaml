@@ -242,6 +242,7 @@ tautulli_api_key: "{{ vault_tautulli_api_key }}"
 pi_rack_nut_ups_name: rack-ups
 pi_rack_nut_pdu_name: rack-pdu
 pi_rack_nut_server_address: "ups-monitor-rack.{{ domain_name }}"
+pi_rack_nut_admin_password: "{{ vault_pi_rack_nut_admin_password }}"
 pi_rack_nut_upsmon_password: "{{ vault_pi_rack_nut_upsmon_password }}"
 pi_rack_nut_homeassistant_password: "{{ vault_pi_rack_nut_homeassistant_password }}"
 

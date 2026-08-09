@@ -169,6 +169,25 @@ than written here, because spelling it out to grep for it would publish it:
 
 `exit=1` is the pass. Per commit, not once per session.
 
+## Never read a secret
+
+Reading a credential means I rotate it, and rotation has taken production down here before.
+
+Before running a command, state what will be in its output. Not what you want from it — what will
+actually come back. If you can't say, you don't know whether it leaks, and you don't run it.
+
+This is not a rule about which files to avoid. The files that have burned me were a Jinja template
+and an ordinary config with one password field; neither looked like a secret. What they had in
+common was a command whose output nobody predicted.
+
+Adding a `grep` or a `sed` does not make output safe. It is a guess about a format you have not
+checked.
+
+Verify from the service, not the file: `systemctl status`, the unit's log, whether the client at
+the far end connected. That is almost always the question you actually had.
+
+If the value itself has to be seen, you don't see it. Say which value and why, and I'll look.
+
 ## Audit the index, not the working tree
 
 `git grep` and `grep` read the working tree, which for generated and `assume-unchanged`

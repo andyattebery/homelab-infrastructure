@@ -1,6 +1,6 @@
 ---
-- name: Configure network hosts
-  hosts: network
+- name: Configure network-02 (pi-rack)
+  hosts: network-02
   become: true
 
   roles:
@@ -12,8 +12,7 @@
         # Advertise as exit node + subnet router for the homelab LAN.
         tailscale_args: "--accept-dns=false --advertise-exit-node --advertise-routes={{ subnet_cidr }}"
     - disable_resolved_dns_stub_listener
-    - role: docker_compose_adguardhome
-      when: inventory_hostname != 'network-01'
+    - docker_compose_adguardhome
     - docker_compose_dashboard_services_manager_provider
     - docker_compose_diun
     - role: docker_compose_keepalived
@@ -28,31 +27,3 @@
         # up in keepalived's own log, which is acceptable.
         keepalived_track_script_command: "/usr/bin/timeout 2 /usr/bin/nslookup healthcheck.adguardhome.test 127.0.0.1"
     - role: docker_compose_wireguard
-
-- name: Configure textfile collectors on network-01
-  hosts: network-01
-  become: true
-  roles:
-    - role: textfile_collector
-      vars:
-        textfile_collector_name: adguardhome-sync
-        textfile_collector_interval_seconds: 300
-        textfile_collector_source_cmd: >-
-          ts=$(docker logs --since=24h adguardhome-sync 2>&1 | grep 'Sync done' | tail -1 | awk '{print $1}');
-          [ -n "$ts" ] && printf 'adguardhome_sync_last_success_timestamp %d\n' "$(date -d "$ts" +%s)"
-
-- name: Configure origin adguardhome host
-  hosts: network-01
-  become: true
-  tasks:
-    - name: Configure adguardhome
-      ansible.builtin.include_role:
-        name: docker_compose_adguardhome
-    - name: Configure network-inventory-manager
-      ansible.builtin.include_role:
-        name: docker_compose_network_inventory_manager
-    - name: Configure adguardhome-sync
-      vars:
-        adguardhome_sync_hostname: "{{ adguardhome_hostname }}"
-      ansible.builtin.include_role:
-        name: docker_compose_adguardhome_sync

@@ -36,6 +36,7 @@
           #   community: "{{ pdu_rack_network_snmp_read_write_community }}"
         nut_server_listen_interfaces:
           - ups-monitor-rack.{{ domain_name }}
+        nut_admin_password: "{{ pi_rack_nut_admin_password }}"
         nut_monitor_primary_password: "{{ pi_rack_nut_upsmon_password }}"
         nut_monitor_secondary_users: >-
           {{
