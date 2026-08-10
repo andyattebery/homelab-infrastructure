@@ -339,3 +339,25 @@ adguardhome_replicas:
   - domain_name: "{{ network_03_adguardhome_hostname }}"
     username: "{{ network_03_adguardhome_username }}"
     password: "{{ network_03_adguardhome_password }}"
+
+# docker_compose_podsync
+podsync_youtube_api_key: "{{ vault_podsync_youtube_api_key }}"
+# The suffix on every feed ID, and the only access control on the feeds — Funnel is public and
+# unauthenticated. Rotating it changes every subscribed URL.
+podsync_feed_id_suffix: "{{ vault_podsync_feed_id_suffix }}"
+# Public base URL. tsdproxy gives the container its own tsnet device, so this is the tsdproxy
+# name, not the host's. Must match podsync_tsdproxy_name or every enclosure link 404s.
+podsync_public_url: "https://podsync.{{ tailscale_tailnet }}"
+podsync_feeds:
+  # Playlists, not channels: The Full Nerd Network channel carries three shows plus clips, and
+  # NerdNest keeps its clips on a separate channel. Both playlists are newest-first, which is
+  # what podsync's default playlist_sort = "asc" expects.
+  - id: full-nerd
+    url: "https://www.youtube.com/playlist?list=PLiZwoK8DQiwyP-kiDdsO3PD2_dmEkVKeT"
+    title: "The Full Nerd (via Podsync)"
+  - id: expedition-handheld
+    url: "https://www.youtube.com/playlist?list=PLiZwoK8DQiwxlyjIfjtwxxPwmhrLyTDXT"
+    title: "Expedition: Handheld (via Podsync)"
+  - id: nerd-nest
+    url: "https://www.youtube.com/playlist?list=PLly4JWEWaZCpkvpv3BLgOpqJ-Xki455HU"
+    title: "The Nerd Nest (via Podsync)"

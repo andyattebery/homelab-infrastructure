@@ -1,0 +1,49 @@
+---
+# Base URL a podcast app reaches this instance on. Podsync writes it into every RSS enclosure
+# link, so it must be the PUBLIC address, not the internal one — get it wrong and feeds parse
+# but no episode downloads. Trailing slash is stripped by podsync.
+podsync_public_url: "" # REQUIRED
+
+# Hostname before .{{ domain_name }} for the internal Traefik route. Set explicitly rather than
+# relying on Traefik's defaultRule, which names the route after the compose service.
+podsync_web_hostname: podsync
+
+# Tailscale device name created by tsdproxy, giving <name>.<tailnet>.ts.net. Each tagged
+# container gets its own tsnet machine, so this does not collide with the host or other
+# tsdproxy services. Renaming it moves the public URL.
+podsync_tsdproxy_name: podsync
+
+# Expose that device to the public internet with Tailscale Funnel. Required for a podcast app
+# off the tailnet to reach the feeds at all. Needs the `funnel` node attribute in the tailnet
+# policy file, which is not managed from this repo.
+podsync_tsdproxy_funnel: true
+
+# :latest is v2.8.0 (2025-07-14) and has neither no_index nor no_listing, which the access model
+# depends on, nor the deno runtime current yt-dlp needs for YouTube's JS challenge. :nightly is
+# rebuilt daily from main. See README.
+podsync_image_tag: nightly
+
+podsync_update_period: "6h"
+
+# Episodes queried per update. Kept equal to podsync_keep_last so podsync does not download
+# episodes it is about to prune.
+podsync_page_size: 10
+podsync_keep_last: 10
+
+# format = "custom" with a bestaudio m4a selector downloads YouTube's AAC stream as-is.
+# format = "audio" would instead pass --extract-audio --audio-format mp3, re-encoding every
+# episode with ffmpeg on the host for no quality gain.
+podsync_youtube_dl_format: "bestaudio[ext=m4a]"
+podsync_extension: m4a
+
+# yt-dlp download timeout, in minutes, per episode.
+podsync_downloader_timeout: 30
+
+# Host path to a Netscape-format cookies.txt, bind-mounted read-only and passed to yt-dlp as
+# --cookies. Empty means no cookies are passed. Only needed once YouTube starts answering the
+# downloading host with "Sign in to confirm you're not a bot" — see README.
+podsync_cookies_file_path: ""
+
+podsync_youtube_api_key: "" # REQUIRED — YouTube Data API v3 key, from vault
+podsync_feed_id_suffix: "" # REQUIRED — random [a-z0-9] string, from vault; this is the access control
+podsync_feeds: [] # REQUIRED — real value in host_vars

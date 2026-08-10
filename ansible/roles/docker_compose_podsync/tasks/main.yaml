@@ -1,0 +1,14 @@
+---
+- name: Configure podsync docker compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-podsync.yaml.j2
+    # The base role does not strip .j2 from the destination name, and files/dc globs
+    # docker-compose*.y*ml, so this must be set explicitly.
+    docker_compose_dst_file_name: docker-compose-podsync.yaml
+    docker_compose_src_config_files:
+      - src_file_path: templates/config.toml.j2
+        dst_relative_file_path: podsync/config.toml
+        mode: "0600" # holds the YouTube API key and the feed-ID secret
+        service_name_to_restart: podsync
+  ansible.builtin.include_role:
+    name: docker_compose

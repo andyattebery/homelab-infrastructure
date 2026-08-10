@@ -15,6 +15,11 @@
         docker_compose_traefik_enable_dashboard: true
       tags: traefik
     - role: docker_compose_tsdproxy
+      tags: tsdproxy
+    # Must follow tsdproxy: that stack creates the `tsdproxy` network this role joins as
+    # external, and tsdproxy is what publishes podsync to the internet via Tailscale Funnel.
+    - role: docker_compose_podsync
+      tags: podsync
     # - role: docker_compose_diun
     # - role: docker_compose_obico
     #   vars:

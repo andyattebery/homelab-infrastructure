@@ -1,0 +1,41 @@
+[server]
+port = 8080
+hostname = "{{ podsync_public_url }}"
+# GET / and GET /<feed-id>/ return 404, so nothing is enumerable. The only reachable URLs are the
+# exact feed XML and episode paths, whose IDs carry an unguessable suffix.
+no_listing = true
+no_index = true
+
+[storage]
+type = "local"
+
+  [storage.local]
+  data_dir = "/app/data"
+
+[tokens]
+youtube = "{{ podsync_youtube_api_key }}"
+
+[downloader]
+self_update = true
+timeout = {{ podsync_downloader_timeout }}
+
+[feeds]
+{% for feed in podsync_feeds %}
+
+  [feeds.{{ feed.id }}-{{ podsync_feed_id_suffix }}]
+  url = "{{ feed.url }}"
+  page_size = {{ feed.page_size | default(podsync_page_size) }}
+  update_period = "{{ feed.update_period | default(podsync_update_period) }}"
+  format = "custom"
+  custom_format = { youtube_dl_format = "{{ podsync_youtube_dl_format }}", extension = "{{ podsync_extension }}" }
+  clean = { keep_last = {{ feed.keep_last | default(podsync_keep_last) }} }
+  private_feed = true
+{% if podsync_cookies_file_path %}
+  youtube_dl_args = ["--cookies", "/app/cookies.txt"]
+{% endif %}
+{% if feed.title is defined %}
+
+    [feeds.{{ feed.id }}-{{ podsync_feed_id_suffix }}.custom]
+    title = "{{ feed.title }}"
+{% endif %}
+{% endfor %}

@@ -150,6 +150,8 @@ vault_pikvm_hid_api_password: {{ op://Home Lab/pq4deawt5ojibg6irq6mu7vmpe/passwo
 vault_pikvm_kvmd_ssh_private_key: |
 {{ op://Personal/pikvm - kvmd - SSH Key/add more/indented private key }}
 vault_pikvm_kvmd_ssh_public_key: {{ op://Personal/pikvm - kvmd - SSH Key/public key }}
+vault_podsync_youtube_api_key: {{ op://Personal/podsync/google cloud - podsync/cloud-01 api key }}
+vault_podsync_feed_id_suffix: {{ op://Personal/podsync/config/feed id suffix }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
 vault_proxmox_api_token_id_homepage: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/homepage api token/token id }}

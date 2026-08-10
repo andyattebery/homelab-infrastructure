@@ -1,0 +1,45 @@
+---
+services:
+  podsync:
+    image: ghcr.io/mxpv/podsync:{{ podsync_image_tag }}
+    container_name: podsync
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/podsync/config.toml:/app/config.toml:ro
+      - ${DOCKER_DATA_DIRECTORY}/podsync/data:/app/data
+      # Badger DB. podsync defaults its database directory to dirname(config path)/db when the
+      # config does not set one, i.e. /app/db.
+      - ${DOCKER_DATA_DIRECTORY}/podsync/db:/app/db
+{% if podsync_cookies_file_path %}
+      - {{ podsync_cookies_file_path }}:/app/cookies.txt:ro
+{% endif %}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "1"
+    networks:
+      - traefik
+      - tsdproxy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.podsync.rule=Host(`{{ podsync_web_hostname }}.$DOMAIN_NAME`)
+      # The image declares no EXPOSE, so Traefik cannot derive the port.
+      - traefik.http.routers.podsync.service=podsync
+      - traefik.http.services.podsync.loadbalancer.server.port=8080
+      # tsdproxy gives this container its own tsnet device, so the public URL is
+      # <podsync_tsdproxy_name>.<tailnet>.ts.net rather than a name on the host's device.
+      - tsdproxy.enable=true
+      - tsdproxy.name={{ podsync_tsdproxy_name }}
+      # Funnel only listens on 443, 8443 or 10000, so the proxy side must be 443.
+      - "tsdproxy.port.1=443/https:8080/http{% if podsync_tsdproxy_funnel %}, tailscale_funnel{% endif %}"
+      # The nightly tag changes digest daily; without this Diun notifies every single night.
+      - diun.enable=false
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+  tsdproxy:
+    name: tsdproxy
+    external: true
