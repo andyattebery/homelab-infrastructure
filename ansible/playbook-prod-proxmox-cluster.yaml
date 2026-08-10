@@ -89,6 +89,7 @@
     # bridge port). We add the Ceph cluster network NIC stanza, plus any
     # additional NICs declared in `extra_network_interfaces` (host_var).
     - name: Configure Ceph cluster network NIC
+      tags: network
       vars:
         debian_add_network_interface_filename: ceph-cluster
         debian_add_network_interface_mac: "{{ ceph_cluster_nic_mac }}"
@@ -99,6 +100,7 @@
         name: debian_add_network_interface
 
     - name: Configure additional network interfaces
+      tags: network
       vars:
         debian_add_network_interface_filename: "{{ item.filename }}"
         debian_add_network_interface_mac: "{{ item.mac }}"
@@ -109,16 +111,24 @@
         name: debian_add_network_interface
       loop: "{{ extra_network_interfaces | default([]) }}"
 
+    # Unlooped on purpose: the role takes the whole list so it can prune
+    # *-disable-offloads.cfg files it no longer accounts for. Looping the role
+    # would make each invocation delete the previous one's drop-in.
     - name: Disable e1000e NIC offloads
+      tags: network
       when: e1000e_disable_offloads_nics is defined
-      ansible.builtin.include_role:
+      ansible.builtin.import_role:
         name: e1000e_disable_offloads
-      vars:
-        e1000e_disable_offloads_nic: "{{ item.nic }}"
-        e1000e_disable_offloads_offloads: "{{ item.offloads | default(omit) }}"
-      loop: "{{ e1000e_disable_offloads_nics }}"
-      loop_control:
-        label: "{{ item.nic }}"
+
+    # Pin interface names to MACs so a card moving PCIe slots can't rename a
+    # NIC out from under vmbr0's bridge-ports. Staged only — the rename
+    # happens at boot, and the drop-ins above are regenerated on the next run.
+    - name: Pin network interface names
+      tags:
+        - network
+        - pin_nics
+      ansible.builtin.import_role:
+        name: pve_pin_network_interface
 
     # ---------- (a) Bootstrap (fresh-cluster only) ----------
     # pve_cluster_create now self-detects: stats /etc/pve/corosync.conf

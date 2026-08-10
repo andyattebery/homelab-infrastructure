@@ -22,21 +22,54 @@ All three nodes are managed by [playbook-prod-proxmox-cluster.yaml](../ansible/p
 | --- | --- | --- | --- |
 | `vm-host-01` | Intel + Realtek r8125/r8152 NICs ([host_vars/vm-host-01/vars.yaml](../ansible/host_vars/vm-host-01/vars.yaml)) | PVE node, Ceph OSD on Samsung 960 PRO 512G | `network-01` (101), `docker-01` (102), `homeassistant` (110) |
 | `vm-host-02` | Intel + r8125 + r8168 NICs ([host_vars/vm-host-02/vars.yaml](../ansible/host_vars/vm-host-02/vars.yaml)) | PVE node, Ceph OSD on Samsung 970 EVO 500G. **HA failover target for vm-host-01's VMs** (see HA rules below) | (idle by design — only an Ubuntu 24.04 cloud-init template, stopped) |
-| `nas-host-01` | AMD EPYC 7282 / Asrock Rack ROMED8-2T ([hardware/nas-host-01.md](nas-host-01.md)) | PVE node, Ceph OSD on Intel Optane 905P 960G, designated cluster runner | `nas-01` (200, HBA + bulk-storage passthrough), `media-01` (201, RTX A4000 passthrough), `network-03` (202) |
+| `nas-host-01` | AMD EPYC 7282 / Asrock Rack ROMED8-2T ([hardware/nas-host-01.md](nas-host-01.md)) | PVE node, Ceph OSD on Intel Optane 905P 960G, designated cluster runner | `nas-01` (200, HBA + bulk-storage passthrough), `media-01` (201, RTX A4000 + Arc B580 passthrough), `network-03` (202) |
 
 `pve_cluster_designated_runner` is computed as the alphabetically-first node →
 currently `nas-host-01`. It owns cluster-wide writes (ACME, storage defs, Ceph
 init).
 
+### Network interface names
+
+Interface names are pinned to MACs by the [pve_pin_network_interface](../ansible/roles/pve_pin_network_interface/README.md)
+role, so moving a card between PCIe slots can't rename a NIC out from under
+`vmbr0`'s `bridge-ports`. Names are chip-family based, management port first.
+
+| Host | vmbr0 uplink | Ceph cluster net |
+| --- | --- | --- |
+| `vm-host-01` | `i219p0` (Intel I219-V, onboard) | `rtl8125p0` (Realtek RTL8125 2.5G) |
+| `vm-host-02` | `rtl8168p0` (Realtek RTL8168 1G) | `rtl8125p0` (Realtek RTL8125 2.5G) |
+| `nas-host-01` | `cx4p0` (Mellanox ConnectX-4 Lx p1) | `cx4p1` (Mellanox ConnectX-4 Lx p2) |
+
+Pins live in `/usr/local/lib/systemd/network/50-pmx-<name>.link` on each node and
+take effect at boot. nas-host-01's BMC USB gadget is deliberately unpinned — its
+`enx<mac>` name is already slot-independent.
+
 ### HA rules
 
-One node-affinity rule (`ha-group-main`, from `/etc/pve/ha/rules.cfg`) covers all three HA-managed VMs:
+Being **HA-managed** and being in a **node-affinity rule** are two different things — check
+`ha-manager status` for the former, `/etc/pve/ha/rules.cfg` for the latter.
+
+HA-managed resources (`ha-manager status`): `vm:102`, `vm:103`, `vm:110`.
+
+One node-affinity rule (`ha-group-main`) covers only two of them:
 
 | Resource | VM | Preferred (prio) | Failover (prio) | Last resort (prio) | strict |
 | --- | --- | --- | --- | --- | --- |
-| `vm:101` | network-01 | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
 | `vm:102` | docker-01 | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
 | `vm:110` | homeassistant | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
+
+`vm:103` (network-01) is HA-managed but has no affinity rule, so it may run on any node and HA
+will not pull it toward a preferred one. `vm:101` — also named `network-01`, currently stopped —
+is not HA-managed at all.
+
+**Consequence for maintenance:** because the rule is priority-ordered, the CRM actively migrates
+`vm:102`/`vm:110` back to vm-host-01 whenever it is online. Plainly migrating them elsewhere
+does not stick. Use `ha-manager crm-command node-maintenance enable <node>` instead — it
+evacuates all HA resources, survives a reboot, and moves them back only when maintenance is
+disabled.
+
+**Unresolved**: VMIDs 101 and 103 are both named `network-01`, the same duplicate-name situation
+as 202/203 on nas-host-01. One of each pair is leftover and should be identified and removed.
 
 `strict 0` = non-strict: if all preferred nodes are down, HA will start the VM on any remaining online node. `nas-host-01`'s passthrough VMs (`nas-01`, `media-01`, `network-03`) are **not** HA-managed — they're pinned to that node by hardware passthrough and would not survive failover.
 
@@ -48,7 +81,7 @@ One node-affinity rule (`ha-group-main`, from `/etc/pve/ha/rules.cfg`) covers al
 | `docker-01` | vm-host-01 | 102 | Linux VM | [playbook-docker-01.yaml](../ansible/playbook-docker-01.yaml) | Main app/observability docker host | Traefik, tsdproxy, Beszel (hub+agent), Homepage, Dashy, Grafana, Prometheus, InfluxDB v2, Healthchecks, Uptime-Kuma, Dockwatch, Diun, Cup, dashboard-services-manager (+provider), Calibre, Changedetection.io (+playwright), Wallos, SearXNG (+redis), Vaultwarden, Jellystat, Tautulli, Octoprint, Spoolman, Cert-bot (ASRock IPMI cert updater) |
 | `homeassistant` | vm-host-01 | 110 | Home Assistant OS (HAOS, x86_64) | _(none — not Ansible-managed)_ | Home automation | Home Assistant supervised stack |
 | `nas-01` | nas-host-01 | 200 | Linux VM (HBA passthrough → all bulk storage) | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services | Traefik, tsdproxy, Diun, Frigate (NVR), Immich (server/redis/postgres), Nextcloud (+mariadb/redis), Paperless-ngx (+postgres/redis/tika/gotenberg), Forgejo, Manyfold, Linkwarden (+postgres), Linkding, Minio, Syncthing, Resilio-sync, Scrutiny-web (+influxdb). Also runs snapraid/mergerfs/ZFS, syncoid → backup-01 and offsite-nas. |
-| `media-01` | nas-host-01 | 201 | Linux VM (RTX A4000 passthrough) | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference | Traefik, Plex, Jellyfin, Audiobookshelf, Tdarr, Ollama, Open-WebUI, Immich machine-learning (CUDA), Diun |
+| `media-01` | nas-host-01 | 201 | Linux VM (RTX A4000 + Intel Arc B580 passthrough) | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference | Traefik, Plex, Jellyfin, Audiobookshelf, Tdarr, Ollama, Open-WebUI, Immich machine-learning (CUDA), Diun |
 | `network-03` | nas-host-01 | 202 | NixOS | _(not Ansible-managed)_ [nix/hosts/network-03/](../nix/hosts/network-03/) | DNS tertiary | AdGuardHome (keepalived BACKUP, prio 100), Keepalived (+keepalived-exporter), dashboard-services-manager-provider, Tailscale |
 
 `network-02` is **not** a separate VM — it is an inventory alias for the bare-metal `pi-rack` (see Pis below). The three `network-XX` names share the AdGuardHome VRRP cluster behind the `dns_server_vip`.

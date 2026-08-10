@@ -1,0 +1,158 @@
+---
+# Exercises e1000e_disable_offloads against throwaway fixtures. Runs entirely on
+# localhost; touches no remote host.
+#
+#   cd ansible
+#   .venv/bin/ansible-playbook -i roles/e1000e_disable_offloads/tests/inventory \
+#     roles/e1000e_disable_offloads/tests/test.yml
+- name: Test e1000e_disable_offloads
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: e1000e-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        # State a host is left in by the old name-derived scheme, plus a
+        # drop-in belonging to a different role that must survive.
+        - name: Seed a legacy snippet and an unrelated drop-in
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: 'nic0-disable-offloads.cfg', body: 'iface nic0 inet manual' }
+            - { name: 'ceph-cluster.cfg', body: 'auto nic1' }
+
+        # ---------- 1. pruning, via the real role ----------
+        # An empty NIC list means the role owns nothing, so every
+        # *-disable-offloads.cfg should go and nothing else should be touched.
+        # This exercises the real find/prune tasks; the template task is skipped
+        # for an empty list, which is what lets this run unprivileged.
+        - name: Run the role with nothing declared
+          vars:
+            e1000e_disable_offloads_interfaces_d: "{{ _tmp.path }}"
+            e1000e_disable_offloads_nics: []
+          ansible.builtin.import_role:
+            name: e1000e_disable_offloads
+
+        - name: List survivors
+          ansible.builtin.find:
+            paths: "{{ _tmp.path }}"
+            patterns: '*'
+          register: _after
+
+        - name: Legacy snippet pruned, unrelated drop-in untouched
+          vars:
+            _names: "{{ _after.files | map(attribute='path') | map('basename') | sort | list }}"
+          ansible.builtin.assert:
+            that:
+              - "'nic0-disable-offloads.cfg' not in _names"
+              - "'ceph-cluster.cfg' in _names"
+            success_msg: "survivors: {{ _names }}"
+
+        # ---------- 2. the expected-filename set ----------
+        # Mirrors the expression in tasks/main.yaml. A MAC-derived name is the
+        # point: a name-derived filename is not rewritten when the interface is
+        # renamed, so the old file survives declaring a dead interface.
+        - name: Filenames derive from the MAC, not the interface name
+          vars:
+            _nics:
+              - { mac: "8C:04:BA:A0:FD:3D" }
+              - { mac: "1c:fd:08:75:0e:fb" }
+            _expected: >-
+              {{ _nics | map(attribute='mac') | map('lower') | map('replace', ':', '')
+                 | map('regex_replace', '$', '-disable-offloads.cfg') | list }}
+          ansible.builtin.assert:
+            that:
+              - _expected | type_debug == 'list'
+              - _expected == ['8c04baa0fd3d-disable-offloads.cfg',
+                              '1cfd08750efb-disable-offloads.cfg']
+              - "'nic0-disable-offloads.cfg' not in _expected"
+            success_msg: "{{ _expected }}"
+
+        # ---------- 3. template output ----------
+        - name: Render the drop-in template
+          vars:
+            _e1000e_resolved_nic_name: i219p0
+            _e1000e_flags: [tso, gso]
+            e1000e_disable_offloads_ethtool: /usr/sbin/ethtool
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/rendered.txt"
+            mode: "0644"
+            content: "{{ lookup('template', playbook_dir ~ '/../templates/disable-offloads.cfg.j2') }}"
+
+        - name: Read the rendered stanza
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/rendered.txt"
+          register: _rendered
+
+        - name: Rendered stanza is valid ifupdown
+          vars:
+            _out: "{{ _rendered.content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _out == "iface i219p0 inet manual\n    post-up /usr/sbin/ethtool -K i219p0 tso off gso off\n"
+            success_msg: "{{ _out | replace('\n', ' | ') }}"
+
+        # ---------- 4. a literal interface name is refused ----------
+        - name: An entry using the old `nic:` key
+          block:
+            - name: Should be rejected
+              vars:
+                e1000e_disable_offloads_interfaces_d: "{{ _tmp.path }}"
+                e1000e_disable_offloads_nics:
+                  - { nic: nic0 }
+              ansible.builtin.import_role:
+                name: e1000e_disable_offloads
+            - name: Literal name should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a literal interface name"
+          rescue:
+            - name: Rejected, telling the caller to use a MAC
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.results | default([]))
+                     | map(attribute='msg') | join(' ') }}
+              ansible.builtin.assert:
+                that:
+                  - "'needs a `mac`' in _msgs"
+                success_msg: "literal interface name rejected"
+
+        # ---------- 5. regression: a bridge shares its port's MAC ----------
+        # Where this NIC is also the bridge uplink, without the type filter the
+        # role would write `iface vmbr0 inet manual` and run `ethtool -K vmbr0`.
+        - name: A bridge must never be selected over its own port
+          vars:
+            _facts:
+              interfaces: [nic0, vmbr0]
+              nic0: { device: nic0, type: ether, macaddress: "8c:04:ba:a0:fd:3d" }
+              vmbr0: { device: vmbr0, type: bridge, macaddress: "8c:04:ba:a0:fd:3d" }
+            _filtered: >-
+              {{ _facts['interfaces'] | map('extract', _facts)
+                 | selectattr('macaddress', 'defined')
+                 | selectattr('macaddress', 'eq', '8c:04:ba:a0:fd:3d')
+                 | selectattr('type', 'defined')
+                 | selectattr('type', 'eq', 'ether')
+                 | map(attribute='device') | list }}
+            _unfiltered: >-
+              {{ _facts['interfaces'] | map('extract', _facts)
+                 | selectattr('macaddress', 'defined')
+                 | selectattr('macaddress', 'eq', '8c:04:ba:a0:fd:3d')
+                 | map(attribute='device') | list }}
+          ansible.builtin.assert:
+            that:
+              - _filtered == ['nic0']
+              - "'vmbr0' in _unfiltered"
+            success_msg: "filtered={{ _filtered }}, unfiltered would have been {{ _unfiltered }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

@@ -113,7 +113,14 @@ Boot the PVE installer USB. Match the cluster's PVE major version (e.g. PVE 9.x)
 
 **Network**: pick the management NIC — typically the Dell onboard (MAC OUI `a4:bb:6d`). The cluster NIC (Realtek `1c:fd:08` etc.) is configured later by the playbook.
 
-**Interface pinning**: accept it. The installer pins names to MACs as `nic0`, `nic1`. Our playbook resolves the cluster NIC by MAC, so the chosen names don't matter — but pinning prevents future hardware-detection drift.
+**Interface pinning**: accept it. The installer pins names to MACs as `nic0`, `nic1`, writing `.link` files to `/usr/local/lib/systemd/network/` (not `/etc/systemd/network/`, which stays empty). The names it picks don't matter — the playbook re-pins every NIC to a chip-family name via the `pve_pin_network_interface` role, and resolves the cluster NIC by MAC regardless.
+
+Two things to know if you ever pin by hand:
+
+- The installer and `pve-network-interface-pinning generate` assign `nicN` in **`ifindex` order** — kernel registration order at boot. That is not stable between boots, and it counts a BMC USB gadget as a physical interface. Always pass `--interface X --target-name Y` explicitly rather than letting it auto-number.
+- The tool refuses to re-pin an already-pinned NIC and has no unpin subcommand. Renaming means deleting `/usr/local/lib/systemd/network/50-pmx-<name>.link` first.
+
+Pinning is what stops a card moving PCIe slots from renaming a NIC out from under `vmbr0`'s `bridge-ports` — the failure that leaves a node with no management network at boot.
 
 Hostname / IP / gateway / DNS: match the existing host_vars / DNS records.
 

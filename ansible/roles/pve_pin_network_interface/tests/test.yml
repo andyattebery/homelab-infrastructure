@@ -1,0 +1,280 @@
+---
+# Exercises pve_pin_network_interface against a stubbed pinning CLI and
+# throwaway fixtures. Runs entirely on localhost; touches no remote host.
+#
+#   cd ansible
+#   .venv/bin/ansible-playbook -i roles/pve_pin_network_interface/tests/inventory \
+#     roles/pve_pin_network_interface/tests/test.yml
+- name: Test pve_pin_network_interface
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-pin-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        - name: Install a stub pinning CLI
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/stub-pinning"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              echo "$@" >> "$(dirname "$0")/calls.log"
+              echo "Name for link '$3' will change to '$5'"
+
+        - name: Start with an empty call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Pick two real local interfaces to stand in for NICs
+          ansible.builtin.set_fact:
+            _probes: >-
+              {{ (ansible_facts['interfaces'] | map('extract', ansible_facts)
+                  | selectattr('macaddress', 'defined')
+                  | selectattr('type', 'defined')
+                  | selectattr('type', 'eq', 'ether')
+                  | selectattr('device', 'defined') | list)[:2] }}
+
+        - name: Require two usable probe interfaces
+          ansible.builtin.assert:
+            that:
+              - _probes | length == 2
+              - _probes[0].macaddress != _probes[1].macaddress
+            fail_msg: >-
+              This test needs two distinct ethernet interfaces on the control
+              node to stand in for NICs. Found: {{ _probes | length }}.
+
+        # ---------- 1. unpinned host: both pins staged ----------
+        # The link directory deliberately does not exist, matching a host
+        # installed before PVE 8.2.
+        - name: Stage pins on an unpinned host
+          vars:
+            pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+            pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+            pve_pin_network_interface_pins:
+              - mac: "{{ _probes[0].macaddress | upper }}"   # upper-case on purpose
+                name: cx4p0
+              - mac: "{{ _probes[1].macaddress }}"
+                name: cx4p1
+          ansible.builtin.import_role:
+            name: pve_pin_network_interface
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls
+
+        - name: Missing link directory is handled, and each pin is passed explicitly
+          vars:
+            _lines: "{{ (_calls.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 2
+              - _lines[0] == 'generate --interface ' ~ _probes[0].device ~ ' --target-name cx4p0'
+              - _lines[1] == 'generate --interface ' ~ _probes[1].device ~ ' --target-name cx4p1'
+              - pve_pin_network_interface_reboot_required | bool
+            success_msg: "{{ _lines }}"
+
+        # ---------- 2. idempotency ----------
+        # The real CLI creates this directory itself (ensure_link_directory_exists);
+        # the stub can't, since the path is a role var and never reaches the CLI.
+        - name: Create the link directory the real tool would have created
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/absent"
+            state: directory
+            mode: "0755"
+
+        - name: Write the link files the real tool would have produced
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/absent/50-pmx-{{ item.name }}.link"
+            mode: "0644"
+            content: |
+              [Match]
+              MACAddress={{ item.mac }}
+              Type=ether
+
+              [Link]
+              Name={{ item.name }}
+          loop:
+            - { mac: "{{ _probes[0].macaddress }}", name: cx4p0 }
+            - { mac: "{{ _probes[1].macaddress }}", name: cx4p1 }
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Re-run against an already-pinned host
+          vars:
+            pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+            pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+            pve_pin_network_interface_pins:
+              - mac: "{{ _probes[0].macaddress }}"
+                name: cx4p0
+              - mac: "{{ _probes[1].macaddress }}"
+                name: cx4p1
+          ansible.builtin.import_role:
+            name: pve_pin_network_interface
+
+        - name: Re-read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls2
+
+        - name: Second run is a no-op
+          ansible.builtin.assert:
+            that:
+              - (_calls2.content | b64decode) | trim | length == 0
+              - not (pve_pin_network_interface_reboot_required | bool)
+            success_msg: "no CLI calls, no reboot flagged"
+
+        # ---------- 3. a MAC pinned to a different name aborts ----------
+        - name: Requesting a different name for an already-pinned MAC
+          block:
+            - name: Should refuse to re-pin
+              vars:
+                pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+                pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+                pve_pin_network_interface_pins:
+                  - mac: "{{ _probes[0].macaddress }}"
+                    name: renamed0
+              ansible.builtin.import_role:
+                name: pve_pin_network_interface
+            - name: Re-pin should not have been allowed
+              ansible.builtin.fail:
+                msg: "role re-pinned a MAC that already had a different name"
+          rescue:
+            - name: Refusal names the file to remove
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.results | default([]))
+                     | map(attribute='msg') | join(' ') }}
+              ansible.builtin.assert:
+                that:
+                  - "'is already pinned to' in _msgs"
+                  - "'50-pmx-cx4p0.link' in _msgs"
+                success_msg: "refused, with removal instructions"
+
+        # ---------- 4. unknown MAC fails before the CLI runs ----------
+        - name: A MAC that matches nothing
+          block:
+            - name: Should fail
+              vars:
+                pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+                pve_pin_network_interface_link_directory: "{{ _tmp.path }}/empty"
+                pve_pin_network_interface_pins:
+                  - mac: "de:ad:be:ef:00:99"
+                    name: nomatch0
+              ansible.builtin.import_role:
+                name: pve_pin_network_interface
+            - name: Unknown MAC should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a MAC that matches no interface"
+          rescue:
+            - name: Confirm the CLI was never invoked
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls3
+            - name: Fails with a count, before running anything
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.results | default([]))
+                     | map(attribute='msg') | join(' ') }}
+              ansible.builtin.assert:
+                that:
+                  - (_calls3.content | b64decode) | trim | length == 0
+                  - "'matched 0 physical interfaces' in _msgs"
+                success_msg: "failed before invoking the CLI"
+
+        # ---------- 5. name validation ----------
+        - name: A name in the kernel's own namespace
+          block:
+            - name: Should be rejected
+              vars:
+                pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+                pve_pin_network_interface_link_directory: "{{ _tmp.path }}/empty"
+                pve_pin_network_interface_pins:
+                  - mac: "{{ _probes[0].macaddress }}"
+                    name: eth0
+              ansible.builtin.import_role:
+                name: pve_pin_network_interface
+            - name: Reserved name should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a reserved interface name"
+          rescue:
+            - name: Rejected for the right reason
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.results | default([]))
+                     | map(attribute='msg') | join(' ') }}
+              ansible.builtin.assert:
+                that:
+                  - "'must not start with' in _msgs"
+                success_msg: "reserved prefix rejected"
+
+        # ---------- 6. regression: a bridge shares its port's MAC ----------
+        # Mirrors the selection chain in vars/main.yaml. This is the bug that
+        # resolved a bridged uplink's MAC to the bridge and made the CLI fail with
+        # "Could not find link with name 'vmbr0'".
+        - name: A bridge must never be selected over its own port
+          vars:
+            _facts:
+              interfaces: [lo, nic0, nic1, vmbr0]
+              lo: { device: lo, type: loopback }
+              nic0: { device: nic0, type: ether, macaddress: "a4:bb:6d:48:0a:49" }
+              nic1: { device: nic1, type: ether, macaddress: "1c:fd:08:75:10:24" }
+              vmbr0: { device: vmbr0, type: bridge, macaddress: "a4:bb:6d:48:0a:49" }
+            _lookup: "a4:bb:6d:48:0a:49"
+            _filtered: >-
+              {{ _facts['interfaces'] | map('extract', _facts)
+                 | selectattr('macaddress', 'defined')
+                 | selectattr('macaddress', 'eq', _lookup)
+                 | selectattr('type', 'defined')
+                 | selectattr('type', 'eq', 'ether')
+                 | map(attribute='device') | list }}
+            _unfiltered: >-
+              {{ _facts['interfaces'] | map('extract', _facts)
+                 | selectattr('macaddress', 'defined')
+                 | selectattr('macaddress', 'eq', _lookup)
+                 | map(attribute='device') | list }}
+          ansible.builtin.assert:
+            that:
+              - _filtered == ['nic0']
+              - _unfiltered | length == 2      # without the type filter, the bug
+              - "'vmbr0' in _unfiltered"
+            success_msg: "filtered={{ _filtered }}, unfiltered would have been {{ _unfiltered }}"
+
+        # ---------- 7. ambiguity fails rather than guessing ----------
+        - name: Several interfaces sharing one MAC must not resolve
+          vars:
+            _facts:
+              interfaces: [bond0, slave0, slave1]
+              bond0: { device: bond0, type: bond, macaddress: "aa:aa:aa:aa:aa:aa" }
+              slave0: { device: slave0, type: ether, macaddress: "aa:aa:aa:aa:aa:aa" }
+              slave1: { device: slave1, type: ether, macaddress: "aa:aa:aa:aa:aa:aa" }
+            _matching: >-
+              {{ _facts['interfaces'] | map('extract', _facts)
+                 | selectattr('macaddress', 'defined')
+                 | selectattr('macaddress', 'eq', 'aa:aa:aa:aa:aa:aa')
+                 | selectattr('type', 'defined')
+                 | selectattr('type', 'eq', 'ether')
+                 | map(attribute='device') | list }}
+          ansible.builtin.assert:
+            that:
+              - _matching | length == 2
+              - (( _matching | first) if (_matching | length == 1) else '') | length == 0
+            success_msg: "bond slaves share a MAC -> resolves to '' -> role fails loudly"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

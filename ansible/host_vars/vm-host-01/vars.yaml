@@ -12,6 +12,15 @@ pve_node_ceph_osd_mode: activate_existing
 ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
 ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
 
+# Replaces the installer's nic0/nic1 with names that say what the hardware is.
+# Applying this requires deleting the installer's 50-pmx-nic{0,1}.link first —
+# the pinning tool refuses to re-pin. See the role README.
+pve_pin_network_interface_pins:
+  - mac: "{{ vault_i219_mac }}"  # Intel I219-V (onboard) -> vmbr0
+    name: i219p0
+  - mac: "{{ vault_ceph_cluster_nic_mac }}"  # Realtek RTL8125 2.5G -> Ceph
+    name: rtl8125p0
+
 # Additional NICs beyond vmbr0 + the Ceph cluster NIC.
 # vm-host-01 has a USB Realtek r8152 adapter (enx00e04caa0225) on the
 # 10.1.30.x network. Set the MAC once known.
@@ -41,8 +50,9 @@ nut_client_password: "{{ vault_nut_client_password }}"
 
 # e1000e onboard NIC hits "Detected Hardware Unit Hang" every ~16-19h,
 # triggering a watchdog reset. Disabling TSO/GSO is a known workaround.
+# Keyed by MAC (same NIC as the vmbr0 uplink) so it survives a rename.
 e1000e_disable_offloads_nics:
-  - nic: nic0
+  - mac: "{{ vault_i219_mac }}"
     offloads:
       - tso
       - gso

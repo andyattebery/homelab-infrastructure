@@ -6,24 +6,33 @@ Refresh source: `lsblk`, `zpool status`, `pvesm status`, `/etc/pve/qemu-server/*
 
 ## nas-host-01 (Proxmox bare-metal)
 
-| Device | Model | Cap | Class | Use |
-|---|---|---|---|---|
-| nvme9n1 | [Intel Optane P1600X](https://ark.intel.com/content/www/us/en/ark/products/211867/intel-optane-ssd-p1600x-series-118gb-m-2-80mm-pcie-3-0-x4-3d-xpoint.html) | 118 GB | Optane / 3D XPoint, PLP | `rpool` mirror — PVE boot (14 GB used) |
-| nvme10n1 | Intel Optane P1600X | 118 GB | Optane | `rpool` mirror |
-| nvme6n1 | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147529/intel-optane-ssd-905p-series-960gb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D960GA`) | 960 GB | Optane | Ceph OSD for `pve_pool` (single OSD on this node) |
-| nvme7n1 | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147526/intel-optane-ssd-905p-series-1-5tb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D015TA`) | 1.5 TB | Optane | `pve-optane-01` single-vdev ZFS — VM root disks for nas-01, media-01, network-03 (566 GB used) |
+`nvmeN` numbers are not stable across boots or changes to what is passed through —
+a passed-through drive has no host node at all. The serial is the identity. Names
+below are from 2026-08-08 with both passthrough VMs running.
+
+| Device | Serial | Model | Cap | Class | Use |
+|---|---|---|---|---|---|
+| nvme7n1 | `PHOC1456007B118B` | [Intel Optane P1600X](https://ark.intel.com/content/www/us/en/ark/products/211867/intel-optane-ssd-p1600x-series-118gb-m-2-80mm-pcie-3-0-x4-3d-xpoint.html) | 118 GB | Optane / 3D XPoint, PLP | `rpool` mirror — PVE boot |
+| nvme10n1 | `PHOC14550050118B` | Intel Optane P1600X | 118 GB | Optane | `rpool` mirror |
+| nvme4n1 | `PHM2911300BM960CGN` | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147529/intel-optane-ssd-905p-series-960gb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D960GA`) | 960 GB | Optane | Ceph OSD for `pve_pool` (single OSD on this node) |
+| nvme5n1 | `PHKE336300RL1P5CGN` | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147526/intel-optane-ssd-905p-series-1-5tb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D015TA`) | 1.5 TB | Optane | `pve-optane-01` single-vdev ZFS — VM root disks for nas-01, media-01, network-03 |
+
+The two `rpool` P1600X are in the onboard M.2 slots. The other two are on the PCIE4
+splitter and belong to nas-01 — same model, same IDs, so only the serial
+distinguishes them.
 
 ### Passthrough into nas-01
 
-Defined as `hostpci*` in `/etc/pve/qemu-server/200.conf`, verified against `lspci`.
+Defined as `hostpci*` on VM 200, all via named resource mappings. Full table with
+IOMMU groups in [nas-host-01.md](nas-host-01.md#resource-mappings).
 
-| `hostpci` | PCI ID | Device |
+| `hostpci` | Mapping | Device |
 |---|---|---|
-| 0 | 01:00 | [Broadcom 9305-24e](https://docs.broadcom.com/doc/BC00-0392EN) SAS HBA (all SATA HDDs + SATADOM) |
-| 1, 2 | c4:00, c5:00 | 2× [Solidigm P44 Pro](https://www.solidigm.com/products/client/pro-series/p44.html#form=M.2%202280&cap=2%20TB) |
-| 3, 4 | c6:00, c7:00 | 2× [Samsung 980 PRO 2TB](https://semiconductor.samsung.com/consumer-storage/internal-ssd/980pro/) |
-| 5 | 83:00 | [HPE VK003840KWWFP](https://www.techpowerup.com/ssd-specs/sk-hynix-pe6011-3-8-tb.d1490) (SK hynix PE6011 OEM) |
-| 6, 7 | c2:00, c3:00 | 2× Intel Optane P1600X 118 GB |
+| 0 | `broadcom_9305_24e` | [Broadcom 9305-24e](https://docs.broadcom.com/doc/BC00-0392EN) SAS HBA (all SATA HDDs + SATADOM) |
+| 1, 2 | `solidigm_p44_pro_1/_2` | 2× [Solidigm P44 Pro](https://www.solidigm.com/products/client/pro-series/p44.html#form=M.2%202280&cap=2%20TB) |
+| 3, 4 | `samsung_980_pro_1/_2` | 2× [Samsung 980 PRO 2TB](https://semiconductor.samsung.com/consumer-storage/internal-ssd/980pro/) |
+| 5 | `skhynix_pe6011` | [HPE VK003840KWWFP](https://www.techpowerup.com/ssd-specs/sk-hynix-pe6011-3-8-tb.d1490) (SK hynix PE6011 OEM) |
+| 6, 7 | `intel_p1600x_1/_2` | 2× Intel Optane P1600X 118 GB |
 
 ## nas-01 (Proxmox VM on nas-host-01)
 
@@ -79,7 +88,9 @@ ssh vm-host-01  'sudo lsblk -d -o NAME,SIZE,MODEL,SERIAL,ROTA,TRAN'
 ssh vm-host-02  'sudo lsblk -d -o NAME,SIZE,MODEL,SERIAL,ROTA,TRAN'
 ssh nas-01      'lsblk -d -o NAME,SIZE,MODEL,SERIAL,ROTA,TRAN && sudo zpool status tank sink'
 
-# Passthrough map on nas-host-01
-ssh nas-host-01 'sudo grep -E "hostpci|name" /etc/pve/qemu-server/200.conf'
-ssh nas-host-01 'sudo lspci -nn | grep -E "01:00|c[2-7]:00|83:00"'
+# Passthrough map on nas-host-01. Read the mappings rather than filtering on
+# hardcoded addresses — a card move changes every bus number under it.
+ssh nas-host-01 'sudo cat /etc/pve/mapping/pci.cfg'
+ssh nas-host-01 'sudo grep -E "hostpci|name" /etc/pve/qemu-server/200.conf /etc/pve/qemu-server/201.conf'
+ssh nas-host-01 'sudo lspci -nnD | grep -E "Non-Volatile|Serial Attached SCSI|VGA|Ethernet controller"'
 ```

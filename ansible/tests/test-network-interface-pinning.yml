@@ -1,0 +1,100 @@
+---
+# Playbook-level invariants for NIC name pinning across the Proxmox cluster.
+# Checks host_vars and vault wiring only — `connection: local` means no host is
+# contacted, so this is safe to run any time.
+#
+#   cd ansible
+#   .venv/bin/ansible-playbook tests/test-network-interface-pinning.yml
+#
+# Requires the vault to be populated (scripts/vault-populate-from-op.sh), since
+# the MACs come from it. No secret is ever printed: assertions compare values
+# without echoing them.
+- name: NIC pinning invariants
+  hosts: prod_proxmox_cluster
+  connection: local
+  gather_facts: false
+
+  vars:
+    _reserved: "^(eth|eno|ens|enp|enx|em)"
+    _mac_re: '^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$'
+
+  tasks:
+    - name: Every cluster node declares its pins
+      ansible.builtin.assert:
+        that:
+          - pve_pin_network_interface_pins is defined
+          - pve_pin_network_interface_pins | length >= 2
+        fail_msg: >-
+          {{ inventory_hostname }} has no pve_pin_network_interface_pins. Every
+          node needs its NICs pinned, or a card move renames them out from under
+          vmbr0's bridge-ports.
+
+    - name: Pinned names satisfy the same rules the role enforces
+      ansible.builtin.assert:
+        that:
+          - item.name is match('^[a-zA-Z][a-zA-Z0-9_]{1,14}$')
+          - item.name is not match(_reserved)
+        fail_msg: "{{ inventory_hostname }}: bad pin name {{ item.name }}"
+      loop: "{{ pve_pin_network_interface_pins }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Every pin resolves to a real MAC
+      ansible.builtin.assert:
+        that:
+          - item.mac is defined
+          - item.mac is match(_mac_re)
+        fail_msg: >-
+          {{ inventory_hostname }}: pin '{{ item.name }}' has no usable MAC.
+          If the vault variable is missing, run scripts/vault-populate-from-op.sh.
+      loop: "{{ pve_pin_network_interface_pins }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Names and MACs are unique within a host
+      vars:
+        _names: "{{ pve_pin_network_interface_pins | map(attribute='name') | list }}"
+        _macs: "{{ pve_pin_network_interface_pins | map(attribute='mac') | map('lower') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _names | length == _names | unique | length
+          - _macs | length == _macs | unique | length
+        fail_msg: >-
+          {{ inventory_hostname }}: duplicate pin name or MAC. Two pins claiming
+          one name would leave whichever sorts first owning it.
+
+    # The Ceph NIC is configured by MAC in one place and pinned in another. On
+    # nas-host-01 those are two different 1Password fields, so this is the check
+    # that they still describe the same physical port.
+    - name: The Ceph NIC's MAC appears among the pins
+      vars:
+        _macs: "{{ pve_pin_network_interface_pins | map(attribute='mac') | map('lower') | list }}"
+      ansible.builtin.assert:
+        that:
+          - (ceph_cluster_nic_mac | lower) in _macs
+        fail_msg: >-
+          {{ inventory_hostname }}: ceph_cluster_nic_mac is not among the pinned
+          MACs. Either the Ceph port isn't pinned, or the two vault entries have
+          drifted apart and now name different hardware.
+
+    # Same idea for the offload workaround: it must target a port this host pins,
+    # otherwise a rename would silently strip the workaround.
+    - name: Offload entries target a pinned NIC
+      when: e1000e_disable_offloads_nics is defined
+      vars:
+        _macs: "{{ pve_pin_network_interface_pins | map(attribute='mac') | map('lower') | list }}"
+      ansible.builtin.assert:
+        that:
+          - (item.mac | lower) in _macs
+        fail_msg: >-
+          {{ inventory_hostname }}: e1000e offload entry targets a MAC that is
+          not pinned, so a rename would leave the workaround pointing at nothing.
+      loop: "{{ e1000e_disable_offloads_nics }}"
+      loop_control:
+        label: "{{ item.mac | lower }}"
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: pins
+          {{ pve_pin_network_interface_pins | map(attribute='name') | list }} OK

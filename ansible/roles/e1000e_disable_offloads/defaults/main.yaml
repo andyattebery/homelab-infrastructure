@@ -1,4 +1,20 @@
 ---
+# Required:
+#   e1000e_disable_offloads_nics — list of { mac, offloads }:
+#       mac       — permanent MAC of the NIC. Case-insensitive. The interface
+#                   name is resolved from this, so a NIC that gets renamed
+#                   (new PCIe slot, new pinning) still matches.
+#       offloads  — optional per-NIC override of the list below.
+#
+# The role owns every *-disable-offloads.cfg in /etc/network/interfaces.d and
+# removes any that this list doesn't account for.
+e1000e_disable_offloads_nics: []
+
+# Offloads to turn off when an entry doesn't specify its own.
 e1000e_disable_offloads_offloads:
   - tso
   - gso
+
+# Overridable so the role can be exercised outside a Debian host.
+e1000e_disable_offloads_interfaces_d: /etc/network/interfaces.d
+e1000e_disable_offloads_ethtool: /usr/sbin/ethtool

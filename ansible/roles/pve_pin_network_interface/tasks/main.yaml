@@ -1,0 +1,151 @@
+---
+- name: Validate pve_pin_network_interface_pins entries
+  ansible.builtin.assert:
+    that:
+      - item.mac | default('') | length > 0
+      - item.name | default('') | length > 0
+      - item.name is match('^[a-zA-Z][a-zA-Z0-9_]{1,14}$')
+      - item.name is not match(pve_pin_network_interface_reserved_prefixes)
+    fail_msg: >-
+      Each pve_pin_network_interface_pins entry needs a `mac` and a `name`.
+      `name` must match ^[a-zA-Z][a-zA-Z0-9_]{1,14}$ (PVE's pve-iface format,
+      capped at the kernel's 15-character IFNAMSIZ limit) and must not start
+      with eth/eno/ens/enp/enx/em — systemd warns that reusing the kernel's own
+      name prefixes races with the kernel's assignment. Got: {{ item }}
+  loop: "{{ pve_pin_network_interface_pins }}"
+  loop_control:
+    label: "{{ item.name | default('<no name>') }}"
+
+- name: Check whether the pinning tool is present
+  ansible.builtin.stat:
+    path: "{{ pve_pin_network_interface_command }}"
+  register: _pve_pin_tool
+
+- name: Fail if the pinning tool is missing
+  when: not _pve_pin_tool.stat.exists
+  ansible.builtin.fail:
+    msg: >-
+      {{ pve_pin_network_interface_command }} not found. It ships with
+      pve-manager; interface pinning requires PVE 8.2 or newer.
+
+# Refresh network facts so the MAC lookup sees interfaces that may have been
+# renamed or rebound earlier in the play (e.g. by realtek_dkms' udev rules).
+- name: Refresh network facts
+  ansible.builtin.setup:
+    gather_subset:
+      - '!all'
+      - '!min'
+      - network
+
+- name: Check for the pin directory
+  ansible.builtin.stat:
+    path: "{{ pve_pin_network_interface_link_directory }}"
+  register: _pve_pin_dir
+
+- name: Find existing pin files
+  when: _pve_pin_dir.stat.exists
+  ansible.builtin.find:
+    paths: "{{ pve_pin_network_interface_link_directory }}"
+    patterns: '50-*.link'
+  register: _pve_pin_files
+
+- name: Read existing pin files
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ _pve_pin_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: _pve_pin_contents
+
+- name: Start with no known pins
+  ansible.builtin.set_fact:
+    _pve_pin_existing: []
+
+# Both the installer and the tool write MACAddress= under [Match] before Name=
+# under [Link], so a findall over those two keys yields exactly [mac, name].
+- name: Collect existing pins
+  vars:
+    _fields: >-
+      {{ (item.content | b64decode)
+         | regex_findall('^(?:MACAddress|Name)=(.+)$', multiline=true) }}
+  when: _fields | length == 2
+  ansible.builtin.set_fact:
+    _pve_pin_existing: >-
+      {{ _pve_pin_existing + [{'mac': _fields[0] | lower, 'name': _fields[1]}] }}
+  loop: "{{ _pve_pin_contents.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}"
+
+- name: Fail on a MAC already pinned to a different name
+  vars:
+    _pinned_as: >-
+      {{ _pve_pin_existing | selectattr('mac', 'eq', item.mac | lower)
+         | map(attribute='name') | first | default('') }}
+  when:
+    - _pinned_as | length > 0
+    - _pinned_as != item.name
+  ansible.builtin.fail:
+    msg: >-
+      {{ item.mac | lower }} is already pinned to '{{ _pinned_as }}', not
+      '{{ item.name }}'. pve-network-interface-pinning has no unpin subcommand
+      and refuses to re-pin, so this is a deliberate manual step: remove
+      {{ pve_pin_network_interface_link_directory }}/50-pmx-{{ _pinned_as }}.link
+      (and any 50-pve- sibling) on the host, then re-run.
+  loop: "{{ pve_pin_network_interface_pins }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Checked before running anything, so neither an unknown MAC nor an ambiguous
+# one can reach the tool as `--interface ''` or as the wrong device.
+- name: Fail unless a MAC resolves to exactly one physical interface
+  vars:
+    _pve_pin_lookup_mac: "{{ item.mac | lower }}"
+  when:
+    - (item.mac | lower) not in (_pve_pin_existing | map(attribute='mac') | list)
+    - _pve_pin_matching_nics | length != 1
+  ansible.builtin.fail:
+    msg: >-
+      MAC {{ item.mac | lower }} (wanted to pin it to '{{ item.name }}') matched
+      {{ _pve_pin_matching_nics | length }} physical interfaces
+      {{ _pve_pin_matching_nics }}, expected exactly 1. Zero means the MAC is
+      wrong — check it against `ip -br link` on the host. More than one means
+      something shares the MAC, e.g. a bond and its slaves; pin it by hand.
+  loop: "{{ pve_pin_network_interface_pins }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Pin interface names
+  when: (item.mac | lower) not in (_pve_pin_existing | map(attribute='mac') | list)
+  vars:
+    _pve_pin_lookup_mac: "{{ item.mac | lower }}"
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_pin_network_interface_command }}"
+      - generate
+      - --interface
+      - "{{ _pve_pin_resolved_nic_name }}"
+      - --target-name
+      - "{{ item.name }}"
+  register: _pve_pin_result
+  # The tool prints "Name for link 'x' will change to 'y'" only when it acts.
+  changed_when: "'will change to' in _pve_pin_result.stdout"
+  loop: "{{ pve_pin_network_interface_pins }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.mac | lower }})"
+
+- name: Set pve_pin_network_interface_reboot_required
+  ansible.builtin.set_fact:
+    pve_pin_network_interface_reboot_required: >-
+      {{ _pve_pin_result.results | default([])
+         | selectattr('changed', 'defined')
+         | selectattr('changed') | list | length > 0 }}
+
+# The rename only happens at boot. The role deliberately does not run
+# `ifreload -a` and does not touch /etc/network/interfaces.d — see README.
+- name: Report that a reboot is required
+  when: pve_pin_network_interface_reboot_required | bool
+  ansible.builtin.debug:
+    msg: >-
+      Interface pinning staged. Nothing has changed on the running system.
+      Reboot to apply, then re-run this playbook so the interfaces.d drop-ins
+      are regenerated against the pinned names.

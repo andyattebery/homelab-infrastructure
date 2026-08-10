@@ -1,0 +1,24 @@
+---
+# Required:
+#   pve_pin_network_interface_pins — list of { mac, name }:
+#       mac   — permanent MAC of the NIC to pin. Case-insensitive.
+#       name  — the name to pin it to. Must satisfy PVE's `pve-iface` format
+#               (^[a-z][a-z0-9_]{1,20}$, case-insensitive) and stay within the
+#               kernel's 15-character IFNAMSIZ limit.
+#
+# Interfaces not listed here are left alone — including anything the PVE
+# installer already pinned, and any USB/BMC gadget NIC.
+pve_pin_network_interface_pins: []
+
+# Where PVE keeps interface pinning. Both its installer and
+# `pve-network-interface-pinning` write here; systemd searches it below
+# /etc/systemd/network and /run/systemd/network.
+pve_pin_network_interface_link_directory: /usr/local/lib/systemd/network
+
+# The pinning CLI. Overridable so the role can be exercised against a stub.
+pve_pin_network_interface_command: /usr/bin/pve-network-interface-pinning
+
+# Interface name prefixes systemd warns against reusing, because a custom name
+# in the kernel's own namespace races with the kernel's assignment.
+# https://www.freedesktop.org/software/systemd/man/latest/systemd.link.html
+pve_pin_network_interface_reserved_prefixes: "^(eth|eno|ens|enp|enx|em)"

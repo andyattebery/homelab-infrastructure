@@ -1,25 +1,91 @@
 ---
-- name: Validate required variables
+- name: Validate e1000e_disable_offloads_nics entries
   ansible.builtin.assert:
     that:
-      - e1000e_disable_offloads_nic | default('') | length > 0
+      - item.mac | default('') is match('^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$')
     fail_msg: >-
-      e1000e_disable_offloads requires e1000e_disable_offloads_nic
-      to be set to the interface name (e.g. nic0).
+      Each e1000e_disable_offloads_nics entry needs a `mac` in colon-separated
+      form (e.g. 8c:04:ba:a0:fd:3d). The interface is resolved from the MAC so
+      it survives a rename; a literal interface name is no longer accepted.
+      Got: {{ item }}
+  loop: "{{ e1000e_disable_offloads_nics }}"
+  loop_control:
+    label: "{{ item.mac | default('<no mac>') }}"
 
-- name: Write interfaces.d offload snippet
+# Refresh network facts so the MAC lookup sees interfaces that may have been
+# renamed or rebound earlier in the play (e.g. by realtek_dkms' udev rules).
+- name: Refresh network facts
+  ansible.builtin.setup:
+    gather_subset:
+      - '!all'
+      - '!min'
+      - network
+
+- name: Fail unless a MAC resolves to exactly one physical interface
+  vars:
+    _e1000e_lookup_mac: "{{ item.mac | lower }}"
+  when: _e1000e_matching_nics | length != 1
+  ansible.builtin.fail:
+    msg: >-
+      MAC {{ item.mac | lower }} matched {{ _e1000e_matching_nics | length }}
+      physical interfaces {{ _e1000e_matching_nics }}, expected exactly 1.
+      Zero means the MAC is wrong; more than one means something shares it.
+  loop: "{{ e1000e_disable_offloads_nics }}"
+  loop_control:
+    label: "{{ item.mac | lower }}"
+
+# The filename is MAC-derived, not name-derived. A name-derived filename is not
+# rewritten when the interface is renamed — it leaves the old file behind
+# declaring an `iface` for an interface that no longer exists.
+- name: Write interfaces.d offload snippets
+  vars:
+    _e1000e_lookup_mac: "{{ item.mac | lower }}"
+    _e1000e_flags: "{{ item.offloads | default(e1000e_disable_offloads_offloads) }}"
   ansible.builtin.template:
     src: disable-offloads.cfg.j2
-    dest: "/etc/network/interfaces.d/{{ e1000e_disable_offloads_nic }}-disable-offloads.cfg"
+    dest: "{{ e1000e_disable_offloads_interfaces_d }}/{{ item.mac | lower | replace(':', '') }}-disable-offloads.cfg"
     owner: root
     group: root
     mode: "0644"
-  register: _e1000e_disable_offloads_result
+  register: _e1000e_templates
+  loop: "{{ e1000e_disable_offloads_nics }}"
+  loop_control:
+    label: "{{ item.mac | lower }}"
 
-- name: Apply offload changes immediately
-  when: _e1000e_disable_offloads_result.changed
+- name: Find all offload snippets
+  ansible.builtin.find:
+    paths: "{{ e1000e_disable_offloads_interfaces_d }}"
+    patterns: '*-disable-offloads.cfg'
+  register: _e1000e_present
+
+# Removes snippets from a previous run that used a name-derived filename, and
+# any left behind when a NIC is dropped from the list.
+- name: Remove offload snippets this host no longer declares
+  when: item.path | basename not in _e1000e_expected
+  vars:
+    _e1000e_expected: >-
+      {{ e1000e_disable_offloads_nics
+         | map(attribute='mac') | map('lower') | map('replace', ':', '')
+         | map('regex_replace', '$', '-disable-offloads.cfg') | list }}
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _e1000e_present.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+# Applies to the running interface, so pre-reboot this correctly targets the
+# current name; after a rename the role re-resolves and targets the new one.
+- name: Apply offload changes immediately # noqa no-handler
+  vars:
+    _e1000e_lookup_mac: "{{ item.item.mac | lower }}"
+    _e1000e_flags: "{{ item.item.offloads | default(e1000e_disable_offloads_offloads) }}"
+  when: item.changed
   ansible.builtin.command:
     cmd: >-
-      /usr/sbin/ethtool -K {{ e1000e_disable_offloads_nic }}
-      {% for offload in e1000e_disable_offloads_offloads %}{{ offload }} off {% endfor %}
+      {{ e1000e_disable_offloads_ethtool }} -K {{ _e1000e_resolved_nic_name }}
+      {% for offload in _e1000e_flags %}{{ offload }} off {% endfor %}
   changed_when: true
+  loop: "{{ _e1000e_templates.results }}"
+  loop_control:
+    label: "{{ item.item.mac | lower }}"

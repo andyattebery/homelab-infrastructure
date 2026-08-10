@@ -4,12 +4,21 @@ pbs_backup_01_password: "{{ vault_pbs_backup_01_password }}"
 pve_ceph_osd_device: /dev/disk/by-id/nvme-INTEL_SSDPE21D960GA_PHM2911300BM960CGN
 pve_node_ceph_osd_mode: activate_existing
 
-# Ceph cluster network NIC — currently enp193s0f1np1 (Mellanox ConnectX-4 Lx port 2),
-# 10.1.40.13/24. Moved off the onboard Intel eno1, which this host no longer has.
-# Identified by MAC so we don't depend on the pinned interface name — which is the whole
-# point here, since the name changed with the hardware and the config did not have to.
+# Ceph cluster network NIC — Mellanox ConnectX-4 Lx port 2, 10.1.40.13/24.
+# Identified by MAC rather than by name: the default name is bus-derived, so it
+# changes whenever the card moves PCIe slots. See pve_pin_network_interface_pins.
 ceph_cluster_nic_mac: "{{ vault_ceph_cluster_nic_mac }}"
 ceph_cluster_nic_address_cidr: "{{ vault_ceph_cluster_nic_address_cidr }}"
+
+# Pin both ConnectX-4 Lx ports to MAC-stable names. Without this the names track
+# the PCIe bus and a card move breaks vmbr0's bridge-ports at boot.
+# The BMC USB gadget is deliberately not pinned — its enx<mac> name is already
+# slot-independent.
+pve_pin_network_interface_pins:
+  - mac: "{{ vault_cx4_port1_mac }}"  # ConnectX-4 Lx port 1 -> vmbr0
+    name: cx4p0
+  - mac: "{{ vault_cx4_port2_mac }}"  # ConnectX-4 Lx port 2 -> Ceph
+    name: cx4p1
 
 extra_packages:
   - amd64-microcode

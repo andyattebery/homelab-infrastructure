@@ -15,6 +15,7 @@
 - 2x [Asus Hyper M.2 x16 Gen 4](https://www.asus.com/us/motherboards-components/motherboards/accessories/hyper-m-2-x16-gen-4-card/)
 - [Linkreal 4x U.2 to PCIe x16 Adapter](http://www.linkreal.com.cn/en/products/LRNV94NF.html) [[AliExpress]](https://www.aliexpress.us/item/3256803285836696.html?spm=a2g0o.order_list.order_list_main.41.39d11802Y8aRJw&gatewayAdapt=glo2usa)
 - [Nvidia RTX A4000](https://www.nvidia.com/en-us/products/workstations/rtx-a4000/)
+- [Intel Arc B580](https://www.intel.com/content/www/us/en/products/sku/241598/intel-arc-b580-graphics/specifications.html)
 - [Mellenox ConnectX-4 Lx](https://www.nvidia.com/en-in/networking/ethernet/connectx-4-lx/)
 - [PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and 2x M.2 Slots](https://www.aliexpress.us/item/3256805673456043.html?spm=a2g0o.order_list.order_list_main.234.24de1802IAFUoi&gatewayAdapt=glo2usa)
 - U.2 Drives
@@ -80,54 +81,56 @@ The end of this had to be trimmed ~0.5 cm to make it fit. I _think_ no traces we
 
 ##### Asus Hyper M.2 x16 Gen 4
 
-Empty
-
-#### PCIE5
-
-##### Asus Hyper M.2 x16 Gen 4
-
 - 2x Solidigm P44 Pro - 2 TB
 - 2x Samsung 980 Pro - 2 TB
 
-#### PCIE4
+#### PCIE5
 
 ##### Nvidia RTX A4000
 
-#### PCIE3
+#### PCIE4
 
 Uses PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and 2x M.2 Slots with:
 
 ##### Mellenox ConnectX-4 Lx
 
+Port 1 is `vmbr0`'s uplink, port 2 is the Ceph cluster network. Both are pinned by
+MAC to `cx4p0` and `cx4p1` so a slot change can't rename them — see
+[host-inventory.md](host-inventory.md#network-interface-names).
+
 ##### 2x Intel Optane P1600X - 118 GB
+
+#### PCIE3
+
+##### Intel Arc B580
 
 #### PCIE2
 
 Configured to be x8.
 
+Empty
+
+#### PCIE1
+
 ##### Broadcom 9305-24e
 
 Connected to the case backplane that all of the hard drives are connected to.
 
-#### PCIE1
-
-Empty
-
 ## Summary
 
 - **CPU**: AMD EPYC 7282 — 16 cores / 32 threads
-- **RAM**: 192 GB DDR4-3200 (146 GB used, 41 GB available at host level)
+- **RAM**: 192 GB DDR4-3200 (154 GB used, 34 GB available at host level)
 
-### VMs (as of 2026-06-06)
+### VMs (as of 2026-08-08)
 
-| VMID | VM | Status | vCPUs | RAM Allocated | RAM Used | RAM Available |
-| --- | --- | --- | --- | --- | --- | --- |
-| 200 | nas-01 | running | 24 | 110 GB | 16 GB | 90 GB |
-| 201 | media-01 | running | 8 | 24 GB | 18 GB | 5.3 GB |
-| 202 | network-03 | stopped | 2 | 4 GB | — | — |
-| 203 | network-03 | running | 2 | 4 GB | 1.3 GB | 2.5 GB |
+| VMID | VM | Status | vCPUs | RAM Allocated |
+| --- | --- | --- | --- | --- |
+| 200 | nas-01 | running | 14 | 48 GB |
+| 201 | media-01 | running | 16 | 96 GB |
+| 203 | network-03 | running | 2 | 4 GB |
 
-**Running totals**: 34 vCPUs allocated (overcommitted by 2 vs 32 threads), 138 GB RAM allocated of 192 GB
+**Running totals**: 32 vCPUs allocated against 32 threads (no overcommit), 148 GB
+RAM allocated of 192 GB.
 
 ## Use
 
@@ -142,19 +145,21 @@ Empty
 
 ### nas-01 VM Passthrough
 
-PCI passthrough devices (`hostpciN` on VM 200, as of 2026-06-18). All are conventional PCI passthrough (no `pcie=1`):
+All conventional PCI passthrough — no `pcie=1`.
 
-| `hostpciN` | PCI address | Slot | Device | PCI ID | Role |
-| --- | --- | --- | --- | --- | --- |
-| `hostpci0` | `0000:01:00` (`rombar=0`) | PCIE2 | Broadcom/LSI SAS3224 (9305-24e HBA) | `1000:00c4` | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
-| `hostpci1` | `0000:c4:00` | PCIE5 | Solidigm P44 Pro 2 TB | `025e:f1ac` | ZFS sink pool |
-| `hostpci2` | `0000:c5:00` | PCIE5 | Solidigm P44 Pro 2 TB | `025e:f1ac` | ZFS sink pool |
-| `hostpci3` | `0000:c6:00` | PCIE5 | Samsung 980 Pro 2 TB | `144d:a80a` | ZFS sink pool |
-| `hostpci4` | `0000:c7:00` | PCIE5 | Samsung 980 Pro 2 TB | `144d:a80a` | ZFS sink pool |
-| `hostpci5` | `0000:83:00` | PCIE7 (U.2 via Linkreal) | SK hynix PE6011 / HPE VK003840KWWFP 3.84 TB | `1c5c:2429` | Staging/temp |
-| `hostpci6` | `0000:c2:00` | PCIE3 (splitter) | Intel Optane P1600X 118 GB | `8086:2525` | ZFS tank metadata special device |
-| `hostpci7` | `0000:c3:00` | PCIE3 (splitter) | Intel Optane P1600X 118 GB | `8086:2525` | ZFS tank metadata special device |
-| `hostpci8` | `0000:c1:00.1` | PCIE3 (splitter) | Mellanox ConnectX-4 Lx — port 2 | `15b3:1015` | 25 GbE NIC. IOMMU group 17; port 1 (`c1:00.0`) stays on the host. Must **not** use `pcie=1` — it breaks guest enumeration. |
+| `hostpciN` | Mapping | Device | Serial | Role |
+| --- | --- | --- | --- | --- |
+| `hostpci0` | `broadcom_9305_24e` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24e HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
+| `hostpci1` | `solidigm_p44_pro_1` | Solidigm P44 Pro 2 TB | `SDC1N403710501322` | ZFS sink pool |
+| `hostpci2` | `solidigm_p44_pro_2` | Solidigm P44 Pro 2 TB | `SJC1N5037101A1H3A` | ZFS sink pool |
+| `hostpci3` | `samsung_980_pro_1` | Samsung 980 Pro 2 TB | `S6B0NU0W400960M` | ZFS sink pool |
+| `hostpci4` | `samsung_980_pro_2` | Samsung 980 Pro 2 TB | `S6B0NU0W402398J` | ZFS sink pool |
+| `hostpci5` | `skhynix_pe6011` | SK hynix PE6011 / HPE VK003840KWWFP 3.84 TB | `KIB4T0001I0204T31` | Staging/temp |
+| `hostpci6` | `intel_p1600x_1` | Intel Optane P1600X 118 GB | `PHOC150200LL118B` | ZFS tank metadata special device |
+| `hostpci7` | `intel_p1600x_2` | Intel Optane P1600X 118 GB | `PHOC150201CU118B` | ZFS tank metadata special device |
+
+`rombar=0` hides the HBA's SAS boot BIOS from the guest. nas-01 boots from a virtual
+disk, never from the HBA.
 
 - ZFS Mirror Pool (tank) - 16 TB
     - 4x WD Red 8 TB
@@ -178,6 +183,55 @@ PCI passthrough devices (`hostpciN` on VM 200, as of 2026-06-18). All are conven
 
 ### media-01 VM Passthrough
 
-- Nvidia RTX A4000
-    - Transcoding
-    - AI Inference
+All use `pcie=1` (the VM is `q35`).
+
+| `hostpciN` | Mapping | Device | Role |
+| --- | --- | --- | --- |
+| `hostpci0` | `nvidia_rtx_a4000` | Nvidia RTX A4000 + HDA | Transcoding, AI inference (CUDA) |
+| `hostpci1` | `intel_arc_b580` | Intel Arc B580 | Transcoding (QSV/VA-API) |
+| `hostpci2` | `intel_arc_b580_audio` | Intel Arc B580 HDA | Rides along with the B580 |
+
+The A4000's mapping path is function-less, so it attaches the GPU and its HDA
+together. The B580's GPU and HDA are on different buses with different device IDs,
+so they cannot share one mapping.
+
+### Resource mappings
+
+Every passed-through device on this node goes through a named PCI resource mapping
+in `/etc/pve/mapping/pci.cfg` rather than a raw `hostpci` address. Naming is
+`<manufacturer>_<model>`, lowercased, non-alphanumerics folded to `_`, with a
+numeric suffix only where the chassis holds more than one of a model.
+
+A mapping records the device's `id`, `subsystem-id` and `iommugroup` and refuses to
+start the VM if any stops matching. A raw address gets no identity check — it fails
+only if the address is empty, and otherwise passes whatever now sits there.
+
+| Mapping | Path | ID | Subsystem-ID | IOMMU grp | Consumer |
+| --- | --- | --- | --- | --- | --- |
+| `nvidia_rtx_a4000` | `0000:01:00` | `10de:24b0` | `1028:14ad` | 97 | media-01 |
+| `intel_arc_b580` | `0000:c3:00.0` | `8086:e20b` | `1849:6021` | 17 | media-01 |
+| `intel_arc_b580_audio` | `0000:c4:00.0` | `8086:e2f7` | `1849:6021` | 18 | media-01 |
+| `broadcom_9305_24e` | `0000:84:00.0` | `1000:00c4` | `1000:31a0` | 45 | nas-01 |
+| `skhynix_pe6011` | `0000:83:00.0` | `1c5c:2429` | `1590:02d0` | 44 | nas-01 |
+| `solidigm_p44_pro_1` | `0000:c5:00.0` | `025e:f1ac` | `025e:f1ac` | 19 | nas-01 |
+| `solidigm_p44_pro_2` | `0000:c6:00.0` | `025e:f1ac` | `025e:f1ac` | 20 | nas-01 |
+| `samsung_980_pro_1` | `0000:c7:00.0` | `144d:a80a` | `144d:a801` | 21 | nas-01 |
+| `samsung_980_pro_2` | `0000:c8:00.0` | `144d:a80a` | `144d:a801` | 22 | nas-01 |
+| `intel_p1600x_1` | `0000:46:00.0` | `8086:2525` | `8086:380a` | 74 | nas-01 |
+| `intel_p1600x_2` | `0000:47:00.0` | `8086:2525` | `8086:380a` | 75 | nas-01 |
+
+**A mapping does not establish instance identity for the Optanes.** All four P1600X
+report the same `id` and `subsystem-id`; only `iommugroup` differs, and group numbers
+are renumbered by any topology change. Two of the four are the host's `rpool` boot
+mirror. When re-pointing `intel_p1600x_*`, confirm the serial first — the mapping
+will not catch it if you aim at an `rpool` drive.
+
+Working with mappings:
+
+- Create via `pvesh create /cluster/mapping/pci` or the GUI, passing `id`,
+  `subsystem-id` and `iommugroup` explicitly. `pvesh` does not read them from sysfs
+  and they are optional in the schema, so a mapping created without them is accepted
+  and then dies at every `qm start` with `missing expected property 'iommugroup'`.
+- There is no rename API — renaming means create-new, re-point the VM, delete the old.
+- `delete` has no in-use guard; deleting a mapping a VM still references leaves it
+  unbootable.
