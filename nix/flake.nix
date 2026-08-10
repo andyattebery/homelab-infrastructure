@@ -22,9 +22,16 @@
       url = "github:serokell/deploy-rs";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Deliberately NO inputs.nixpkgs.follows, unlike every other input above.
+    # Its kernel and firmware come from its own locked nixpkgs via
+    # nixos-raspberrypi.packages.<system>; making it follow ours produces different
+    # derivations, rebuilds the vendor kernel from source, and misses
+    # nixos-raspberrypi.cachix.org entirely. Do not "tidy" this.
+    # See nix/docs/raspberry-pi.md.
+    nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
   };
 
-  outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, nixos-raspberrypi, ... }:
   let
     # nixpkgs with the deploy-rs overlay applied, but forcing deploy-rs's binary
     # to come from nixpkgs (served from the binary cache) instead of being built
@@ -48,6 +55,11 @@
     mkHost = hostname: system: extraModules: nixpkgs.lib.nixosSystem {
       specialArgs = {
         inherit sops-nix nixpkgs-unstable;
+        # Required by nixos-raspberrypi's board modules, which read
+        # nixos-raspberrypi.packages.<system> directly for kernel and firmware. This is
+        # the same injection its lib.nixosSystem wrapper performs; we do it by hand
+        # because that wrapper would also switch the host to its own nixpkgs.
+        inherit nixos-raspberrypi;
         vars = import ./secrets/vars.nix;
       };
       modules = [
@@ -76,7 +88,13 @@
         ./modules/tailscale.nix
         ./modules/network.nix
         ./modules/nut.nix
-        nixos-hardware.nixosModules.raspberry-pi-4
+        # nixos-raspberrypi replaces nixos-hardware's raspberry-pi-4 module here -- the
+        # two cannot coexist, as both set boot.kernelPackages with mkDefault to different
+        # values, which is a conflicting-definition error rather than an override.
+        # nixos-hardware remains an input for the x86 hosts.
+        nixos-raspberrypi.lib.inject-overlays
+        nixos-raspberrypi.nixosModules.trusted-nix-caches
+        nixos-raspberrypi.nixosModules.raspberry-pi-4.base
         dsm.nixosModules.dsm-provider
       ];
       network-03 = mkHost "network-03" "x86_64-linux" [
@@ -124,6 +142,7 @@
           path = deployPkgs.aarch64-linux.deploy-rs.lib.activate.nixos self.nixosConfigurations.pi-rack;
         };
       };
+      # END_DEPLOY_NODES
     };
 
     packages.x86_64-linux.deploy-rs = deployPkgs.x86_64-linux.deploy-rs.deploy-rs;

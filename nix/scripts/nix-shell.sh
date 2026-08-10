@@ -17,9 +17,17 @@ SSH_FLAGS=""
 # read-only symlink into the store, so it can't be appended to. This is the set verified
 # to build in this container (flakes on; build as root since there's no build-users setup;
 # no sandbox in the minimal container).
+# nixos-raspberrypi's cache is declared in its flake's nixConfig, but that is NOT honoured
+# automatically: accept-flake-config defaults to false and nix prompts instead. This wrapper
+# ends in a non-interactive `sh -c`, so the prompt can't be answered and the substituter is
+# silently skipped -- which means building the RPi vendor kernel from source. Stated here
+# explicitly rather than via accept-flake-config so we trust one named cache, not whatever
+# any flake happens to declare. See nix/docs/raspberry-pi.md.
 NIX_CONFIG_LINES="experimental-features = nix-command flakes
 build-users-group =
-sandbox = false"
+sandbox = false
+extra-substituters = https://nixos-raspberrypi.cachix.org
+extra-trusted-public-keys = nixos-raspberrypi.cachix.org-1:4iMO9LXa8BqhU+Rpg6LQKiGa2lsNh/j2oiYLNOQ5sPI="
 
 while [ $# -gt 0 ]; do
   case "$1" in

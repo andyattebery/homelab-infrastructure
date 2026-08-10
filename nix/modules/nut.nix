@@ -19,9 +19,12 @@ in {
   sops.secrets."nut-client-nas-host-01-password" = {};
   sops.secrets."nut-client-vm-host-01-password" = {};
   sops.secrets."nut-client-vm-host-02-password" = {};
-  sops.secrets."nut-client-network-02-password" = {};
   sops.secrets."nut-client-backup-01-password" = {};
-  sops.secrets."nut-pushover-token" = { owner = "nut"; };
+  # Read by nutNotifyScript, which upsmon runs as NOTIFYCMD. upsmon runs as
+  # power.ups.upsmon.user, which defaults to "nutmon" -- and that is the only user the
+  # NixOS ups module creates. There is no "nut" user; owning it by that name made
+  # system.build.toplevel fail to evaluate.
+  sops.secrets."nut-pushover-token" = { owner = "nutmon"; };
   sops.secrets."pushover-user-key".mode = "0444";
 
   power.ups = {
@@ -35,14 +38,19 @@ in {
       directives = [
         "snmp_version = v1"
         "community = ${vars.nut.upsSnmpCommunity}"
+        # NUT's default is 1 start attempt. The AP9630 NMC can be slow to answer SNMP at
+        # boot, and a single failure leaves the UPS unavailable to all five clients.
+        # ups.conf documents maxretry as valid both globally and per-UPS.
+        "maxretry = 3"
       ];
     };
 
+    # Loopback for the local exporter and upsmon; the service name for remote clients.
+    # Deliberately not 0.0.0.0: networking.firewall.enable is false repo-wide, so that
+    # would newly expose upsd on tailscale0.
     upsd.listen = [
       { address = "127.0.0.1"; }
-      { address = "192.168.1.226"; }
       { address = "ups-monitor-rack.${vars.domainName}"; }
-      { address = "pi-rack.${vars.domainName}"; }
     ];
 
     users = {
@@ -71,10 +79,6 @@ in {
         passwordFile = config.sops.secrets."nut-client-vm-host-02-password".path;
         upsmon = "secondary";
       };
-      network-02 = {
-        passwordFile = config.sops.secrets."nut-client-network-02-password".path;
-        upsmon = "secondary";
-      };
       backup-01 = {
         passwordFile = config.sops.secrets."nut-client-backup-01-password".path;
         upsmon = "secondary";
@@ -86,7 +90,9 @@ in {
         system = "rack-ups@localhost";
         powerValue = 1;
         user = "monitor-primary";
-        type = "master";
+        # NUT 2.8 renamed master/slave to primary/secondary; the NixOS option still
+        # defaults to "master".
+        type = "primary";
       };
 
       settings = {
@@ -104,6 +110,13 @@ in {
           [ "REPLBATT"  "SYSLOG+WALL+EXEC" ]
           [ "NOCOMM"    "SYSLOG+WALL+EXEC" ]
           [ "NOPARENT"  "SYSLOG+WALL+EXEC" ]
+          [ "CAL"       "SYSLOG+WALL+EXEC" ]
+          [ "NOTCAL"    "SYSLOG+WALL+EXEC" ]
+          [ "OFF"       "SYSLOG+WALL+EXEC" ]
+          [ "NOTOFF"    "SYSLOG+WALL+EXEC" ]
+          # BYPASS: the UPS is powered but no longer protecting the load.
+          [ "BYPASS"    "SYSLOG+WALL+EXEC" ]
+          [ "NOTBYPASS" "SYSLOG+WALL+EXEC" ]
         ];
       };
     };
