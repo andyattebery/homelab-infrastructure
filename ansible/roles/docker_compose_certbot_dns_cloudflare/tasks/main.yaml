@@ -12,6 +12,7 @@
     docker_compose_src_file_path: files/docker-compose-certbot.yaml
     docker_compose_envs:
       CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG: "{{ certbot_dns_cloudflare_image_tag }}"
+      CERTBOT_CONTAINER_NAME: "{{ docker_compose_certbot_dns_cloudflare_container_name }}"
     docker_compose_src_config_files:
       - src_file_path: templates/cloudflare_credentials.ini.j2
         dst_relative_file_path: certbot/cloudflare_credentials.ini
@@ -24,6 +25,8 @@
       - src_file_path: templates/certbot_renew_entrypoint.sh.j2
         dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
         mode: "0755"
-        service_name_to_restart: certbot
+        # A container name, not a compose service name — restart_container.yaml runs
+        # `docker restart` with this value.
+        service_name_to_restart: "{{ docker_compose_certbot_dns_cloudflare_container_name }}"
   ansible.builtin.include_role:
     name: docker_compose

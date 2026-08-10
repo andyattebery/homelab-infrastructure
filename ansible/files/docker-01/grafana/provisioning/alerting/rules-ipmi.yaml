@@ -40,3 +40,45 @@ groups:
             A fan or PSU sensor on {{ $labels.instance }} has reached Critical state.
             Check the IPMI dashboard or run `ipmitool sensor` on the host for details.
             A failed fan risks thermal throttle; a failed PSU risks unclean shutdown.
+      # Metrics come from textfile_collector_asrock_ipmi_cert, which probes what the BMC actually
+      # serves. Note noDataState below is Alerting, not OK as above: this rule exists because the
+      # BMC served an expired certificate for a month with nothing noticing, so a series that stops
+      # arriving is the failure, not the absence of one.
+      - uid: asrock-ipmi-cert-expiring
+        title: BMC certificate expiring or unreachable
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: asrock_ipmi_cert_probe_success == 0 or (asrock_ipmi_cert_not_after_seconds - time()) < 14 * 86400
+              instant: true
+              refId: A
+        # Must exceed the collector's interval (3600s), so one bad sample can never fire on its
+        # own — a sample persists for a whole hour. Observed for real: installing a certificate
+        # bounces the BMC web service, and the probe that landed mid-rotation wrote a 0. Without
+        # this, every successful rotation would page. Nothing is lost by waiting: the expiry arm
+        # has 14 days of headroom.
+        for: 2h
+        noDataState: Alerting
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: ipmi
+        annotations:
+          summary: 'BMC certificate problem on {{ $labels.host }}'
+          description: |
+            Either the TLS probe of {{ $labels.host }} failed, or the certificate it serves expires
+            within 14 days. The certbot container should reconcile this within 24 hours by itself;
+            if this is still firing after that, the upload is failing rather than the renewal.
+            Check `docker logs certbot-asrock-ipmi` on docker-01, then compare what the BMC serves
+            against the certificate on disk:
+              openssl s_client -connect {{ $labels.host }}:443 -servername {{ $labels.host }} \
+                </dev/null | openssl x509 -noout -dates -serial

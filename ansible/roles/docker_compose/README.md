@@ -29,7 +29,7 @@ Optional: `tailscale_tailnet` — when defined it is added as `TAILSCALE_TAILNET
 | `docker_compose_dst_data_directory_path` | = `dst_directory_path` | Where config files/dirs and container data live. Exposed to compose as `DOCKER_DATA_DIRECTORY`. Set this per host when data belongs on a different filesystem from the compose files. |
 | `docker_compose_dst_file_name` | source basename | **`.j2` is not stripped.** A `.j2` source deploys a `.j2` destination, which `files/dc` then cannot see because it globs `docker-compose*.y*ml`. Set explicitly for any `.j2` source. |
 | `docker_compose_uid` / `_gid` | `ansible_non_become_user_id` / `_gid` | Owner of everything written. When those facts are missing the role includes `ansible_non_become_user_facts` to gather them. |
-| `docker_compose_should_pull` | `true` | Set `false` for stacks whose services are `build:`-only — the pull loops over every service from `config --services`. |
+| `docker_compose_should_pull` | `true` | Pulls one service at a time, from `config --services`, to avoid the TLS handshake timeouts a parallel `compose pull` causes on a large stack. Scoped by `--file` to this role's own compose file. Set `false` for stacks whose services are `build:`-only. |
 | `docker_compose_should_run_up` | `true` | |
 | `docker_compose_should_prune` | `false` | `docker system prune --all --force` after `up`. |
 | `docker_compose_copy_scripts` | `true` | Installs the `dc` and `dcup` helpers into `/usr/local/bin`. |

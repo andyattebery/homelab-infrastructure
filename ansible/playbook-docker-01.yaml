@@ -41,6 +41,13 @@
         certbot_asrock_ipmi_cert_updater_domain_name: "ipmi.nas-host-01.{{ domain_name }}"
         certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
         certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
+      tags: certbot-asrock-ipmi
+    # Independent of the role above on purpose: it probes what the BMC serves, so it stays honest
+    # if that container stops running.
+    - role: textfile_collector_asrock_ipmi_cert
+      vars:
+        textfile_collector_asrock_ipmi_cert_host: "ipmi.nas-host-01.{{ domain_name }}"
+      tags: certbot-asrock-ipmi
     - role: docker_compose_telegraf
     # - role: docker_compose_perplexica
     #   vars:
@@ -96,10 +103,14 @@
             dst_relative_file_path: ipmi-exporter/ipmi-exporter.yml
             service_name_to_restart: ipmi-exporter
         docker_compose_src_config_dirs:
+          # Grafana reads provisioned datasources, dashboards and alert rules at startup only, so a
+          # change here does nothing until it restarts.
           - src_dir_path: files/docker-01/grafana/provisioning
             dst_relative_dir_path: grafana-provisioning
+            service_name_to_restart: grafana
           - src_dir_path: files/docker-01/grafana/dashboards
             dst_relative_dir_path: grafana-dashboards
+      tags: monitoring
     # - role: docker_compose
     #   vars:
     #     docker_compose_src_file_path: files/docker-01/docker-compose-privacy.yml

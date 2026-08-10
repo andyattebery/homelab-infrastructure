@@ -2,7 +2,7 @@
 services:
   certbot:
     image: certbot/dns-cloudflare:${CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG}
-    container_name: certbot
+    container_name: ${CERTBOT_CONTAINER_NAME}
     restart: unless-stopped
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot

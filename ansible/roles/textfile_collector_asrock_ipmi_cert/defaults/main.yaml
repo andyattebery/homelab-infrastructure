@@ -1,0 +1,9 @@
+---
+textfile_collector_asrock_ipmi_cert_interval_seconds: 3600
+textfile_collector_asrock_ipmi_cert_port: 443
+textfile_collector_asrock_ipmi_cert_timeout_seconds: 15
+# Installing a certificate soft-resets the BMC web service, so a probe that lands during a
+# rotation fails through no fault of the BMC. Worst case here must stay under systemd's default
+# TimeoutStartSec of 90s: 3 x 15s + 2 x 5s = 55s.
+textfile_collector_asrock_ipmi_cert_attempts: 3
+textfile_collector_asrock_ipmi_cert_retry_delay_seconds: 5

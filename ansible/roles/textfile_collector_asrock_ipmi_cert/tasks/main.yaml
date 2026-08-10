@@ -1,0 +1,37 @@
+---
+- name: Validate required inputs
+  ansible.builtin.assert:
+    that:
+      - textfile_collector_asrock_ipmi_cert_host | default('') | length > 0
+    fail_msg: >-
+      textfile_collector_asrock_ipmi_cert_host is required — the BMC hostname to probe.
+
+- name: Configure asrock-ipmi-cert textfile collector
+  ansible.builtin.include_role:
+    name: textfile_collector
+  vars:
+    textfile_collector_name: asrock-ipmi-cert
+    textfile_collector_interval_seconds: "{{ textfile_collector_asrock_ipmi_cert_interval_seconds }}"
+    # Measures what the BMC serves, not what any updater believes it uploaded, so it stays honest
+    # when the updater is broken or not running at all. The pipe sits outside `timeout` on purpose:
+    # a hung s_client is killed, the pipe closes, `end` is empty, and the failure branch runs.
+    # probe_success is printed on both branches so the series never disappears from Prometheus.
+    textfile_collector_source_cmd: |
+      end=""
+      attempt=1
+      while [ "$attempt" -le {{ textfile_collector_asrock_ipmi_cert_attempts }} ]; do
+        end=$(timeout {{ textfile_collector_asrock_ipmi_cert_timeout_seconds }} sh -c 'echo | openssl s_client -connect {{ textfile_collector_asrock_ipmi_cert_host }}:{{ textfile_collector_asrock_ipmi_cert_port }} -servername {{ textfile_collector_asrock_ipmi_cert_host }} 2>/dev/null' | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
+        [ -n "$end" ] && break
+        attempt=$((attempt + 1))
+        [ "$attempt" -le {{ textfile_collector_asrock_ipmi_cert_attempts }} ] && sleep {{ textfile_collector_asrock_ipmi_cert_retry_delay_seconds }}
+      done
+      printf '# HELP asrock_ipmi_cert_probe_success TLS probe of the BMC succeeded.\n'
+      printf '# TYPE asrock_ipmi_cert_probe_success gauge\n'
+      printf '# HELP asrock_ipmi_cert_not_after_seconds notAfter of the certificate the BMC serves.\n'
+      printf '# TYPE asrock_ipmi_cert_not_after_seconds gauge\n'
+      if [ -n "$end" ]; then
+        printf 'asrock_ipmi_cert_probe_success{host="%s"} 1\n' '{{ textfile_collector_asrock_ipmi_cert_host }}'
+        printf 'asrock_ipmi_cert_not_after_seconds{host="%s"} %d\n' '{{ textfile_collector_asrock_ipmi_cert_host }}' "$(date -u -d "$end" +%s)"
+      else
+        printf 'asrock_ipmi_cert_probe_success{host="%s"} 0\n' '{{ textfile_collector_asrock_ipmi_cert_host }}'
+      fi

@@ -1,22 +1,35 @@
 ---
+# Ahead of the include, so the container restart it triggers can never fire the stale command.
+# Certbot copies a --deploy-hook into its own renewal config, where it outlives the CLI flag.
+- name: Stat the certbot renewal config
+  ansible.builtin.stat:
+    path: "{{ certbot_asrock_ipmi_cert_updater_renewal_config_path }}"
+  register: certbot_asrock_ipmi_renewal_config
+- name: Drop the legacy renew_hook from the certbot renewal config
+  when: certbot_asrock_ipmi_renewal_config.stat.exists
+  ansible.builtin.lineinfile:
+    path: "{{ certbot_asrock_ipmi_cert_updater_renewal_config_path }}"
+    regexp: '^renew_hook\s*='
+    state: absent
 - name: Create {{ certbot_asrock_ipmi_cert_updater_directory_path }}
   ansible.builtin.file:
     path: "{{ certbot_asrock_ipmi_cert_updater_directory_path }}"
     state: directory
     mode: "0755"
-- name: Download asrock_ipmi_cert_updater
-  ansible.builtin.get_url:
-    url: "https://raw.githubusercontent.com/khung/letsencrypt-scripts/refs/heads/master/asrock_ipmi_cert_updater.py"
+- name: Copy asrock_ipmi_cert_updater.py
+  ansible.builtin.copy:
+    src: asrock_ipmi_cert_updater.py
     dest: "{{ certbot_asrock_ipmi_cert_updater_bin_path }}"
-    mode: "0644"
+    mode: "0755"
 - name: Copy asrock_ipmi_cert_updater.ini
   ansible.builtin.template:
     src: templates/asrock_ipmi_cert_updater.ini.j2
     dest: "{{ certbot_asrock_ipmi_cert_updater_ini_path }}"
-    mode: "0644"
+    mode: "0600"
 - name: Initial docker compose setup
   vars:
     docker_compose_certbot_dns_cloudflare_domain_name: "{{ certbot_asrock_ipmi_cert_updater_domain_name }}"
-    certbot_deploy_hook: "python {{ certbot_asrock_ipmi_cert_updater_container_bin_path }} config --config-file {{ certbot_asrock_ipmi_cert_updater_container_ini_path }}"
+    docker_compose_certbot_dns_cloudflare_container_name: "{{ certbot_asrock_ipmi_container_name }}"
+    certbot_post_run_command: "python {{ certbot_asrock_ipmi_cert_updater_container_bin_path }} --config-file {{ certbot_asrock_ipmi_cert_updater_container_ini_path }}"
   ansible.builtin.include_role:
     name: docker_compose_certbot_dns_cloudflare

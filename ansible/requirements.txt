@@ -5,3 +5,7 @@ dnspython ~= 2.0
 jc ~= 1.0
 jmespath ~= 1.0
 passlib ~= 1.0
+# For roles/docker_compose_certbot_asrock_ipmi/: `requests` is what the vendored BMC updater runs
+# on (it ships in the certbot image, not here), and pytest runs that role's tests.
+pytest ~= 9.0
+requests ~= 2.0

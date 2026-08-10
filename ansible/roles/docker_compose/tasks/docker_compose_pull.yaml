@@ -6,10 +6,19 @@
   register: docker_compose_services_result
   changed_when: false
 
-- name: "Pull {{ item }}" # noqa name[template]
+# One service at a time, deliberately: a bare `compose pull` fetches every service in parallel and
+# that throttles and times out TLS handshakes on a large stack. Same reason files/dcup pulls
+# serially.
+#
+# The name must not interpolate `item` — task names render before the loop binds it, so
+# `name: "Pull {{ item }}"` printed `Pull << error 1 - 'item' is undefined >>` on every run and
+# raised a template-error warning. loop_control.label is how a loop labels its iterations.
+- name: "Pull services for {{ docker_compose_dst_file_path }}" # noqa name[template]
   become: false
   ansible.builtin.command:
     cmd: "{{ docker_compose_base_command }} pull {{ item }}"
   loop: "{{ docker_compose_services_result.stdout_lines }}"
+  loop_control:
+    label: "{{ item }}"
   register: docker_compose_pull_result
   changed_when: docker_compose_pull_result.stderr_lines | reject('match', '.*(Pulling|Pulled|Skipped).*') is any

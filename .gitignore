@@ -10,10 +10,14 @@ ansible/.claude/settings.local.json
 nix/secrets/*.dec
 nix/secrets/*.cleartext
 
-# agent working notes — hold unvaulted hostnames, IPs, and WAN details
-status/
-handoffs/
-plans/
+# agent working notes — hold unvaulted hostnames, IPs, and WAN details.
+# Anchored with a leading slash: unanchored, `tasks/` matches a directory of that name at ANY
+# depth, which silently ignores every new file under `ansible/roles/*/tasks/`. Existing roles look
+# fine only because their task files are already tracked.
+/status/
+/handoffs/
+/plans/
+/tasks/
 
 # compiled bytecode
 __pycache__/

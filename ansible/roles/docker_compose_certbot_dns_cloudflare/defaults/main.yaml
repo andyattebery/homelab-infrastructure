@@ -1,0 +1,4 @@
+---
+# Container name, not the compose service name. Callers that deploy more than one certbot stack on
+# a host must give each a distinct value, and it is also what `service_name_to_restart` restarts.
+docker_compose_certbot_dns_cloudflare_container_name: certbot
