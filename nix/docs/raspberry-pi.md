@@ -327,9 +327,13 @@ merge function runs. Consequences:
   values``. Two `mkDefault`s of different values are equal priority and neither is discarded, so they
   reach the merge function and it throws — which is exactly the `boot.kernelPackages` collision.
 
-**Imports are unique-by-key** (`modules.nix:563`): the same path imported twice evaluates once, so
-listing a module in both a host file's `imports` and the flake's `extraModules` is redundant, not
-buggy.
+**Imports are unique-by-key** (`modules.nix:563`): the same path imported twice evaluates once, so a
+duplicate import is redundant rather than an error. Worth knowing, but no longer load-bearing here —
+`flake.nix` used to pass per-host module lists alongside the host files' own `imports`, and the two
+duplicated each other. That is gone: `nixosConfigurations` is derived from `builtins.readDir ./hosts`
+and each host file states its own modules. The Pi modules
+(`inject-overlays`, `trusted-nix-caches`, `raspberry-pi-4.base`) are imported by
+`hosts/pi-rack/default.nix`, reaching it through `specialArgs.nixos-raspberrypi`.
 
 ## Related
 

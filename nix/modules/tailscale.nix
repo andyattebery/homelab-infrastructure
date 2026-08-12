@@ -1,3 +1,8 @@
+# Capability: Tailscale with routing features on.
+#
+# Requires base.nix, which is where pkgs-unstable comes from -- base.nix sets
+# _module.args.pkgs-unstable. mkHost always supplies base.nix, so this only bites if the
+# module is reused outside that path.
 { pkgs, pkgs-unstable, ... }: {
   services.tailscale = {
     enable = true;

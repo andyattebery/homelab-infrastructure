@@ -1,4 +1,9 @@
-# Requires tailscale.nix to be imported alongside this module.
+# Stack bundle: AdGuard Home + keepalived VRRP + ACME, and nginx when reverseProxy.enable.
+#
+# Requires two modules imported alongside it, neither of which it can import itself:
+#   - tailscale.nix        -- it sets services.tailscale.{authKeyFile,extraUpFlags,extraSetFlags}
+#   - dsm-provider (input) -- it sets services.dsm-provider.{enable,apiUrl,services}
+# Without either, evaluation fails on an unknown option rather than anything descriptive.
 { config, lib, pkgs, vars, ... }:
 let
   cfg = config.homelab.network;

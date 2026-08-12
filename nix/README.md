@@ -5,22 +5,27 @@ NixOS host management for the homelab, running alongside the existing Ansible se
 ## Directory structure
 
     nix/
-      flake.nix                 # entry point -- inputs, host definitions
+      flake.nix                 # entry point -- inputs, mkHost, derived nixosConfigurations + deploy.nodes
       flake.lock                # pinned dependency versions
       modules/
-        base.nix                # common config for all hosts (users, SSH, packages)
-        docker-host.nix         # services.docker-compose module for Docker Compose stacks
-        network.nix             # network host role (AdGuard Home, keepalived, WireGuard, etc.)
-        proxmox-guest.nix       # QEMU guest agent + auto disk resize + serial console
-        tailscale.nix           # Tailscale with IP forwarding
-        monitoring.nix          # Prometheus node_exporter
+        base.nix                # foundation: everything every host gets (users, SSH, sops, node_exporter, beszel)
+        tailscale.nix           # capability: Tailscale with routing features
+        nut.nix                 # capability: NUT UPS server + its Prometheus exporter
+        docker-host.nix         # capability: services.docker-compose + Diun (no host imports it yet)
+        network.nix             # stack bundle: AdGuard Home + keepalived + ACME (+ nginx)
+        proxmox-guest.nix       # hardware: QEMU guest agent, grub, growPartition
+        rpi4.nix                # hardware: Raspberry Pi 4 on-disk layout
         ssh-keys.nix            # shared SSH public keys (generated from ssh-keys.nix.tpl)
         ssh-keys.nix.tpl        # 1Password references for SSH keys
-        compose/                # Docker Compose files and templates used by modules
-      hosts/
-        proxmox-vm-hardware.nix # shared hardware config for Proxmox VMs
+        compose/                # empty; kept for Compose files referenced by docker-host.nix
+      hosts/                    # one directory per host -- this listing IS the host list
+        proxmox-vm-hardware.nix # shared hardware config for Proxmox VMs (a file, not a host)
         proxmox-template/       # minimal bootstrap config for the Proxmox template
-        network-03/             # network-03 host config
+        network-01/             # AdGuard primary, adguardhome-sync, network-inventory-manager
+        network-03/             # AdGuard replica
+        pi-rack/                # Raspberry Pi 4: AdGuard replica + NUT server
+      pkgs/                     # custom packages (adguardhome-sync, keepalived-exporter)
+      docs/                     # raspberry-pi.md, proxmox-workflow.md
       secrets/
         .sops.yaml              # age key list + sops creation rules
         secrets.yaml            # sops-encrypted secrets (commit this)
@@ -32,28 +37,59 @@ NixOS host management for the homelab, running alongside the existing Ansible se
         nix-shell.sh                     # runs Nix commands via Docker (no Nix install needed)
         populate-secrets-from-op.sh      # generates secrets.yaml, vars.nix, ssh-keys.nix from 1Password
         install-proxmox-template.sh      # unattended NixOS install for Proxmox template VM
-        add-host.sh                      # run on Mac: generates host config + flake entry
+        add-host.sh                      # run on Mac: scaffolds a host config, key and sops recipient
+        host-age-key.sh                  # create/install a host's age key, stored in 1Password
+        add-sops-recipient.sh            # add an age key to .sops.yaml and re-encrypt
+        update.sh                        # bump the Nix image pin + all flake inputs, then check
         update-packages.sh               # updates custom Nix packages to latest GitHub releases
         legacy/                          # pre-deploy-rs scripts (SSH + git pull + nixos-rebuild)
 
 ## How the flake works
 
-`flake.nix` defines a `mkHost` helper that wires up shared config for each host:
+**The host list is the `hosts/` directory.** `flake.nix` does not name hosts; it reads them:
 
 ```nix
-mkHost = hostname: extraModules: nixpkgs.lib.nixosSystem {
-  system = "x86_64-linux";
-  specialArgs = { inherit sops-nix; vars = import ./secrets/vars.nix; };
-  modules = [
-    sops-nix.nixosModules.sops
-    ./modules/base.nix
-    ./modules/monitoring.nix
-    ./hosts/${hostname}
-  ] ++ extraModules;
+hostDirs     = lib.filterAttrs (_: type: type == "directory") (builtins.readDir ./hosts);
+managedHosts = builtins.removeAttrs hostDirs [ "proxmox-template" ];
+
+mkHost = hostname: lib.nixosSystem {
+  specialArgs = { inherit sops-nix nixpkgs-unstable vars nixos-raspberrypi dsm nim; };
+  modules = [ ./modules/base.nix ./hosts/${hostname} ];
 };
+
+nixosConfigurations = (builtins.mapAttrs (hostname: _: mkHost hostname) managedHosts) // { … };
+deploy.nodes        = builtins.mapAttrs (hostname: _: { … }) managedHosts;
 ```
 
-Each host gets `base.nix` and `monitoring.nix` automatically. Role modules (`tailscale.nix`, `docker-host.nix`, `network.nix`) are added per-host via `extraModules`. Host-specific config lives in `hosts/<hostname>/default.nix`.
+So **adding a host means adding a directory under `hosts/`** — there is no list to keep in sync,
+and no marker comment for a script to `sed` against. `deploy.nodes` is derived the same way, taking
+each host's architecture from its own evaluated `nixpkgs.hostPlatform`. `mapAttrs` is lazy per
+attribute and deploy-rs narrows `nodes` to the one node being deployed before serialising it, so
+`deploy .#some-host` never forces the others.
+
+`proxmox-template` is the one exception, defined by hand: it is a bare bootstrap image with root SSH
+and deliberately no `base.nix`, no sops and no `services` user. Excluding it from `managedHosts` also
+keeps it out of `deploy.nodes`, so it can never become a deploy target.
+
+### Where a module goes
+
+Four kinds, each with one home. Put a new module in the wrong one and it either gets forced on hosts
+that do not want it, or silently missing from hosts that do.
+
+| Kind | Examples | Chosen by | Lives in |
+|---|---|---|---|
+| **Foundation** — every host, no opting out | `base.nix` | nobody | `mkHost`'s module list |
+| **Capability** — any host could opt in | `tailscale.nix`, `nut.nix`, `docker-host.nix`, `dsm-provider` | the host | the host file's `imports` |
+| **Hardware** | `rpi4.nix`, `proxmox-guest.nix`, `proxmox-vm-hardware.nix` | the machine | the host file's `imports` |
+| **Stack bundle** — capabilities as one unit | `network.nix` | the host, as one unit | the host file's `imports` |
+
+If a host could reasonably decline it, it is a capability and does not belong in `base.nix`.
+
+Modules from flake inputs (`dsm`, `nim`, `nixos-raspberrypi`) are imported by host files too — they
+arrive through `specialArgs`, which reaches a module before evaluation and so may be used in that
+module's own `imports`. A few modules need others alongside them and say so in their header comment:
+`network.nix` needs `tailscale.nix` and `dsm-provider`, `docker-host.nix` needs `dsm-provider`, and
+`tailscale.nix` needs `base.nix` for `pkgs-unstable`.
 
 `vars` (from `secrets/vars.nix`) provides infrastructure values at Nix eval time -- domain name, subnet CIDR, DNS VIP, ACME email. These are available in any module via `{ vars, ... }:` in the function args.
 
@@ -63,7 +99,7 @@ Three categories, all populated by `scripts/populate-secrets-from-op.sh`:
 
 | File | What | How it's used |
 |---|---|---|
-| `secrets.yaml` | Credentials (API tokens, passwords, WireGuard config) | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
+| `secrets.yaml` | Credentials — the services user's password hash, Tailscale auth key, Cloudflare token, AdGuard/NIM/beszel/Pushover/NUT passwords | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
 | `vars.nix` | Infrastructure values (domain, subnet, VIP, email) | Plain Nix. Read at eval time via `specialArgs`. Committed with placeholders, overwritten locally by the populate script. |
 | `ssh-keys.nix` | SSH public keys | Plain Nix. Imported by `base.nix` and `proxmox-template`. Committed with real values (public keys aren't secret). |
 
@@ -98,7 +134,23 @@ composeFile = ../../ansible/roles/docker_compose_wireguard/files/docker-compose-
 
 ## Running Nix from Mac
 
-Nix is not installed on the Mac. All Nix commands run in Docker via `scripts/nix-shell.sh`:
+Nix is not installed on the Mac. Docker (OrbStack) must be running. Three CLI tools come from
+Homebrew and the scripts check for them: `op` and `sops` (`populate-secrets-from-op.sh`) and `age`
+(`host-age-key.sh`, `brew install age`).
+
+A host's age key lives in 1Password as a `nix` section on the host's own item, beside whatever else
+that item already holds, in **two single-line fields**:
+
+    op://Home Lab/<hostname>/nix/age key           AGE-SECRET-KEY-...
+    op://Home Lab/<hostname>/nix/age public key    age1...
+
+Split rather than storing `age-keygen`'s three-line output verbatim because those fields flatten
+newlines — and a flattened key file is one line starting with `#`, which age reads as a comment, so
+it would contain no identity at all and sops-nix would fail to decrypt on that host. Keeping the
+public half as its own field also means it never has to be derived back out of the secret.
+`host-age-key.sh` rebuilds a proper two-line file when it installs the key.
+
+All Nix commands run in Docker via `scripts/nix-shell.sh`:
 
 ```sh
 nix/scripts/nix-shell.sh flake check       # validate
@@ -153,40 +205,68 @@ No git repo, `vars.nix` SCP, or `git pull` needed on the host.
 
 ## Provisioning a new host
 
-1. Clone the Proxmox template VM
-2. Generate an age key and scaffold the host config:
+1. Get the machine booted and reachable over SSH with passwordless sudo — clone the Proxmox template
+   VM, or flash an image for bare metal.
+2. Scaffold it:
 
 ```sh
-nix/scripts/legacy/provision-host.sh [--proxmox] [--tailscale] root@<ip> <hostname>
+nix/scripts/add-host.sh --proxmox --tailscale --target root@<ip> <hostname>
 ```
 
-3. The script generates the age key, adds it to `.sops.yaml`, scaffolds host config via `add-host.sh`, populates secrets, commits and pushes
-4. Deploy the new host:
+   This creates `hosts/<hostname>/default.nix`, generates the host's age key locally, stores it in
+   1Password, installs it at `/var/lib/sops-nix/key.txt`, adds it to `.sops.yaml` in both required
+   places, and re-encrypts `secrets.yaml`. It does **not** touch `flake.nix` — creating the directory
+   is what registers the host. It runs no git commands; staging and committing are yours.
+
+   If the machine does not exist yet, `nix/scripts/host-age-key.sh <hostname>` creates and stores the
+   key on its own, and prints the public half to pass to `add-host.sh` positionally. Install it later
+   with `host-age-key.sh --target <ssh-target> <hostname>`.
+
+3. Add capability modules to `hosts/<hostname>/default.nix` — see "Where a module goes" above.
+4. Validate and deploy:
 
 ```sh
+nix/scripts/nix-shell.sh flake check
 nix/scripts/deploy-host.sh <hostname>
+```
+
+**If `add-host.sh` fails partway** — most likely `populate-secrets-from-op.sh` without 1Password auth
+— it prints what to clean up. The host directory and the `.sops.yaml` edit both survive the failure,
+and re-running refuses until they are removed, which is deliberate.
+
+### Re-imaging an existing host
+
+`add-host.sh` refuses when `hosts/<name>/` exists, and it should — the config is already right. Only
+the key needs restoring, and because it is in 1Password it is the *same* key, so `.sops.yaml` and
+`secrets.yaml` do not change at all:
+
+```sh
+nix/scripts/host-age-key.sh --target root@<ip> <hostname>
 ```
 
 ## Upgrading hosts
 
 ### Update flake inputs (routine)
 
-Updates nixpkgs, sops-nix, dsm, nim, nixos-hardware, deploy-rs, and custom packages to their latest versions within the current NixOS release.
+Updates nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, nixos-raspberrypi
+and the custom packages to their latest versions within the current NixOS release.
+
+`update.sh` does all of it, including bumping the pinned Nix image in `scripts/nix-image`:
 
 ```sh
-# Update all flake inputs
-nix/scripts/nix-shell.sh flake update
-
-# Update custom packages (keepalived-exporter, adguardhome-sync)
-nix/scripts/update-packages.sh
-
-# Validate
-nix/scripts/nix-shell.sh flake check
-
-# Commit
-git add nix/flake.lock nix/pkgs/
-git commit -m "nix: update flake inputs"
+nix/scripts/update.sh
 ```
+
+Or step by step:
+
+```sh
+nix/scripts/nix-shell.sh flake update      # all inputs
+nix/scripts/update-packages.sh             # keepalived-exporter, adguardhome-sync
+nix/scripts/nix-shell.sh flake check       # validate
+git add nix/flake.lock nix/pkgs/ nix/scripts/nix-image
+```
+
+Stage only — committing is done by hand, never by a script here.
 
 Then deploy to each host:
 
@@ -225,3 +305,8 @@ nix/scripts/legacy/deploy-host.sh <ssh-target> <hostname>    # deploy via SSH + 
 nix/scripts/legacy/sync-vars.sh <user@host> [repo-path]      # SCP vars.nix to a host
 nix/scripts/legacy/provision-host.sh [--proxmox] [--tailscale] <ssh-target> <hostname>  # full provisioning
 ```
+
+`provision-host.sh` is superseded by `add-host.sh --target`. It still contains its own inline
+`age-keygen` block, which generates the key **on the host** — so the key exists only on that disk and
+is lost on a re-image. It also commits and pushes, which this repo does not do. Do not use it for new
+hosts; it is kept only as a record of the pre-deploy-rs flow.

@@ -1,4 +1,13 @@
-{ config, lib, pkgs, vars, nixpkgs-unstable, ... }:
+# Foundation: everything every host gets. Imported by mkHost, never by a host file.
+#
+# Capability modules (tailscale.nix, nut.nix, docker-host.nix, dsm-provider), hardware
+# modules (rpi4.nix, proxmox-guest.nix) and stack bundles (network.nix) are opted into by
+# the host file instead. If something belongs on every host it belongs here; if a host
+# could reasonably decline it, it does not.
+#
+# Exports _module.args.pkgs-unstable, which tailscale.nix consumes -- that module cannot
+# evaluate without this one.
+{ config, lib, pkgs, vars, nixpkgs-unstable, sops-nix, ... }:
 let
   sshKeys = import ./ssh-keys.nix;
   pkgs-unstable = import nixpkgs-unstable {
@@ -6,6 +15,10 @@ let
     inherit (config.nixpkgs) config;
   };
 in {
+  # sops config below is this module's own, so the module that provides it is this
+  # module's dependency rather than mkHost's.
+  imports = [ sops-nix.nixosModules.sops ];
+
   _module.args.pkgs-unstable = pkgs-unstable;
   sops.defaultSopsFile = ../secrets/secrets.yaml;
   sops.age.keyFile = "/var/lib/sops-nix/key.txt";
@@ -77,6 +90,18 @@ in {
   # Workaround: NixOS beszel module sets DynamicUser=true but no StateDirectory,
   # so the agent can't persist its fingerprint. nixpkgs PR #500866.
   systemd.services.beszel-agent.serviceConfig.StateDirectory = "beszel-agent";
+
+  # Prometheus node_exporter. Was modules/monitoring.nix, which mkHost imported into every
+  # host unconditionally -- a capability nobody could decline is foundation, so it lives
+  # here now. prometheus.yml scrapes <host>:9100 fleet-wide and assumes it is present.
+  systemd.tmpfiles.rules = [ "d /var/lib/node_exporter 0755 root root -" ];
+
+  services.prometheus.exporters.node = {
+    enable = true;
+    enabledCollectors = [ "systemd" "textfile" ];
+    port = 9100;
+    extraFlags = [ "--collector.textfile.directory=/var/lib/node_exporter" ];
+  };
 
   systemd.services.dotfiles = {
     description = "Clone/update and link dotfiles for services user";

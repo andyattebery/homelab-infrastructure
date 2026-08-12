@@ -1,11 +1,25 @@
-{ config, vars, ... }: {
+{ config, vars, dsm, nixos-raspberrypi, ... }: {
   imports = [
+    # hardware -- nixos-raspberrypi supplies the bootloader, kernel and firmware;
+    # rpi4.nix supplies the on-disk layout, which that flake deliberately omits.
+    #
+    # nixos-hardware.nixosModules.raspberry-pi-4 must NOT be added alongside these: both
+    # set boot.kernelPackages with mkDefault to different values, which is a
+    # conflicting-definition error rather than a last-one-wins override.
+    # See nix/docs/raspberry-pi.md.
+    nixos-raspberrypi.lib.inject-overlays
+    nixos-raspberrypi.nixosModules.trusted-nix-caches
+    nixos-raspberrypi.nixosModules.raspberry-pi-4.base
     ../../modules/rpi4.nix
+    # capabilities
     ../../modules/tailscale.nix
-    ../../modules/network.nix
     ../../modules/nut.nix
+    dsm.nixosModules.dsm-provider
+    # stack
+    ../../modules/network.nix
   ];
 
+  nixpkgs.hostPlatform = "aarch64-linux";
   networking.hostName = "pi-rack";
   system.stateVersion = "26.05";
 

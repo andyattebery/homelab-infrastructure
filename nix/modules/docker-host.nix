@@ -1,3 +1,12 @@
+# Capability: services.docker-compose, managing Compose stacks as systemd units, plus Diun.
+#
+# Groundwork for hosts still on Ansible -- no host imports it yet, and that is deliberate.
+# Its sops secret diun-pushover-token and the matching secrets.yaml.tpl entry are
+# pre-provisioned for the same reason; they are not orphans.
+#
+# Requires dsm-provider (flake input) imported alongside it: it sets
+# services.dsm-provider.providers, and without that module evaluation fails on an unknown
+# option.
 { config, lib, pkgs, ... }:
 let
   cfg = config.services.docker-compose;

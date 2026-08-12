@@ -1,143 +1,136 @@
 #!/usr/bin/env sh
+# Scaffold a new NixOS host: host config + age key + sops recipient.
+#
+# It does NOT touch flake.nix. nixosConfigurations and deploy.nodes are both derived from
+# builtins.readDir ./hosts, so creating the directory is what registers the host -- there
+# is no list to keep in sync and no marker comment to sed against.
+#
+# Only the steps whose failure is silent live here. The .sops.yaml two-place insert and the
+# re-encrypt are delegated to add-sops-recipient.sh; the key lifecycle to host-age-key.sh.
+# A missing or malformed host config, by contrast, is an eval error on the next command.
 set -euo pipefail
 
 PROXMOX=false
 TAILSCALE=false
 SYSTEM="x86_64-linux"
 TARGET=""
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: add-host.sh [options] <hostname> <age-public-key>
+       add-host.sh [options] --target <ssh-target> <hostname>
+
+Options:
+  --proxmox              host is a Proxmox VM (adds the VM hardware + guest modules)
+  --tailscale            add the tailscale capability module
+  --system <arch>        x86_64-linux (default) or aarch64-linux
+  --target <ssh-target>  create/install the age key on that host instead of passing one in
+
+With --target the age key is generated locally, stored in 1Password and installed over ssh;
+the target needs ssh and passwordless sudo, and nothing else. Without it, pass a public key
+you already have (e.g. from host-age-key.sh with no --target).
+EOF
+  exit 1
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --proxmox) PROXMOX=true; shift ;;
     --tailscale) TAILSCALE=true; shift ;;
-    --system) SYSTEM="$2"; shift 2 ;;
-    --target) TARGET="$2"; shift 2 ;;
+    --system) [ $# -ge 2 ] || usage; SYSTEM="$2"; shift 2 ;;
+    --target) [ $# -ge 2 ] || usage; TARGET="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    -*) echo "Unknown option: $1" >&2; usage ;;
     *) break ;;
   esac
 done
 
-# With --target the age key is generated on the host, so only <hostname> is needed.
+# With --target the key is fetched rather than passed, so only <hostname> is required.
 if [ -n "$TARGET" ]; then
-  EXPECTED_ARGS=1
+  [ $# -eq 1 ] || usage
 else
-  EXPECTED_ARGS=2
-fi
-if [ $# -ne "$EXPECTED_ARGS" ]; then
-  echo "Usage: $0 [--proxmox] [--tailscale] [--system <arch>] <hostname> <age-public-key>"
-  echo "       $0 [--proxmox] [--tailscale] [--system <arch>] --target <ssh-target> <hostname>"
-  exit 1
+  [ $# -eq 2 ] || usage
 fi
 
 HOSTNAME="$1"
-AGE_KEY="$2"
+# ${2:-} not $2: under `set -u` the --target form has no second argument and a bare $2
+# aborts the script before it does anything.
+AGE_KEY="${2:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-NIX_DIR="$SCRIPT_DIR/.."
+# Resolved rather than "$SCRIPT_DIR/..", so every path this script prints is readable.
+NIX_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOST_DIR="$NIX_DIR/hosts/$HOSTNAME"
 
 if [ -d "$HOST_DIR" ]; then
-  echo "Error: $HOST_DIR already exists"
+  echo "Error: $HOST_DIR already exists" >&2
+  echo "       To add a sops recipient to an existing host, use add-sops-recipient.sh" >&2
   exit 1
 fi
 
-# Generate the host's age key remotely and harvest the public half. Idempotent: an existing
-# key is reused, never regenerated -- regenerating would orphan every secret already
-# encrypted to it.
+# Everything before the first write happens up here, so an ssh or 1Password failure leaves
+# the repo untouched. Once HOST_DIR exists there is state to clean up, hence the trap.
 if [ -n "$TARGET" ]; then
-  echo "==> Generating age key on $TARGET"
-  ssh -o StrictHostKeyChecking=accept-new "$TARGET" \
-    "sudo mkdir -p /var/lib/sops-nix && sudo chmod 700 /var/lib/sops-nix"
-  if ssh "$TARGET" "sudo test -f /var/lib/sops-nix/key.txt"; then
-    echo "    Key already exists, reusing"
-  else
-    ssh "$TARGET" \
-      "sudo sh -c 'age-keygen -o /var/lib/sops-nix/key.txt 2>/dev/null && chmod 600 /var/lib/sops-nix/key.txt'"
-  fi
-  AGE_KEY=$(ssh "$TARGET" "sudo age-keygen -y /var/lib/sops-nix/key.txt")
-  echo "    Public key: $AGE_KEY"
+  AGE_KEY=$("$SCRIPT_DIR/host-age-key.sh" --target "$TARGET" "$HOSTNAME")
 fi
 
 if [ -z "$AGE_KEY" ]; then
-  echo "Error: no age public key (pass one as the second argument, or use --target)"
+  echo "Error: no age public key (pass one as the second argument, or use --target)" >&2
   exit 1
 fi
 
+partial_state_hint() {
+  status=$?
+  [ "$status" -eq 0 ] && return 0
+  echo "" >&2
+  echo "add-host.sh failed partway. Clean up before re-running -- the 'already exists'" >&2
+  echo "check will otherwise refuse:" >&2
+  echo "  rm -rf $HOST_DIR" >&2
+  echo "  git checkout -- nix/secrets/.sops.yaml" >&2
+  return 0
+}
+trap partial_state_hint EXIT
+
 STATE_VERSION=$(grep 'nixpkgs.url' "$NIX_DIR/flake.nix" | sed 's/.*nixos-\([0-9.]*\).*/\1/')
 
-echo "==> Creating $HOST_DIR/default.nix (stateVersion $STATE_VERSION)"
+echo "==> Creating $HOST_DIR/default.nix (stateVersion $STATE_VERSION, $SYSTEM)"
 mkdir -p "$HOST_DIR"
-if [ "$PROXMOX" = true ]; then
-  cat > "$HOST_DIR/default.nix" << EOF
-{ ... }: {
-  imports = [
-    ../proxmox-vm-hardware.nix
-    ../../modules/proxmox-guest.nix
-  ];
-  networking.hostName = "$HOSTNAME";
-  system.stateVersion = "$STATE_VERSION";
-}
-EOF
-else
-  cat > "$HOST_DIR/default.nix" << EOF
-{ ... }: {
-  networking.hostName = "$HOSTNAME";
-  system.stateVersion = "$STATE_VERSION";
-}
-EOF
-fi
 
-echo "==> Adding age key to .sops.yaml"
-sed -i.bak "/^creation_rules:/i\\
-  - &$HOSTNAME $AGE_KEY
-" "$NIX_DIR/secrets/.sops.yaml"
-sed -i.bak "/- \*operator/a\\
-        - *$HOSTNAME
-" "$NIX_DIR/secrets/.sops.yaml"
-rm -f "$NIX_DIR/secrets/.sops.yaml.bak"
+# Imports are grouped the way the rest of hosts/ groups them: hardware, then capabilities,
+# then stack bundles. An invalid --system is not validated here -- nixpkgs.hostPlatform
+# throws at eval, so a typo fails loudly and only affects this one new file.
+{
+  echo '{ ... }: {'
+  if [ "$PROXMOX" = true ] || [ "$TAILSCALE" = true ]; then
+    echo '  imports = ['
+    if [ "$PROXMOX" = true ]; then
+      echo '    # hardware'
+      echo '    ../proxmox-vm-hardware.nix'
+      echo '    ../../modules/proxmox-guest.nix'
+    fi
+    if [ "$TAILSCALE" = true ]; then
+      echo '    # capabilities'
+      echo '    ../../modules/tailscale.nix'
+    fi
+    echo '  ];'
+    echo ''
+  fi
+  echo "  nixpkgs.hostPlatform = \"$SYSTEM\";"
+  echo "  networking.hostName = \"$HOSTNAME\";"
+  echo "  system.stateVersion = \"$STATE_VERSION\";"
+  echo '}'
+} > "$HOST_DIR/default.nix"
 
-echo "==> Adding host to flake.nix"
-EXTRA_MODULES=""
-if [ "$TAILSCALE" = true ]; then
-  EXTRA_MODULES="$EXTRA_MODULES ./modules/tailscale.nix"
-fi
-if [ -n "$EXTRA_MODULES" ]; then
-  MODULES_LIST=$(echo "$EXTRA_MODULES" | sed 's/ /\\n        /g')
-  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" \"$SYSTEM\" [\\
-        $MODULES_LIST\\
-      ];\\
-      # END_HOSTS|" "$NIX_DIR/flake.nix"
-else
-  sed -i.bak "s|# END_HOSTS|$HOSTNAME = mkHost \"$HOSTNAME\" \"$SYSTEM\" [];\\
-      # END_HOSTS|" "$NIX_DIR/flake.nix"
-fi
-rm -f "$NIX_DIR/flake.nix.bak"
+"$SCRIPT_DIR/add-sops-recipient.sh" "$HOSTNAME" "$AGE_KEY"
 
-echo "==> Adding deploy node to flake.nix"
-sed -i.bak "s|# END_DEPLOY_NODES|$HOSTNAME = {\\
-        hostname = fqdn \"$HOSTNAME\";\\
-        sshUser = \"services\";\\
-        remoteBuild = true;\\
-        profiles.system = {\\
-          user = \"root\";\\
-          path = deployPkgs.$SYSTEM.deploy-rs.lib.activate.nixos self.nixosConfigurations.$HOSTNAME;\\
-        };\\
-      };\\
-      # END_DEPLOY_NODES|" "$NIX_DIR/flake.nix"
-rm -f "$NIX_DIR/flake.nix.bak"
+trap - EXIT
 
-# Re-encrypt secrets.yaml so it includes the new host's age key as a recipient. Without
-# this the host cannot decrypt anything, and services-user-password-hash is
-# neededForUsers -- it fails at user activation, not at first use.
-echo "==> Re-encrypting secrets for the new recipient"
-"$SCRIPT_DIR/populate-secrets-from-op.sh"
-
-# Deliberately no git operations: this repo stages only, the user commits.
 echo ""
-echo "==> Done. Files modified:"
-echo "    $HOST_DIR/default.nix (created)"
+echo "==> Done. Files changed:"
+echo "    $HOST_DIR/default.nix (created -- this is what registers the host)"
 echo "    nix/secrets/.sops.yaml (age key added)"
-echo "    nix/flake.nix (host + deploy node added)"
 echo "    nix/secrets/{secrets.yaml,vars.nix}, nix/modules/ssh-keys.nix (regenerated)"
 echo ""
 echo "Next steps:"
-echo "  1. Review the generated files, and the host config in $HOST_DIR/default.nix"
+echo "  1. Add capability modules to $HOST_DIR/default.nix as needed"
 echo "  2. Validate: nix/scripts/nix-shell.sh flake check"
 echo "  3. Deploy:   nix/scripts/deploy-host.sh $HOSTNAME"

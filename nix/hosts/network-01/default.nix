@@ -1,16 +1,27 @@
-{ config, pkgs, vars, ... }:
+{ config, lib, pkgs, vars, dsm, nim, ... }:
 let
   adguardhome-sync = pkgs.callPackage ../../pkgs/adguardhome-sync.nix {};
 in {
   imports = [
+    # hardware
     ../proxmox-vm-hardware.nix
     ../../modules/proxmox-guest.nix
+    # capabilities
     ../../modules/tailscale.nix
+    dsm.nixosModules.dsm-provider
+    nim.nixosModules.default
+    # stack
     ../../modules/network.nix
   ];
 
+  nixpkgs.hostPlatform = "x86_64-linux";
   networking.hostName = "network-01";
   system.stateVersion = "25.11";
+
+  # network-inventory-manager ships as a flake input; its package comes from the overlay.
+  nixpkgs.overlays = [ nim.overlays.default ];
+  nixpkgs.config.allowUnfreePredicate = pkg:
+    builtins.elem (lib.getName pkg) [ "1password-cli" ];
 
   homelab.network = {
     enable = true;
@@ -102,6 +113,7 @@ in {
 
   services.network-inventory-manager = {
     enable = true;
+    package = pkgs.network-inventory-manager;
     settings = {
       # Straight to docker-01's published port, not the Traefik name. Reaching DSM
       # by DNS made NIM depend on a rewrite NIM itself manages: the 2026-08-06 sync
