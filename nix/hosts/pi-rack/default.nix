@@ -1,4 +1,4 @@
-{ config, vars, dsm, nixos-raspberrypi, ... }: {
+{ config, vars, nixos-raspberrypi, ... }: {
   imports = [
     # hardware -- nixos-raspberrypi supplies the bootloader, kernel and firmware;
     # rpi4.nix supplies the on-disk layout, which that flake deliberately omits.
@@ -12,10 +12,8 @@
     nixos-raspberrypi.nixosModules.raspberry-pi-4.base
     ../../modules/rpi4.nix
     # capabilities
-    ../../modules/tailscale.nix
     ../../modules/nut.nix
-    dsm.nixosModules.dsm-provider
-    # stack
+    # stack -- brings tailscale.nix and dsm-provider with it
     ../../modules/network.nix
   ];
 

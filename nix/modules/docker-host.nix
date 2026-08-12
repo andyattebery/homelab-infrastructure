@@ -4,10 +4,10 @@
 # Its sops secret diun-pushover-token and the matching secrets.yaml.tpl entry are
 # pre-provisioned for the same reason; they are not orphans.
 #
-# Requires dsm-provider (flake input) imported alongside it: it sets
-# services.dsm-provider.providers, and without that module evaluation fails on an unknown
-# option.
-{ config, lib, pkgs, ... }:
+# Imports dsm-provider, which it configures at :86-92 (services.dsm-provider.providers). Safe
+# alongside network.nix, which imports it too: its exported module carries an explicit `key`,
+# so the duplicate collapses rather than conflicting.
+{ config, lib, pkgs, dsm, ... }:
 let
   cfg = config.services.docker-compose;
   docker = config.virtualisation.docker.package;
@@ -46,6 +46,8 @@ let
     };
   };
 in {
+  imports = [ dsm.nixosModules.dsm-provider ];
+
   options.services.docker-compose = lib.mkOption {
     type = lib.types.attrsOf (lib.types.submodule stackOpts);
     default = {};

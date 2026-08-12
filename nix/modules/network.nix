@@ -1,13 +1,25 @@
 # Stack bundle: AdGuard Home + keepalived VRRP + ACME, and nginx when reverseProxy.enable.
 #
-# Requires two modules imported alongside it, neither of which it can import itself:
-#   - tailscale.nix        -- it sets services.tailscale.{authKeyFile,extraUpFlags,extraSetFlags}
-#   - dsm-provider (input) -- it sets services.dsm-provider.{enable,apiUrl,services}
-# Without either, evaluation fails on an unknown option rather than anything descriptive.
-{ config, lib, pkgs, vars, ... }:
+# Imports the two modules it configures unconditionally, so a host gets them by importing this
+# one and does not have to know they are needed:
+#   - tailscale.nix        -- this sets services.tailscale.{authKeyFile,extraUpFlags,extraSetFlags},
+#                             including --advertise-exit-node and --advertise-routes. The exit node
+#                             is a property of this stack, not of the machine.
+#   - dsm-provider (input) -- this sets services.dsm-provider.{enable,apiUrl,services}
+#
+# Both stay opt-in capabilities in their own right: a host wanting Tailscale or dashboard entries
+# without this stack imports them directly. Importing dsm-provider here AND from a host file is
+# safe -- its exported module carries an explicit `key`, so the duplicate collapses instead of
+# conflicting on services.dsm-provider.package.
+{ config, lib, pkgs, vars, dsm, ... }:
 let
   cfg = config.homelab.network;
 in {
+  imports = [
+    ./tailscale.nix
+    dsm.nixosModules.dsm-provider
+  ];
+
   options.homelab.network = {
     enable = lib.mkEnableOption "network host role";
 

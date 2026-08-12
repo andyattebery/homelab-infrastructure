@@ -45,11 +45,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1786084285,
-        "narHash": "sha256-EaZ5HzYo3vUuWnTsOm13m2H1JjbGxjmyBWzsjJlgPFE=",
+        "lastModified": 1786506007,
+        "narHash": "sha256-dOtmP/mt6LuRfDlViqKv5ziFttU0sRaBpo9avd2PmF8=",
         "owner": "andyattebery",
         "repo": "dashboard-services-manager",
-        "rev": "98d0948603b106efadc2eccd7d028b886727cbde",
+        "rev": "e29029e9a4fe14643c00f06e577faa0fd3367d24",
         "type": "github"
       },
       "original": {

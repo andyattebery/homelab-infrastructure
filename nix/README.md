@@ -85,11 +85,22 @@ that do not want it, or silently missing from hosts that do.
 
 If a host could reasonably decline it, it is a capability and does not belong in `base.nix`.
 
-Modules from flake inputs (`dsm`, `nim`, `nixos-raspberrypi`) are imported by host files too — they
-arrive through `specialArgs`, which reaches a module before evaluation and so may be used in that
-module's own `imports`. A few modules need others alongside them and say so in their header comment:
-`network.nix` needs `tailscale.nix` and `dsm-provider`, `docker-host.nix` needs `dsm-provider`, and
-`tailscale.nix` needs `base.nix` for `pkgs-unstable`.
+Modules from flake inputs (`dsm`, `nim`, `nixos-raspberrypi`) arrive through `specialArgs`, which
+reaches a module before evaluation and so may be used in that module's own `imports` — by a host file
+or by another module.
+
+**A stack bundle imports its own dependencies.** `network.nix` configures `tailscale.nix` and
+`dsm-provider` unconditionally, so it imports both, and a host gets them by importing `network.nix`
+without having to know they are involved. `docker-host.nix` imports `dsm-provider` for the same
+reason. Both stay opt-in capabilities in their own right: a host wanting Tailscale or dashboard
+entries without the AdGuard stack imports them directly.
+
+Importing `dsm-provider` from two places at once is safe because its exported module carries an
+explicit `key`. That is not automatic — a flake module exported as a bare function gets a fresh dedup
+key per import site, so a second import re-declares its options and evaluation fails. Only a path, or
+an explicit `key`, dedups. Worth knowing before importing any flake's module from more than one place.
+
+`tailscale.nix` still needs `base.nix` for `pkgs-unstable`, which `mkHost` always supplies.
 
 `vars` (from `secrets/vars.nix`) provides infrastructure values at Nix eval time -- domain name, subnet CIDR, DNS VIP, ACME email. These are available in any module via `{ vars, ... }:` in the function args.
 

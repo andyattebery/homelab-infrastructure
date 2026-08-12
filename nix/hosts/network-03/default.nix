@@ -1,12 +1,9 @@
-{ vars, dsm, ... }: {
+{ vars, ... }: {
   imports = [
     # hardware
     ../proxmox-vm-hardware.nix
     ../../modules/proxmox-guest.nix
-    # capabilities
-    ../../modules/tailscale.nix
-    dsm.nixosModules.dsm-provider
-    # stack
+    # stack -- brings tailscale.nix and dsm-provider with it
     ../../modules/network.nix
   ];
 

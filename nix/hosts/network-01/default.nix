@@ -1,4 +1,4 @@
-{ config, lib, pkgs, vars, dsm, nim, ... }:
+{ config, lib, pkgs, vars, nim, ... }:
 let
   adguardhome-sync = pkgs.callPackage ../../pkgs/adguardhome-sync.nix {};
 in {
@@ -7,10 +7,8 @@ in {
     ../proxmox-vm-hardware.nix
     ../../modules/proxmox-guest.nix
     # capabilities
-    ../../modules/tailscale.nix
-    dsm.nixosModules.dsm-provider
     nim.nixosModules.default
-    # stack
+    # stack -- brings tailscale.nix and dsm-provider with it
     ../../modules/network.nix
   ];
 
