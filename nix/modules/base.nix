@@ -130,4 +130,18 @@ in {
   services.timesyncd.enable = true;
   networking.timeServers = [ "0.us.pool.ntp.org" "1.us.pool.ntp.org" "2.us.pool.ntp.org" "3.us.pool.ntp.org" ];
   nix.settings.experimental-features = [ "nix-command" "flakes" ];
+
+  # Count-based generation retention, run weekly. NixOS has no built-in equivalent:
+  # nix.gc only offers --delete-older-than (time-based), which would not have
+  # prevented network-01 filling its disk -- it had generations back to system-1.
+  #
+  # Only `clean` is enabled, not `programs.nh.enable`. The service invokes nh through
+  # lib.getExe, so this does not add the CLI to every host's closure.
+  #
+  # `nh clean all` also removes gcroots and runs `nix store --gc`, which is what
+  # actually reclaims the space -- deleting generations alone only unreferences them.
+  programs.nh.clean = {
+    enable = true;
+    extraArgs = "--keep 3";
+  };
 }
