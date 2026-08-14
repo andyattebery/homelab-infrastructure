@@ -54,9 +54,14 @@ it succeeded cannot report that the fixer is gone.
 
 ## Traps
 
-- **`probe_success` is emitted on both branches** so the series never vanishes. That matters
-  because the Grafana rule uses `noDataState: Alerting` — a disappearing series is treated as a
-  failure, and a metric that only appears on success would fire constantly.
+- **`probe_success` is emitted on both branches** so the series never vanishes, and a `0` is a
+  probe that genuinely failed rather than a collector that stopped running. Those are different
+  faults and the alert distinguishes them: the `== 0` arm catches the first, an `absent()` arm
+  catches the second.
+- **Do not alert on this metric with `noDataState: Alerting`.** The rule's arms are filtering
+  comparisons, so a *healthy* BMC returns no samples too — `NoData` therefore cannot tell healthy
+  from missing, and setting it to `Alerting` makes the rule fire continuously while everything is
+  fine. That shipped once and had to be undone. `absent()` is the correct tool for a missing series.
 - **A probe that lands during a certificate rotation fails, legitimately.** Installing a
   certificate soft-resets the BMC web service. This was observed on the first deploy: the collector
   ran in the same minute as the upload and wrote `probe_success 0` on a BMC that was fine seconds
