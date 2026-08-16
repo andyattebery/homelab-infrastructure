@@ -2,15 +2,21 @@
 #
 # gpu-mode — give exactly one consumer the GPU.
 #
-# The RX 9070 XT has 16 GB and three consumers that each want most of it: ComfyUI,
-# llama-server (via llama-swap), and gaming (Steam/gamescope). They cannot share.
-# Measured: the same 8k-token prompt took >900 s with ComfyUI resident vs 45 s without,
-# with EVICTED_TIME going 772,000 ms -> 52 ms. It is not a throughput problem — the
-# amdgpu driver thrashes allocations between VRAM and GTT once free VRAM approaches zero.
+# The RX 9070 XT has 16 GB and four consumers that each want most of it: ComfyUI,
+# llama-server (via llama-swap), the Tdarr transcode node, and gaming (Steam/gamescope).
+# They cannot share. Measured: the same 8k-token prompt took >900 s with ComfyUI resident
+# vs 45 s without, with EVICTED_TIME going 772,000 ms -> 52 ms. It is not a throughput
+# problem — the amdgpu driver thrashes allocations between VRAM and GTT once free VRAM
+# approaches zero.
 #
 # This stops the llama-swap CONTAINER rather than just unloading the model, because
 # Onyx can trigger a load at any time and would otherwise pull ~10 GiB back onto the
 # card mid-game.
+#
+# Tdarr is the one consumer whose work is LOST rather than deferred when it is stopped:
+# an in-flight transcode dies and its partial output in /temp is wasted. The server
+# re-queues the file, so nothing is corrupted — but a mode switch mid-batch throws away
+# however far that one file had got.
 #
 # Managed by Ansible: ansible/files/htpc-01/gpu-mode.sh
 # Background: docs/llama-swap-htpc-01-tuning.md
@@ -21,6 +27,7 @@ set -euo pipefail
 
 COMFY_UNIT=comfyui.service
 LLM_UNIT=llama-swap.service
+TDARR_UNIT=tdarr-node.service
 
 # Free-VRAM floor to reach before starting the next consumer. The desktop and
 # compositor hold ~1.3 GB at idle, so this is "the previous consumer has let go",
@@ -146,40 +153,61 @@ status() {
     "$(boot_enabled $COMFY_UNIT && echo yes || echo no)"
   printf 'llama-swap: %-10s boot=%s\n' "$(systemctl is-active $LLM_UNIT)" \
     "$(boot_enabled $LLM_UNIT && echo yes || echo no)"
+  printf 'Tdarr:      %-10s boot=%s\n' "$(systemctl is-active $TDARR_UNIT)" \
+    "$(boot_enabled $TDARR_UNIT && echo yes || echo no)"
   if is_active "$LLM_UNIT"; then
     local running
     running="$(podman exec llama-swap curl -sf --max-time 5 localhost:8080/running 2>/dev/null || true)"
     printf 'models:     %s\n' "${running:-<llama-swap not answering>}"
   fi
-  # Name the current mode only when it is unambiguous.
-  if is_active "$COMFY_UNIT" && is_active "$LLM_UNIT"; then
-    echo "mode:       CONTENDED — both consumers running, expect VRAM thrashing"
+  # Name the current mode only when it is unambiguous. Counted rather than nested, so
+  # adding a fifth consumer does not need a new branch. if/then rather than `cmd && n=$((n+1))`
+  # because the latter's exit status under `set -e` is not portable.
+  local active=0
+  if is_active "$COMFY_UNIT"; then active=$((active + 1)); fi
+  if is_active "$LLM_UNIT";   then active=$((active + 1)); fi
+  if is_active "$TDARR_UNIT"; then active=$((active + 1)); fi
+  if [ "$active" -gt 1 ]; then
+    echo "mode:       CONTENDED — $active consumers running, expect VRAM thrashing"
   elif is_active "$COMFY_UNIT"; then echo "mode:       comfy"
-  elif is_active "$LLM_UNIT"; then  echo "mode:       llm"
-  else echo "mode:       game (neither container is running)"
+  elif is_active "$LLM_UNIT"; then   echo "mode:       llm"
+  elif is_active "$TDARR_UNIT"; then echo "mode:       tdarr"
+  else echo "mode:       game (no container is running)"
   fi
 }
 
 case "${1:-}" in
   game)
     echo "gpu-mode: game — releasing the GPU entirely"
+    stop_unit "$TDARR_UNIT"
     stop_unit "$LLM_UNIT"
     stop_unit "$COMFY_UNIT"
     wait_for_release
     ;;
   comfy)
     echo "gpu-mode: comfy"
+    stop_unit "$TDARR_UNIT"
     stop_unit "$LLM_UNIT"
     wait_for_release
     start_unit "$COMFY_UNIT"
     ;;
   llm)
     echo "gpu-mode: llm"
+    stop_unit "$TDARR_UNIT"
     stop_unit "$COMFY_UNIT"
     wait_for_release
     start_unit "$LLM_UNIT"
     # llama-swap loads a model only on the first request, so the card stays free
     # until something actually asks for one.
+    ;;
+  tdarr)
+    echo "gpu-mode: tdarr"
+    stop_unit "$COMFY_UNIT"
+    stop_unit "$LLM_UNIT"
+    wait_for_release
+    start_unit "$TDARR_UNIT"
+    # Unlike the other two this starts working immediately, as soon as the server has
+    # a queued file to hand it.
     ;;
   status|"")
     status
@@ -187,22 +215,27 @@ case "${1:-}" in
     ;;
   *)
     cat >&2 <<'USAGE'
-Usage: gpu-mode {game|comfy|llm|status}
+Usage: gpu-mode {game|comfy|llm|tdarr|status}
 
-  game    stop both ComfyUI and llama-swap, leaving the card to Steam/gamescope
-  comfy   stop llama-swap, start ComfyUI
-  llm     stop ComfyUI, start llama-swap
+  game    stop all three containers, leaving the card to Steam/gamescope
+  comfy   stop llama-swap and Tdarr, start ComfyUI
+  llm     stop ComfyUI and Tdarr, start llama-swap
+  tdarr   stop ComfyUI and llama-swap, start the Tdarr transcode node
   status  show VRAM, unit states and any loaded model
 
 While not in 'llm' mode, Onyx cannot generate — retrieval, indexing, web search and
 the UI are unaffected, but chat returns a connection error. That is the intended
 trade, not a fault.
 
+Switching away from 'tdarr' kills any in-flight transcode. The server re-queues the
+file, so nothing is lost permanently, but the partial output in /temp is wasted work.
+Prefer switching between batches.
+
 The selected mode survives reboots: it is stored as a Quadlet [Install] drop-in per
 container, which is what decides whether that container starts at boot.
 
-Neither GPU container has an [Install] of its own, so on a freshly provisioned host
-neither starts at boot until gpu-mode has been run once.
+None of the three GPU containers has an [Install] of its own, so on a freshly
+provisioned host none starts at boot until gpu-mode has been run once.
 USAGE
     exit 1
     ;;

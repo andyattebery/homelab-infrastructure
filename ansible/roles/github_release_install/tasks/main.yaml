@@ -48,22 +48,51 @@
 # Run the version command only if the binary exists. failed_when: false
 # so a binary that lacks --version doesn't kill the run — installed
 # version just stays empty and the install fires (same as a fresh host).
+# Skipped entirely when stamping: the stamp is the source of truth, and
+# there is no reason to execute the binary to learn something it cannot tell us.
 - name: Get installed binary version
-  when: github_release_install_binary_stat.stat.exists
+  when:
+    - not (github_release_install_use_tag_stamp | bool)
+    - github_release_install_binary_stat.stat.exists
   ansible.builtin.command: "{{ github_release_install_version_command }}"
   changed_when: false
   failed_when: false
   register: github_release_install_version_result
 
+- name: Stat release tag stamp
+  when: github_release_install_use_tag_stamp | bool
+  ansible.builtin.stat:
+    path: "{{ github_release_install_tag_stamp_path }}"
+  register: github_release_install_stamp_stat
+
+- name: Read release tag stamp
+  when:
+    - github_release_install_use_tag_stamp | bool
+    - github_release_install_stamp_stat.stat.exists | default(false)
+  ansible.builtin.slurp:
+    src: "{{ github_release_install_tag_stamp_path }}"
+  register: github_release_install_stamp_content
+
+# The stamp compares the RAW tag_name, not the 'v'-stripped form the version
+# command path uses. The stamp is written from that same field, so the two sides
+# cannot disagree about stripping.
 - name: Decide whether install is needed
   vars:
-    latest_version: "{{ github_release_install_release_response.json.tag_name | regex_replace('^v', '') }}"
+    release_tag_name: "{{ github_release_install_release_response.json.tag_name }}"
+    latest_version: "{{ release_tag_name | regex_replace('^v', '') }}"
     installed_version_match: "{{ (github_release_install_version_result.stdout | default('')) | regex_search(github_release_install_version_regex, '\\1') }}"
     installed_version: "{{ (installed_version_match | first | default('')) if installed_version_match else '' }}"
+    stamped_tag: >-
+      {{ (github_release_install_stamp_content | default({})).content
+         | default('') | b64decode | trim }}
+    current_matches: >-
+      {{ (stamped_tag == release_tag_name)
+         if (github_release_install_use_tag_stamp | bool)
+         else (installed_version == latest_version) }}
   ansible.builtin.set_fact:
     github_release_install_needs_install: >-
       {{ not github_release_install_binary_stat.stat.exists
-         or installed_version != latest_version }}
+         or not (current_matches | bool) }}
 
 - name: Install
   when: github_release_install_needs_install
@@ -117,3 +146,25 @@
         dest: "{{ github_release_install_binary_path }}"
         mode: "0755"
         owner: root
+
+    # Last install step on purpose. A failed download or extract aborts the block
+    # before this runs, leaving the previous stamp (or none) in place, so the next
+    # run retries instead of believing itself converged.
+    - name: Write release tag stamp
+      when: github_release_install_use_tag_stamp | bool
+      ansible.builtin.copy:
+        content: "{{ github_release_install_release_response.json.tag_name }}\n"
+        dest: "{{ github_release_install_tag_stamp_path }}"
+        mode: "0644"
+        owner: root
+
+  # Outside the block's task list but inside the same `when`, so it runs whether or
+  # not the install succeeded: unarchive extracts the WHOLE archive, not just the
+  # requested binary, and nothing else removes the directory. On a host with a tmpfs
+  # /tmp that is RAM held until reboot, and it accumulates one archive per run.
+  always:
+    - name: Remove temp directory
+      when: github_release_install_tempdir.path is defined
+      ansible.builtin.file:
+        path: "{{ github_release_install_tempdir.path }}"
+        state: absent

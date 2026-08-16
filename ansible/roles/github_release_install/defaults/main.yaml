@@ -15,3 +15,21 @@ github_release_install_version_regex: '([0-9]+\.[0-9]+\.[0-9]+)'
 # _version_command to `echo <tag>` (+ regex '(.*)') so idempotency compares
 # the pinned tag against the release tag_name.
 github_release_install_release_tag: ""
+
+# Record the installed release tag in a file beside the binary, and compare THAT
+# against the release's tag_name next run, instead of asking the binary for its
+# version. The version command is not run at all in this mode.
+#
+# For builds whose compiled-in version cannot equal the release tag: a fork that
+# appends its own suffix to an upstream version, a build whose tag carries a
+# component the binary knows nothing about, anything where no regex over the
+# version output can ever match.
+#
+# Different from the `_version_command: "echo <tag>"` idiom, which compares a
+# pinned string against itself: that is idempotent but NEVER reinstalls when the
+# pin is bumped, because both sides move together and the binary already exists.
+# The stamp compares what is actually installed against what the release now
+# offers, so bumping a pin — or publishing a new release while following
+# 'latest' — does reinstall.
+github_release_install_use_tag_stamp: false
+github_release_install_tag_stamp_path: "{{ github_release_install_binary_path }}.release-tag"

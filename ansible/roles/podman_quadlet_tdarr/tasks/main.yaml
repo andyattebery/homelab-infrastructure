@@ -1,0 +1,106 @@
+---
+- name: Assert tdarr node inputs are provided
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_tdarr_server_ip | length > 0
+      - podman_quadlet_tdarr_puid | string | length > 0
+      - podman_quadlet_tdarr_pgid | string | length > 0
+      - podman_quadlet_tdarr_data_dir | length > 0
+      - podman_quadlet_tdarr_transcode_cache_dir | length > 0
+    fail_msg: >-
+      podman_quadlet_tdarr needs all of: podman_quadlet_tdarr_server_ip (without it the node
+      retries forever and never joins the server's node list); _puid and _pgid (the identity
+      Tdarr runs as, which must match the owner of the library mounts or the node can read
+      the library but not write to it); _data_dir (holds the node's identity AND its pinned
+      server URL); and _transcode_cache_dir (a wrong path fills whichever filesystem it
+      lands on). None has a default, because every wrong value here fails silently.
+
+- name: Assert tdarr library mounts are provided
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_tdarr_mounts | length > 0
+      - podman_quadlet_tdarr_mounts | rejectattr('src', 'defined') | list | length == 0
+      - podman_quadlet_tdarr_mounts | rejectattr('dest', 'defined') | list | length == 0
+    fail_msg: >-
+      Set podman_quadlet_tdarr_mounts to at least one {src, dest} entry. A node with nothing
+      mounted registers, reports healthy and processes nothing. `dest` is not free choice:
+      nodeType=mapped means the server hands this node absolute paths from its own view, so
+      each dest must be the path the SERVER uses for that data.
+
+- name: Deploy CIFS mounts
+  when: podman_quadlet_tdarr_manage_mounts | bool
+  ansible.builtin.include_tasks: mounts.yaml
+
+- name: Create tdarr node directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ podman_quadlet_tdarr_puid }}"
+    group: "{{ podman_quadlet_tdarr_pgid }}"
+    mode: "0755"
+  loop:
+    - "{{ podman_quadlet_tdarr_data_dir }}"
+    - "{{ podman_quadlet_tdarr_transcode_cache_dir }}"
+
+# NOT redundant with the container's RequiresMountsFor=, which does not catch this.
+# systemd.unit(5) on RequiresMountsFor: it "adds dependencies of type Requires= and After=
+# for all mount units required to access the specified path". A path that is not itself a
+# mount point therefore resolves to the nearest PARENT mount, which exists — so the unit
+# starts cleanly against an empty directory and the node scans an empty library.
+#
+# Worse, the podman_quadlet role creates a directory for every Volume= bind source, so an
+# unmounted path gets silently mkdir-ed on the way past. This check has to run before that.
+#
+# `mountpoint -q` is the idiom this repo already uses to guard a data drive before deploying
+# containers onto it.
+- name: Test whether tdarr library mounts are mounted
+  ansible.builtin.command:
+    cmd: "mountpoint -q {{ item.src }}"
+  changed_when: false
+  failed_when: false
+  loop: "{{ podman_quadlet_tdarr_mounts }}"
+  loop_control:
+    label: "{{ item.src }}"
+  register: __podman_quadlet_tdarr_mountpoint
+
+- name: Assert tdarr library mounts are mounted
+  vars:
+    __unmounted: >-
+      {{ __podman_quadlet_tdarr_mountpoint.results
+         | selectattr('rc', 'ne', 0) | map(attribute='item.src') | list }}
+  ansible.builtin.assert:
+    that: __unmounted | length == 0
+    fail_msg: >-
+      Not mounted: {{ __unmounted | join(', ') }}.
+      {% if podman_quadlet_tdarr_manage_mounts | bool %}
+      podman_quadlet_tdarr_manage_mounts is true, so this role wrote a .mount unit for each
+      of these — the unit failed to mount. Check `systemctl status` for the corresponding
+      *.mount unit and the SMB credentials.
+      {% else %}
+      podman_quadlet_tdarr_manage_mounts is false, so mounting these is the caller's job and
+      it has not happened. Either mount them before this role runs, or set
+      podman_quadlet_tdarr_manage_mounts to true and supply the storage host and SMB
+      credentials.
+      {% endif %}
+
+- name: Deploy tdarr node quadlet
+  vars:
+    # Resolved against THIS role's directory, not podman_quadlet's: verified that both the
+    # template module and lookup('ansible.builtin.template', ...) search the calling role
+    # when one role is included from another.
+    podman_quadlet_src: "templates/tdarr-node.container.j2"
+    # The PUID, not root. The podman_quadlet role chowns every Volume= bind source with a
+    # single owner, and the library mounts are filesystems whose ownership is pinned by
+    # their mount options — chowning those to anything else does not stick and reports
+    # changed on every run. The PUID is a no-op on them and is simultaneously correct for
+    # configs, logs and the transcode cache, which Tdarr writes as that user.
+    podman_quadlet_volume_owner: "{{ podman_quadlet_tdarr_puid }}"
+    podman_quadlet_volume_group: "{{ podman_quadlet_tdarr_pgid }}"
+    podman_quadlet_config_files:
+      - src: "templates/tdarr-node.env.j2"
+        dest: "{{ podman_quadlet_tdarr_data_dir }}/tdarr-node.env"
+        mode: "0600"
+        # Read once at container start, so a changed key does nothing until a restart.
+        restart_service: true
+  ansible.builtin.include_role:
+    name: podman_quadlet

@@ -1,0 +1,96 @@
+[Unit]
+Description=Tdarr node
+{# Every bind-mount source, so the unit orders itself after the mounts. This does NOT
+   substitute for the mountpoint assert in tasks/main.yaml: systemd.unit(5) says
+   RequiresMountsFor "adds dependencies ... for all mount units required to access the
+   specified path", so an unmounted path silently resolves to its nearest parent mount. #}
+RequiresMountsFor={{ podman_quadlet_tdarr_data_dir }} {{ podman_quadlet_tdarr_transcode_cache_dir }}{% for m in podman_quadlet_tdarr_mounts %} {{ m.src }}{% endfor %}{% if podman_quadlet_tdarr_ffmpeg_dir | length > 0 %} {{ podman_quadlet_tdarr_ffmpeg_dir }}{% endif %}
+
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Container]
+Image={{ podman_quadlet_tdarr_image }}
+ContainerName=tdarr-node
+AutoUpdate=registry
+{% for device in podman_quadlet_tdarr_devices %}
+AddDevice={{ device }}
+{% endfor %}
+{% for group in podman_quadlet_tdarr_group_add %}
+GroupAdd={{ group }}
+{% endfor %}
+{% for network in podman_quadlet_tdarr_networks %}
+Network={{ network }}
+{% endfor %}
+SecurityLabelDisable=true
+
+{# apiKey only, at 0600 — this unit file is world-readable at 0644. #}
+EnvironmentFile={{ podman_quadlet_tdarr_data_dir }}/tdarr-node.env
+
+{# One Environment= per variable. systemd accepts space-separated pairs on a single line,
+   but nothing else in this repo writes them that way.
+
+   The set below is the documented tdarr_node example from docs.tdarr.io, minus the NVIDIA
+   and WSL variables — this role expresses accelerators as AddDevice= instead.
+
+   ffmpegPath is emitted only when podman_quadlet_tdarr_ffmpeg_dir is set. It names the
+   binary inside the bind-mounted directory, which is why that directory must hold the
+   ffmpeg payload and nothing else.
+
+   Note nodeIP/nodePort are absent on purpose: legacy since Tdarr 2.00.17, because the node
+   connects outbound to the server and listens for nothing. That is also why this unit
+   publishes no ports. #}
+Environment=TZ={{ podman_quadlet_tdarr_timezone }}
+Environment=PUID={{ podman_quadlet_tdarr_puid }}
+Environment=PGID={{ podman_quadlet_tdarr_pgid }}
+Environment=UMASK_SET=002
+Environment=nodeName={{ podman_quadlet_tdarr_node_name }}
+Environment=serverIP={{ podman_quadlet_tdarr_server_ip }}
+Environment=serverPort={{ podman_quadlet_tdarr_server_port }}
+Environment=inContainer=true
+{# Selects among the builds bundled in the image. Left in place when ffmpegPath is set:
+   they are separate settings, and the image still wants a valid value here. #}
+Environment=ffmpegVersion=7
+{% if podman_quadlet_tdarr_ffmpeg_dir | length > 0 %}
+Environment=ffmpegPath={{ podman_quadlet_tdarr_ffmpeg_container_dir }}/ffmpeg
+{% endif %}
+{# mapped = the node acts on the server's own absolute paths, which is why each Volume=
+   dest below has to be the path the server uses. #}
+Environment=nodeType=mapped
+{# -1 is "unprioritised", not "lowest": 0 is highest, then 1, 2, ... #}
+Environment=priority=-1
+Environment=pollInterval=2000
+Environment=startPaused=false
+Environment=maxLogSizeMB=10
+Environment=cronPluginUpdate=
+Environment=transcodegpuWorkers={{ podman_quadlet_tdarr_transcode_gpu_workers }}
+Environment=transcodecpuWorkers={{ podman_quadlet_tdarr_transcode_cpu_workers }}
+Environment=healthcheckgpuWorkers={{ podman_quadlet_tdarr_healthcheck_gpu_workers }}
+Environment=healthcheckcpuWorkers={{ podman_quadlet_tdarr_healthcheck_cpu_workers }}
+
+{# /app/configs, /app/logs and /temp are the image's own paths, not host layout. /app/configs
+   also persists the node's identity and its resolved server URL — see the README. #}
+Volume={{ podman_quadlet_tdarr_data_dir }}/configs:/app/configs
+Volume={{ podman_quadlet_tdarr_data_dir }}/logs:/app/logs
+Volume={{ podman_quadlet_tdarr_transcode_cache_dir }}:/temp
+{% if podman_quadlet_tdarr_ffmpeg_dir | length > 0 %}
+Volume={{ podman_quadlet_tdarr_ffmpeg_dir }}:{{ podman_quadlet_tdarr_ffmpeg_container_dir }}:ro
+{% endif %}
+{% for m in podman_quadlet_tdarr_mounts %}
+Volume={{ m.src }}:{{ m.dest }}
+{% endfor %}
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+{% if podman_quadlet_tdarr_install_wanted_by | length > 0 %}
+
+[Install]
+WantedBy={{ podman_quadlet_tdarr_install_wanted_by }}
+{% else %}
+
+{# No [Install] section: podman_quadlet_tdarr_install_wanted_by is empty, so boot policy is
+   owned by something outside this role — typically a drop-in written by an arbiter script.
+   Consequence: on a freshly provisioned host this node does not start at boot until that
+   something has run once. #}
+{% endif %}

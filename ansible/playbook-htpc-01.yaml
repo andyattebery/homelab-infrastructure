@@ -6,6 +6,11 @@
   vars:
     htpc_data_mount_path: /run/media/system/data
 
+    # Custom ffmpeg for the Tdarr node. /opt is a symlink to /var/opt here and is writable;
+    # a dedicated directory rather than /usr/local/bin because the whole directory is
+    # bind-mounted into the container and must hold nothing else.
+    htpc_ffmpeg_dir: /opt/jellyfin-ffmpeg/bin
+
     # llama-swap / llama.cpp. Sizes and checksums verified against the HuggingFace
     # repo listings, not estimated.
     #
@@ -408,9 +413,133 @@
             # serving the model list it booted with.
             restart_service: true
 
-    # Manual GPU arbitration. ComfyUI, llama-server and gaming cannot share the 16 GB
-    # card — measured: the same 8k prompt took >900 s with ComfyUI resident vs 45 s
-    # without. There is no automatic fix here; this is a script the operator runs.
+    # A jellyfin-ffmpeg build with the AMD encoders this card has. Despite the release tag
+    # naming nvenc (that is the nv-codec-headers pin the fork carries), the binary is a full
+    # GPL build: av1_vaapi, hevc_vaapi, h264_vaapi, av1_amf and tonemap_vaapi are all in it,
+    # and it is configured --enable-vaapi --enable-amf --enable-libdrm. The image's bundled
+    # ffmpeg has nothing the RX 9070 XT can encode AV1 with, which is why the node runs with
+    # zero GPU workers until a VAAPI flow exists.
+    #
+    # Own the directory as the Tdarr PUID, not root: podman_quadlet chowns every Volume=
+    # source to that uid, so a root-owned directory reports changed on every run. On this
+    # host smb_nas_01_uid is 1000, the same as ansible_user — the equality the ComfyUI block
+    # above also depends on.
+    - name: Create jellyfin-ffmpeg directory
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.file:
+        path: "{{ htpc_ffmpeg_dir }}"
+        state: directory
+        owner: "{{ smb_nas_01_uid }}"
+        group: "{{ smb_nas_01_gid }}"
+        mode: "0755"
+
+    # use_tag_stamp, not the `echo <tag>` idiom: this build reports 8.1.2-Jellyfin while the
+    # release is tagged v8.1.2-2+nvenc-n13.0.19.1, so no regex over `ffmpeg -version` can
+    # ever equal the tag and the default comparison would re-download 57 MB every run.
+    #
+    # No _release_tag, so it follows `latest` — the stamp makes that both idempotent and
+    # correct, since it compares the installed tag against the one the release now offers.
+    # It also keeps the `+` out of the API URL.
+    - name: Install jellyfin-ffmpeg (fork build with av1_vaapi and tonemap_vaapi)
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.include_role:
+        name: github_release_install
+        apply:
+          tags: [tdarr, ffmpeg]
+      vars:
+        github_release_install_repo: andyattebery/jellyfin-ffmpeg
+        github_release_install_asset_patterns:
+          x86_64: 'linux64-gpl\.tar\.xz$'
+        github_release_install_archive_type: tarball
+        github_release_install_binary_in_archive: "{{ item }}"
+        github_release_install_binary_path: "{{ htpc_ffmpeg_dir }}/{{ item }}"
+        github_release_install_use_tag_stamp: true
+      # ffprobe as well as ffmpeg, so probing and encoding stay on one build. The archive is
+      # flat and holds exactly these two, statically linked, so nothing else is needed.
+      loop: [ffmpeg, ffprobe]
+
+    # Tdarr transcode node. The role knows nothing about this homelab: it takes a list of
+    # mounts, a list of devices and a WantedBy string, and everything host-shaped is here.
+    - name: Deploy Tdarr node quadlet
+      tags: tdarr
+      ansible.builtin.include_role:
+        name: podman_quadlet_tdarr
+        apply:
+          tags: tdarr
+      vars:
+        # A literal list rather than a filter-built one, so the noserverino distinction is
+        # visible at a glance. (community.general's dict_kv would shorten it and is not in
+        # requirements.yaml — it resolves today only because the venv bundles it.)
+        #
+        # dest is NOT free choice. detectHardlinks derives its `find -samefile` search root
+        # from the first three path components of the file path — /media-raw/<disk>/<x> —
+        # so the per-disk mounts have to land exactly there. /media likewise matches what
+        # the server on media-01 sees, which nodeType=mapped requires: the server hands
+        # this node absolute paths from its own view.
+        #
+        # The pool takes noserverino; the per-disk shares must NOT, because `find -samefile`
+        # needs server-provided inode numbers. mount.cifs(8) has serverino on by default,
+        # so those entries pass no options at all. See docs/tdarr-av1-flow.md.
+        podman_quadlet_tdarr_mounts:
+          - {src: /run/media/system/tdarr_media, dest: /media, share: storage, options: noserverino}
+          - {src: /run/media/system/tdarr_media_raw/data01, dest: /media-raw/data01, share: data01}
+          - {src: /run/media/system/tdarr_media_raw/data02, dest: /media-raw/data02, share: data02}
+          - {src: /run/media/system/tdarr_media_raw/data03, dest: /media-raw/data03, share: data03}
+          - {src: /run/media/system/tdarr_media_raw/data08, dest: /media-raw/data08, share: data08}
+          - {src: /run/media/system/tdarr_media_raw/data11, dest: /media-raw/data11, share: data11}
+          - {src: /run/media/system/tdarr_media_raw/data12, dest: /media-raw/data12, share: data12}
+
+        podman_quadlet_tdarr_server_ip: "tdarr.{{ domain_name }}"
+        podman_quadlet_tdarr_puid: "{{ smb_nas_01_uid }}"
+        podman_quadlet_tdarr_pgid: "{{ smb_nas_01_gid }}"
+        podman_quadlet_tdarr_data_dir: "{{ htpc_data_mount_path }}/tdarr-node"
+        podman_quadlet_tdarr_transcode_cache_dir: "{{ htpc_data_mount_path }}/tdarr-node/temp"
+
+        # Nothing on this host mounts the media shares, so the role makes them. The other
+        # CIFS mount here (nas_01_ai_images, for ComfyUI) is a different share and is
+        # written by this playbook directly, so the two do not collide.
+        podman_quadlet_tdarr_manage_mounts: true
+        podman_quadlet_tdarr_storage_host: nas-01
+        podman_quadlet_tdarr_smb_username: "{{ smb_nas_01_username }}"
+        podman_quadlet_tdarr_smb_password: "{{ smb_nas_01_password }}"
+
+        # VAAPI on the RX 9070 XT. /dev/dri is the DRM render path; no /dev/kfd, because
+        # transcoding does not use ROCm compute the way llama-swap does.
+        #
+        # keep-groups is carried over from llama-swap and is probably inert here: rootful
+        # Podman's caller is root, whose supplementary groups do not include render/video,
+        # and root opens /dev/dri via DAC_OVERRIDE anyway. Drop it if the node is verified
+        # to work without it, rather than keeping a line whose reason does not transfer.
+        podman_quadlet_tdarr_devices: [/dev/dri]
+        podman_quadlet_tdarr_group_add: [keep-groups]
+
+        # The fork build installed above, in place of the image's bundled ffmpeg.
+        podman_quadlet_tdarr_ffmpeg_dir: "{{ htpc_ffmpeg_dir }}"
+
+        # CPU-only for the first deploy. The AV1 flows are NVENC-only — their encode
+        # parameters (-preset p7, -tune uhq, -b_ref_mode middle) do not exist on VAAPI, and
+        # the iPad-kids flow tonemaps with tonemap_cuda. So GPU workers here would take work
+        # this card cannot execute. This proves registration, mounts and permissions first;
+        # raising transcodegpuWorkers waits on a VAAPI flow, which is a new RD measurement
+        # rather than a translation. See docs/tdarr-av1-flow.md.
+        podman_quadlet_tdarr_transcode_gpu_workers: 0
+        podman_quadlet_tdarr_transcode_cpu_workers: 1
+
+        # No Network=, unlike comfyui and llama-swap: nothing proxies a Tdarr node. It has
+        # no web UI, listens on nothing (nodeIP/nodePort have been legacy since 2.00.17),
+        # and only needs egress to reach the server. Joining caddy.network would add an
+        # ordering constraint on podman_quadlet_caddy for no benefit.
+        podman_quadlet_tdarr_networks: []
+
+        # Empty on purpose: boot policy for the GPU containers here belongs to gpu-mode,
+        # which adds and removes a <unit>.container.d/50-gpu-mode.conf drop-in. Same reason
+        # comfyui.container and llama-swap.container carry no [Install]. Consequence: on a
+        # freshly provisioned host the node does not start until gpu-mode has run once.
+        podman_quadlet_tdarr_install_wanted_by: ""
+
+    # Manual GPU arbitration. ComfyUI, llama-server, the Tdarr node and gaming cannot share
+    # the 16 GB card — measured: the same 8k prompt took >900 s with ComfyUI resident vs
+    # 45 s without. There is no automatic fix here; this is a script the operator runs.
     - name: Install gpu-mode script
       tags: gpu-mode
       ansible.builtin.copy:
@@ -419,8 +548,8 @@
         mode: "0755"
 
     # The runner and its unit are generic; only the checks are about this host — they
-    # probe ComfyUI's queue, llama-swap's loaded model, the benchmark lock, and Ansible's
-    # own temp files.
+    # probe ComfyUI's queue, llama-swap's loaded model, the Tdarr node's running ffmpeg,
+    # the benchmark lock, and Ansible's own temp files.
     - name: Inhibit sleep while GPU work is running
       tags: sleep-inhibitor
       ansible.builtin.include_role:

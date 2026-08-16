@@ -5,6 +5,14 @@ installed binary, runs its version command, compares to the latest
 release tag, and only downloads + installs when missing or outdated.
 Does not handle services, users, configs — caller's responsibility.
 
+For builds whose version output can never equal the release tag, see
+`github_release_install_use_tag_stamp` under Optional.
+
+The extraction directory is removed after every install attempt,
+successful or not. `unarchive` extracts the whole archive rather than
+just the requested binary, and on a host with a `tmpfs` `/tmp` that is
+RAM held until reboot.
+
 ## Inputs
 
 Required:
@@ -55,6 +63,44 @@ Optional:
 
   The same pattern tracks a rolling tag such as `latest`:
   `version_command: "echo latest"` with `version_regex: "(.*)"`.
+
+  **What this idiom cannot do:** both sides of the comparison derive
+  from the same string, so it is idempotent but **never reinstalls when
+  the pinned tag is bumped** — the values still match and the binary
+  still exists. That is harmless for a genuinely rolling tag that never
+  changes its name, and silently wrong for a pin you intend to move.
+  Use the tag stamp below when the tag is a real version.
+
+- `github_release_install_use_tag_stamp` — default `false`. When true,
+  the installed release `tag_name` is written to a file beside the
+  binary and compared against the release's `tag_name` on the next run.
+  The version command is not executed at all in this mode.
+
+- `github_release_install_tag_stamp_path` — default
+  `{{ github_release_install_binary_path }}.release-tag`.
+
+  Use the stamp when the binary's own version output **cannot** equal
+  the release tag, no matter the regex — typically a fork that appends
+  a suffix upstream knows nothing about. Example: a build reporting
+  `8.1.2-Jellyfin` published under tag `v8.1.2-2+nvenc-n13.0.19.1`.
+  No capture group over the former can produce the latter, so the
+  default comparison makes `needs_install` true on every run.
+
+  Unlike `echo <tag>`, the stamp compares what is *actually installed*
+  against what the release *now offers*, so bumping a pin — or
+  publishing a new release while following `latest` — does reinstall.
+
+  ```yaml
+  github_release_install_use_tag_stamp: true
+  ```
+
+  The stamp is written as the **last** step of the install, so a failed
+  download or extract leaves the previous stamp in place and the next
+  run retries rather than believing itself converged.
+
+  It compares the raw `tag_name`, not the `v`-stripped form the version
+  command path uses. The stamp is written from that same field, so the
+  two sides cannot disagree about stripping.
 
 ## Examples
 

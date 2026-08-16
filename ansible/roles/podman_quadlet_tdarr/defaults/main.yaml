@@ -1,0 +1,127 @@
+---
+# Connection to the Tdarr server.
+#
+# REQUIRED, asserted: with no server the node starts, retries forever, and never appears in
+# the server's node list — a container that looks healthy and does nothing.
+#
+# WARNING: the node persists its resolved server URL into <data_dir>/configs on first start,
+# and changing serverIP afterwards does NOT update it (HaveAGitGat/Tdarr#912). Changing this
+# value on an already-deployed node is a silent no-op until that file is removed.
+podman_quadlet_tdarr_server_ip: ""
+podman_quadlet_tdarr_server_port: 8266
+podman_quadlet_tdarr_node_name: "{{ inventory_hostname }}"
+
+# API key for server authentication. Empty is correct while the server runs with auth off.
+# Rendered into the EnvironmentFile at mode 0600, never into the unit, because Quadlet units
+# are world-readable at 0644.
+podman_quadlet_tdarr_api_key: ""
+
+# Worker counts. Environment-variable-only on a node — they cannot be changed from the Tdarr
+# UI, so a change here is the only way to change them.
+podman_quadlet_tdarr_transcode_gpu_workers: 0
+podman_quadlet_tdarr_transcode_cpu_workers: 2
+podman_quadlet_tdarr_healthcheck_gpu_workers: 0
+podman_quadlet_tdarr_healthcheck_cpu_workers: 1
+
+# The library, as an opaque list of mounts. REQUIRED and asserted non-empty: a node with
+# nothing mounted registers, reports healthy, and processes nothing.
+#
+# A flat list rather than named slots, because how a library is split across mounts is a
+# property of the storage behind it, not of Tdarr. One entry, ten entries, a merged pool
+# plus per-disk shares, or a plain local directory — all the same to this role.
+#
+#   - src:     host path, bind-mounted into the container. Also the mountpoint when
+#              podman_quadlet_tdarr_manage_mounts is true. Asserted to be a real mountpoint
+#              either way — see tasks/main.yaml for why that check is not redundant.
+#     dest:    container path. Must match what the SERVER sees: nodeType=mapped means the
+#              server hands this node absolute paths from its own view, so a node that
+#              mounts the same data somewhere else cannot act on the work it is given.
+#     share:   manage_mounts only — share name on the storage host.
+#     options: manage_mounts only — extra CIFS options appended after the ones this role
+#              always sets. Optional; empty means the mount.cifs defaults apply.
+podman_quadlet_tdarr_mounts: []
+
+# Quadlet networks, one Network= line each. Empty means the default rootful Podman network,
+# which is all a node needs: it connects outbound to the server and listens for nothing.
+#
+# An input rather than an omission, because "no Network= line" is itself a claim about the
+# host's networking. The failure mode to avoid is docker_compose_tdarr's server template,
+# which hardcodes an external `traefik` network and a traefik.enable label and therefore
+# cannot deploy to a host whose reverse proxy is something else.
+#
+# This role emits no labels at all, for the same reason. A node has no web UI to proxy.
+podman_quadlet_tdarr_networks: []
+
+# Host directory holding an ffmpeg binary to use instead of the one bundled in the image.
+# Empty means use the image's. When set, the directory is bind-mounted read-only and
+# ffmpegPath is pointed at <container_dir>/ffmpeg.
+#
+# A separate input rather than an entry in podman_quadlet_tdarr_mounts, because that list is
+# the library: every entry there is asserted to be a real mountpoint, and an ffmpeg directory
+# is an ordinary directory.
+#
+# The whole directory is mounted, so it must contain the ffmpeg payload and nothing else —
+# pointing this at a general-purpose bin directory hands the container everything in it.
+podman_quadlet_tdarr_ffmpeg_dir: ""
+podman_quadlet_tdarr_ffmpeg_container_dir: /ffmpeg
+
+# Devices and supplementary groups, one AddDevice= / GroupAdd= line each. Empty means no
+# accelerator: the node transcodes on CPU.
+#
+# Lists rather than a boolean, because "GPU" is not one thing. /dev/dri is the VAAPI/DRM
+# path, an NVIDIA host wants nvidia.com/gpu=all through CDI, and a ROCm host also wants
+# /dev/kfd. A boolean would bake one host's accelerator into the role.
+podman_quadlet_tdarr_devices: []
+podman_quadlet_tdarr_group_add: []
+
+# Contents of [Install] WantedBy=. Empty omits the [Install] section entirely, which leaves
+# the unit deployable but not boot-started — for a host where an external arbiter decides
+# whether the node runs at all.
+#
+# Empty is NOT the safer default: it means a freshly provisioned host has a node that never
+# starts until something installs a drop-in. Default to starting at boot, and let the host
+# that needs otherwise say so.
+podman_quadlet_tdarr_install_wanted_by: multi-user.target
+
+# Host paths. REQUIRED with no default, because a wrong-but-valid value fails SILENTLY:
+#
+#   data_dir            — the node registers as a brand-new node with fresh configs. Works.
+#                         Correcting the path later orphans the old identity in the server's
+#                         node list, and this directory also pins the server URL (see above).
+#   transcode_cache_dir — transcodes land on whatever filesystem holds it. Any plausible
+#                         default is a root filesystem somewhere, and a batch fills it.
+podman_quadlet_tdarr_data_dir: ""
+podman_quadlet_tdarr_transcode_cache_dir: ""
+
+# The identity Tdarr runs as, and the identity the library mounts are owned by. REQUIRED:
+# a mismatch means the node reads the library and cannot write to it, which surfaces as a
+# flow failure rather than a permissions error.
+#
+# Not derived from an SMB uid, because with manage_mounts false there is no SMB uid to
+# derive from — the mount could be NFS or local. When this role does manage the mounts it
+# uses these same two values for the CIFS uid=/gid=, so the two identities cannot drift.
+podman_quadlet_tdarr_puid: ""
+podman_quadlet_tdarr_pgid: ""
+
+# CIFS mount machinery.
+#
+#   false — the caller has already mounted every podman_quadlet_tdarr_mounts entry, by
+#           whatever means. Nothing in this block is read or asserted, and this role never
+#           handles a credential. A path that is not actually mounted fails the mountpoint
+#           assert in tasks/main.yaml.
+#   true  — this role writes a credentials file at 0600 and one CIFS .mount unit per entry.
+#           If the caller has ALSO mounted those paths by other means, two definitions fight
+#           over the same mountpoint.
+#
+# Default false because the mount is the part most likely to already exist on a given host.
+podman_quadlet_tdarr_manage_mounts: false
+podman_quadlet_tdarr_storage_host: ""
+podman_quadlet_tdarr_storage_domain: "{{ domain_name }}"
+podman_quadlet_tdarr_smb_username: ""
+podman_quadlet_tdarr_smb_password: ""
+# Role-owned file rather than host layout: any self-consistent value works, since the
+# .mount units point at whatever it is. Hence a default.
+podman_quadlet_tdarr_smb_credentials_path: /etc/tdarr-smb-credentials
+
+podman_quadlet_tdarr_image: ghcr.io/haveagitgat/tdarr_node:latest
+podman_quadlet_tdarr_timezone: "{{ timezone }}"
