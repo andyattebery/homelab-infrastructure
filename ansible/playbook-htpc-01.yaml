@@ -200,6 +200,16 @@
       ansible.builtin.systemd:
         daemon_reload: true
 
+    # The Tdarr node runs this binary from a read-only bind mount, so a replaced ffmpeg
+    # only reaches it on restart. Guarded on the unit already being active: gpu-mode
+    # legitimately stops this node, and a playbook run must not start something turned
+    # off on purpose — the same rule podman_quadlet encodes as __installed_off.
+    - name: Restart Tdarr node for new ffmpeg
+      when: ansible_facts.services.get('tdarr-node.service', {}).get('state', '') == 'running'
+      ansible.builtin.systemd:
+        name: tdarr-node.service
+        state: restarted
+
   tasks:
     - name: Configure server
       ansible.builtin.include_role:
@@ -433,6 +443,18 @@
         group: "{{ smb_nas_01_gid }}"
         mode: "0755"
 
+    # Bracketing stats around the install, so a replaced binary can restart the node. Only
+    # ffmpeg is watched: both binaries come out of the same linux64-gpl archive, so they
+    # move together. mtime is exact rather than approximate here — github_release_install
+    # writes with ansible.builtin.copy, which compares content, so mtime shifts only when
+    # the bytes actually differ.
+    - name: Stat ffmpeg before install
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.stat:
+        path: "{{ htpc_ffmpeg_dir }}/ffmpeg"
+        get_checksum: false
+      register: htpc_ffmpeg_before
+
     # use_tag_stamp, not the `echo <tag>` idiom: this build reports 8.1.2-Jellyfin while the
     # release is tagged v8.1.2-2+nvenc-n13.0.19.1, so no regex over `ffmpeg -version` can
     # ever equal the tag and the default comparison would re-download 57 MB every run.
@@ -454,9 +476,32 @@
         github_release_install_binary_in_archive: "{{ item }}"
         github_release_install_binary_path: "{{ htpc_ffmpeg_dir }}/{{ item }}"
         github_release_install_use_tag_stamp: true
-      # ffprobe as well as ffmpeg, so probing and encoding stay on one build. The archive is
-      # flat and holds exactly these two, statically linked, so nothing else is needed.
+      # Tdarr executes only ffmpeg from here. It probes with its own bundled ffprobe at
+      # /app/Tdarr_Node/assets/app/ffmpeg/linux_x64/ffprobe -- confirmed in the node's
+      # startup log -- so this does NOT put probing and encoding on one build, whatever an
+      # earlier version of this comment claimed. ffprobe is installed anyway: it costs one
+      # download, matches the archive, and is ready if Tdarr gains a probe-path setting.
       loop: [ffmpeg, ffprobe]
+
+    - name: Stat ffmpeg after install
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.stat:
+        path: "{{ htpc_ffmpeg_dir }}/ffmpeg"
+        get_checksum: false
+      register: htpc_ffmpeg_after
+
+    - name: Gather service state for the Tdarr node
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.service_facts:
+
+    # changed_when carries the whole decision, so the handler fires exactly when the
+    # binary was replaced. A fresh host (no `before`) counts as changed.
+    - name: Note that ffmpeg was replaced
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.debug:
+        msg: ffmpeg binary replaced; the Tdarr node will restart if it is running.
+      changed_when: (htpc_ffmpeg_before.stat.mtime | default(0)) != (htpc_ffmpeg_after.stat.mtime | default(0))
+      notify: Restart Tdarr node for new ffmpeg
 
     # Tdarr transcode node. The role knows nothing about this homelab: it takes a list of
     # mounts, a list of devices and a WantedBy string, and everything host-shaped is here.
@@ -503,14 +548,41 @@
         podman_quadlet_tdarr_smb_username: "{{ smb_nas_01_username }}"
         podman_quadlet_tdarr_smb_password: "{{ smb_nas_01_password }}"
 
-        # VAAPI on the RX 9070 XT. /dev/dri is the DRM render path; no /dev/kfd, because
-        # transcoding does not use ROCm compute the way llama-swap does.
+        # Not the stock image. That one is Ubuntu 24.04 with Mesa 25.2.8, which drives this
+        # card but sits below the 26.1.2 floor: it misses the gfx1201 VCN ring-timeout fix
+        # and the one that stops the encoder silently ignoring -compression_level on VCN5.
+        # It also has no OpenCL platform at all, so tonemap_opencl cannot initialise.
+        # This image is that image plus a fresh Mesa and rocm-opencl-runtime. Built from
+        # github.com/andyattebery/tdarr-node-mesa-fresh; the version is pinned in that repo's
+        # channels.txt and stamped into /etc/tdarr-node-mesa-fresh.build in the image.
+        #
+        # The :mesarc channel tag. That registry publishes no :latest — with more than one
+        # channel side by side it would only be ambiguous — so a channel tag is the floating
+        # tag to use, and naming it here means this host states which driver line it runs.
+        #
+        # mesarc is Mesa 26.2 (staging/26.2, i.e. 26.2.1-in-progress), chosen over the other
+        # channel :kisak (26.1.7, the newest TAGGED STABLE release) on a measured result:
+        # OpenCL tonemapping beat libplacebo here, and 26.2 carries the DMA-BUF
+        # contiguous_planes fix. Worth knowing what that costs — Mesa's own 26.2.0 notes call
+        # it "a new development release", and 26.2 rewrote the VA post-processing path that
+        # scale_vaapi goes through. If this card starts misbehaving on VAAPI, :kisak is the
+        # one-word rollback and is still published.
+        podman_quadlet_tdarr_image: ghcr.io/andyattebery/tdarr-node-mesa-fresh:mesarc
+
+        # VAAPI on the RX 9070 XT. /dev/dri is the DRM render path. /dev/kfd is the ROCm
+        # compute path, and it IS needed here despite this being a transcode node: the HDR
+        # chain tone-maps with tonemap_opencl. That is not a preference — tonemap_vaapi
+        # reports "VAAPI driver doesn't support HDR" on radeonsi (the filter is Intel iHD
+        # only), and libplacebo on Vulkan works but benchmarked slower and is a different
+        # tone curve, so it would not match what media-01 produces.
         #
         # keep-groups is carried over from llama-swap and is probably inert here: rootful
         # Podman's caller is root, whose supplementary groups do not include render/video,
-        # and root opens /dev/dri via DAC_OVERRIDE anyway. Drop it if the node is verified
-        # to work without it, rather than keeping a line whose reason does not transfer.
-        podman_quadlet_tdarr_devices: [/dev/dri]
+        # and root opens /dev/dri via DAC_OVERRIDE anyway. /dev/kfd is crw-rw-rw- on this
+        # host, so it does not depend on group membership either. Drop it if the node is
+        # verified to work without it, rather than keeping a line whose reason does not
+        # transfer.
+        podman_quadlet_tdarr_devices: [/dev/dri, /dev/kfd]
         podman_quadlet_tdarr_group_add: [keep-groups]
 
         # The fork build installed above, in place of the image's bundled ffmpeg.
@@ -558,6 +630,17 @@
           tags: sleep-inhibitor
       vars:
         sleep_inhibitor_checks_src: files/htpc-01/sleep-inhibitor.d/
+
+    # Manual sleep hold. Writes a deadline to /run/sleep-inhibit-until, which the role's
+    # manual.sh check reads on its next poll — so this goes through the same single inhibitor
+    # as every other check rather than taking one of its own. Tagged with the role so the CLI
+    # and the check it drives always deploy together.
+    - name: Install sleep-inhibit CLI
+      tags: sleep-inhibitor
+      ansible.builtin.copy:
+        src: files/htpc-01/sleep-inhibit.sh
+        dest: /usr/local/bin/sleep-inhibit
+        mode: "0755"
 
     - name: Install CEC onboot wrapper
       ansible.builtin.copy:

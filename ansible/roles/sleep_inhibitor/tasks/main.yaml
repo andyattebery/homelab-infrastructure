@@ -29,6 +29,38 @@
     mode: "0755"
   notify: Restart sleep-inhibitor
 
+# The checks directory is managed exclusively, so a check that is renamed or retired stops
+# running. `copy` only ever adds, so without this a dropped check keeps voting "busy" from
+# logic that no longer matches anything — the same pin-the-host-awake failure the checks
+# themselves are written to avoid, arrived at from the other direction.
+#
+# The expected set is read from the caller's source directory on the CONTROLLER rather than
+# with a fileglob lookup, whose search path inside an included role is not obvious enough to
+# rely on.
+- name: List checks the caller supplies
+  delegate_to: localhost
+  become: false
+  ansible.builtin.find:
+    paths: "{{ playbook_dir }}/{{ sleep_inhibitor_checks_src }}"
+    file_type: file
+  register: __sleep_inhibitor_src_files
+
+- name: List checks currently installed
+  ansible.builtin.find:
+    paths: /etc/sleep-inhibitor.d
+    file_type: file
+  register: __sleep_inhibitor_installed_files
+
+- name: Remove checks the caller no longer supplies
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: >-
+    {{ __sleep_inhibitor_installed_files.files | map(attribute='path') | difference(
+         __sleep_inhibitor_src_files.files | map(attribute='path') | map('basename')
+         | map('regex_replace', '^', '/etc/sleep-inhibitor.d/') | list) | list }}
+  notify: Restart sleep-inhibitor
+
 - name: Install sleep inhibitor service
   ansible.builtin.template:
     src: sleep-inhibitor.service.j2
