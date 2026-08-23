@@ -1,0 +1,32 @@
+# Blackbox DNS probe for the AdGuard HA cluster.
+#
+# This exists because nothing else could see the 2026-08-21 outage: the VIP had a master
+# the whole time, so `keepalived-no-master` could not fire, and the adguard-exporter only
+# publishes 24h rolling aggregates — over the 36-minute window
+# adguard_avg_processing_time_seconds moved 0 -> 4ms and sum(adguard_top_upstreams) moved
+# 75.4M -> 75.6M. See tasks/keepalived-vip-dns-outage-2026-08-21.md.
+#
+# dns-probe.{{ domain_name }} is an A record in our own zone (127.0.0.1, TTL 60) that
+# exists only for health probing, and is deliberately absent from
+# network-inventory/network_hosts_inventory.yaml.tpl — a NIM rewrite would make AdGuard
+# answer it locally and the probe would stop testing upstream resolution. The same name is
+# used by the keepalived track script on each node.
+modules:
+  dns_probe_a:
+    prober: dns
+    # Module-level, not part of the dns block.
+    timeout: 5s
+    dns:
+      query_name: dns-probe.{{ domain_name }}
+      query_type: A
+      transport_protocol: udp
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      valid_rcodes:
+        - NOERROR
+      validate_answer_rrs:
+        # "fail unless at least one answer RR matches" — i.e. require an actual answer.
+        # NOT fail_if_not_matches_regexp, which means "every RR must match" and would pass
+        # on an empty answer section.
+        fail_if_none_matches_regexp:
+          - ".*"

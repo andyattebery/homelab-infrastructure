@@ -102,6 +102,9 @@
           - src_file_path: files/docker-01/ipmi-exporter.yml
             dst_relative_file_path: ipmi-exporter/ipmi-exporter.yml
             service_name_to_restart: ipmi-exporter
+          - src_file_path: files/docker-01/blackbox-exporter.yml
+            dst_relative_file_path: blackbox-exporter/blackbox-exporter.yml
+            service_name_to_restart: blackbox-exporter
         docker_compose_src_config_dirs:
           # Grafana reads provisioned datasources, dashboards and alert rules at startup only, so a
           # change here does nothing until it restarts.

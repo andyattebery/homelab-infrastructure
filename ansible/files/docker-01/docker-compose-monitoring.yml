@@ -152,6 +152,16 @@ services:
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/ipmi-exporter/ipmi-exporter.yml:/config/ipmi.yml:ro
     command: ["--config.file=/config/ipmi.yml"]
+  # DNS prober for the AdGuard HA cluster — the `dns-probe` job in prometheus.yml points
+  # here. Config path and port 9115 are the image's own defaults, so no --config.file.
+  blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:latest
+    container_name: blackbox-exporter
+    restart: unless-stopped
+    networks:
+      - traefik
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/blackbox-exporter/blackbox-exporter.yml:/etc/blackbox_exporter/config.yml:ro
 
 networks:
   traefik:

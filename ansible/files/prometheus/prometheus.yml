@@ -91,6 +91,36 @@ scrape_configs:
       - network-01.{{ domain_name }}:9165
       - network-03.{{ domain_name }}:9165
       - pi-rack.{{ domain_name }}:9165
+# Does the VIP actually resolve an external name? keepalived_vrrp_state cannot answer that
+# — on 2026-08-21 it read Master for the whole outage — and the adguard-exporter only
+# publishes 24h rolling aggregates. The `role` label is what the alert rules match on, so
+# rules-dns.yaml never has to name the VIP's address (that file is copied, not templated).
+- job_name: dns-probe
+  metrics_path: /probe
+  params:
+    module: [dns_probe_a]
+  static_configs:
+  - targets:
+      - "{{ dns_server_vip }}"
+    labels:
+      role: vip
+  # Which node is broken. blackbox resolves a hostname target itself before probing it, so
+  # these go through the VIP — fine here, because they are AdGuard rewrites and answer
+  # locally even when upstreams are dead. If the VIP has no master at all every probe fails
+  # together and this breakdown says nothing; that case is `keepalived-no-master`'s job.
+  - targets:
+      - network-01.{{ domain_name }}
+      - network-03.{{ domain_name }}
+      - pi-rack.{{ domain_name }}
+    labels:
+      role: node
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
 - job_name: node-offsite
   scrape_interval: 5m
   scrape_timeout: 30s
