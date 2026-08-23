@@ -21,9 +21,28 @@
         keepalived_instance_name: adguardhome
         keepalived_interface: eth0
         keepalived_virtual_ipaddress: "{{ dns_server_vip }}"
+        # Mirrors the probe in nix/modules/network.nix — keep the two in step.
+        #
+        # The probe has to prove AdGuard *resolves*, not merely that it answers. The old
+        # probe used healthcheck.adguardhome.test, which AdGuard synthesises itself as a
+        # NODATA answer without contacting any upstream — so on 2026-08-21 it passed for
+        # 36 minutes while every upstream was unreachable, and the VIP never moved. See
+        # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+        #
+        # dns-probe.{{ domain_name }} is an A record in our own zone (127.0.0.1, TTL 60)
+        # that exists only for this. It must NOT be added to
+        # network-inventory/network_hosts_inventory.yaml.tpl: a NIM rewrite would make
+        # AdGuard answer it locally and silently turn this back into a liveness check.
+        # It must also be a name we own — a blocked name returns 0.0.0.0, which nslookup
+        # accepts as an answer and exits 0 on, so a public name landing on a blocklist
+        # would fail open.
+        #
         # Redirects (>/dev/null 2>&1) intentionally omitted — keepalived parses
         # the script string by whitespace into argv and exec's directly (no shell),
         # so redirects would be passed as literal arguments. nslookup output ends
         # up in keepalived's own log, which is acceptable.
-        keepalived_track_script_command: "/usr/bin/timeout 2 /usr/bin/nslookup healthcheck.adguardhome.test 127.0.0.1"
+        keepalived_track_script_command: "/usr/bin/timeout 2 /usr/bin/nslookup dns-probe.{{ domain_name }} 127.0.0.1"
+        # 3 consecutive failures at the role's 5s interval, so ~15s of sustained failure
+        # before the -75 lands. A single slow DoH round-trip must not move the VIP.
+        keepalived_track_script_fall: 3
     - role: docker_compose_wireguard

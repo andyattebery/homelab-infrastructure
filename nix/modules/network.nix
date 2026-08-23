@@ -94,13 +94,32 @@ in {
           dns = {
             bind_hosts = [ "0.0.0.0" ];
             port = 53;
+            # IP literals, NOT hostnames -- do not "tidy" these back into names.
+            #
+            # A hostname upstream has to be resolved first, by bootstrap, over plaintext
+            # UDP/53. On 2026-08-21 the AT&T gateway lost its WAN for ~65s, intercepted
+            # port 53 while it was down, and answered every DoH hostname with its own
+            # address (192.168.1.254, unreachable from behind the UDM). AdGuard cached
+            # that and kept dialling a dead address long after the WAN recovered: a 65
+            # second blip became a 36 minute outage. See
+            # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+            #
+            # dnsproxy skips bootstrap entirely when the upstream host parses as an
+            # address (upstream/resolver.go, NotBootstrapError), so there is no plaintext
+            # lookup to intercept. Same three providers as before -- dns.quad9.net already
+            # resolved to 9.9.9.9, and 1.1.1.1 is Cloudflare's canonical DoH address --
+            # so this changes addressing, not who resolves our DNS. All three serve DoH
+            # on these literals with certificates carrying the IP in subjectAltName.
             upstream_dns = [
-              "https://dns.cloudflare.com/dns-query"
-              "https://dns.quad9.net/dns-query"
-              "https://dns.google/dns-query"
+              "https://1.1.1.1/dns-query"
+              "https://9.9.9.9/dns-query"
+              "https://8.8.8.8/dns-query"
             ];
-            # Bootstrap resolves the DoH hostnames above, so it must not depend on a
-            # single operator — otherwise no DoH upstream can start. One per operator.
+            # No longer used by upstream_dns above, and kept deliberately: AdGuard's
+            # safebrowsing/parental service upstream (family.adguard-dns.com) is not
+            # exposed as an option and still resolves by hostname, and leaving the list
+            # in place means re-adding a hostname upstream later cannot silently break.
+            # One resolver per operator, so no single operator can stop bootstrap working.
             bootstrap_dns = [
               "9.9.9.10" "149.112.112.10" "2620:fe::10" "2620:fe::fe:10"
               "1.1.1.1" "1.0.0.1" "2606:4700:4700::1111"
@@ -134,6 +153,12 @@ in {
             { name = "AdAway Default Blocklist"; url = "https://adaway.org/hosts.txt"; enabled = true; id = 2; }
             { name = "HaGeZi's Normal Blocklist"; url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_34.txt"; enabled = true; id = 3; }
           ];
+          # AdGuard has no size cap for the query log -- `interval` is the only control, and
+          # it takes only 6h/1d/7d/30d/90d (checkInterval, internal/querylog/qlog.go).
+          # Retention is TWICE the interval: rotation renames querylog.json to
+          # querylog.json.1 rather than deleting it. At ~1.44M queries/day the 90d default
+          # had grown to 31.5 GiB on a 63 GiB disk.
+          querylog.interval = "7d";
         } // lib.optionalAttrs cfg.reverseProxy.enable {
           http.doh.insecure_enabled = true;
         };
@@ -147,12 +172,36 @@ in {
           max_auto_priority -1
           script_user root
         '';
+        # The probe has to prove AdGuard *resolves*, not merely that it answers. The old
+        # probe used healthcheck.adguardhome.test, which AdGuard synthesises itself as a
+        # NODATA answer without contacting any upstream -- so on 2026-08-21 it passed for
+        # 36 minutes while every upstream was unreachable, and the VIP never moved. See
+        # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+        #
+        # dns-probe.<domain_name> is an A record in our own zone (127.0.0.1, TTL 60) that
+        # exists only for this. Two properties matter and both are load-bearing:
+        #   - it must NOT be in network-inventory/network_hosts_inventory.yaml.tpl. A NIM
+        #     rewrite would make AdGuard answer it locally and silently turn this back into
+        #     a liveness check.
+        #   - it must be a name we own. A blocked name returns 0.0.0.0, which nslookup
+        #     accepts as an answer and exits 0 on, so a public name landing on a blocklist
+        #     would fail open. Nothing can add our own zone to a blocklist.
+        # nslookup exits 1 on SERVFAIL -- the failure mode the outage actually produced --
+        # on both the BIND build here and the busybox build in pi-rack's container.
+        #
+        # The name stays chk_adguardhome to match ansible's keepalived.conf.j2, which
+        # hardcodes chk_{{ keepalived_instance_name }}. Nothing scrapes the script name.
         vrrpScripts.chk_adguardhome = {
-          script = "${pkgs.dnsutils}/bin/nslookup healthcheck.adguardhome.test 127.0.0.1";
+          script = "${pkgs.dnsutils}/bin/nslookup dns-probe.${vars.domainName} 127.0.0.1";
           interval = 5;
           timeout = 3;
           rise = 2;
-          fall = 2;
+          # 3 consecutive failures at 5s spacing, so ~15s of sustained failure before the
+          # weight lands. A single slow DoH round-trip must not move the VIP.
+          fall = 3;
+          # 200/150/100 - 75 = 125/75/25. A failure on every node preserves the order, so a
+          # real internet outage leaves the VIP where it is; only a differential failure
+          # moves it.
           weight = -75;
           user = "root";
         };
