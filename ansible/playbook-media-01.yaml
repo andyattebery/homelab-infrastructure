@@ -6,6 +6,11 @@
   vars:
     docker_compose_dst_data_directory_path: /mnt/data
 
+    # Custom ffmpeg for Tdarr, bind-mounted into the container at /ffmpeg. A dedicated
+    # directory rather than /usr/local/bin because the whole directory is mounted and must
+    # hold nothing else. Same path as htpc-01, deliberately — the two hosts run one build.
+    media_ffmpeg_dir: /opt/jellyfin-ffmpeg/bin
+
   pre_tasks:
     - name: Install packages
       ansible.builtin.package:
@@ -15,6 +20,47 @@
           - cifs-utils
           - nvtop
 
+    # The ffmpeg Tdarr actually runs. Installed on the host and mounted read-only rather
+    # than baked into the image, so the encoder and the container upgrade separately.
+    # pre_tasks, because the mount source has to exist before docker_compose_tdarr brings
+    # the container up down in `roles:`.
+    #
+    # root-owned, unlike htpc-01: there the directory is chowned to the Tdarr PUID because
+    # podman_quadlet chowns every Volume= source. Docker bind-mounts do no such thing, and
+    # this one is :ro.
+    - name: Create jellyfin-ffmpeg directory
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.file:
+        path: "{{ media_ffmpeg_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # use_tag_stamp, not the `echo <tag>` idiom: this build reports 8.1.2-Jellyfin while the
+    # release is tagged v8.1.2-2+nvenc-n13.0.19.1, so no regex over `ffmpeg -version` can
+    # ever equal the tag. The stamp also carries the asset digest, which is what makes this
+    # fork tractable at all — it republishes assets under an unchanged tag, and a tag-only
+    # comparison would install once and then believe itself converged forever.
+    - name: Install jellyfin-ffmpeg (fork build with av1_nvenc tune uhq and tonemap_cuda)
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.include_role:
+        name: github_release_install
+        apply:
+          tags: [tdarr, ffmpeg]
+      vars:
+        github_release_install_repo: andyattebery/jellyfin-ffmpeg
+        github_release_install_asset_patterns:
+          x86_64: 'linux64-gpl\.tar\.xz$'
+        github_release_install_archive_type: tarball
+        github_release_install_binary_in_archive: "{{ item }}"
+        github_release_install_binary_path: "{{ media_ffmpeg_dir }}/{{ item }}"
+        github_release_install_use_tag_stamp: true
+      # Tdarr executes only ffmpeg from here — it probes with its own bundled ffprobe at
+      # /app/Tdarr_Node/assets/app/ffmpeg/linux_x64/ffprobe. ffprobe is installed anyway so
+      # the pair matches the archive and is ready if Tdarr ever gains a probe-path setting.
+      loop: [ffmpeg, ffprobe]
+
   roles:
     - configure_server
     - role: zfs_conf
@@ -22,13 +68,8 @@
         zfs_arc_max_gb: 2
     - geerlingguy.docker
     - role: mise
-    - role: nvidia.nvidia_driver
-      vars:
-        nvidia_driver_branch: "580"
-        nvidia_driver_ubuntu_cuda_keyring_package: cuda-keyring_1.1-1_all.deb
-        nvidia_driver_ubuntu_install_from_cuda_repo: true
-        nvidia_driver_add_repos: true
-        nvidia_driver_skip_reboot: true
+    # The NVIDIA driver is deliberately not managed here. It is installed from Canonical's
+    # archive and maintained by apt on the host — see docs/media-01-nvidia-driver.md.
     - role: nvidia_container_toolkit
     - role: power_saving
       vars:
@@ -60,13 +101,25 @@
     # chunk granularities and is the retrieval-quality lever this deployment is about.
     - role: docker_compose_onyx
       tags: onyx
-    # Tdarr uses the ffmpeg shipped inside its own container (jellyfin-ffmpeg 7.1.4-3,
-    # /usr/lib/jellyfin-ffmpeg/ffmpeg). The iPad-kids flow tonemaps with tonemap_cuda,
-    # which is a jellyfin-only filter, so no custom ffmpeg is mounted here and there is
-    # no NVENC-API/driver pin to maintain. wsl-01 still installs BtbN for av1_nvenc.
+    # Tdarr runs the jellyfin-ffmpeg fork build installed above, not the 7.1.4-3 bundled in
+    # its image, so this host and htpc-01 encode on one build instead of two.
+    #
+    # Nothing is given up by the swap: the fork is a superset here. av1_nvenc, h264_nvenc,
+    # hevc_nvenc, tonemap_cuda, scale_cuda and hwupload_cuda are all in it, built
+    # --enable-cuda --enable-nvenc --enable-nvdec. The iPad-kids flow's tonemap_cuda and the
+    # AV1 flows' `-preset p7 -tune uhq` both still resolve.
+    #
+    # The fork's nv-codec-headers pin puts the driver floor at 580 and this host runs 595.
+    # That floor is a choice made on our side, not an upstream constraint — the fork is ours
+    # and the header version was picked so these hosts clear it. Not a number to track.
+    #
+    # No restart wiring here, unlike htpc-01. Tdarr spawns ffmpeg per job, so a replaced
+    # binary is picked up by the next one; restarting this container would drop every node's
+    # connection and any in-flight work across the fleet to gain nothing.
     - role: docker_compose_tdarr
       vars:
         docker_compose_tdarr_server: true
+        docker_compose_tdarr_custom_ffmpeg_path: "{{ media_ffmpeg_dir }}"
         docker_compose_tdarr_storage_host: nas-01
         docker_compose_tdarr_nvidia_gpu: true
         # Custom flow plugins. Listed per file rather than as a config_dir because
