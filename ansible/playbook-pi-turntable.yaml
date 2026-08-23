@@ -4,7 +4,7 @@
   become: true
 
   roles:
-    - role: prometheus.prometheus.node_exporter
+    - role: configure_server
     - role: docker_compose_traefik
       vars:
         docker_compose_traefik_enable_dashboard: true

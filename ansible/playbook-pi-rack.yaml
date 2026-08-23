@@ -4,10 +4,6 @@
   become: true
 
   roles:
-    # This is already run in playbook-network
-    # - role: configure_server
-    #   vars:
-    #     security_ssh_permit_root_login: "prohibit-password"
     - role: scrutiny_collector
     - role: nut
       vars:
