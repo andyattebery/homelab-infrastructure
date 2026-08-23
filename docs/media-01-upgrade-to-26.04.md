@@ -1,6 +1,11 @@
 # media-01 — upgrading to Ubuntu 26.04
 
-> **Research, written 2026-08-22. Nothing here has been executed.**
+> **Research, written 2026-08-22. Updated 2026-08-23 — see "What has changed since" below.**
+>
+> The upgrade itself has still not been executed. But the apt-source migration landed on this host
+> on 2026-08-23 and closed two of the prerequisites below, so parts of the original text no longer
+> describe the machine. Corrections are marked **UPDATE 2026-08-23** in place rather than rewritten
+> away, because what was found on 2026-08-22 is the reason the work happened.
 >
 > This file fills the reference `plans/media-01-restore-scsi0-from-backup.md` left dangling: the
 > 26.04 upgrade was deliberately deferred to "on or after 27 August", and that runbook noted the
@@ -13,7 +18,8 @@
 
 **Upgrade in place, on or after 2026-08-27, after a preparation pass on 24.04.**
 
-1. Fix `fish_install` (it will break every playbook run on 26.04 — see [Role review](#role-review)).
+1. ~~Fix `fish_install`~~ — **DONE 2026-08-23.** The `apt-key` call is gone; see
+   [What has changed since](#changed-since).
 2. Run the full playbook on 24.04 to converge the host with the current roles.
 3. Remove the apt sources Ansible does not own (CUDA repo; decide about the fish PPA).
 4. Fresh PBS snapshot, then `do-release-upgrade`.
@@ -21,6 +27,39 @@
 
 The upgrade is **the fix** for the ZFS problem that forced August's rollback, not a repeat of it.
 That is the single most important thing in this document and the easiest to get backwards.
+
+<a id="changed-since"></a>
+## What has changed since this was written
+
+The apt-source migration was written, container-tested and deployed to this host on 2026-08-23. It
+closes two prerequisites outright and makes a third finding moot:
+
+- **`fish_install` no longer calls `apt-key`.** This was the confirmed hard blocker: it runs on
+  every host via `configure_server`, early, so it would have failed the whole post-upgrade playbook
+  run — including the run that restores the third-party repos.
+- **Bug #2150614 no longer applies to this host.** The inline-key fish source is gone. The host now
+  has `fish-shell-release-4.sources` with
+  `Signed-By: /etc/apt/keyrings/fish-shell-release-4.asc`, and **no source on the host contains an
+  inline PGP key**. The "decide about the fish PPA before upgrading" item below is closed.
+- **The NVIDIA toolkit source is now deduped for real.** It is one deb822 source with the
+  architecture resolved to `amd64`; the legacy `stable/ubuntu18.04` suite is gone.
+
+Host state as read on 2026-08-23 16:51 CDT — Ubuntu 24.04.4, kernel 6.8.0-137-generic,
+`zfsutils-linux 2.2.2-0ubuntu9.4`:
+
+    /etc/apt/sources.list.d/   cuda-ubuntu2404-x86_64.list      <- STILL THERE, still priority 600
+                               docker.list                       <- STILL a legacy .list
+                               fish-shell-release-4.sources      migrated
+                               mise.sources                      migrated
+                               nvidia-container-toolkit.sources  migrated
+                               ubuntu.sources
+
+**What is still outstanding is unchanged:** remove the CUDA source, run the full untagged playbook
+on 24.04, decide on the `nvidia_driver` role, take a fresh PBS snapshot, and decline
+`zpool upgrade` afterwards. The migration deliberately applied only each role's
+`tasks/apt_repo.yaml`, so the rest of the drift this document found is untouched.
+
+Live pickup notes: `tasks/media-01-26.04-upgrade.md`.
 
 ## Why 26.04 fixes the thing that broke in August
 
@@ -104,14 +143,18 @@ from `noble-updates/multiverse`) — but a 600-priority third-party driver sourc
 "don't mix sources" hazard the nvidia doc warns about, sitting armed. It is pinned to `ubuntu2404`
 and has no resolute path. **Remove it before upgrading.**
 
-**The NVIDIA toolkit source was never deduped**, despite the nvidia doc saying it was. The host has
+**The NVIDIA toolkit source was never deduped**, despite the nvidia doc saying it was.
+**UPDATE 2026-08-23: it is now** — one deb822 source, legacy suite removed. As found on 2026-08-22
+the host had
 both suites plus two commented experimental lines — NVIDIA's stock published file verbatim, i.e.
 written by hand from NVIDIA's install docs, not by the role:
 
     deb … libnvidia-container/stable/deb/$(ARCH) /
     deb … libnvidia-container/stable/ubuntu18.04/$(ARCH) /
 
-**There is one inline-PGP-key source**, and it is not one Ansible manages:
+**There is one inline-PGP-key source**, and it is not one Ansible manages.
+**UPDATE 2026-08-23: removed** — the fish source is now deb822 with the key at a keyring path, and
+no source on the host has an inline key. As found on 2026-08-22:
 
     /etc/apt/sources.list.d/fish-shell-ubuntu-release-4-noble.sources
 
@@ -123,7 +166,10 @@ upgrade failures (e.g. openzfs#17337, `10_linux_zfs` deadlocking `update-grub`) 
 Worst case is a pool that does not import, not a host that does not boot. ZFS userspace and module
 are currently matched at `2.2.2-0ubuntu9.4`; pool `data` is `ONLINE`.
 
-**The roles have not been applied here in their current state.** `geerlingguy.docker` 8.0.0 uses
+**The roles have not been applied here in their current state.**
+**UPDATE 2026-08-23: partially addressed.** The apt-source roles have now been applied, but only
+their `tasks/apt_repo.yaml` half — `docker.list` is still a legacy `.list`, so the point below
+stands and the full untagged run is still the right pre-flight. `geerlingguy.docker` 8.0.0 uses
 `deb822_repository` and explicitly deletes `/etc/apt/sources.list.d/docker.list` and
 `/etc/apt/trusted.gpg.d/docker.asc` — both of which are still present. That is the same reason the
 NVIDIA file is still hand-written. **The host's apt configuration is an older generation of this
@@ -138,7 +184,7 @@ media-01's transitive role set is larger than the playbook's list: `configure_se
 `beszel_agent`, `topgrade`, `oefenweb.locales`, `ubuntu_disable_ads`,
 `prometheus.prometheus.node_exporter`, `textfile_collector_apt_updates`.
 
-### Confirmed breakage: `fish_install` calls `apt-key`, which 26.04 does not ship
+### ~~Confirmed breakage~~ FIXED 2026-08-23: `fish_install` called `apt-key`, which 26.04 does not ship
 
 `roles/fish_install/tasks/install_ubuntu.yaml:2-5` runs
 
@@ -158,7 +204,11 @@ long ago, so deleting the task is likely the right fix. **Do this before upgradi
 apt 3.2.0 still ships `/etc/apt/sources.list.d/` and `sources.list.5`. `nvidia_container_toolkit`,
 Docker and the `apt_repository`-based roles keep functioning. Migration is tidiness, not a blocker.
 
-### There is now a proper module for this
+### There is now a proper module for this — and it is now in use
+
+**UPDATE 2026-08-23:** all nine apt-source roles were migrated onto `deb822_repository` with
+`signed_by` as a keyring path, exactly as recommended below, and are covered by a container test
+harness at `ansible/tests/apt-sources/`.
 
 `ansible.builtin.deb822_repository` — **`version_added: 2.15`**, present in the installed
 ansible-core 2.20.4. It did not exist when the manual apt tasks in this repo were written. Takes
