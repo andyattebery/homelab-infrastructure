@@ -8,6 +8,19 @@
 # - pbs_snapshot_vm_last_timestamp (natrontech/pbs-exporter): Unix epoch
 #   seconds of the most recent snapshot per {datastore, namespace, vm_id,
 #   vm_name}. Staleness = time() - that.
+#   vm_id is the raw PBS backup-id, and the series is per *backup group*, not
+#   per live guest. PBS prune keeps last-N snapshots regardless of age, so a
+#   deleted VM's group survives forever with a frozen timestamp and alerts
+#   permanently. Hence the join below.
+# - pve_guest_info (prometheus-pve-exporter): liveness source for that join.
+#   Emitted for lxc/qemu only, from the cluster/resources API, so all three
+#   pve targets return the same cluster-wide list — max by (vm_id) collapses
+#   them. Label id is "{type}/{vmid}", e.g. "qemu/103".
+#   Assumption: every backup group in this datastore is a PVE guest, so every
+#   vm_id is numeric. True as of 2026-08-14 (10 groups, all numeric). If
+#   host-type `proxmox-backup-client` backups are ever added here, their
+#   non-numeric backup-id will match no guest and the join will silence them;
+#   the fix is a third `or` branch selecting {vm_id!~"[0-9]+"}.
 #
 # pbs_snapshot_vm_last_verify is deliberately NOT alerted: PBS verify jobs
 # are not configured on this instance, so every VM reports verify=0
@@ -98,7 +111,27 @@ groups:
               datasource:
                 type: prometheus
                 uid: fe8ew4zkvbf28a
-              expr: (time() - pbs_snapshot_vm_last_timestamp) > (36 * 3600)
+              # Second branch is the fail-safe: absent() yields a label-less 1
+              # only when pve_guest_info is entirely gone, and `and on ()` then
+              # matches every series, so a pve-exporter outage restores the
+              # unfiltered behaviour instead of silently disabling this alert.
+              # Nothing else here alerts on a dead scrape. The branches are
+              # mutually exclusive, so `or` cannot duplicate a series.
+              # The 36h threshold appears in both branches — change both, or the
+              # two paths will disagree about what counts as stale.
+              expr: |
+                (
+                  (time() - pbs_snapshot_vm_last_timestamp) > (36 * 3600)
+                  and on (vm_id)
+                    max by (vm_id) (
+                      label_replace(pve_guest_info, "vm_id", "$1", "id", ".*/([0-9]+)$")
+                    )
+                )
+                or
+                (
+                  (time() - pbs_snapshot_vm_last_timestamp) > (36 * 3600)
+                  and on () absent(pve_guest_info)
+                )
               instant: true
               refId: A
         for: 10m
@@ -113,8 +146,13 @@ groups:
           description: |
             Last snapshot of {{ $labels.vm_name }} (vm_id={{ $labels.vm_id }},
             datastore={{ $labels.datastore }}, namespace={{ $labels.namespace }})
-            is {{ $value | humanizeDuration }} old. Check the syncoid / PBS schedule
-            for this VM, or remove it from PBS if intentionally retired.
+            is {{ $value | humanizeDuration }} old. Guests deleted from PVE are
+            filtered out of this alert, so normally this is a live guest whose
+            backup job is failing or was never scheduled — check the PVE backup
+            job for vm_id={{ $labels.vm_id }} on {{ $labels.namespace }}.
+            Exception: if pve-exporter is down the filter fails open and a
+            retired guest can appear here, so confirm pve_guest_info has data
+            before chasing the backup job.
 
   - orgId: 1
     name: offsite
