@@ -1,3 +1,10 @@
 ---
 ansible_host: "eta.{{ domain_name }}"
 ansible_ssh_extra_args: "-o ForwardAgent=yes"
+
+# Mirrored WSL networking shares eta's IP with the Windows OpenSSH server, which holds 22, so
+# this sshd had to move. sshd is socket-activated on Ubuntu 24.04: the listening port comes from
+# /etc/systemd/system/ssh.socket.d/port.conf, NOT from sshd_config's Port line, which is ignored.
+# The IPv4 ListenStream is explicit because the stock unit binds IPv6 only here (LP#2080216).
+ansible_port: "{{ sshd_port }}"
+sshd_port: "2222"

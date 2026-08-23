@@ -5,8 +5,57 @@
 
   vars:
     docker_compose_dst_data_directory_path: "/opt/docker-compose"
+    # Consumed by geerlingguy.security, which configure_server pulls in. Socket activation makes
+    # the `Port` line it writes into sshd_config dead text (see the drop-in task below), but
+    # leaving it at the role default of 22 makes that file lie about which port the host answers
+    # on, which is worse than a line nothing reads.
+    security_ssh_port: "{{ sshd_port }}"
+
+  handlers:
+    - name: Restart ssh.socket
+      ansible.builtin.systemd_service:
+        name: ssh.socket
+        state: restarted
+        daemon_reload: true
 
   tasks:
+    # WSL runs mirrored networking (files/wsl-01/bootstrap-wsl.ps1), so this host shares eta's IP
+    # with the Windows OpenSSH server. Windows holds 22 there and a Linux bind on a port Windows
+    # already owns is refused, so wsl-01's sshd has to live somewhere else.
+    #
+    # It is ssh.socket that decides where. Ubuntu socket-activates sshd from 22.10 on, and under
+    # socket activation `Port` and `ListenAddress` in sshd_config are ignored outright -- editing
+    # sshd_config to move the port reports changed and does nothing.
+    #
+    # The bare `ListenStream=` is load-bearing: it clears the 22 inherited from the packaged unit.
+    # Drop it and you get 22 *and* sshd_port, and the 22 collides with Windows again.
+    #
+    # IPv4 is spelled out rather than left to the packaged unit's bare `ListenStream=22`, which
+    # binds [::] only and leans on net.ipv6.bindv6only=0 to catch IPv4 as well. That does not
+    # happen on this host -- every other listener here is a separate 0.0.0.0/[::] pair -- so the
+    # inherited form yields an IPv6-only sshd and connection-refused over IPv4. Upstream fixed
+    # this the same way, by listing the families explicitly (LP#2080216). No [::] line: nothing
+    # reaches wsl-01 over IPv6, and an unverified second bind is one more thing to fail the unit.
+    - name: Create ssh.socket drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/system/ssh.socket.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Set sshd listening port
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ssh.socket.d/port.conf
+        content: |
+          [Socket]
+          ListenStream=
+          ListenStream=0.0.0.0:{{ sshd_port }}
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart ssh.socket
+
     - name: Configure server
       ansible.builtin.include_role:
         name: configure_server
