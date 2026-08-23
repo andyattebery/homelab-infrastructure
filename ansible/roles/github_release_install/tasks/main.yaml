@@ -73,9 +73,40 @@
     src: "{{ github_release_install_tag_stamp_path }}"
   register: github_release_install_stamp_content
 
-# The stamp compares the RAW tag_name, not the 'v'-stripped form the version
-# command path uses. The stamp is written from that same field, so the two sides
-# cannot disagree about stripping.
+# The stamp records the RAW tag_name, not the 'v'-stripped form the version command
+# path uses, AND the digest of the asset that tag resolved to. Both halves matter:
+#
+#   - a tag alone is not an identity. A release can have its assets replaced in place
+#     under an unchanged tag, and some projects do exactly that -- re-uploading a
+#     rebuilt binary onto the existing release rather than cutting a new one. A
+#     tag-only comparison then matches forever and the host silently keeps a build the
+#     release no longer offers. Not hypothetical: it left a host three days behind on a
+#     release whose assets had moved, with every run reporting no change.
+#   - a digest alone would reinstall correctly but read as noise in the stamp file.
+#
+# `digest` is a recent addition to the releases API. Falling back to the asset id keeps
+# this comparable when it is absent -- an unguarded lookup would evaluate to empty and
+# quietly collapse the comparison back to tag-only, which is the bug being fixed.
+#
+# Compared and written from ONE fact, deliberately: two expressions that must agree are
+# two expressions someone can edit apart. That is why this is its own task -- a set_fact
+# is not visible in the vars of the task that sets it, so computing it separately is what
+# lets the comparison below and the write further down be the same string by construction
+# rather than by inspection.
+- name: Compute the expected release stamp
+  vars:
+    selected_asset: >-
+      {{ github_release_install_release_response.json.assets
+         | selectattr('name', 'equalto', github_release_install_asset_name)
+         | first }}
+    asset_fingerprint: >-
+      {{ selected_asset.digest | default('', true)
+         if (selected_asset.digest | default('', true) | length > 0)
+         else ('id:' ~ selected_asset.id) }}
+  ansible.builtin.set_fact:
+    github_release_install_stamp_value: >-
+      {{ github_release_install_release_response.json.tag_name ~ ' ' ~ asset_fingerprint }}
+
 - name: Decide whether install is needed
   vars:
     release_tag_name: "{{ github_release_install_release_response.json.tag_name }}"
@@ -86,7 +117,7 @@
       {{ (github_release_install_stamp_content | default({})).content
          | default('') | b64decode | trim }}
     current_matches: >-
-      {{ (stamped_tag == release_tag_name)
+      {{ (stamped_tag == github_release_install_stamp_value)
          if (github_release_install_use_tag_stamp | bool)
          else (installed_version == latest_version) }}
   ansible.builtin.set_fact:
@@ -153,7 +184,7 @@
     - name: Write release tag stamp
       when: github_release_install_use_tag_stamp | bool
       ansible.builtin.copy:
-        content: "{{ github_release_install_release_response.json.tag_name }}\n"
+        content: "{{ github_release_install_stamp_value }}\n"
         dest: "{{ github_release_install_tag_stamp_path }}"
         mode: "0644"
         owner: root
@@ -168,3 +199,25 @@
       ansible.builtin.file:
         path: "{{ github_release_install_tempdir.path }}"
         state: absent
+
+# Outside the install block, so a link deleted by hand is restored on the next run
+# rather than only when the binary itself happens to be reinstalled. By this point
+# the binary exists either way: the block installed it, or it was already converged.
+#
+# Skipped when the link would point at the binary itself. A caller that installs
+# straight into the link directory resolves _symlink_path to _binary_path, and the
+# binary is then already on PATH — nothing to link. Attempting it would fail on the
+# regular file that IS the binary, which is a confusing way to say "already fine".
+#
+# No `force` otherwise. If some OTHER regular file holds the target, this fails
+# loudly instead of replacing something another package installed and expects to own.
+- name: Symlink binary onto PATH
+  when:
+    - github_release_install_symlink | bool
+    - github_release_install_symlink_path != github_release_install_binary_path
+  ansible.builtin.file:
+    src: "{{ github_release_install_binary_path }}"
+    dest: "{{ github_release_install_symlink_path }}"
+    state: link
+    owner: root
+    group: root

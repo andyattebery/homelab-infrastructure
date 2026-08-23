@@ -33,3 +33,22 @@ github_release_install_release_tag: ""
 # 'latest' — does reinstall.
 github_release_install_use_tag_stamp: false
 github_release_install_tag_stamp_path: "{{ github_release_install_binary_path }}.release-tag"
+
+# Symlink the installed binary onto PATH.
+#
+# _binary_path often points somewhere deliberately off PATH — a directory that is
+# bind-mounted wholesale into a container, or one holding a build that must not
+# shadow the distro's. That is the right place for the file and the wrong place for
+# a human who just wants to run it. This puts a link where a shell will find it,
+# without moving the install.
+#
+# Off by default: adding a name to /usr/local/bin is a decision about the host's
+# PATH, not a detail of installing a binary. Left false, the binary is reachable
+# only at _binary_path — which is all a container mount or an explicit ffmpegPath
+# ever needs.
+#
+# The link is refreshed on every run, not only on install, so one deleted by hand
+# comes back. It will NOT replace a regular file already sitting at the target:
+# that fails the run rather than silently clobbering something another package owns.
+github_release_install_symlink: false
+github_release_install_symlink_path: "/usr/local/bin/{{ github_release_install_binary_path | basename }}"

@@ -71,13 +71,52 @@ Optional:
   changes its name, and silently wrong for a pin you intend to move.
   Use the tag stamp below when the tag is a real version.
 
-- `github_release_install_use_tag_stamp` — default `false`. When true,
-  the installed release `tag_name` is written to a file beside the
-  binary and compared against the release's `tag_name` on the next run.
-  The version command is not executed at all in this mode.
+- `github_release_install_use_tag_stamp` — default `false`. When true, a
+  stamp is written to a file beside the binary and compared against the
+  release on the next run. The version command is not executed at all in
+  this mode. The stamp holds the release `tag_name` **and** the digest of
+  the asset it resolved to:
+
+  ```
+  v8.1.2-2+nvenc-n13.0.19.1 sha256:727ea81a7051034a8f756f2ea660c40228...
+  ```
 
 - `github_release_install_tag_stamp_path` — default
   `{{ github_release_install_binary_path }}.release-tag`.
+
+- `github_release_install_symlink` — default `false`. When true, links the
+  installed binary onto PATH.
+
+  `_binary_path` is often deliberately off PATH: a directory bind-mounted
+  wholesale into a container, or one holding a build that must not shadow the
+  distro's. That is the right place for the file and the wrong place for a
+  human who wants to run it. This adds a link without moving the install.
+
+  **Left `false`, the binary is reachable only at `_binary_path`** — which is
+  all a container mount or an explicit `ffmpegPath` ever needs. Off by default
+  because putting a name into `/usr/local/bin` is a decision about the host's
+  PATH, not a detail of installing a binary.
+
+  The link is refreshed on every run, not only when the binary is reinstalled,
+  so one deleted by hand comes back. It will **not** replace a regular file
+  already at the target: that fails the run rather than silently clobbering
+  something another package owns. Point `_symlink_path` elsewhere, or remove
+  the file deliberately, if that happens.
+
+  **Skipped entirely when the link would point at the binary itself.** Several
+  callers install straight into `/usr/local/bin`, and there the default
+  `_symlink_path` resolves to `_binary_path`. Setting this true on one of those
+  is a no-op rather than an error: the binary is already on PATH, which is all
+  the option was asking for.
+
+  ```yaml
+  github_release_install_symlink: true
+  ```
+
+- `github_release_install_symlink_path` — default
+  `/usr/local/bin/{{ github_release_install_binary_path | basename }}`. Set it
+  to put the link somewhere else, or to give it a different name from the
+  installed file.
 
   Use the stamp when the binary's own version output **cannot** equal
   the release tag, no matter the regex — typically a fork that appends
@@ -99,8 +138,29 @@ Optional:
   run retries rather than believing itself converged.
 
   It compares the raw `tag_name`, not the `v`-stripped form the version
-  command path uses. The stamp is written from that same field, so the
-  two sides cannot disagree about stripping.
+  command path uses.
+
+  **Why the digest is in there.** A tag is not an identity. A release can
+  have its assets replaced in place, under a tag that never changes, and
+  some projects do exactly that — re-uploading a rebuilt binary onto the
+  existing release rather than cutting a new one. A tag-only stamp then
+  matches forever, and the host keeps a build the release no longer
+  offers, with no run ever correcting it. Not hypothetical: it left one
+  host three days behind on a release whose assets moved, and nothing in
+  the output said so, because "no change" is what converged looks like.
+
+  Including the asset digest makes the stamp answer *which bytes did I
+  install*, which is the question idempotence actually needs. `digest` is
+  a recent addition to the releases API; when it is absent the asset `id`
+  is used instead, which also changes on re-upload. That fallback is
+  explicit because an unguarded lookup would evaluate to empty and
+  quietly collapse the comparison back to tag-only — reintroducing the
+  bug while looking like a fix.
+
+  Both sides read one `set_fact`, `github_release_install_stamp_value`,
+  computed in its own task because a fact is not visible in the `vars` of
+  the task that sets it. Two expressions that must agree are two
+  expressions someone can edit apart.
 
 ## Examples
 
