@@ -1,8 +1,57 @@
 # media-01 rebuild — NVIDIA driver install method
 
+> **Status as of 2026-08-09 — the rebuild below never happened, and the driver is not managed
+> by Ansible.**
+>
+> media-01 still runs **Ubuntu 24.04.4** on the GA kernel, not 26.04. The driver is
+> **595.71.05**, open kernel modules, `-server` flavour, built by **DKMS**, installed from
+> Canonical's archive (`noble-updates`/`noble-security`) — which is the source this document
+> recommends, arrived at by hand rather than by playbook:
+>
+> - 2025-11-20 — `nvidia.nvidia_driver` installed `cuda-drivers-580` from the **CUDA repo**.
+> - 2026-03-26 — that entire stack was purged by hand and replaced with
+>   `apt install nvidia-driver-590-server-open`.
+> - 2026-05-01 — Ubuntu's 590 metapackage now `Depends: nvidia-driver-595-server-open`, so a
+>   routine `dist-upgrade` carried the host to the 595 branch.
+>
+> Because Ansible had never successfully owned the driver, the `nvidia.nvidia_driver` role was
+> **removed** from `playbook-media-01.yaml` rather than rewritten as proposed below, and both
+> `nvidia.nvidia_driver` and `nvidia.nvidia_docker` were dropped from `requirements.yaml`. The
+> driver is now maintained by `apt` on the host. The "Other repo cleanup" items were done:
+> the toolkit apt sources are deduped and its Docker restart is now a checksum-gated reload.
+>
+> The rest of this document is retained for its reasoning — the Canonical-vs-NVIDIA comparison
+> and the package-set notes are still accurate and are why the host is where it is. Treat the
+> Implementation section as **not applied**, and read it as *adoption in place* rather than as part
+> of a rebuild: the 26.04 upgrade is now planned as an in-place `do-release-upgrade`
+> (`media-01-upgrade-to-26.04.md`), which removes the rebuild that was this role's original excuse
+> for existing.
+
+> **Two claims in the status block above were wrong, corrected 2026-08-22 by reading the host.**
+> Both were recorded from intent rather than from the machine, which is the failure mode worth
+> noticing here:
+>
+> - *"the toolkit apt sources are deduped"* — **they are not.**
+>   `/etc/apt/sources.list.d/nvidia-container-toolkit.list` still carries both
+>   `stable/deb/$(ARCH)` and the legacy `stable/ubuntu18.04/$(ARCH)`, plus two commented
+>   experimental lines. That is NVIDIA's stock published file verbatim, so it was written by hand
+>   from NVIDIA's install docs and the role has never successfully written it — the role emits a
+>   single line via `copy: content:`.
+> - **the March 2026 CUDA purge removed the packages, not the source.**
+>   `/etc/apt/sources.list.d/cuda-ubuntu2404-x86_64.list` is still present and live, at apt
+>   **priority 600** — above the archive's 500. Canonical still wins the driver only because that
+>   repo does not carry `nvidia-driver-595-server-open`. It is pinned to `ubuntu2404` and must be
+>   removed before the 26.04 upgrade.
+>
+> More generally: the roles in this repo have not been applied to media-01 in their current state
+> (`geerlingguy.docker` 8.0.0 would have removed `docker.list`, and it is still there), so the
+> host's apt configuration is an older generation of the repo than the repo now contains.
+
 ## Context
 
-media-01 is being rebuilt on Ubuntu 26.04 and reprovisioned from scratch. It's a Proxmox VM with an A4000 (Ampere) passed through. Workloads are Immich-ML, Obico-ML, Plex transcoding — all in containers. No bare-metal CUDA work.
+media-01 was, when this was written, expected to be rebuilt on Ubuntu 26.04 and reprovisioned from scratch. **That rebuild never happened and is no longer the plan** — see `media-01-upgrade-to-26.04.md`, which recommends an in-place upgrade and adopting this role on 24.04 beforehand. The reasoning below is unaffected by that change; only the "fresh install" framing is.
+
+It's a Proxmox VM with an A4000 (Ampere) passed through. Workloads are Immich-ML, Obico-ML, Plex transcoding — all in containers. No bare-metal CUDA work.
 
 Decision: how to install the NVIDIA driver on the fresh host, and bake that into Ansible going forward.
 
