@@ -1,0 +1,66 @@
+---
+# Apt source only. Split out so the container harness can exercise it without
+# the rest of the role, which installs the toolkit, runs `nvidia-ctk` and
+# reloads docker.service -- none of which work without a Docker daemon.
+# See ansible/tests/apt-sources/README.md.
+
+# ORDER MATTERS: predecessors are removed BEFORE the new source is written.
+#
+# The old .list and the new .sources describe the SAME repository with different
+# Signed-By values, and apt refuses that outright:
+#
+#   E:Conflicting values set for option Signed-By regarding source
+#     .../stable/deb/arm64/ /: /etc/apt/trusted.gpg.d/... != /etc/apt/keyrings/...
+#   E:The list of sources could not be read.
+#
+# Written first, there is a window in which both exist and every apt operation on
+# the host fails. If the play is interrupted in that window -- or anything else
+# runs apt -- the host is left with broken apt and this role cannot repair it,
+# because its own first step would be an apt call. Removing first means the
+# window never exists and a half-applied run is always recoverable.
+# The previous version of this role wrote the .list by hand with `copy:` and
+# dropped the key into trusted.gpg.d, where it was trusted for every repository
+# on the host. Both are removed: the module writes <name>.sources, so without
+# this the host carries two files defining the same repository.
+#
+# The .list on a long-lived host is NVIDIA's stock published file rather than
+# this role's single line -- it also enables the legacy `stable/ubuntu18.04`
+# suite. Removing the file removes that too.
+- name: Remove the hand-written .list and its globally-trusted key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    - /etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc
+  register: nvidia_container_toolkit_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+# A flat repository: the suite is an exact path ending in "/", and Components
+# must be omitted entirely -- sources.list(5) requires the two together.
+#
+# The URL carries the Debian architecture, resolved here rather than left as
+# apt's $(ARCH). sources.list(5) documents that substitution for the *suite*
+# field and says nothing about URIs in the deb822 format, so relying on it would
+# be betting on undocumented behaviour. Both paths are real:
+#   .../stable/deb/amd64/InRelease -> 200
+#   .../stable/deb/arm64/InRelease -> 200
+- name: Add the NVIDIA container toolkit repository
+  ansible.builtin.deb822_repository:
+    name: "{{ nvidia_container_toolkit_apt_source_name }}"
+    types: [deb]
+    uris: "{{ nvidia_container_toolkit_apt_repo_url }}"
+    suites: ["/"]
+    signed_by: "{{ nvidia_container_toolkit_gpgkey_url }}"
+    state: present
+  register: nvidia_container_toolkit_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: nvidia_container_toolkit_source.changed
+        or nvidia_container_toolkit_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

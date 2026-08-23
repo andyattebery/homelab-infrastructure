@@ -1,0 +1,156 @@
+---
+# Verifies the snapper apt source, and that the Debian path installs snapper
+# rather than fish.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-snapper.yml
+- name: Verify the snapper_install apt source
+  hosts: apt-test-snapper-amd64,apt-test-snapper-deb-amd64,apt-test-debian13,apt-test-ubuntu2604
+  gather_facts: true
+  vars:
+    # OBS ships amd64 only, so the package can only be installed on the emulated
+    # amd64 legs. The arm64 legs still prove the source is written correctly and
+    # that apt accepts it.
+    v_can_install: "{{ ansible_facts['architecture'] == 'x86_64' }}"
+    v_obs_dir: "{{ ('xUbuntu_' ~ ansible_facts['distribution_version'])
+                   if ansible_facts['distribution'] == 'Ubuntu'
+                   else ('Debian_' ~ ansible_facts['distribution_major_version']) }}"
+
+    # Seeded below, and asserted gone afterwards. The doubled extension is not a
+    # typo: apt_repository appends .list to the filename it is given, and the old
+    # Debian path passed a filename that already ended in .list.
+    v_predecessors:
+      - /etc/apt/sources.list.d/filesystems_snapper.list
+      - /etc/apt/sources.list.d/filesystems_snapper.list.list
+      - /etc/apt/trusted.gpg.d/filesystems_snapper.asc
+
+  tasks:
+    # Seeded as REAL one-line sources naming the same repository, not
+    # placeholders. Only then does leaving them in place while the new .sources
+    # is written produce the duplicate/conflict this ordering prevents.
+    - name: Seed the predecessors so the cleanup cannot pass vacuously
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: |
+          deb https://download.opensuse.org/repositories/filesystems:/snapper/{{ v_obs_dir }}/ /
+        mode: "0644"
+      loop:
+        - /etc/apt/sources.list.d/filesystems_snapper.list
+        - /etc/apt/sources.list.d/filesystems_snapper.list.list
+
+    - name: Seed the globally-trusted key it referenced
+      ansible.builtin.copy:
+        dest: /etc/apt/trusted.gpg.d/filesystems_snapper.asc
+        content: "# stale\n"
+        mode: "0644"
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: snapper_install
+        tasks_from: apt_repo
+
+    - name: Stat the new files and the predecessors
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ ['/etc/apt/sources.list.d/filesystems-snapper.sources',
+                 '/etc/apt/keyrings/filesystems-snapper.asc'] + v_predecessors }}"
+      register: v_stats
+
+    - name: New source present, all three predecessors gone
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/filesystems-snapper.sources']
+          - _e['/etc/apt/keyrings/filesystems-snapper.asc']
+          - not _e['/etc/apt/sources.list.d/filesystems_snapper.list']
+          - not _e['/etc/apt/sources.list.d/filesystems_snapper.list.list']
+          - not _e['/etc/apt/trusted.gpg.d/filesystems_snapper.asc']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "deb822 source written; .list, .list.list and trusted.gpg.d key all removed"
+
+    - name: Read the generated source
+      ansible.builtin.slurp:
+        src: /etc/apt/sources.list.d/filesystems-snapper.sources
+      register: v_src
+
+    - name: Correct OBS directory, flat-repo shape, one consistent colon escaping
+      vars:
+        _c: "{{ v_src.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - "'filesystems:/snapper/' ~ v_obs_dir in _c"
+          # Flat repo: Suites must end in / and Components must be absent.
+          - "'Suites: /' in _c"
+          - "'Components:' not in _c"
+          # The old Ubuntu path used an unescaped 'filesystems:snapper' for its
+          # key URL while Debian used 'filesystems:/snapper/'. One source of
+          # truth now, so neither form may appear unescaped.
+          - "'filesystems:snapper' not in _c"
+        fail_msg: "{{ _c }}"
+        success_msg: "points at {{ v_obs_dir }}, flat repo, consistent escaping"
+
+    - name: Apt-get update
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'configured multiple times' not in _o"
+          - "'Conflicting values' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0"
+
+    # The headline defect: the Debian path of this role installed `fish`.
+    - name: Confirm fish is NOT installed before we install anything
+      ansible.builtin.command: dpkg-query -W -f='${Status}' fish
+      register: v_fish_before
+      changed_when: false
+      failed_when: false
+
+    - name: Install via the real role, not by hand
+      when: v_can_install | bool
+      ansible.builtin.include_role:
+        name: snapper_install
+
+    - name: What is installed now
+      when: v_can_install | bool
+      ansible.builtin.command: "dpkg-query -W -f='${Package} ${Version} ${Status}\n' snapper fish"
+      register: v_after
+      changed_when: false
+      failed_when: false
+
+    - name: Snapper installed from OBS, fish still absent
+      when: v_can_install | bool
+      vars:
+        _o: "{{ v_after.stdout }}"
+      ansible.builtin.assert:
+        that:
+          - "'snapper' in _o"
+          - _o is search('snapper .* install ok installed')
+          - not (_o is search('fish .* install ok installed'))
+        fail_msg: "dpkg says: {{ _o }} (stderr {{ v_after.stderr }})"
+        success_msg: >-
+          {{ _o.split('\n') | select('search', 'snapper') | first | trim }} — and fish is not installed
+
+    - name: Run the source tasks again
+      ansible.builtin.include_role:
+        name: snapper_install
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      vars:
+        _changed: >-
+          {{ (snapper_install_source.changed | default(false))
+             or (snapper_install_legacy_removed.changed | default(false)) }}
+      ansible.builtin.assert:
+        that: not (_changed | bool)
+        success_msg: "idempotent"

@@ -1,18 +1,160 @@
 ---
-- name: Get fingerprint # noqa risky-shell-pipe command-instead-of-module
-  ansible.builtin.shell:
-    cmd: curl -sL 'https://launchpad.net/~{{ apt_add_launchpad_ppa_user }}/+archive/ubuntu/{{ apt_add_launchpad_ppa_repository }}' | sed -n -e 's/^.*key_fingerprint//p' | cut -d \" -f 3
-  register: _apt_add_launchpad_ppa_fingerprint
-  changed_when: false
-- name: Save key
-  ansible.builtin.get_url:
-    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x{{ _apt_add_launchpad_ppa_fingerprint.stdout }}"
-    dest: "/etc/apt/trusted.gpg.d/{{ apt_add_launchpad_ppa_user }}_{{ apt_add_launchpad_ppa_repository }}.asc"
-    mode: '0644'
-    force: true
-- name: Add PPA
-  ansible.builtin.apt_repository:
-    repo: "deb https://ppa.launchpadcontent.net/{{ apt_add_launchpad_ppa_user }}/{{ apt_add_launchpad_ppa_repository }}/ubuntu {{ apt_add_launchpad_ppa_ubuntu_version_name }} main"
-    filename: "{{ apt_add_launchpad_ppa_user }}_{{ apt_add_launchpad_ppa_repository }}"
+- name: Validate required inputs
+  ansible.builtin.assert:
+    that:
+      - apt_add_launchpad_ppa_user | default('') | length > 0
+      - apt_add_launchpad_ppa_repository | default('') | length > 0
+      - apt_add_launchpad_ppa_ubuntu_version_name | default('') | length > 0
+    fail_msg: >-
+      apt_add_launchpad_ppa requires _user, _repository and
+      _ubuntu_version_name (the Ubuntu series codename the PPA publishes for,
+      e.g. noble or resolute).
+
+# ORDER MATTERS: the predecessors are removed BEFORE the new source is written.
+# The old <user>_<repo>.list and the new <user>-<repo>.sources describe the SAME
+# repository, and their keys differ -- the old one trusted globally via
+# trusted.gpg.d, the new one named as a keyring path. apt rejects that outright
+# ("E:Conflicting values set for option Signed-By ... E:The list of sources
+# could not be read"). Written first, there is a window in which both exist and
+# EVERY apt operation on the host fails, including this role's own next task, so
+# an interrupted run could not be repaired by re-running it. Removing first
+# means that window never exists.
+# Everything below removes what earlier versions of this role, and
+# add-apt-repository, left behind. Not tidiness: apt reads every file in
+# sources.list.d, so a leftover naming the same PPA is a second definition of
+# the same source. That is a "configured multiple times" warning at best and a
+# Signed-By conflict at worst, since the old files trust the key globally via
+# trusted.gpg.d while the new one names a keyring path.
+- name: Remove the legacy .list and its globally-trusted key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/etc/apt/sources.list.d/{{ apt_add_launchpad_ppa_legacy_name }}.list"
+    - "/etc/apt/trusted.gpg.d/{{ apt_add_launchpad_ppa_legacy_name }}.asc"
+    # add-apt-repository's own key, from the legacy .list era. Unlike the
+    # sources file its name carries no series, and it is .gpg not .asc.
+    - "/etc/apt/trusted.gpg.d/{{ apt_add_launchpad_ppa_user }}-ubuntu-{{ apt_add_launchpad_ppa_repository }}.gpg"
+  register: apt_add_launchpad_ppa_legacy_removed
+
+# add-apt-repository names its file <user>-ubuntu-<repo>-<series>.sources, so
+# the series is baked into the filename and a release upgrade leaves the old one
+# behind pointing at the previous series. Globbed rather than named because the
+# series in that filename is whatever the host was running when it was written,
+# which is not necessarily the series being deployed now.
+# BOTH extensions, because add-apt-repository changed format mid-fleet: Ubuntu
+# 22.04 (jammy) writes a legacy one-line
+#   <user>-ubuntu-<repo>-<series>.list
+# with its key in trusted.gpg.d, while 24.04+ writes a deb822
+#   <user>-ubuntu-<repo>-<series>.sources
+# with the key inline. Globbing only *.sources leaves the jammy file in place
+# beside the new source -- two definitions of the same PPA, the old one trusted
+# globally and the new one naming a keyring, which is a Signed-By conflict and
+# breaks apt. Found on a real host before deployment, not in testing.
+- name: Find sources left by add-apt-repository
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns:
+      - "{{ apt_add_launchpad_ppa_user }}-ubuntu-{{ apt_add_launchpad_ppa_repository }}-*.sources"
+      - "{{ apt_add_launchpad_ppa_user }}-ubuntu-{{ apt_add_launchpad_ppa_repository }}-*.list"
+    file_type: file
+  register: apt_add_launchpad_ppa_aar_files
+
+- name: Remove them
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ apt_add_launchpad_ppa_aar_files.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: apt_add_launchpad_ppa_aar_removed
+
+# ansible.builtin.deb822_repository needs python3-debian on the target and
+# refuses to run without it (install_python_debian defaults to false). Installed
+# explicitly rather than via that flag: the flag makes the module shell out to
+# its own `apt update`, which fails on precisely the hosts this migration exists
+# to fix, reporting an error that names the wrong problem.
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
     state: present
-    update_cache: false
+
+# The PPA's signing key is not published at a predictable URL — only its
+# fingerprint is, and only via the API. This used to be scraped out of the
+# rendered HTML page with `curl | sed | cut`, carrying two lint waivers and
+# depending on Launchpad's page markup.
+- name: Get the PPA's signing key fingerprint
+  ansible.builtin.uri:
+    url: >-
+      https://api.launchpad.net/1.0/~{{ apt_add_launchpad_ppa_user }}/+archive/ubuntu/{{ apt_add_launchpad_ppa_repository }}
+    return_content: true
+  register: apt_add_launchpad_ppa_api
+
+# A PPA that does not exist returns 404 and the play stops above. A PPA that
+# exists but has never published anything has a null fingerprint, which would
+# otherwise be templated into the keyserver URL as the string "None" and produce
+# a source apt cannot verify.
+- name: Assert the PPA actually has a signing key
+  ansible.builtin.assert:
+    that: apt_add_launchpad_ppa_api.json.signing_key_fingerprint | default('', true) | length > 0
+    fail_msg: >-
+      ppa:{{ apt_add_launchpad_ppa_user }}/{{ apt_add_launchpad_ppa_repository }}
+      exists but publishes no signing key, so nothing from it can be verified.
+
+# Has the key already been fetched? deb822_repository re-downloads a URL on
+# every run and rewrites the file when the bytes differ, and keyserver.ubuntu.com
+# is served through a caching proxy whose backends do not agree byte-for-byte --
+# so a URL here makes the task report "changed" on roughly every other run,
+# forever, and refreshes the apt cache each time.
+#
+# The module short-circuits when signed_by is an existing file path
+# (write_signed_by_key: `if os.path.isfile(v): return changed, v, None`), so
+# passing the path once the key is present is both idempotent and one less
+# keyserver round-trip per run.
+#
+# Both extensions are checked because the module picks .asc or .gpg by sniffing
+# the downloaded bytes for the PGP armor header.
+- name: Look for an already-fetched signing key
+  ansible.builtin.stat:
+    path: "/etc/apt/keyrings/{{ apt_add_launchpad_ppa_name }}.{{ item }}"
+  loop: [asc, gpg]
+  register: apt_add_launchpad_ppa_keyring_stat
+
+- name: Decide whether to fetch the key or reuse it
+  vars:
+    _present: >-
+      {{ apt_add_launchpad_ppa_keyring_stat.results
+         | selectattr('stat.exists') | map(attribute='stat.path') | list }}
+  ansible.builtin.set_fact:
+    apt_add_launchpad_ppa_signed_by: >-
+      {{ (_present | first)
+         if _present
+         else ('https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x'
+               ~ apt_add_launchpad_ppa_api.json.signing_key_fingerprint) }}
+
+# signed_by is a URL on first run and a path thereafter. Either way the key ends
+# up in /etc/apt/keyrings/ and the .sources references it by path. The third
+# form the module accepts -- an inline armored key block -- is deliberately not
+# used: that is the shape Launchpad bug #2150614 truncates during
+# do-release-upgrade, and is what `add-apt-repository` writes.
+- name: Add the PPA
+  ansible.builtin.deb822_repository:
+    name: "{{ apt_add_launchpad_ppa_name }}"
+    types: [deb]
+    uris: >-
+      https://ppa.launchpadcontent.net/{{ apt_add_launchpad_ppa_user }}/{{ apt_add_launchpad_ppa_repository }}/ubuntu
+    suites: ["{{ apt_add_launchpad_ppa_ubuntu_version_name }}"]
+    components: [main]
+    signed_by: "{{ apt_add_launchpad_ppa_signed_by }}"
+    state: present
+  register: apt_add_launchpad_ppa_source
+
+# deb822_repository explicitly does not touch the cache, and a source apt has
+# not fetched is a source no package can be installed from. Guarded so a
+# converged host does not refetch every index on every run.
+- name: Refresh apt cache  # noqa no-handler
+  when: apt_add_launchpad_ppa_source.changed
+        or apt_add_launchpad_ppa_legacy_removed.changed
+        or apt_add_launchpad_ppa_aar_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

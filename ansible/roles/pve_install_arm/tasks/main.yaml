@@ -1,31 +1,7 @@
 ---
-- name: Configure Proxmox repo
-  block:
-    - name: Add apt key
-      ansible.builtin.get_url:
-        url: "https://mirrors.apqa.cn/proxmox/debian/pveport.gpg"
-        dest: "/etc/apt/trusted.gpg.d/pveport.gpg"
-        owner: root
-        group: root
-        mode: '0644'
-    - name: Add Proxmox ARM64 repository
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=arm64] https://mirrors.apqa.cn/proxmox/debian/pve bookworm port"
-        filename: pveport
-        update_cache: false
-        state: present
-    # - name: Add no subscription repository
-    #   ansible.builtin.apt_repository:
-    #     repo: "deb https://global.mirrors.apqa.cn/proxmox/debian/pve {{ ansible_facts['distribution_release'] }} port"
-    #     filename: pve-arm
-    #     update_cache: false
-    #     state: present
-    # - name: Add kernel repository
-    #   ansible.builtin.apt_repository:
-    #     repo: "deb https://mirrors.apqa.cn/proxmox/debian/kernel sid port"
-    #     filename: pve-arm64-kernel
-    #     update_cache: false
-    #     state: present
+- name: Configure the Proxmox ARM port apt source
+  ansible.builtin.include_tasks: apt_repo.yaml
+
 - name: Configure /etc/hosts
   block:
     - name: Remove default 127.0.1.1 entry
@@ -57,17 +33,48 @@
   ansible.builtin.apt:
     update_cache: true
     upgrade: dist
+
+# PXVIRT's install page has ifupdown2 as its own step, before the PVE packages,
+# and preceded by disabling NetworkManager. The order is not incidental:
+# ifupdown2 takes over /etc/network/interfaces, and leaving NetworkManager
+# running means two things manage the same interfaces.
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Stop and disable NetworkManager
+  when: "'NetworkManager.service' in ansible_facts.services"
+  ansible.builtin.systemd_service:
+    name: NetworkManager
+    state: stopped
+    enabled: false
+
+- name: Install ifupdown2
+  ansible.builtin.apt:
+    name: ifupdown2
+    state: present
+    update_cache: true
+
+# ifupdown2's postinst writes this alongside the real file. The vendor's
+# procedure deletes it explicitly; left in place it is a confusing near-copy of
+# the interface config that nothing reads.
+- name: Remove the interfaces.new ifupdown2 leaves behind
+  ansible.builtin.file:
+    path: /etc/network/interfaces.new
+    state: absent
+
+# The vendor's package set. `postfix` and `open-iscsi` were installed by the
+# previous version of this role, inherited from the upstream x86 "Proxmox on
+# Debian" guide; PXVIRT's page lists neither, and neither is published by this
+# repository, so they are no longer installed here. Add them back in the
+# calling playbook if a given host actually needs them.
 - name: Install Proxmox VE
   ansible.builtin.package:
-    name:
-      - ifupdown2
-      - proxmox-ve
-      - postfix
-      - open-iscsi
+    name: "{{ pve_install_arm_packages }}"
     update_cache: false
     state: present
   register:
     install_proxmoxve_result
+
 # - name: Remove debian kernel
 #   ansible.builtin.package:
 #     name: "{{ item }}"

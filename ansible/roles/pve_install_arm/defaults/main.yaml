@@ -1,0 +1,40 @@
+---
+# Name of the generated source. deb822_repository derives BOTH filenames from it
+# -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc.
+# Keep it lowercase with only hyphens and digits.
+pve_install_arm_apt_source_name: pxvirt
+
+# PXVIRT (Lierfang), the ARM64 Proxmox VE port.
+#
+# This replaces mirrors.apqa.cn, which the role used to point at and which is
+# dead -- HTTP 521 site-wide, and global.mirrors.apqa.cn does not connect at all.
+# PXVIRT also publishes for the host's own release rather than being pinned to
+# bookworm: verified live, both bookworm and trixie carry arm64.
+#
+#   Origin: Lierfang
+#   Architectures: arm64 amd64 loong64   (trixie adds riscv64)
+#   Components: main ceph-quincy ceph-reef ceph-squid
+#
+# The key URL 301-redirects to a regional mirror; deb822_repository follows it.
+pve_install_arm_apt_repo_url: https://mirrors.lierfang.com/pxcloud/pxvirt
+pve_install_arm_apt_gpg_key_url: https://mirrors.lierfang.com/pxcloud/lierfang.gpg
+
+# The vendor's own instructions use the host's release codename.
+pve_install_arm_apt_suite: "{{ ansible_facts['distribution_release'] }}"
+pve_install_arm_apt_components: [main]
+
+# PXVIRT's documented package set. Verified present for arm64 in the repository's
+# own Packages index on both suites:
+#
+#   bookworm  proxmox-ve 8.3.1  pve-manager 8.4.18-pxvirt2
+#             qemu-server 8.4.8+pxvirt1  pve-cluster 8.1.2-1
+#   trixie    proxmox-ve 9.0.0  pve-manager 9.0.10-2
+#             qemu-server 9.0.22  pve-cluster 9.0.6
+#
+# ifupdown2 is NOT in this list: the vendor installs it as an earlier, separate
+# step, before NetworkManager is disabled and before these land.
+pve_install_arm_packages:
+  - proxmox-ve
+  - pve-manager
+  - qemu-server
+  - pve-cluster

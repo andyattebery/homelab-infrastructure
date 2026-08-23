@@ -1,0 +1,16 @@
+---
+# Name of the generated source. deb822_repository derives BOTH filenames from
+# it -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc.
+# Keep it lowercase with only hyphens and digits: the slug rule differs between
+# ansible-core 2.20 and 2.21, and names in that shape are identical under both.
+# (The old name used an underscore, which is why the predecessor cleanup in
+# apt_repo.yaml is required rather than cosmetic.)
+snapper_install_apt_source_name: filesystems-snapper
+
+# openSUSE Build Service project. The colons are part of the project name and
+# are escaped as ":/" in the URL path. The two halves of this role used to
+# disagree about that -- Ubuntu fetched its key from ".../filesystems:snapper/"
+# and Debian from ".../filesystems:/snapper/" -- so it is defined once here and
+# the key URL is derived from it.
+snapper_install_obs_url: >-
+  https://download.opensuse.org/repositories/filesystems:/snapper/{{ snapper_install_obs_dir }}

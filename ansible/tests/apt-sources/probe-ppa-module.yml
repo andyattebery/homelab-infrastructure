@@ -1,0 +1,88 @@
+# Standing check: can any builtin module add a Launchpad PPA on Ubuntu 26.04?
+#
+# As of ansible-core 2.20.4 the answer is NO, which is the entire reason the
+# apt_add_launchpad_ppa role still exists:
+#
+#   ansible.builtin.deb822_repository  no PPA support at all -- no ppa: shorthand,
+#                                      no Launchpad key lookup.
+#   ansible.builtin.apt_repository     has PPA support and is otherwise modern
+#                                      (it already uses api.launchpad.net and
+#                                      ppa.launchpadcontent.net), but cannot
+#                                      import the key on a host without apt-key.
+#
+# The apt_repository failure is an upstream bug, not a missing dependency.
+# apt_repository.py builds:
+#
+#     gpg --no-tty --keyserver hkp://keyserver.ubuntu.com:80 --export <fingerprint>
+#
+# `gpg --export` reads the LOCAL keyring; --keyserver is inert for it. Nothing is
+# ever fetched, stdout is empty, and the module reports "Unable to get required
+# signing key". The apt-key branch does it correctly (`apt-key adv --recv-keys`),
+# so this only bites where apt-key is gone -- i.e. 26.04 and Debian 13.
+#
+# Expected outcome of this playbook: apt_repository FAILS, permanently.
+# ansible-core 2.21 DEPRECATES both apt_repository and apt_key in favour of
+# deb822_repository, so the module with working PPA support is being retired
+# while its replacement still has none (the 2.21 source contains zero
+# occurrences of "ppa" or "launchpad"). This is not a temporary gap to wait out.
+#
+# Re-run after an ansible-core bump anyway: if deb822_repository ever gains PPA
+# support, apt_add_launchpad_ppa can shrink to a thin wrapper or go away.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml probe-ppa-module.yml
+- name: Probe apt_repository PPA support on 26.04
+  hosts: apt-test-ubuntu2604
+  gather_facts: true
+  tasks:
+    - name: Install gpg, as configure_server does on every host
+      ansible.builtin.apt:
+        name: gpg
+        update_cache: true
+
+    - name: Which binaries exist
+      ansible.builtin.shell: "for b in apt-key gpg add-apt-repository; do printf '%s=%s ' $b $(command -v $b || echo MISSING); done"
+      changed_when: false
+      register: bins
+
+    - name: Report binaries
+      ansible.builtin.debug:
+        msg: "BINS {{ bins.stdout }}"
+
+    - name: Try apt_repository with the ppa shorthand
+      ansible.builtin.apt_repository:
+        repo: ppa:fish-shell/release-4
+        state: present
+        update_cache: false
+      register: r
+      ignore_errors: true
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: "RESULT failed={{ r.failed | default(false) }} msg={{ r.msg | default('') }} repo={{ r.repo | default('') }}"
+
+    - name: What landed on disk
+      ansible.builtin.shell: |
+        echo "SOURCES: $(ls /etc/apt/sources.list.d/ | tr '\n' ' ')"
+        echo "KEYRINGS: $(ls /etc/apt/keyrings/ 2>/dev/null | tr '\n' ' ')"
+        echo "TRUSTED: $(ls /etc/apt/trusted.gpg.d/ | tr '\n' ' ')"
+        echo "CONTENT: $(cat /etc/apt/sources.list.d/*fish* 2>/dev/null | tr '\n' '|')"
+      changed_when: false
+      register: disk
+
+    - name: Report disk
+      ansible.builtin.debug:
+        msg: "{{ disk.stdout_lines }}"
+
+    - name: Does apt accept it
+      ansible.builtin.command: apt-get update
+      changed_when: false
+      failed_when: false
+      register: upd
+
+    - name: Report apt
+      ansible.builtin.debug:
+        msg: >-
+          APT rc={{ upd.rc }}
+          flags={{ (upd.stdout ~ upd.stderr)
+                   | regex_findall('(?i)(NO_PUBKEY|not signed|Conflicting|multiple times)') | unique }}

@@ -1,0 +1,67 @@
+---
+# Apt source only, split out so the container harness can exercise it without
+# building the ZFS DKMS module. See ansible/tests/apt-sources/README.md.
+
+# ORDER MATTERS: the legacy .list is removed before the new .sources is written.
+# Both describe the same repository, and the old entry carries no Signed-By while
+# the new one names a keyring, which apt rejects outright. Written first, there
+# is a window in which every apt operation on the host fails -- including this
+# role's own next task -- so an interrupted run could not be repaired by
+# re-running it.
+- name: Remove the legacy .list
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ zfs_install_backports_name }}.list"
+    state: absent
+  register: zfs_install_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+# Which spelling of the Debian archive keyring this release uses is NOT derivable
+# from the release number: trixie ships debian-archive-keyring.pgp AND .gpg and
+# signs with .pgp, bookworm has only .gpg. apt compares the Signed-By strings
+# rather than the keys, so naming the wrong one is a fatal
+# "Conflicting values set for option Signed-By" wherever the same archive is
+# already configured. Preferring .pgp and falling back to .gpg gets both right.
+- name: Stat the candidate archive keyrings
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ zfs_install_keyring_base }}.pgp"
+    - "{{ zfs_install_keyring_base }}.gpg"
+  register: zfs_install_keyring_stat
+
+- name: Resolve the archive keyring
+  vars:
+    _present: >-
+      {{ zfs_install_keyring_stat.results
+         | selectattr('stat.exists') | map(attribute='item') | list }}
+  ansible.builtin.set_fact:
+    zfs_install_signed_by: "{{ _present | first | default('', true) }}"
+
+- name: Refuse to write a source apt cannot verify
+  ansible.builtin.assert:
+    that: zfs_install_signed_by | length > 0
+    fail_msg: >-
+      No Debian archive keyring found at {{ zfs_install_keyring_base }}.pgp or
+      .gpg. Install debian-archive-keyring before running this role.
+
+# deb-src is included because zfs-dkms builds from source on the target, and the
+# original one-line pair carried both.
+- name: Add the backports repository
+  ansible.builtin.deb822_repository:
+    name: "{{ zfs_install_backports_name }}"
+    types: [deb, deb-src]
+    uris: "{{ zfs_install_backports_uri }}"
+    suites: ["{{ ansible_facts['distribution_release'] }}-backports"]
+    components: [main, contrib]
+    signed_by: "{{ zfs_install_signed_by }}"
+    state: present
+  register: zfs_install_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: zfs_install_source.changed or zfs_install_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

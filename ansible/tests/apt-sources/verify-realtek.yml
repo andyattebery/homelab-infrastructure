@@ -1,0 +1,230 @@
+---
+# Proves the realtek_dkms component fix in BOTH directions, plus idempotence,
+# by walking one container through the whole state machine:
+#
+#   1. fresh host, component absent      -> drop-in written, apt clean
+#   2. run again                          -> nothing changes
+#   3. something else enables the component (debian_extra_components, exactly
+#      as playbook-prod-proxmox-cluster.yaml does at line 14)
+#   4. run again                          -> drop-in REMOVED, apt clean
+#   5. run again                          -> nothing changes
+#
+# Step 4 is the self-heal that fixes vm-host-01/02 without anyone deleting a
+# file by hand. Step 1 is the leg that proves the check was not simply made to
+# delete everything.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-realtek.yml
+- name: Verify the realtek_dkms apt component, both directions
+  hosts: apt-test-debian12,apt-test-debian13,apt-test-pve9,apt-test-ubuntu2404,apt-test-ubuntu2604
+  gather_facts: true
+  vars:
+    realtek_dkms_driver: r8125
+    # Computed here, not read from the role. Role defaults are out of scope once
+    # include_role returns, and asserting on the literal path is the stronger
+    # test anyway: it checks where the file actually lands rather than trusting
+    # the role's own variable to describe it.
+    v_component: "{{ 'non-free' if ansible_facts['distribution'] == 'Debian' else 'multiverse' }}"
+    v_dropfile: "/etc/apt/sources.list.d/realtek-dkms-{{ v_component }}.sources"
+
+  tasks:
+    # Stock Ubuntu images ALREADY ship multiverse enabled in ubuntu.sources, so
+    # a fresh Ubuntu host is the "already enabled" case, not the absent one.
+    # (Which also means this role has been writing a redundant multiverse source
+    # on every Ubuntu host it has ever run on.) Strip it first so the same
+    # 1..5 state machine exercises both directions on Ubuntu too.
+    # This playbook MUTATES the host: step 3 enables the component. Without
+    # undoing that first, a second run starts with the component already on and
+    # step 1's premise ("not enabled anywhere") is false. Resetting here is what
+    # makes the playbook re-runnable, which matters because running the suite
+    # twice is what catches non-idempotence.
+    #
+    # non-free only — NOT non-free-firmware, which is a different component that
+    # merely starts with the same string.
+    - name: Step 0 — Debian only — start from a host without the component
+      when: ansible_facts['distribution'] == 'Debian'
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/debian.sources
+        regexp: '^(Components:.*?)\s+non-free(?![-\w])(.*)$'
+        replace: '\1\2'
+
+    - name: Step 0 — Ubuntu only — start from a host without the component
+      when: ansible_facts['distribution'] == 'Ubuntu'
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/ubuntu.sources
+        regexp: '^(Components:.*?)\s*\bmultiverse\b(.*)$'
+        replace: '\1\2'
+
+    - name: Step 0 — Capture the host's stock archive source for comparison
+      ansible.builtin.slurp:
+        src: >-
+          {{ '/etc/apt/sources.list.d/debian.sources'
+             if ansible_facts['distribution'] == 'Debian'
+             else '/etc/apt/sources.list.d/ubuntu.sources' }}
+      register: v_stock_content
+
+    - name: Step 1 — Fresh host — component is not enabled anywhere
+      ansible.builtin.include_role:
+        name: realtek_dkms
+        tasks_from: enable_apt_component
+
+    - name: Step 1 — The drop-in was written
+      ansible.builtin.stat:
+        path: "{{ v_dropfile }}"
+      register: v_step1
+
+    - name: Step 1 — Assert written, and apt is happy with it
+      ansible.builtin.assert:
+        that:
+          - not (realtek_dkms_component_already_enabled | bool)
+          - v_step1.stat.exists
+        success_msg: "1. drop-in present at {{ v_dropfile }}"
+
+    # `command`, not the apt module: these tests assert on apt's OWN
+    # stdout/stderr (duplicate-target warnings, Signed-By conflicts),
+    # which the module does not surface.
+    - name: Step 1 — apt-get update  # noqa command-instead-of-module
+      ansible.builtin.command: apt-get update
+      register: v_upd1
+      changed_when: false
+      failed_when: false
+
+    # Read the file that was actually written rather than the role's internal
+    # variables: those are role-scoped, and more importantly the point of the
+    # change is what lands on disk.
+    - name: Step 1 — Read the drop-in back
+      ansible.builtin.slurp:
+        src: "{{ v_dropfile }}"
+      register: v_dropin1
+
+    - name: Step 1 — apt is clean — no conflict, no duplicate, rc 0
+      vars:
+        _o: "{{ v_upd1.stdout ~ v_upd1.stderr }}"
+        _f: "{{ v_dropin1.content | b64decode }}"
+        _stock: "{{ v_stock_content.content | b64decode }}"
+        _dropin_keys: "{{ _f | regex_findall('^Signed-By:\\s*(\\S+)', multiline=True) }}"
+        _dropin_uris: "{{ _f | regex_findall('^URIs:\\s*(\\S+)', multiline=True) }}"
+        _stock_keys: "{{ _stock | regex_findall('^Signed-By:\\s*(\\S+)', multiline=True) }}"
+        _stock_uris: "{{ _stock | regex_findall('^URIs:\\s*(\\S+)', multiline=True) }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd1.rc == 0
+          - "'Conflicting values set for option Signed-By' not in _o"
+          - "'configured multiple times' not in _o"
+          # Mirrored, not constructed: every Signed-By and URIs value in the
+          # drop-in must also appear in the host's own archive source. This is
+          # the assertion that would have caught the .pgp/.gpg conflict and the
+          # archive-vs-ports 404 before either reached a host.
+          # Non-emptiness first. Without these the two difference() checks
+          # below pass on an empty list, which is how a broken extraction
+          # reports itself as a clean mirror.
+          - _dropin_keys | length > 0
+          - _dropin_uris | length > 0
+          - _stock_keys | length > 0
+          - _dropin_keys | difference(_stock_keys) | length == 0
+          - _dropin_uris | difference(_stock_uris) | length == 0
+          - "'Components: ' ~ v_component in _f"
+        fail_msg: "rc={{ v_upd1.rc }} :: {{ _o }} :: wrote {{ _f }}"
+        success_msg: >-
+          1. apt clean; mirrored Signed-By {{ _dropin_keys | unique | join(',') }}
+          and URIs {{ _dropin_uris | unique | join(',') }}
+
+    - name: Step 1 — The component really is reachable now
+      ansible.builtin.command: apt-cache policy
+      register: v_pol1
+      changed_when: false
+
+    - name: Step 1 — Assert the component appears in apt's own view
+      ansible.builtin.assert:
+        that: v_component in v_pol1.stdout
+        success_msg: "1. {{ v_component }} visible to apt"
+
+    - name: Step 2 — Run again
+      ansible.builtin.include_role:
+        name: realtek_dkms
+        tasks_from: enable_apt_component
+
+    - name: Step 2 — Idempotent — nothing written, nothing removed
+      ansible.builtin.assert:
+        that:
+          - not (realtek_dkms_sources_file.changed | default(false))
+          - not (realtek_dkms_dropfile_removed.changed | default(false))
+        success_msg: "2. idempotent"
+
+    # debian_extra_components is Debian-only (it matches debian.org URIs), so on
+    # Ubuntu the same situation is created directly: append multiverse to the
+    # host's own ubuntu.sources, which is what a stock desktop install or an
+    # `add-apt-repository multiverse` would leave behind.
+    - name: Step 3 — Now something else enables the component (Debian)
+      when: ansible_facts['distribution'] == 'Debian'
+      ansible.builtin.include_role:
+        name: debian_extra_components
+
+    - name: Step 3 — Now something else enables the component (Ubuntu)
+      when: ansible_facts['distribution'] == 'Ubuntu'
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/ubuntu.sources
+        regexp: '^(Components:(?!.*\bmultiverse\b).*)$'
+        replace: '\1 multiverse'
+
+    - name: Step 4 — Run again — the drop-in is now redundant
+      ansible.builtin.include_role:
+        name: realtek_dkms
+        tasks_from: enable_apt_component
+
+    - name: Step 4 — It was detected as already enabled, and the file is gone
+      ansible.builtin.stat:
+        path: "{{ v_dropfile }}"
+      register: v_step4
+
+    - name: Step 4 — Assert self-healed
+      ansible.builtin.assert:
+        that:
+          - realtek_dkms_component_already_enabled | bool
+          - not v_step4.stat.exists
+        success_msg: "4. redundant drop-in removed"
+
+    # `command`, not the apt module: these tests assert on apt's OWN
+    # stdout/stderr (duplicate-target warnings, Signed-By conflicts),
+    # which the module does not surface.
+    - name: Step 4 — apt-get update  # noqa command-instead-of-module
+      ansible.builtin.command: apt-get update
+      register: v_upd4
+      changed_when: false
+      failed_when: false
+
+    - name: Step 4 — The reported symptom is gone
+      vars:
+        _o: "{{ v_upd4.stdout ~ v_upd4.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd4.rc == 0
+          - "'configured multiple times' not in _o"
+          - "'Conflicting values set for option Signed-By' not in _o"
+        fail_msg: "rc={{ v_upd4.rc }} :: {{ _o }}"
+        success_msg: "4. no duplicate-target warning, no Signed-By conflict, rc 0"
+
+    - name: Step 4 — Component still reachable, via the host's own source now
+      ansible.builtin.command: apt-cache policy
+      register: v_pol4
+      changed_when: false
+
+    - name: Step 4 — Assert still reachable
+      ansible.builtin.assert:
+        that: v_component in v_pol4.stdout
+        fail_msg: >-
+          The drop-in was removed but {{ v_component }} is no
+          longer visible — the fix broke the thing the file existed for.
+        success_msg: "4. {{ v_component }} still visible"
+
+    - name: Step 5 — Run again
+      ansible.builtin.include_role:
+        name: realtek_dkms
+        tasks_from: enable_apt_component
+
+    - name: Step 5 — Idempotent in the removed state too
+      ansible.builtin.assert:
+        that:
+          - not (realtek_dkms_sources_file.changed | default(false))
+          - not (realtek_dkms_dropfile_removed.changed | default(false))
+        success_msg: "5. idempotent"

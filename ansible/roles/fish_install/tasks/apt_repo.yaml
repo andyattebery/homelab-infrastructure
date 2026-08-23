@@ -1,0 +1,59 @@
+---
+# Apt source only. Split out from the install so the container harness can
+# exercise it without the `chsh` in main.yaml, which needs a real user and a
+# real shell entry. See ansible/tests/apt-sources/README.md.
+
+- name: Add the fish PPA (Ubuntu)
+  when: ansible_facts['distribution'] == 'Ubuntu'
+  ansible.builtin.include_role:
+    name: apt_add_launchpad_ppa
+  vars:
+    apt_add_launchpad_ppa_user: fish-shell
+    apt_add_launchpad_ppa_repository: "release-{{ fish_version }}"
+    apt_add_launchpad_ppa_ubuntu_version_name: "{{ ansible_facts['distribution_release'] }}"
+
+# Debian has no PPA to use, so fish comes from the openSUSE build service.
+- name: Add the fish OBS repository (Debian)
+  when: ansible_facts['distribution'] == 'Debian'
+  block:
+    # ORDER MATTERS: the predecessor is removed BEFORE the new source is
+    # written. The hand-templated shells_fish_release_<v>.sources and the
+    # module's shells-fish-release-<v>.sources describe the SAME repository with
+    # different Signed-By values (trusted.gpg.d vs keyrings), and apt refuses
+    # that outright -- "E:Conflicting values set for option Signed-By ...
+    # E:The list of sources could not be read". Written first, there is a window
+    # in which both exist and EVERY apt operation on the host fails, including
+    # this role's own, so an interrupted run could not be repaired by re-running
+    # it. Removing first means the window never exists.
+    - name: Remove the hand-templated source and its globally-trusted key
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apt/sources.list.d/shells_fish_release_{{ fish_version }}.sources"
+        - "/etc/apt/trusted.gpg.d/shells_fish_release_{{ fish_version }}.asc"
+      register: fish_install_legacy_removed
+
+    - name: Ensure python3-debian is present
+      ansible.builtin.apt:
+        name: python3-debian
+        state: present
+
+    # A flat repository: the suite is an exact path ending in "/", and
+    # Components must be omitted entirely -- sources.list(5) requires both
+    # together. `components` is simply not passed here; setting it to an empty
+    # list would still emit a "Components:" field.
+    - name: Add the repository
+      ansible.builtin.deb822_repository:
+        name: "{{ fish_install_debian_source_name }}"
+        types: [deb]
+        uris: "{{ fish_install_debian_repo_url }}"
+        suites: ["/"]
+        signed_by: "{{ fish_install_debian_repo_url }}/Release.key"
+        state: present
+      register: fish_install_debian_source
+
+    - name: Refresh apt cache  # noqa no-handler
+      when: fish_install_debian_source.changed or fish_install_legacy_removed.changed
+      ansible.builtin.apt:
+        update_cache: true

@@ -1,0 +1,156 @@
+---
+# Verifies the mise apt source on both upstream channels.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-mise.yml
+#
+# Only apt_repo.yaml is exercised, not the whole role.
+- name: Verify the mise apt source
+  hosts: apt-test-debian12,apt-test-debian13,apt-test-ubuntu2404,apt-test-ubuntu2604,apt-test-ubuntu2604-amd64
+  gather_facts: true
+  vars:
+    # Mirrors the role's own condition, including the architecture gate: the
+    # PPA has no arm64 build, so an arm64 26.04 host uses the deb repository.
+    v_ppa_host: "{{ ansible_facts['distribution'] == 'Ubuntu'
+                    and ansible_facts['distribution_major_version'] | int >= 26
+                    and ansible_facts['architecture'] == 'x86_64' }}"
+
+  tasks:
+    # On the PPA leg this is the state a host reaches by UPGRADING from 24.04:
+    # the deb repository this role configured before the upgrade is still there.
+    # On the deb-repo legs it is the legacy .list the old apt_repository wrote.
+    # Seeded either way so the removal assertions cannot pass vacuously.
+    # The .list is seeded as a REAL one-line entry for the same repository, so
+    # that leaving it beside the new .sources would actually be two definitions
+    # of one source rather than two inert files.
+    - name: Seed the legacy .list a pre-migration host carries
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/mise.list
+        content: |
+          deb [signed-by=/etc/apt/keyrings/mise.asc] https://mise.jdx.dev/deb stable main
+        mode: "0644"
+
+    - name: Seed the deb-repo source and key a pre-upgrade host carries
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: "# stale\n"
+        mode: "0644"
+      loop:
+        - /etc/apt/sources.list.d/mise.sources
+        - /etc/apt/keyrings/mise.asc
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: mise
+        tasks_from: apt_repo
+
+    - name: Stat everything relevant
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/sources.list.d/mise.sources
+        - /etc/apt/keyrings/mise.asc
+        - /etc/apt/sources.list.d/mise.list
+        - /etc/apt/sources.list.d/jdxcode-mise.sources
+        - /etc/apt/keyrings/jdxcode-mise.asc
+      register: v_stats
+
+    - name: Ubuntu 26.04+ — PPA present, deb repository fully removed
+      when: v_ppa_host | bool
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/jdxcode-mise.sources']
+          - _e['/etc/apt/keyrings/jdxcode-mise.asc']
+          - not _e['/etc/apt/sources.list.d/mise.sources']
+          - not _e['/etc/apt/sources.list.d/mise.list']
+          - not _e['/etc/apt/keyrings/mise.asc']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "26.04: PPA source present, competing deb repository removed"
+
+    - name: Debian / Ubuntu < 26.04 — deb822 source present, legacy .list gone
+      when: not (v_ppa_host | bool)
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/mise.sources']
+          - _e['/etc/apt/keyrings/mise.asc']
+          - not _e['/etc/apt/sources.list.d/mise.list']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "deb repository via deb822, legacy .list removed"
+
+    - name: The architecture is pinned, not left to apt
+      when: not (v_ppa_host | bool)
+      ansible.builtin.slurp:
+        src: /etc/apt/sources.list.d/mise.sources
+      register: v_src
+
+    - name: Assert the pinned arch matches the host
+      when: not (v_ppa_host | bool)
+      vars:
+        _c: "{{ v_src.content | b64decode }}"
+        _want: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+      ansible.builtin.assert:
+        that:
+          - "'Architectures: ' ~ _want in _c"
+          - "'$(ARCH)' not in _c"
+        fail_msg: "{{ _c }}"
+        success_msg: "Architectures: {{ _want }} (no $(ARCH) substitution relied on)"
+
+    - name: Apt-get update
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'configured multiple times' not in _o"
+          - "'Conflicting values' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0"
+
+    - name: Install mise
+      ansible.builtin.apt:
+        name: mise
+        state: present
+
+    - name: Where did it come from
+      ansible.builtin.command: apt-cache policy mise
+      register: v_pol
+      changed_when: false
+
+    - name: Installed from the intended upstream channel
+      vars:
+        _inst: "{{ v_pol.stdout_lines | select('search', 'Installed:') | first | regex_replace('.*Installed:\\s*', '') }}"
+        _want_host: "{{ 'ppa.launchpadcontent.net' if (v_ppa_host | bool) else 'mise.jdx.dev' }}"
+      ansible.builtin.assert:
+        that:
+          - _inst != '(none)'
+          - _want_host in v_pol.stdout
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: "mise {{ _inst }} from {{ _want_host }}"
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: mise
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      vars:
+        _changed: >-
+          {{ (mise_apt_source.changed | default(false))
+             or (mise_legacy_removed.changed | default(false))
+             or (mise_deb_repo_removed.changed | default(false))
+             or (apt_add_launchpad_ppa_source.changed | default(false)) }}
+      ansible.builtin.assert:
+        that: not (_changed | bool)
+        success_msg: "idempotent"

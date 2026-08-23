@@ -1,0 +1,149 @@
+---
+# Positive controls: the defects this migration fixes are REAL, and this harness
+# can see them.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml repro.yml
+#
+# If a check here stops reproducing, the harness has gone blind and every green
+# result from a verify playbook afterwards means nothing.
+#
+# These all CONSTRUCT the broken condition rather than running the old role.
+# Earlier versions ran the unmodified roles and asserted they failed, which
+# worked exactly once: the moment a role was fixed, its control could no longer
+# fail, and a control that cannot fail is not a control. Testing the underlying
+# condition instead keeps them valid after the fix.
+
+- name: Repro 1 — apt-key, which fish_install and snapper_install both called, is gone
+  hosts: apt-test-ubuntu2604,apt-test-debian13
+  gather_facts: true
+
+  tasks:
+    - name: Look for apt-key
+      ansible.builtin.command: which apt-key
+      register: repro_apt_key
+      changed_when: false
+      failed_when: false
+
+    # The old roles ran `apt-key --keyring /etc/apt/trusted.gpg del <fp>` as a
+    # bare command: with no failed_when, so a missing binary failed the TASK,
+    # not just the cleanup. fish_install runs on every host via configure_server,
+    # early, so that took down the whole playbook.
+    - name: Reproduced — apt 3.x ships no apt-key
+      ansible.builtin.assert:
+        that: repro_apt_key.rc != 0
+        fail_msg: >-
+          apt-key EXISTS on {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_major_version'] }}. The premise behind
+          removing those tasks no longer holds — re-check before trusting it.
+        success_msg: >-
+          REPRODUCED on {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_major_version'] }}: apt-key absent
+          (rc={{ repro_apt_key.rc }}), so the old task would have failed the play
+
+- name: Repro 2 — the PPA mise used to point at does not exist
+  hosts: apt-test-ubuntu2604
+  gather_facts: false
+
+  tasks:
+    # ppa:mise-en-place/mise. Upstream's actual PPA is ppa:jdxcode/mise. The old
+    # role only used the bad one on the >= 26 branch, so no host had reached it.
+    - name: Ask Launchpad about the PPA the role used to name
+      ansible.builtin.uri:
+        url: https://api.launchpad.net/1.0/~mise-en-place/+archive/ubuntu/mise
+        status_code: [200, 404]
+      register: repro_bad_ppa
+      delegate_to: localhost
+
+    - name: And about the one it names now
+      ansible.builtin.uri:
+        url: https://api.launchpad.net/1.0/~jdxcode/+archive/ubuntu/mise
+        status_code: [200, 404]
+      register: repro_good_ppa
+      delegate_to: localhost
+
+    - name: Reproduced — the old name 404s, the new one resolves
+      ansible.builtin.assert:
+        that:
+          - repro_bad_ppa.status == 404
+          - repro_good_ppa.status == 200
+          - repro_good_ppa.json.signing_key_fingerprint | default('') | length > 0
+        fail_msg: >-
+          old={{ repro_bad_ppa.status }} new={{ repro_good_ppa.status }} —
+          if the old PPA now exists, the fix needs revisiting
+        success_msg: >-
+          REPRODUCED: ppa:mise-en-place/mise -> 404,
+          ppa:jdxcode/mise -> 200
+
+- name: Repro 3 — a second source for an already-enabled component breaks apt
+  hosts: apt-test-debian12,apt-test-debian13,apt-test-pve9
+  gather_facts: true
+
+  # This one builds the bad state BY HAND rather than by running realtek_dkms.
+  # Once the role is fixed it can no longer produce the defect, and a positive
+  # control that cannot fail is not a control. Writing the file directly keeps
+  # the check meaningful forever: it asserts that the SYMPTOM is real, which is
+  # what justifies the conditional in the role. If this ever stops reproducing,
+  # apt's behaviour changed and the role's condition may no longer be needed.
+  tasks:
+    - name: Enable non-free the way the cluster playbook does
+      ansible.builtin.include_role:
+        name: debian_extra_components
+
+    - name: Baseline — apt update is clean
+      ansible.builtin.command: apt-get update
+      register: repro_before
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the baseline really is clean
+      vars:
+        _o: "{{ repro_before.stdout ~ repro_before.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - repro_before.rc == 0
+          - "'configured multiple times' not in _o"
+        fail_msg: "container is not a clean baseline, so this test proves nothing"
+        success_msg: "baseline clean"
+
+    # Exactly what the role used to write: the component duplicated, and
+    # Signed-By hardcoded to .gpg regardless of what the host actually uses.
+    - name: Write the source the old role would have written
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/realtek-dkms-non-free.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: http://deb.debian.org/debian
+          Suites: {{ ansible_facts['distribution_release'] }} {{ ansible_facts['distribution_release'] }}-updates
+          Components: non-free
+          Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+    - name: Apt update again
+      ansible.builtin.command: apt-get update
+      register: repro_after
+      changed_when: false
+      failed_when: false
+
+    - name: Reproduced — record which symptom this release produces
+      vars:
+        _o: "{{ repro_after.stdout ~ repro_after.stderr }}"
+        _dupes: >-
+          {{ _o.split('\n') | select('search', 'configured multiple times') | list | length }}
+        _conflict: "{{ 'Conflicting values set for option Signed-By' in _o }}"
+      ansible.builtin.assert:
+        that:
+          - (_dupes | int) > 0 or (_conflict | bool)
+        fail_msg: >-
+          Neither symptom appeared. The harness cannot reproduce the field
+          report, so it cannot prove the fix either. rc={{ repro_after.rc }}
+        success_msg: >-
+          REPRODUCED on {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_major_version'] }}:
+          {{ _dupes }} duplicate-target warning(s);
+          hard Signed-By conflict = {{ _conflict }}; apt rc={{ repro_after.rc }}
+
+    - name: Clean up, so a later verify run starts from a sane host
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/realtek-dkms-non-free.sources
+        state: absent

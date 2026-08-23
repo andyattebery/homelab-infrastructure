@@ -1,0 +1,18 @@
+---
+# Removes the throwaway containers. Base images are left in place — they are
+# large, shared, and re-pulling them is the slowest part of a run.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh teardown.yml
+- name: Remove apt-source test containers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Remove containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+        force_kill: true
+      loop: "{{ groups['apt_test'] }}"

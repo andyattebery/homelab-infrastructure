@@ -3,3 +3,21 @@ mise_arch_map:
   x86_64: amd64
   aarch64: arm64
   armv7l: armhf
+
+# Name of the generated source for mise's own deb repository. deb822_repository
+# derives BOTH filenames from it -- /etc/apt/sources.list.d/<slug>.sources and
+# /etc/apt/keyrings/<slug>.asc. Keep it lowercase with only hyphens and digits:
+# the slug rule differs between ansible-core 2.20 and 2.21, and names in that
+# shape are identical under both.
+mise_apt_source_name: mise
+mise_apt_repo_url: https://mise.jdx.dev/deb
+mise_apt_gpg_key_url: https://mise.jdx.dev/gpg-key.pub
+
+# Ubuntu 26.04+ only. Upstream's documented PPA is ppa:jdxcode/mise.
+#
+# This role previously used ppa:mise-en-place/mise, which DOES NOT EXIST -- both
+# launchpad.net and the API return 404 for it. Nothing had noticed because the
+# branch only fires on 26.04 and no host had reached it yet. Reproduced in
+# ansible/tests/apt-sources/repro.yml.
+mise_ppa_user: jdxcode
+mise_ppa_repository: mise

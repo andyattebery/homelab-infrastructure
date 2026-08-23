@@ -17,3 +17,33 @@ realtek_dkms_pci_devices:
 # Ubuntu generic). Override for HWE/cloud Ubuntu, e.g.:
 #   realtek_dkms_kernel_metas: [linux-generic-hwe-22.04, linux-headers-generic-hwe-22.04]
 realtek_dkms_kernel_metas: []
+
+# Where to look for apt sources that might already enable the extra component,
+# and where this role's own drop-in goes. Parameterised so the role can be
+# pointed at a scratch directory by roles/realtek_dkms/tests/test.yml — the
+# detection logic is the part most worth testing and it needs no container.
+realtek_dkms_apt_sources_dir: /etc/apt/sources.list.d
+realtek_dkms_apt_sources_list: /etc/apt/sources.list
+realtek_dkms_apt_search_paths:
+  - "{{ realtek_dkms_apt_sources_dir }}"
+  - "{{ realtek_dkms_apt_sources_list | dirname }}"
+realtek_dkms_apt_search_patterns:
+  - '*.sources'
+  - '*.list'
+  - "{{ realtek_dkms_apt_sources_list | basename }}"
+
+# This role's own drop-in. The prefix is what excludes the file from its own
+# "is the component already enabled?" search; without that the role would see
+# its own output, delete the file, recreate it next run, and flap forever.
+realtek_dkms_apt_dropfile_prefix: realtek-dkms-
+realtek_dkms_apt_dropfile_path: >-
+  {{ realtek_dkms_apt_sources_dir }}/{{ realtek_dkms_apt_dropfile_prefix }}{{ realtek_dkms_apt_component }}.sources
+
+# Base path of the distro archive keyring, without extension. Only used as a
+# fallback: the role prefers whatever Signed-By the host's own archive source
+# already declares, because apt rejects two different Signed-By values for one
+# source even when both files hold the same key.
+realtek_dkms_apt_keyring_base: >-
+  {{ '/usr/share/keyrings/debian-archive-keyring'
+     if ansible_facts['distribution'] == 'Debian'
+     else '/usr/share/keyrings/ubuntu-archive-keyring' }}

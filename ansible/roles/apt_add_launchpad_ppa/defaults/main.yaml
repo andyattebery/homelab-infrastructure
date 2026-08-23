@@ -1,0 +1,12 @@
+---
+# Name of the generated source. deb822_repository derives BOTH filenames from
+# it -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc
+# -- and there is no separate filename parameter. The slug is
+# re.sub('[^a-z0-9-]+', '', re.sub('[_\s]+', '-', name.lower())), so underscores
+# become hyphens and dots are deleted; pick a name that survives that intact.
+apt_add_launchpad_ppa_name: "{{ apt_add_launchpad_ppa_user }}-{{ apt_add_launchpad_ppa_repository }}"
+
+# What earlier versions of this role wrote, via apt_repository with
+# filename: <user>_<repository>. Removed on every run. A variable only so a
+# caller that used a custom filename can point the cleanup at it.
+apt_add_launchpad_ppa_legacy_name: "{{ apt_add_launchpad_ppa_user }}_{{ apt_add_launchpad_ppa_repository }}"

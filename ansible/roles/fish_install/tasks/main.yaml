@@ -1,24 +1,36 @@
 ---
-- name: Install on Debian armhf (armv6l)
-  when: ansible_facts['distribution'] == 'Debian' and ansible_facts['machine'] == 'armv6l'
-  ansible.builtin.include_tasks:
-    file: install_debian_armhf.yaml
-- name: Install on all other architectures
-  when: ansible_facts['machine'] != 'armv6l'
+# armv6l has no upstream fish package from any of the sources below — the PPA is
+# not built for it and OBS does not publish armhf for Debian_13 — so this
+# architecture takes whatever the distro ships and adds no apt source at all.
+# An earlier version carried ~55 lines of commented-out attempts at pinning
+# raspbian and backports; that history is in git, not here.
+- name: Install the distro's fish (Debian armv6l)
+  when:
+    - ansible_facts['distribution'] == 'Debian'
+    - ansible_facts['machine'] == 'armv6l'
+  ansible.builtin.apt:
+    name: fish
+    update_cache: true
+
+- name: Install a current fish from an upstream repository
+  when:
+    - ansible_facts['machine'] != 'armv6l'
+    - ansible_facts['distribution'] in ['Debian', 'Ubuntu']
   block:
-    - name: Install on Debian
-      when: ansible_facts['distribution'] == 'Debian'
-      ansible.builtin.include_tasks:
-        file: install_debian.yaml
-    - name: Install on Ubuntu
-      when: ansible_facts['distribution'] == 'Ubuntu'
-      ansible.builtin.include_tasks:
-        file: install_ubuntu.yaml
+    - name: Configure the apt source
+      ansible.builtin.include_tasks: apt_repo.yaml
+
+    - name: Install fish
+      ansible.builtin.apt:
+        name: fish
+        update_cache: true
+
 - name: Get shell path
   ansible.builtin.command:
     cmd: which fish
   register: which_fish
   changed_when: false
+
 - name: Change shell to fish
   when: fish_install_change_shell
   ansible.builtin.user:

@@ -1,0 +1,64 @@
+---
+# Apt source only, split out so the container harness can exercise it without
+# installing snapper. See ansible/tests/apt-sources/README.md.
+#
+# One file for both Debian and Ubuntu. They used to be two, and the Debian copy
+# was a lightly-edited copy of fish_install that still said "fish" in three
+# places -- including the install task, which installed `fish` and not
+# `snapper`. Collapsing them removes that whole class of drift: the only thing
+# that differs between the two is one path segment of the OBS project.
+
+# ORDER MATTERS: predecessors are removed BEFORE the new source is written.
+# The old file and the new one describe the SAME repository with different
+# Signed-By values, and apt refuses that outright ("E:Conflicting values set for
+# option Signed-By ... E:The list of sources could not be read"). Written first,
+# there is a window in which both exist and EVERY apt operation on the host
+# fails -- including this role's own, so an interrupted run could not be
+# repaired by re-running it. Removing first means the window never exists.
+# Three predecessors, not one. The old role wrote the source via apt_repository
+# with `filename: filesystems_snapper.list` on Debian -- and apt_repository
+# appends ".list" to whatever it is given (apt_repository.py:283,
+# `'%s.list' % _cleanup_filename(...)`), so that host has a file literally named
+# filesystems_snapper.list.list. Ubuntu passed the name without the extension
+# and got filesystems_snapper.list. The key went to trusted.gpg.d, where it was
+# trusted for every repository on the host.
+- name: Remove the predecessors
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/filesystems_snapper.list
+    - /etc/apt/sources.list.d/filesystems_snapper.list.list
+    - /etc/apt/trusted.gpg.d/filesystems_snapper.asc
+  register: snapper_install_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+# openSUSE Build Service exposes one directory per distro release. Ubuntu is
+# keyed on the full version (24.04, 26.04), Debian on the major only (12, 13).
+- name: Resolve the OBS directory for this release
+  ansible.builtin.set_fact:
+    snapper_install_obs_dir: >-
+      {{ ('xUbuntu_' ~ ansible_facts['distribution_version'])
+         if ansible_facts['distribution'] == 'Ubuntu'
+         else ('Debian_' ~ ansible_facts['distribution_major_version']) }}
+
+# A flat repository: the suite is an exact path ending in "/", and Components
+# must be omitted entirely -- sources.list(5) requires the two together.
+- name: Add the snapper repository
+  ansible.builtin.deb822_repository:
+    name: "{{ snapper_install_apt_source_name }}"
+    types: [deb]
+    uris: "{{ snapper_install_obs_url }}"
+    suites: ["/"]
+    signed_by: "{{ snapper_install_obs_url }}/Release.key"
+    state: present
+  register: snapper_install_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: snapper_install_source.changed or snapper_install_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

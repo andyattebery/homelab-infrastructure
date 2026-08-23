@@ -1,0 +1,12 @@
+---
+# Name of the generated source. deb822_repository derives BOTH filenames from it
+# -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc.
+# Keep it lowercase with only hyphens and digits: the slug rule differs between
+# ansible-core 2.20 and 2.21, and names in that shape are identical under both.
+zfs_install_backports_name: "{{ ansible_facts['distribution_release'] }}-backports"
+
+zfs_install_backports_uri: http://deb.debian.org/debian
+
+# Base path of the Debian archive keyring, without extension. The role picks
+# .pgp if present and .gpg otherwise -- see the comment in apt_repo.yaml.
+zfs_install_keyring_base: /usr/share/keyrings/debian-archive-keyring

@@ -1,10 +1,36 @@
 # Managed by the realtek_dkms Ansible role.
-# Adds only the {{ realtek_dkms_apt_component }} component so that
+# Enables only the {{ realtek_dkms_apt_component }} component, so that
 # {{ realtek_dkms_package_name }} is fetchable from apt. Never modifies
-# /etc/apt/sources.list or other entries; apt deduplicates overlapping
-# Suites/URIs, so this is safe alongside an existing main sources file.
-Types: deb
-URIs: {{ realtek_dkms_apt_uri }}
-Suites: {{ realtek_dkms_apt_suites }}
+# /etc/apt/sources.list or any other role's entries.
+#
+# This is the host's own archive source, re-emitted verbatim with a single
+# field changed: Components. Everything else -- URIs, Suites, Signed-By -- is
+# copied, deliberately, because every one of those was previously hardcoded and
+# every one of them was wrong somewhere:
+#
+#   Signed-By  Debian 13 signs with debian-archive-keyring.pgp, not .gpg. apt
+#              compares the strings, so a mismatch is a fatal
+#              "Conflicting values set for option Signed-By" and apt-get update
+#              exits 100.
+#   URIs       Ubuntu on arm64 serves ports.ubuntu.com/ubuntu-ports, not
+#              archive.ubuntu.com/ubuntu, which 404s every index.
+#   Suites     differ per release, and the security stanza is a separate entry
+#              with its own suite list.
+#
+# Copying the stanzas means those cannot drift apart again.
+#
+# The role writes this file ONLY when no other active source already enables
+# {{ realtek_dkms_apt_component }}, and deletes it when one does. Two sources
+# covering the same component are NOT deduplicated by apt: on Debian 12 that is
+# a "configured multiple times" warning on every run, and on Debian 13 a fatal
+# Signed-By conflict. Do not make this unconditional again.
+{% for stanza in realtek_dkms_archive_stanzas %}
+
+{% for line in stanza.split('\n') %}
+{% if line.startswith('Components:') %}
 Components: {{ realtek_dkms_apt_component }}
-Signed-By: {{ realtek_dkms_apt_signed_by }}
+{% else %}
+{{ line }}
+{% endif %}
+{% endfor %}
+{% endfor %}

@@ -1,0 +1,11 @@
+# Managed by the realtek_dkms Ansible role.
+# Fallback form, used only when the host has no deb822 archive source to copy
+# from (a legacy .list-only host). Values are constructed rather than mirrored,
+# so they are the ones most likely to be wrong -- see the notes in
+# realtek-dkms-component.sources.j2. Prefer fixing the host's sources over
+# relying on this.
+Types: deb
+URIs: {{ realtek_dkms_apt_uri }}
+Suites: {{ realtek_dkms_apt_suites }}
+Components: {{ realtek_dkms_apt_component }}
+Signed-By: {{ realtek_dkms_apt_signed_by }}

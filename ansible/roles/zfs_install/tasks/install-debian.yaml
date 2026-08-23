@@ -1,13 +1,7 @@
 ---
-- name: Add backports repositories
-  ansible.builtin.apt_repository:
-    repo: "{{ item }}"
-    filename: "{{ ansible_facts['distribution_release'] }}-backports"
-    update_cache: false
-    state: present
-  loop:
-    - "deb http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib"
-    - "deb-src http://deb.debian.org/debian {{ ansible_facts['distribution_release'] }}-backports main contrib"
+- name: Configure the backports apt source
+  ansible.builtin.include_tasks: apt_repo.yaml
+
 - name: Make backports repo higher priority
   ansible.builtin.template:
     src: apt_preferences_zfs.j2
@@ -15,6 +9,7 @@
     mode: "0644"
     owner: root
     group: root
+
 - name: Install zfs
   ansible.builtin.apt:
     name:

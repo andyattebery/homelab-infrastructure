@@ -1,0 +1,300 @@
+---
+# Verifies the two remaining migrated sources that have a reachable upstream:
+# zfs_install (Debian backports) and owntone.
+#
+# pve_install_arm is covered too, now that it points at PXVIRT instead of the
+# dead mirrors.apqa.cn. The containers are arm64, which is exactly the
+# architecture that role targets.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-tail.yml
+- name: Verify the zfs_install backports source
+  hosts: apt-test-debian12,apt-test-debian13
+  gather_facts: true
+  vars:
+    v_name: "{{ ansible_facts['distribution_release'] }}-backports"
+    # bookworm ships only debian-archive-keyring.gpg; trixie ships .pgp AND .gpg
+    # and signs with .pgp. Naming the wrong one is fatal where the same archive
+    # is already configured, so the role must pick per host, not per rule.
+    v_want_key: "{{ '/usr/share/keyrings/debian-archive-keyring.pgp'
+                    if ansible_facts['distribution_major_version'] | int >= 13
+                    else '/usr/share/keyrings/debian-archive-keyring.gpg' }}"
+
+  tasks:
+    - name: Seed the legacy .list as a real entry
+      ansible.builtin.copy:
+        dest: "/etc/apt/sources.list.d/{{ v_name }}.list"
+        content: |
+          deb http://deb.debian.org/debian {{ v_name }} main contrib
+        mode: "0644"
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: zfs_install
+        tasks_from: apt_repo
+
+    - name: Stat new and old
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/etc/apt/sources.list.d/{{ v_name }}.sources"
+        - "/etc/apt/sources.list.d/{{ v_name }}.list"
+      register: v_stats
+
+    - name: Read the generated source
+      ansible.builtin.slurp:
+        src: "/etc/apt/sources.list.d/{{ v_name }}.sources"
+      register: v_src
+
+    - name: Correct shape, correct keyring for this release, legacy gone
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+        _c: "{{ v_src.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/' ~ v_name ~ '.sources']
+          - not _e['/etc/apt/sources.list.d/' ~ v_name ~ '.list']
+          - "'Signed-By: ' ~ v_want_key in _c"
+          - "'Types: deb deb-src' in _c"
+          - "'Suites: ' ~ v_name in _c"
+        fail_msg: "{{ _c }} :: {{ _e | to_json }}"
+        success_msg: "{{ v_name }}, deb+deb-src, Signed-By {{ v_want_key | basename }}"
+
+    # `command`, not the apt module: this asserts on apt's OWN stdout/stderr.
+    - name: Apt-get update  # noqa command-instead-of-module
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean and backports is usable
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'Conflicting values' not in _o"
+          - "'configured multiple times' not in _o"
+          - "'NO_PUBKEY' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0"
+
+    - name: The backports suite really resolves
+      ansible.builtin.command: apt-cache policy zfs-dkms
+      register: v_pol
+      changed_when: false
+
+    - name: Assert zfs-dkms is a candidate from backports
+      ansible.builtin.assert:
+        that: "'backports' in v_pol.stdout"
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: >-
+          zfs-dkms available from backports
+          ({{ v_pol.stdout_lines | select('search', 'Candidate:') | first | trim }})
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: zfs_install
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      ansible.builtin.assert:
+        that:
+          - not (zfs_install_source.changed | default(false))
+          - not (zfs_install_legacy_removed.changed | default(false))
+        success_msg: "idempotent"
+
+- name: Verify the owntone apt source
+  hosts: apt-test-debian12,apt-test-debian13
+  gather_facts: true
+
+  tasks:
+    # Debian 13 cannot verify this repository's SHA1-certified key, and an
+    # unverifiable source stops apt updating at all -- so the role must REFUSE,
+    # not write it. That refusal is the assertion on trixie.
+    - name: Trixie and later — the role refuses rather than breaking apt
+      when: ansible_facts['distribution_major_version'] | int >= 13
+      block:
+        - name: Attempt it
+          ansible.builtin.include_role:
+            name: owntone
+            tasks_from: apt_repo
+        - name: It should not have succeeded
+          ansible.builtin.fail:
+            msg: >-
+              owntone configured its source on
+              {{ ansible_facts['distribution_release'] }}, where apt cannot
+              verify it. That leaves apt broken for every other role.
+      rescue:
+        - name: Refused, with a message naming the cause
+          ansible.builtin.assert:
+            that: "'SHA1' in (ansible_failed_result.msg | default(''))"
+            fail_msg: "refused, but not for the SHA1 reason: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "correctly refused on {{ ansible_facts['distribution_release'] }}"
+
+    - name: Everything below is the supported-release path
+      when: ansible_facts['distribution_major_version'] | int < 13
+      block:
+        - name: Seed the legacy .list and globally-trusted key
+          ansible.builtin.copy:
+            dest: "{{ item }}"
+            content: "# stale\n"
+            mode: "0644"
+          loop:
+            - /etc/apt/sources.list.d/owntune.list
+            - /etc/apt/trusted.gpg.d/owntone.asc
+
+        - name: Run the apt-source half of the role
+          ansible.builtin.include_role:
+            name: owntone
+            tasks_from: apt_repo
+
+        - name: Stat new and old
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - /etc/apt/sources.list.d/owntone.sources
+            - /etc/apt/keyrings/owntone.asc
+            - /etc/apt/sources.list.d/owntune.list
+            - /etc/apt/trusted.gpg.d/owntone.asc
+          register: v_stats
+
+        - name: deb822 written over https, predecessors gone
+          vars:
+            _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+          ansible.builtin.assert:
+            that:
+              - _e['/etc/apt/sources.list.d/owntone.sources']
+              - _e['/etc/apt/keyrings/owntone.asc']
+              - not _e['/etc/apt/sources.list.d/owntune.list']
+              - not _e['/etc/apt/trusted.gpg.d/owntone.asc']
+            fail_msg: "{{ _e | to_json }}"
+            success_msg: "owntone.sources written, key in keyrings, predecessors removed"
+
+        # The defect this fixes: the role installed `owntune`, which the repository
+        # does not publish. Assert the real package is a candidate.
+        - name: What the repository actually offers
+          ansible.builtin.command: apt-cache policy owntone owntune
+          register: v_pol
+          changed_when: false
+          failed_when: false
+
+        - name: owntone is a candidate; owntune does not exist
+          ansible.builtin.assert:
+            that:
+              - "'owntone:' in v_pol.stdout"
+              - not (v_pol.stdout is search('owntune:\\s*\\n\\s*Installed'))
+            fail_msg: "{{ v_pol.stdout }}{{ v_pol.stderr }}"
+            success_msg: >-
+              owntone is a candidate
+              ({{ v_pol.stdout_lines | select('search', 'Candidate:') | first | trim }})
+
+- name: Verify the pve_install_arm PXVIRT source
+  hosts: apt-test-debian12,apt-test-debian13
+  gather_facts: true
+
+  tasks:
+    # Both generations of predecessor: this role's own pveport.list, and the
+    # pxvirt-sources.list a human gets by following the vendor's install page.
+    # Both put their key in trusted.gpg.d, trusted for every repo on the host.
+    - name: Seed both generations of predecessor
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: "# stale\n"
+        mode: "0644"
+      loop:
+        - /etc/apt/sources.list.d/pveport.list
+        - /etc/apt/trusted.gpg.d/pveport.gpg
+        - /etc/apt/sources.list.d/pxvirt-sources.list
+        - /etc/apt/trusted.gpg.d/lierfang.gpg
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: pve_install_arm
+        tasks_from: apt_repo
+
+    - name: Stat new and old
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/sources.list.d/pxvirt.sources
+        - /etc/apt/keyrings/pxvirt.gpg
+        - /etc/apt/keyrings/pxvirt.asc
+        - /etc/apt/sources.list.d/pveport.list
+        - /etc/apt/trusted.gpg.d/pveport.gpg
+        - /etc/apt/sources.list.d/pxvirt-sources.list
+        - /etc/apt/trusted.gpg.d/lierfang.gpg
+      register: v_stats
+
+    - name: Read the generated source
+      ansible.builtin.slurp:
+        src: /etc/apt/sources.list.d/pxvirt.sources
+      register: v_src
+
+    - name: deb822 written, both predecessors gone, key out of global trust
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+        _c: "{{ v_src.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/pxvirt.sources']
+          # deb822_repository picks .asc or .gpg by sniffing for the armor
+          # header, so either is correct -- but one of them must exist.
+          - _e['/etc/apt/keyrings/pxvirt.gpg'] or _e['/etc/apt/keyrings/pxvirt.asc']
+          - not _e['/etc/apt/sources.list.d/pveport.list']
+          - not _e['/etc/apt/trusted.gpg.d/pveport.gpg']
+          - not _e['/etc/apt/sources.list.d/pxvirt-sources.list']
+          - not _e['/etc/apt/trusted.gpg.d/lierfang.gpg']
+          # Follows the host's release rather than being pinned to bookworm.
+          - "'Suites: ' ~ ansible_facts['distribution_release'] in _c"
+          - "'Architectures: arm64' in _c"
+          - "'mirrors.lierfang.com' in _c"
+          - "'apqa.cn' not in _c"
+        fail_msg: "{{ _e | to_json }} :: {{ _c }}"
+        success_msg: >-
+          pxvirt.sources for {{ ansible_facts['distribution_release'] }}/arm64,
+          both predecessors removed
+
+    # `command`, not the apt module: this asserts on apt's OWN stdout/stderr.
+    - name: Apt-get update  # noqa command-instead-of-module
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt accepts the repository and its signature
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'Conflicting values' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0, signature verifies"
+
+    - name: proxmox-ve is actually offered
+      ansible.builtin.command: apt-cache policy proxmox-ve
+      register: v_pol
+      changed_when: false
+
+    - name: Assert the port really provides Proxmox
+      ansible.builtin.assert:
+        that: "'lierfang.com' in v_pol.stdout"
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: >-
+          proxmox-ve offered
+          ({{ v_pol.stdout_lines | select('search', 'Candidate:') | first | trim }})
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: pve_install_arm
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      ansible.builtin.assert:
+        that:
+          - not (pve_install_arm_source.changed | default(false))
+          - not (pve_install_arm_legacy_removed.changed | default(false))
+        success_msg: "idempotent"

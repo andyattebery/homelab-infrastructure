@@ -1,3 +1,17 @@
 ---
 fish_version: 4
 fish_install_change_shell: false
+
+# Name of the generated Debian source. deb822_repository derives BOTH filenames
+# from it -- /etc/apt/sources.list.d/<slug>.sources and
+# /etc/apt/keyrings/<slug>.asc -- and the slug rule differs between ansible-core
+# 2.20 and 2.21. A name that is already lowercase with only hyphens and digits
+# is identical under both; this one is.
+fish_install_debian_source_name: "shells-fish-release-{{ fish_version }}"
+
+# openSUSE Build Service. Debian only -- Ubuntu uses the Launchpad PPA. The
+# colons are part of the OBS project name and are escaped as ":/" in the URL
+# path; the two halves of this role used to disagree about that, and about
+# http vs https.
+fish_install_debian_repo_url: >-
+  https://download.opensuse.org/repositories/shells:/fish:/release:/{{ fish_version }}/Debian_{{ ansible_facts['distribution_major_version'] }}

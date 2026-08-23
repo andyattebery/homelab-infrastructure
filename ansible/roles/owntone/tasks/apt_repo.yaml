@@ -1,0 +1,61 @@
+---
+# The owntone repository's signing key is certified with SHA1, and Debian 13
+# rejects that outright: trixie verifies signatures with sqv, whose policy has
+# refused SHA1 since 2026-02-01. apt reports
+#
+#   OpenPGP signature verification failed: ... InRelease:
+#   Sub-process /usr/bin/sqv returned an error code (1) ...
+#   Signing key on E0AD26FB82525DC958B0A1D4F62793319870F4F5 is not bound
+#   E:The repository '...' is not signed.
+#
+# and then REFUSES TO UPDATE AT ALL -- so writing this source on trixie does not
+# merely fail to install owntone, it breaks every apt operation on the host.
+# Refusing up front is the whole point of this guard; there is nothing to fix on
+# our side, the key has to be re-issued upstream.
+- name: Assert this release can verify the repository's signature
+  ansible.builtin.assert:
+    that: ansible_facts['distribution_release'] in owntone_supported_releases
+    fail_msg: >-
+      The owntone repository signs with a SHA1-certified key, which
+      {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_release'] }}
+      rejects (sqv policy, SHA1 untrusted since 2026-02-01). Adding the source
+      here would break apt for everything else on this host. Supported:
+      {{ owntone_supported_releases | join(', ') }}.
+
+# Apt source only, split out so the container harness can exercise it without
+# installing the package. See ansible/tests/apt-sources/README.md.
+
+# ORDER MATTERS: predecessors are removed before the new source is written. Both
+# describe the same repository and their keys differ -- the old one trusted
+# globally via trusted.gpg.d, the new one named as a keyring path -- which apt
+# rejects as a Signed-By conflict. Written first, there is a window in which
+# every apt operation on the host fails, including this role's own next task.
+- name: Remove the legacy .list and its globally-trusted key
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/owntune.list
+    - /etc/apt/trusted.gpg.d/owntone.asc
+  register: owntone_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Add the owntone repository
+  ansible.builtin.deb822_repository:
+    name: "{{ owntone_apt_source_name }}"
+    types: [deb]
+    uris: "{{ owntone_apt_repo_url }}"
+    suites: ["{{ ansible_facts['distribution_release'] }}"]
+    components: [contrib]
+    signed_by: "{{ owntone_apt_gpg_key_url }}"
+    state: present
+  register: owntone_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: owntone_source.changed or owntone_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

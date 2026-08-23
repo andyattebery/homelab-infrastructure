@@ -1,0 +1,137 @@
+---
+# Verifies apt_add_launchpad_ppa on both Ubuntu releases, including the cleanup
+# of what earlier versions of the role (and add-apt-repository) left behind.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-ppa.yml
+- name: Verify apt_add_launchpad_ppa — deb822, key on PATH not in global trust
+  hosts: apt-test-ubuntu2404,apt-test-ubuntu2604
+  gather_facts: true
+  vars:
+    v_user: fish-shell
+    v_repo: release-4
+    v_sources: /etc/apt/sources.list.d/fish-shell-release-4.sources
+    v_keyring: /etc/apt/keyrings/fish-shell-release-4.asc
+
+  tasks:
+    # Seed exactly the debris this role has to clean up: the .list + globally
+    # trusted key an older version of this role wrote, and a stale
+    # add-apt-repository .sources naming a series the host is no longer on.
+    # Without seeding, the removal tasks pass vacuously on a clean container.
+    - name: Seed legacy debris
+      ansible.builtin.copy:
+        dest: "{{ item }}"
+        content: "# stale\n"
+        mode: "0644"
+      loop:
+        - /etc/apt/sources.list.d/fish-shell_release-4.list
+        - /etc/apt/trusted.gpg.d/fish-shell_release-4.asc
+        - /etc/apt/sources.list.d/fish-shell-ubuntu-release-4-jammy.sources
+        # The jammy shape: add-apt-repository on 22.04 wrote a legacy .list
+        # plus a globally-trusted key whose name carries no series. Seeded
+        # because a real host (nas-01) has exactly this and the role's cleanup
+        # originally globbed only *.sources, which would have left a second
+        # definition of the same PPA behind.
+        - /etc/apt/sources.list.d/fish-shell-ubuntu-release-4-focal.list
+        - /etc/apt/trusted.gpg.d/fish-shell-ubuntu-release-4.gpg
+
+    - name: Run the role
+      ansible.builtin.include_role:
+        name: apt_add_launchpad_ppa
+      vars:
+        apt_add_launchpad_ppa_user: "{{ v_user }}"
+        apt_add_launchpad_ppa_repository: "{{ v_repo }}"
+        apt_add_launchpad_ppa_ubuntu_version_name: "{{ ansible_facts['distribution_release'] }}"
+
+    - name: Stat everything that should and should not exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ v_sources }}"
+        - "{{ v_keyring }}"
+        - /etc/apt/sources.list.d/fish-shell_release-4.list
+        - /etc/apt/trusted.gpg.d/fish-shell_release-4.asc
+        - /etc/apt/sources.list.d/fish-shell-ubuntu-release-4-jammy.sources
+        - /etc/apt/sources.list.d/fish-shell-ubuntu-release-4-focal.list
+        - /etc/apt/trusted.gpg.d/fish-shell-ubuntu-release-4.gpg
+      register: v_stats
+
+    - name: Read the generated source
+      ansible.builtin.slurp:
+        src: "{{ v_sources }}"
+      register: v_src
+
+    - name: Written correctly, debris gone
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+        _c: "{{ v_src.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - _e[v_sources]
+          - _e[v_keyring]
+          - not _e['/etc/apt/sources.list.d/fish-shell_release-4.list']
+          - not _e['/etc/apt/trusted.gpg.d/fish-shell_release-4.asc']
+          - not _e['/etc/apt/sources.list.d/fish-shell-ubuntu-release-4-jammy.sources']
+          - not _e['/etc/apt/sources.list.d/fish-shell-ubuntu-release-4-focal.list']
+          - not _e['/etc/apt/trusted.gpg.d/fish-shell-ubuntu-release-4.gpg']
+          # Signed-By must be a PATH into keyrings, never an inline key block:
+          # the inline form is what Launchpad bug #2150614 truncates during
+          # do-release-upgrade, and what add-apt-repository writes.
+          - "'Signed-By: ' ~ v_keyring in _c"
+          - "'BEGIN PGP PUBLIC KEY BLOCK' not in _c"
+          - "ansible_facts['distribution_release'] in _c"
+        fail_msg: "{{ _e }} :: {{ _c }}"
+        success_msg: "deb822 written, key at {{ v_keyring }}, legacy debris removed"
+
+    - name: Apt accepts it and the PPA is usable
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'configured multiple times' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0, key verifies"
+
+    # The point of the whole exercise: a package must actually install from it.
+    - name: Install fish from the PPA
+      ansible.builtin.apt:
+        name: fish
+        state: present
+
+    - name: Confirm it came from the PPA, not the distro
+      ansible.builtin.command: apt-cache policy fish
+      register: v_pol
+      changed_when: false
+
+    - name: Assert PPA is the install source
+      ansible.builtin.assert:
+        that: "'ppa.launchpadcontent.net' in v_pol.stdout"
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: >-
+          fish installed from the PPA
+          ({{ v_pol.stdout_lines | select('search', 'Installed:') | first | trim }})
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: apt_add_launchpad_ppa
+      vars:
+        apt_add_launchpad_ppa_user: "{{ v_user }}"
+        apt_add_launchpad_ppa_repository: "{{ v_repo }}"
+        apt_add_launchpad_ppa_ubuntu_version_name: "{{ ansible_facts['distribution_release'] }}"
+
+    - name: Idempotent — the key is refetched every run but nothing is rewritten
+      ansible.builtin.assert:
+        that:
+          - not apt_add_launchpad_ppa_source.changed
+          - not apt_add_launchpad_ppa_legacy_removed.changed
+          - not apt_add_launchpad_ppa_aar_removed.changed
+        success_msg: "idempotent"

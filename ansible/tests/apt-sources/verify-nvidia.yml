@@ -1,0 +1,132 @@
+---
+# Verifies the NVIDIA container toolkit apt source on both architectures.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-nvidia.yml
+#
+# Only apt_repo.yaml is exercised. The rest of the role runs `nvidia-ctk` and
+# reloads docker.service, neither of which exists in a container.
+- name: Verify the nvidia_container_toolkit apt source
+  hosts: apt-test-ubuntu2404,apt-test-ubuntu2604,apt-test-debian13,apt-test-snapper-amd64
+  gather_facts: true
+  vars:
+    v_want_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+  tasks:
+    # NVIDIA's stock published .list, verbatim -- which is what is actually on a
+    # long-lived host, not this role's single line. It enables the legacy
+    # ubuntu18.04 suite as well, so removing the file has to remove both.
+    - name: Seed NVIDIA's stock hand-installed file and its globally-trusted key
+      ansible.builtin.copy:
+        dest: "{{ item.path }}"
+        content: "{{ item.body }}"
+        mode: "0644"
+      loop:
+        - path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+          body: |
+            deb [signed-by=/etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
+            deb [signed-by=/etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc] https://nvidia.github.io/libnvidia-container/stable/ubuntu18.04/$(ARCH) /
+        - path: /etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc
+          body: "# stale\n"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: nvidia_container_toolkit
+        tasks_from: apt_repo
+
+    - name: Stat the new files and the predecessors
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/sources.list.d/nvidia-container-toolkit.sources
+        - /etc/apt/keyrings/nvidia-container-toolkit.asc
+        - /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        - /etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc
+      register: v_stats
+
+    - name: Deb822 written; hand-installed .list and global key both gone
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/nvidia-container-toolkit.sources']
+          - _e['/etc/apt/keyrings/nvidia-container-toolkit.asc']
+          - not _e['/etc/apt/sources.list.d/nvidia-container-toolkit.list']
+          - not _e['/etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "deb822 source written; stock .list (incl. legacy ubuntu18.04 suite) removed"
+
+    - name: Read the generated source
+      ansible.builtin.slurp:
+        src: /etc/apt/sources.list.d/nvidia-container-toolkit.sources
+      register: v_src
+
+    - name: Architecture resolved by Ansible, flat repo, no legacy suite
+      vars:
+        _c: "{{ v_src.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - "'/stable/deb/' ~ v_want_arch in _c"
+          - "'$(ARCH)' not in _c"
+          - "'ubuntu18.04' not in _c"
+          - "'Suites: /' in _c"
+          - "'Components:' not in _c"
+          - "'Signed-By: /etc/apt/keyrings/nvidia-container-toolkit.asc' in _c"
+        fail_msg: "{{ _c }}"
+        success_msg: "stable/deb/{{ v_want_arch }}, flat repo, key by path"
+
+    - name: Apt-get update
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'configured multiple times' not in _o"
+          - "'Conflicting values' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0"
+
+    # The source existing is not the point; the package being fetchable is.
+    - name: Install the toolkit
+      ansible.builtin.apt:
+        name: nvidia-container-toolkit
+        state: present
+
+    - name: Where did it come from
+      ansible.builtin.command: apt-cache policy nvidia-container-toolkit
+      register: v_pol
+      changed_when: false
+
+    - name: Installed from NVIDIA's repository
+      vars:
+        _inst: "{{ v_pol.stdout_lines | select('search', 'Installed:') | first | regex_replace('.*Installed:\\s*', '') }}"
+      ansible.builtin.assert:
+        that:
+          - _inst != '(none)'
+          - "'nvidia.github.io' in v_pol.stdout"
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: "nvidia-container-toolkit {{ _inst }} from nvidia.github.io"
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: nvidia_container_toolkit
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      vars:
+        _changed: >-
+          {{ (nvidia_container_toolkit_source.changed | default(false))
+             or (nvidia_container_toolkit_legacy_removed.changed | default(false)) }}
+      ansible.builtin.assert:
+        that: not (_changed | bool)
+        success_msg: "idempotent"

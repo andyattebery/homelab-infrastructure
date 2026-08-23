@@ -1,0 +1,142 @@
+---
+# Verifies fish_install's apt source on Debian and both Ubuntu releases.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-fish.yml
+#
+# Only apt_repo.yaml is exercised, not the whole role: main.yaml ends in a chsh
+# against {{ ansible_user }}, which does not exist in a container.
+- name: Verify the fish_install apt source
+  hosts: apt-test-debian12,apt-test-debian13,apt-test-ubuntu2404,apt-test-ubuntu2604
+  gather_facts: true
+
+  vars:
+    fish_install_debian_repo_url_seed: >-
+      https://download.opensuse.org/repositories/shells:/fish:/release:/4/Debian_{{
+        ansible_facts['distribution_major_version'] }}
+
+  tasks:
+    # Seeded so the cleanup assertions cannot pass vacuously on a fresh
+    # container. These are exactly what the previous version of the role left:
+    # an underscore-named .sources and a key trusted for every repo on the host.
+    # Seeded as the REAL predecessor, not a placeholder: a .sources naming the
+    # same repository but signed from trusted.gpg.d. That is what makes this a
+    # Signed-By conflict if the role writes the new file before removing the old
+    # one, which is the failure this ordering exists to prevent. A "# stale"
+    # placeholder would be removed just the same and prove nothing.
+    - name: Seed what the old role left behind (Debian)
+      when: ansible_facts['distribution'] == 'Debian'
+      ansible.builtin.copy:
+        dest: "{{ item.path }}"
+        content: "{{ item.body }}"
+        mode: "0644"
+      loop:
+        - path: /etc/apt/sources.list.d/shells_fish_release_4.sources
+          body: |
+            Types: deb
+            URIs: {{ fish_install_debian_repo_url_seed }}
+            Suites: /
+            Signed-By: /etc/apt/trusted.gpg.d/shells_fish_release_4.asc
+        - path: /etc/apt/trusted.gpg.d/shells_fish_release_4.asc
+          body: "# stale\n"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Run the apt-source half of the role
+      ansible.builtin.include_role:
+        name: fish_install
+        tasks_from: apt_repo
+
+    - name: Stat what should and should not exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/sources.list.d/shells-fish-release-4.sources
+        - /etc/apt/keyrings/shells-fish-release-4.asc
+        - /etc/apt/sources.list.d/shells_fish_release_4.sources
+        - /etc/apt/trusted.gpg.d/shells_fish_release_4.asc
+        - /etc/apt/sources.list.d/fish-shell-release-4.sources
+        - /etc/apt/keyrings/fish-shell-release-4.asc
+      register: v_stats
+
+    - name: Debian — deb822 written, hand-templated predecessors gone
+      when: ansible_facts['distribution'] == 'Debian'
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/shells-fish-release-4.sources']
+          - _e['/etc/apt/keyrings/shells-fish-release-4.asc']
+          - not _e['/etc/apt/sources.list.d/shells_fish_release_4.sources']
+          - not _e['/etc/apt/trusted.gpg.d/shells_fish_release_4.asc']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "Debian: OBS source via deb822, key in keyrings, old files removed"
+
+    - name: Ubuntu — the PPA role wrote the source
+      when: ansible_facts['distribution'] == 'Ubuntu'
+      vars:
+        _e: "{{ dict(v_stats.results | map(attribute='item') | zip(v_stats.results | map(attribute='stat.exists'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _e['/etc/apt/sources.list.d/fish-shell-release-4.sources']
+          - _e['/etc/apt/keyrings/fish-shell-release-4.asc']
+        fail_msg: "{{ _e | to_json }}"
+        success_msg: "Ubuntu: PPA source present"
+
+    - name: Apt-get update
+      ansible.builtin.command: apt-get update
+      register: v_upd
+      changed_when: false
+      failed_when: false
+
+    - name: Apt is clean
+      vars:
+        _o: "{{ v_upd.stdout ~ v_upd.stderr }}"
+      ansible.builtin.assert:
+        that:
+          - v_upd.rc == 0
+          - "'NO_PUBKEY' not in _o"
+          - "'not signed' not in _o"
+          - "'configured multiple times' not in _o"
+          - "'Conflicting values' not in _o"
+        fail_msg: "rc={{ v_upd.rc }} :: {{ _o }}"
+        success_msg: "apt rc=0"
+
+    - name: Install fish
+      ansible.builtin.apt:
+        name: fish
+        state: present
+
+    - name: Where did it come from, and is it fish 4
+      ansible.builtin.command: apt-cache policy fish
+      register: v_pol
+      changed_when: false
+
+    # The whole point of adding a third-party source is a NEWER fish than the
+    # distro ships. Asserting only that fish installed would pass with the
+    # distro's build and the source doing nothing.
+    - name: Installed from the upstream source, and is fish 4.x
+      vars:
+        _inst: "{{ v_pol.stdout_lines | select('search', 'Installed:') | first | regex_replace('.*Installed:\\s*', '') }}"
+      ansible.builtin.assert:
+        that:
+          - _inst is match('4\\.')
+          - "'download.opensuse.org' in v_pol.stdout or 'ppa.launchpadcontent.net' in v_pol.stdout"
+        fail_msg: "{{ v_pol.stdout }}"
+        success_msg: "fish {{ _inst }} from the upstream source"
+
+    - name: Run again
+      ansible.builtin.include_role:
+        name: fish_install
+        tasks_from: apt_repo
+
+    - name: Idempotent
+      vars:
+        _changed: >-
+          {{ (fish_install_debian_source.changed | default(false))
+             or (fish_install_legacy_removed.changed | default(false))
+             or (apt_add_launchpad_ppa_source.changed | default(false))
+             or (apt_add_launchpad_ppa_aar_removed.changed | default(false)) }}
+      ansible.builtin.assert:
+        that: not (_changed | bool)
+        success_msg: "idempotent"

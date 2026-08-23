@@ -1,0 +1,44 @@
+---
+# Apt source only, split out so the container harness can exercise it without
+# installing Proxmox. See ansible/tests/apt-sources/README.md.
+
+# ORDER MATTERS: predecessors removed before the new source is written, so a
+# half-applied run never leaves the host with two definitions of one repository
+# and a Signed-By conflict that blocks every subsequent apt call.
+#
+# Two generations of predecessor here: this role's own pveport.list plus the key
+# it dropped into trusted.gpg.d (trusted for EVERY repo on the host), and the
+# pxvirt-sources.list a human would have created by following the vendor's
+# install page, which likewise puts its key in trusted.gpg.d.
+- name: Remove the predecessors and their globally-trusted keys
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/pveport.list
+    - /etc/apt/trusted.gpg.d/pveport.gpg
+    - /etc/apt/sources.list.d/pxvirt-sources.list
+    - /etc/apt/trusted.gpg.d/lierfang.gpg
+  register: pve_install_arm_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Add the PXVIRT repository
+  ansible.builtin.deb822_repository:
+    name: "{{ pve_install_arm_apt_source_name }}"
+    types: [deb]
+    uris: "{{ pve_install_arm_apt_repo_url }}"
+    suites: ["{{ pve_install_arm_apt_suite }}"]
+    components: "{{ pve_install_arm_apt_components }}"
+    architectures: [arm64]
+    signed_by: "{{ pve_install_arm_apt_gpg_key_url }}"
+    state: present
+  register: pve_install_arm_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: pve_install_arm_source.changed or pve_install_arm_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

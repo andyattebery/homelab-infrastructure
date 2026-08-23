@@ -1,0 +1,82 @@
+---
+# Creates the throwaway containers the apt-source role tests run against, and
+# bootstraps just enough Python for Ansible modules to work.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml
+#
+# Containers are recreated from scratch every run (`recreate: true`), which is
+# the whole point: every test starts from a pristine apt configuration. Do not
+# "optimise" that away — a role that only converges because the previous run
+# left state behind is exactly the bug this harness exists to catch.
+- name: Create apt-source test containers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Pull base images
+      community.docker.docker_image:
+        name: "{{ hostvars[item].apt_test_image }}"
+        source: pull
+        # linux/amd64 on an arm64 Mac is emulated. Needed only for the snapper
+        # leg; see inventory.ini.
+        pull:
+          platform: "{{ hostvars[item].apt_test_platform }}"
+      loop: "{{ groups['apt_test'] }}"
+
+    - name: Create containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        image: "{{ hostvars[item].apt_test_image }}"
+        platform: "{{ hostvars[item].apt_test_platform }}"
+        # No systemd in these images. Nothing under test needs it, which is why
+        # the roles' service tasks are split out of the apt_repo.yaml files.
+        command: sleep infinity
+        state: started
+        recreate: true
+        detach: true
+      loop: "{{ groups['apt_test'] }}"
+
+- name: Bootstrap Python in the containers
+  hosts: apt_test
+  gather_facts: false
+
+  tasks:
+    # raw, because there is no python3 yet for any module to run under.
+    # `python3-apt` is required by ansible.builtin.apt. `ca-certificates` is
+    # required to fetch any key over https, and the base images ship without it.
+    #
+    # python3-debian is deliberately NOT installed here: whether each role
+    # installs its own is one of the things under test.
+    - name: Install python3, python3-apt and ca-certificates
+      ansible.builtin.raw: >-
+        apt-get update -qq &&
+        apt-get install -y -qq --no-install-recommends
+        python3 python3-apt ca-certificates
+      register: apt_test_bootstrap
+      changed_when: true
+
+    - name: Gather facts now that Python exists
+      ansible.builtin.setup:
+
+    # Some legs deliberately do not use their image's stock Signed-By: see
+    # apt-test-pve9 in inventory.ini. Done here rather than in a test playbook so
+    # every playbook that runs afterwards sees the same host shape.
+    - name: Reshape Signed-By where the leg calls for it
+      when: apt_test_force_signed_by | default('') | length > 0
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/debian.sources
+        regexp: '^Signed-By:.*$'
+        replace: "Signed-By: {{ apt_test_force_signed_by }}"
+
+    - name: Report what each container actually is
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_version'] }}
+          ({{ ansible_facts['distribution_release'] }})
+          {{ ansible_facts['architecture'] }}
+          {{ 'Signed-By forced to ' ~ apt_test_force_signed_by
+             if (apt_test_force_signed_by | default('') | length > 0) else '' }}

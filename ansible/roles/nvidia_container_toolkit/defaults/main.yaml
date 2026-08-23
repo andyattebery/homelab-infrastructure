@@ -1,3 +1,32 @@
 ---
-nvidia_container_toolkit_apt_sources_list_url: "https://nvidia.github.io/libnvidia-container/stable/ubuntu18.04/nvidia-container-toolkit.list"
-nvidia_container_toolkit_keyring_path: "/etc/apt/trusted.gpg.d/nvidia-container-toolkit-keyring.asc"
+nvidia_container_toolkit_gpgkey_url: "https://nvidia.github.io/libnvidia-container/gpgkey"
+
+# Name of the generated source. deb822_repository derives BOTH filenames from it
+# -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc --
+# and there is no separate filename parameter. Keep it lowercase with only
+# hyphens and digits: the slug rule differs between ansible-core 2.20 and 2.21,
+# and names in that shape are identical under both.
+nvidia_container_toolkit_apt_source_name: nvidia-container-toolkit
+
+# `stable` or `experimental`. NVIDIA publishes both under the same layout, so
+# switching channels is a one-word change rather than rewriting a URL.
+nvidia_container_toolkit_apt_channel: stable
+
+# ansible_facts['architecture'] -> the directory NVIDIA publishes under.
+nvidia_container_toolkit_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+
+# Built from the two above. The architecture is resolved by Ansible rather than
+# left as apt's $(ARCH): sources.list(5) documents that substitution for the
+# suite field, not for URIs, and the deb822 behaviour is undocumented. Both
+# published paths were checked directly -- stable/deb/amd64 and stable/deb/arm64
+# each return 200 for InRelease.
+nvidia_container_toolkit_apt_repo_url: >-
+  https://nvidia.github.io/libnvidia-container/{{ nvidia_container_toolkit_apt_channel }}/deb/{{
+    nvidia_container_toolkit_arch_map[ansible_facts['architecture']]
+    | default(ansible_facts['architecture']) }}
+
+# Checksummed before and after `nvidia-ctk runtime configure` to decide whether Docker needs a
+# reload. Must be the file nvidia-ctk actually writes for --runtime=docker.
+nvidia_container_toolkit_docker_config_path: "/etc/docker/daemon.json"

@@ -1,0 +1,12 @@
+---
+- name: Configure the apt source
+  ansible.builtin.include_tasks: apt_repo.yaml
+
+# The package is `owntone`, not `owntune`. This role installed `owntune` for its
+# whole life, which does not exist in the repository it configures -- the repo
+# publishes owntone, owntone-dbgsym, airptpd and airptpd-dbgsym. See README.
+- name: Install owntone
+  ansible.builtin.apt:
+    name: "{{ owntone_package_name }}"
+    state: present
+    update_cache: true

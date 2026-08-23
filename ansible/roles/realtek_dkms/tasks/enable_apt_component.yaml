@@ -1,38 +1,175 @@
 ---
-# Drop a deb822 .sources file enabling exactly one extra component
-# (non-free on Debian, multiverse on Ubuntu) using the standard
-# upstream mirror. Never edits existing sources files. Apt deduplicates
-# overlapping entries automatically, so this is safe alongside an
-# existing main sources file that already has the component enabled.
+# Make one extra apt component (non-free on Debian, multiverse on Ubuntu)
+# visible, so the official <driver>-dkms package can be found if the distro
+# ships one.
 #
-# Reason for the drop-file approach (vs. apt-add-repository --component):
-# the latter only edits legacy .list files and silently no-ops on
-# deb822 (.sources) hosts — and trixie / Ubuntu 24.04+ default to
-# deb822. A sibling .sources file works on every release since
-# bullseye / focal regardless of the host's preferred format.
+# This is a drop-in .sources file rather than an edit of the host's own
+# sources: editing them is destructive and this role has no business owning
+# another role's file. `apt-add-repository --component` is not an option
+# either — it only edits legacy .list files and silently no-ops on deb822
+# hosts, and trixie / Ubuntu 24.04+ default to deb822.
+#
+# The drop-in is written ONLY when no other active source already enables the
+# component, and removed when one does. It used to be written unconditionally,
+# on the stated assumption that "apt deduplicates overlapping entries
+# automatically, so this is safe alongside an existing main sources file that
+# already has the component enabled". That assumption was wrong, and the two
+# failure modes are release-dependent:
+#
+#   Debian 12  Warning: Target Packages (non-free/binary-amd64/Packages) is
+#              configured multiple times in debian.sources and this file.
+#              Noise on every apt run, but apt still works.
+#   Debian 13  E:Conflicting values set for option Signed-By ... .pgp != .gpg
+#              E:The list of sources could not be read.
+#              apt-get update exits 100. Nothing else on the host can install
+#              a package until the file is removed.
+#
+# Both reproduced in ansible/tests/apt-sources/repro.yml. The trixie case is
+# why Signed-By is read from the host below instead of being hardcoded.
 
 - name: Set component / mirror facts
   ansible.builtin.set_fact:
     realtek_dkms_apt_component: "{{ 'non-free' if ansible_facts['distribution'] == 'Debian' else 'multiverse' }}"
-    realtek_dkms_apt_uri: "{{ 'http://deb.debian.org/debian' if ansible_facts['distribution'] == 'Debian' else 'http://archive.ubuntu.com/ubuntu' }}"
-    realtek_dkms_apt_signed_by: "{{ '/usr/share/keyrings/debian-archive-keyring.gpg' if ansible_facts['distribution'] == 'Debian' else '/usr/share/keyrings/ubuntu-archive-keyring.gpg' }}"
+    realtek_dkms_apt_uri: >-
+      {{ 'http://deb.debian.org/debian'
+         if ansible_facts['distribution'] == 'Debian'
+         else 'http://archive.ubuntu.com/ubuntu' }}
     realtek_dkms_apt_suites: >-
       {%- if ansible_facts['distribution'] == 'Debian' -%}
-        {{ ansible_distribution_release }} {{ ansible_distribution_release }}-updates
+        {{ ansible_facts['distribution_release'] }} {{ ansible_facts['distribution_release'] }}-updates
       {%- else -%}
-        {{ ansible_distribution_release }} {{ ansible_distribution_release }}-updates {{ ansible_distribution_release }}-security
+        {{ ansible_facts['distribution_release'] }} {{ ansible_facts['distribution_release'] }}-updates {{ ansible_facts['distribution_release'] }}-security
       {%- endif -%}
 
-- name: Drop deb822 sources file enabling component
-  ansible.builtin.template:
-    src: realtek-dkms-component.sources.j2
-    dest: "/etc/apt/sources.list.d/realtek-dkms-{{ realtek_dkms_apt_component }}.sources"
-    owner: root
-    group: root
-    mode: "0644"
-  register: realtek_dkms_sources_file
+# The component name must not match a longer one that merely starts with it.
+# `non-free` is a prefix of `non-free-firmware`, and \b fires between "e" and
+# "-", so a plain \bnon-free\b matches inside non-free-firmware — a host with
+# only non-free-firmware would be read as already having non-free, and the
+# drop-in it needed would be skipped.
+- name: Find active sources that already enable {{ realtek_dkms_apt_component }}
+  ansible.builtin.find:
+    paths: "{{ realtek_dkms_apt_search_paths }}"
+    patterns: "{{ realtek_dkms_apt_search_patterns }}"
+    excludes: "{{ realtek_dkms_apt_dropfile_prefix }}*"
+    contains: '(?:^Components:|^\s*deb\s).*\b{{ realtek_dkms_apt_component }}(?![-\w])'
+    file_type: file
+  register: realtek_dkms_component_sources
 
-- name: Refresh apt cache (only if sources file changed)  # noqa no-handler
-  when: realtek_dkms_sources_file.changed
+# A source the upgrader (or a human) has switched off still carries its
+# Components: line, so matching above is not the same as being enabled.
+- name: Find sources that are switched off
+  ansible.builtin.find:
+    paths: "{{ realtek_dkms_apt_search_paths }}"
+    patterns: "{{ realtek_dkms_apt_search_patterns }}"
+    excludes: "{{ realtek_dkms_apt_dropfile_prefix }}*"
+    contains: '^Enabled:\s*no\b'
+    file_type: file
+  register: realtek_dkms_disabled_sources
+
+- name: Decide whether the component is already available
+  ansible.builtin.set_fact:
+    realtek_dkms_component_already_enabled: >-
+      {{ (realtek_dkms_component_sources.files | map(attribute='path') | list)
+         | difference(realtek_dkms_disabled_sources.files | map(attribute='path') | list)
+         | length > 0 }}
+
+- name: Remove our drop-in — the component is already enabled elsewhere
+  when: realtek_dkms_component_already_enabled | bool
+  ansible.builtin.file:
+    path: "{{ realtek_dkms_apt_dropfile_path }}"
+    state: absent
+  register: realtek_dkms_dropfile_removed
+
+- name: Add the component
+  when: not (realtek_dkms_component_already_enabled | bool)
+  block:
+    # Everything below exists to avoid constructing a source by hand. The three
+    # fields this role used to hardcode -- Signed-By, URIs, Suites -- were each
+    # wrong on at least one release/architecture in the fleet's range, and each
+    # failure only shows up as a broken apt on the host. Copying the host's own
+    # archive stanzas and swapping Components makes all three correct by
+    # construction. See templates/realtek-dkms-component.sources.j2.
+    - name: Find the host's own archive source
+      ansible.builtin.find:
+        paths: "{{ realtek_dkms_apt_search_paths }}"
+        patterns: '*.sources'
+        excludes: "{{ realtek_dkms_apt_dropfile_prefix }}*"
+        contains: '^Components:.*\bmain\b'
+        file_type: file
+      register: realtek_dkms_archive_source
+
+    - name: Read it
+      when: realtek_dkms_archive_source.matched > 0
+      ansible.builtin.slurp:
+        src: "{{ (realtek_dkms_archive_source.files | sort(attribute='path') | first).path }}"
+      register: realtek_dkms_archive_content
+
+    # Stanzas are blank-line separated. Comment-only and disabled (Enabled: no)
+    # stanzas are dropped: copying a switched-off source would silently
+    # reintroduce something the host, or do-release-upgrade, turned off.
+    - name: Split it into usable stanzas
+      vars:
+        _raw: "{{ (realtek_dkms_archive_content.content | default('') | b64decode) }}"
+      ansible.builtin.set_fact:
+        realtek_dkms_archive_stanzas: >-
+          {{ _raw.split('\n\n') | map('trim') | reject('equalto', '')
+             | select('search', '(?m)^URIs:')
+             | reject('search', '(?mi)^Enabled:\s*no\b')
+             | list }}
+
+    - name: Mirror the archive stanzas with the component swapped
+      when: realtek_dkms_archive_stanzas | length > 0
+      ansible.builtin.template:
+        src: realtek-dkms-component.sources.j2
+        dest: "{{ realtek_dkms_apt_dropfile_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: realtek_dkms_sources_file
+
+    # Legacy .list-only host: nothing to mirror, so fall back to constructing
+    # the entry. Kept deliberately separate rather than blended into the path
+    # above, so it is obvious which hosts get the guessed values.
+    - name: No deb822 archive source — construct the entry instead
+      when: realtek_dkms_archive_stanzas | length == 0
+      block:
+        - name: Stat the candidate keyrings
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop:
+            - "{{ realtek_dkms_apt_keyring_base }}.pgp"
+            - "{{ realtek_dkms_apt_keyring_base }}.gpg"
+          register: realtek_dkms_keyring_stat
+
+        - name: Resolve Signed-By
+          vars:
+            _existing: >-
+              {{ realtek_dkms_keyring_stat.results
+                 | selectattr('stat.exists') | map(attribute='item') | list }}
+          ansible.builtin.set_fact:
+            realtek_dkms_apt_signed_by: "{{ _existing | first | default('', true) }}"
+
+        - name: Refuse to write a source apt cannot verify
+          ansible.builtin.assert:
+            that: realtek_dkms_apt_signed_by | length > 0
+            fail_msg: >-
+              No archive keyring found at {{ realtek_dkms_apt_keyring_base }}.pgp
+              or .gpg on {{ ansible_facts['distribution'] }}
+              {{ ansible_facts['distribution_release'] }}, and no deb822 archive
+              source to copy from. Enable {{ realtek_dkms_apt_component }} on the
+              host's own apt sources instead.
+
+        - name: Write the constructed sources file
+          ansible.builtin.template:
+            src: realtek-dkms-component-fallback.sources.j2
+            dest: "{{ realtek_dkms_apt_dropfile_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+          register: realtek_dkms_sources_file
+
+- name: Refresh apt cache (only if the component set changed)  # noqa no-handler
+  when: (realtek_dkms_sources_file.changed | default(false))
+        or (realtek_dkms_dropfile_removed.changed | default(false))
   ansible.builtin.apt:
     update_cache: true

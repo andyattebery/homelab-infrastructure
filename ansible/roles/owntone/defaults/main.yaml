@@ -1,0 +1,26 @@
+---
+# Name of the generated source. deb822_repository derives BOTH filenames from it
+# -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc.
+# Keep it lowercase with only hyphens and digits.
+#
+# The role, its variables and this source are all `owntone` now; the role used to
+# be spelled `owntune`, which was a typo for the software's name. The legacy file
+# removed in apt_repo.yaml keeps the old spelling on purpose -- see README.
+owntone_apt_source_name: owntone
+
+# https, verified available (the previous version fetched the key over plain
+# http while claiming the same host for the repo).
+owntone_apt_repo_url: https://www.gyfgafguf.dk/raspbian/owntone
+owntone_apt_gpg_key_url: https://www.gyfgafguf.dk/raspbian/owntone.gpg
+
+# What the repository actually publishes.
+owntone_package_name: owntone
+
+# Releases whose apt will accept this repository's signature. Debian 13 replaced
+# gpgv with sqv, which refuses the SHA1-certified key owntone signs with -- and
+# an unverifiable source stops apt updating AT ALL, so the role refuses rather
+# than leaving the host in that state. Extend this list only after checking that
+# the upstream key has been re-issued.
+owntone_supported_releases:
+  - bullseye
+  - bookworm

@@ -1,0 +1,94 @@
+---
+# Apt source only, split out so the container harness can exercise it without
+# installing mise. See ansible/tests/apt-sources/README.md.
+#
+# Two different upstream sources, because upstream says so: mise's install docs
+# steer Ubuntu 26.04+ at a Launchpad PPA, and everything older at their own deb
+# repository. The branch is kept rather than collapsed onto one source for the
+# whole fleet -- upstream's own instructions are the better authority on which
+# of their channels is maintained for which release.
+
+# amd64 only, and that is measured rather than assumed: ppa:jdxcode/mise
+# publishes one binary for resolute/amd64 and NOTHING for arm64 (or for noble or
+# jammy). An arm64 Ubuntu 26.04 host sent to the PPA gets a valid, signed,
+# completely empty source and `apt install mise` fails with "No package matching
+# 'mise'". Those hosts fall through to mise's own deb repository below, which
+# publishes both amd64 and arm64.
+- name: Install from the PPA (Ubuntu 26.04+, amd64)
+  when:
+    - ansible_facts['distribution'] == 'Ubuntu'
+    - ansible_facts['distribution_major_version'] | int >= 26
+    - ansible_facts['architecture'] == 'x86_64'
+  block:
+    # Removed before the PPA is added, for the same reason as the deb-repo
+    # branch below. These are a DIFFERENT repository rather than the same one
+    # with a different key, so there is no Signed-By conflict -- but a host that
+    # reaches 26.04 by upgrading from 24.04 still carries the deb repository
+    # this role configured beforehand, and two sources offering the same package
+    # is not a duplicate apt target, so apt does not warn. That is worse than if
+    # it did: the host silently has two candidates and pinning picks the winner.
+    - name: Remove the deb repository the pre-26.04 path configured
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/apt/sources.list.d/{{ mise_apt_source_name }}.sources"
+        - "/etc/apt/sources.list.d/{{ mise_apt_source_name }}.list"
+        - "/etc/apt/keyrings/{{ mise_apt_source_name }}.asc"
+      register: mise_deb_repo_removed
+
+    - name: Add the mise PPA
+      ansible.builtin.include_role:
+        name: apt_add_launchpad_ppa
+      vars:
+        apt_add_launchpad_ppa_user: "{{ mise_ppa_user }}"
+        apt_add_launchpad_ppa_repository: "{{ mise_ppa_repository }}"
+        apt_add_launchpad_ppa_ubuntu_version_name: "{{ ansible_facts['distribution_release'] }}"
+
+    - name: Refresh apt cache  # noqa no-handler
+      when: mise_deb_repo_removed.changed
+      ansible.builtin.apt:
+        update_cache: true
+
+- name: Install from mise's own deb repository (everything else)
+  when: ansible_facts['distribution'] == 'Debian'
+        or ansible_facts['distribution_major_version'] | int < 26
+        or ansible_facts['architecture'] != 'x86_64'
+  block:
+    # ORDER MATTERS: the legacy .list is removed BEFORE the new .sources is
+    # written. Both describe the SAME repository, and the old one carries no
+    # Signed-By at all while the new one names a keyring, which apt rejects
+    # ("E:Conflicting values set for option Signed-By"). Written first, there is
+    # a window where both exist and every apt operation fails -- including this
+    # role's own, so an interrupted run could not be repaired by re-running it.
+    - name: Remove the legacy .list
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/{{ mise_apt_source_name }}.list"
+        state: absent
+      register: mise_legacy_removed
+
+    - name: Ensure python3-debian is present
+      ansible.builtin.apt:
+        name: python3-debian
+        state: present
+
+    - name: Add the mise apt repository
+      ansible.builtin.deb822_repository:
+        name: "{{ mise_apt_source_name }}"
+        types: [deb]
+        uris: "{{ mise_apt_repo_url }}"
+        suites: [stable]
+        components: [main]
+        # Replaces the arch= option of the old one-line entry. Templated rather
+        # than left to apt's $(ARCH): sources.list(5) documents that
+        # substitution for suites, not for this field.
+        architectures:
+          - "{{ mise_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+        signed_by: "{{ mise_apt_gpg_key_url }}"
+        state: present
+      register: mise_apt_source
+
+    - name: Refresh apt cache  # noqa no-handler
+      when: mise_apt_source.changed or mise_legacy_removed.changed
+      ansible.builtin.apt:
+        update_cache: true

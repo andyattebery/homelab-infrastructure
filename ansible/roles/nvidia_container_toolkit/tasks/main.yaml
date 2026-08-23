@@ -1,34 +1,35 @@
 ---
-- name: Add nvidia apt repository key
-  ansible.builtin.get_url:
-    url: "https://nvidia.github.io/libnvidia-container/gpgkey"
-    dest: "{{ nvidia_container_toolkit_keyring_path }}"
-    mode: '0644'
-    force: true
-# - name: Get latest release from GitHub
-#   ansible.builtin.uri:
-#     url: "{{ nvidia_container_toolkit_apt_sources_list_url }}"
-#     return_content: true
-#   register:
-#     nvidia_container_toolkit_apt_sources_list_result
-- name: Add nvidia apt repository
-  ansible.builtin.copy:
-    content: |
-      deb [signed-by={{ nvidia_container_toolkit_keyring_path }}] https://nvidia.github.io/libnvidia-container/stable/deb/$(ARCH) /
-      deb [signed-by={{ nvidia_container_toolkit_keyring_path }}] https://nvidia.github.io/libnvidia-container/stable/ubuntu18.04/$(ARCH) /
-      #deb [signed-by={{ nvidia_container_toolkit_keyring_path }}] https://nvidia.github.io/libnvidia-container/experimental/deb/$(ARCH) /
-      #deb [signed-by={{ nvidia_container_toolkit_keyring_path }}] https://nvidia.github.io/libnvidia-container/experimental/ubuntu18.04/$(ARCH) /
-    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    mode: "0644"
+- name: Configure the apt source
+  ansible.builtin.include_tasks: apt_repo.yaml
+
 - name: Install nvidia-container-toolkit
   ansible.builtin.apt:
     name: nvidia-container-toolkit
     update_cache: true
+# nvidia-ctk rewrites the daemon config in place. It has a --dry-run flag but no documented
+# stdout contract, so whether it changed anything is decided by checksumming the file around
+# the call rather than by parsing its output.
+- name: Stat docker daemon config before configuring the runtime
+  ansible.builtin.stat:
+    path: "{{ nvidia_container_toolkit_docker_config_path }}"
+  register: nvidia_container_toolkit_config_before
 - name: Add nvidia runtime to docker
   ansible.builtin.command:
     cmd: nvidia-ctk runtime configure --runtime=docker
-  changed_when: false
-- name: Restart docker
+  changed_when: false # decided by the checksum comparison below
+- name: Stat docker daemon config after configuring the runtime
+  ansible.builtin.stat:
+    path: "{{ nvidia_container_toolkit_docker_config_path }}"
+  register: nvidia_container_toolkit_config_after
+# Reload, not restart: dockerd live-reloads `runtimes` on SIGHUP, so registering the runtime
+# costs no container downtime. A restart here stops every container on the host.
+#
+# Inline task, not a handler: handlers notified from the roles section flush at the end of the
+# tasks section, after every docker_compose_* role has already run. On a first provisioning run
+# that would deploy `runtime: nvidia` containers against a daemon that had not loaded it.
+- name: Reload docker to pick up the nvidia runtime
   ansible.builtin.systemd:
     name: docker
-    state: restarted
+    state: reloaded
+  when: nvidia_container_toolkit_config_before.stat.checksum | default('')
+        != nvidia_container_toolkit_config_after.stat.checksum | default('')
