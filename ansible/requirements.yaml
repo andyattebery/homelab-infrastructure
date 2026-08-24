@@ -1,20 +1,58 @@
 ---
+# Every collection and role this repo references is declared here, and this file is the
+# only source of them: requirements.txt installs ansible-core, which bundles no collections.
+# A collection that is used but not listed fails at runtime rather than silently resolving.
+#
+# Collections are pinned to a major-version range, not an exact version: `mise run upgrade`
+# still pulls newer releases within the major, but crossing a major is a deliberate edit
+# here. Lower bounds are the version this was validated against, not the major floor —
+# a bare `>=2.0.0` would let the resolver pick something older than the fixes below.
+# ansible-galaxy supports only == != > >= < <= * (comma-delimited); there is no `~=`.
+#
+# Roles carry no version. ansible-galaxy has no range support for roles — a version must
+# be an exact tag — and none of these publish an `N.x` branch, so the only choices are
+# freezing them or tracking latest. They track latest, which means roles get no
+# major-version protection; that is a limitation of ansible, not a preference.
+
 collections:
+  # authorized_key + mount. Floor is 2.2.2: it fixes a local privilege escalation via
+  # symlink-following when running as root (ansible.posix#759).
+  - name: ansible.posix
+    version: ">=2.2.2,<3.0.0"
+  - name: ansible.windows
+    version: ">=3.7.0,<4.0.0"
   - name: artis3n.tailscale
+    version: ">=1.2.1,<2.0.0"
+  - name: community.crypto
+    version: ">=3.3.0,<4.0.0"
+  - name: community.docker
+    version: ">=5.2.2,<6.0.0"
+  # 21 direct call sites (jc, dig, timezone, pacman, zfs, make, json_query, filesystem,
+  # parted, homebrew, locale_gen). 13.0.0's only removal touching any of them is
+  # locale_gen dropping the `ubuntu_legacy` mechanism, which needs a host without
+  # /etc/locale.gen to matter — oefenweb.locales creates that file before calling it.
+  - name: community.general
+    version: ">=13.3.0,<14.0.0"
+  # Nothing references this directly; it is a dependency of community.docker and
+  # community.general. Listed because it has to be installed like any other dependency
+  # now that no bundled copy exists, and unlisted it would be the one unpinned thing here.
+  - name: community.library_inventory_filtering_v1
+    version: ">=1.1.5,<2.0.0"
+  - name: community.windows
+    version: ">=3.3.0,<4.0.0"
   - name: gluster.gluster
+    version: ">=1.0.2,<2.0.0"
+  # 0.x, so a minor bump is allowed to break: the ceiling is <0.31.0, not <1.0.0.
   - name: prometheus.prometheus
+    version: ">=0.30.1,<0.31.0"
 
 roles:
   - name: geerlingguy.docker
-  - name: geerlingguy.glusterfs
   - name: geerlingguy.nfs
   - name: geerlingguy.ntp
   - name: geerlingguy.postfix
   - name: geerlingguy.security
   - name: ironicbadger.snapraid
-  - name: nvidia.nvidia_docker
-  - name: nvidia.nvidia_driver
   - name: oefenweb.locales
     src: git@github.com:Oefenweb/ansible-locales.git
     scm: git
-  - name: simoncaron.pve_addons

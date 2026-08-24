@@ -1,4 +1,14 @@
-ansible ~= 13.0
+# ansible-core, not the `ansible` umbrella package. The umbrella is exactly ansible-core
+# plus 93 bundled collections, and those duplicated 7 of the collections declared in
+# requirements.yaml -- every one at a different version, with the galaxy copy silently
+# winning. requirements.yaml is the single source for collections now.
+#
+# Three components in the pin, deliberately: PEP 440 `~=` truncates at the last component, so
+# `~= 2.21` would permit 2.22 through 2.99. ansible-core has no 3.x -- each 2.N is a major
+# release -- and prometheus.prometheus declares `requires_ansible: >=2.14.0,<=2.21.99`, so a
+# drift to 2.22 breaks it. Since 2.21, ansible-galaxy *skips* collections whose requires_ansible
+# does not match the running core instead of installing them, so that break would be silent.
+ansible-core ~= 2.21.0
 ansible-lint ~= 26.0
 bcrypt ~= 4.0
 dnspython ~= 2.0

@@ -16,8 +16,12 @@ run = [
   'ansible-galaxy install -r requirements.yaml'
 ]
 
+# Collections in requirements.yaml are pinned to a major-version range, so `--upgrade`
+# pulls the newest release *within* each major and stops at the ceiling. Crossing a major
+# is a deliberate edit to requirements.yaml, not something this task can do. Roles carry
+# no version (ansible-galaxy has no range support for them), so `--force` takes latest.
 [tasks.upgrade]
-description = 'Bootstrap Ansible environment'
+description = 'Upgrade Ansible environment within pinned major versions'
 run = [
   'pip3 install --upgrade pip',
   'python -m pip install -r requirements.txt',
