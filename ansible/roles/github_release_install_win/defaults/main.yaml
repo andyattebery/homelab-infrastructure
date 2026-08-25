@@ -1,0 +1,14 @@
+---
+# Pin to a specific release tag (for example 'v8.1.2-3+nvenc-n13.0.19.1'). Empty = use the
+# repo's 'latest' release.
+github_release_install_win_release_tag: ""
+
+# Records the installed release tag AND the asset fingerprint beside the files, and compares
+# THAT against the release next run.
+#
+# There is no version-command mode here, unlike the Linux github_release_install. Every Windows
+# caller installs a build whose compiled-in version cannot equal its release tag — jellyfin-ffmpeg
+# reports 8.1.2-Jellyfin against a tag of v8.1.2-3+nvenc-n13.0.19.1 — so the other mode would be
+# untested surface for nothing. Consequence: the stamp file is not optional. Delete it and the
+# next run reinstalls.
+github_release_install_win_tag_stamp_path: '{{ github_release_install_win_dest_dir }}\.release-tag'

@@ -1,0 +1,11 @@
+{
+  "tag_name": "v1.0.0",
+  "name": "older release, before the API published digests",
+  "assets": [
+    {
+      "id": 987654,
+      "name": "tool_1.0.0_win64.zip",
+      "browser_download_url": "https://example.invalid/tool_1.0.0_win64.zip"
+    }
+  ]
+}

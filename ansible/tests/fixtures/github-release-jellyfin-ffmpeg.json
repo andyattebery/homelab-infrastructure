@@ -1,0 +1,30 @@
+{
+  "tag_name": "v8.1.2-3+nvenc-n13.0.19.1",
+  "name": "jellyfin-ffmpeg 8.1.2-3 nvenc",
+  "assets": [
+    {
+      "id": 111111,
+      "name": "jellyfin-ffmpeg_8.1.2-3_linux64-gpl.tar.xz",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "browser_download_url": "https://example.invalid/linux64-gpl.tar.xz"
+    },
+    {
+      "id": 222222,
+      "name": "jellyfin-ffmpeg_8.1.2-3_linuxarm64-gpl.tar.xz",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "browser_download_url": "https://example.invalid/linuxarm64-gpl.tar.xz"
+    },
+    {
+      "id": 333333,
+      "name": "jellyfin-ffmpeg_8.1.2-3_winarm64-clang-gpl.zip",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "browser_download_url": "https://example.invalid/winarm64-clang-gpl.zip"
+    },
+    {
+      "id": 444444,
+      "name": "jellyfin-ffmpeg_8.1.2-3_win64-clang-gpl.zip",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "browser_download_url": "https://example.invalid/win64-clang-gpl.zip"
+    }
+  ]
+}

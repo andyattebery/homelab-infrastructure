@@ -1,0 +1,151 @@
+---
+# Exercises roles/github_release_install_win/tasks/select_asset.yaml — the REAL task file, not a
+# copy of its expressions. `connection: local`, no host contacted, no GitHub call:
+#
+#   cd ansible
+#   ANSIBLE_ROLES_PATH=roles .venv/bin/ansible-playbook -i localhost, \
+#     tests/test-github-release-install-win.yml
+#
+# ANSIBLE_ROLES_PATH is required: role resolution is relative to the playbook's directory, and this
+# playbook lives in tests/.
+#
+# The role had no tests at all before this, and it is the one that is actually deployed. What it
+# gets wrong, it gets wrong silently: a pattern that matches two assets installs whichever GitHub
+# listed first, and a broken digest fallback collapses idempotency to tag-only, so a re-uploaded
+# asset is never noticed.
+- name: GitHub release asset selection
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # The role keys its pattern dict on architecture2, so the test has to supply that fact.
+    ansible_facts:
+      architecture2: x86_64
+
+    release: >-
+      {{ lookup('file', playbook_dir ~ '/fixtures/github-release-jellyfin-ffmpeg.json') | from_json }}
+    release_no_digest: >-
+      {{ lookup('file', playbook_dir ~ '/fixtures/github-release-no-digest.json') | from_json }}
+
+    # Lifted verbatim from playbook-eta.yaml, which is the point: this is the pattern in production.
+    real_patterns:
+      x86_64: 'win64-clang-gpl\.zip$'
+
+  tasks:
+    # C1 - the case the production pattern exists to get right. The fixture carries both
+    # win64-clang-gpl.zip and winarm64-clang-gpl.zip; an unanchored or sloppier pattern catches
+    # both, and `| first` would then install the ARM build on an x86_64 host.
+    - name: C1 setup - match with the real production pattern
+      ansible.builtin.include_role:
+        name: github_release_install_win
+        tasks_from: select_asset
+      vars:
+        __github_release_install_win_release: "{{ release }}"
+        github_release_install_win_asset_patterns: "{{ real_patterns }}"
+
+    - name: C1 - the pattern selects exactly the win64 asset, not its ARM sibling
+      ansible.builtin.assert:
+        that:
+          - github_release_install_win_matching_assets | length == 1
+          - github_release_install_win_asset_name == 'jellyfin-ffmpeg_8.1.2-3_win64-clang-gpl.zip'
+        fail_msg: >-
+          Matched {{ github_release_install_win_matching_assets }}. winarm64-clang-gpl.zip contains
+          no "win64", so exactly one asset must match.
+        quiet: true
+
+    # C2 - the stamp is tag + digest, and it is the ONLY idempotency mechanism in the role.
+    - name: C2 - the stamp carries the tag and the selected asset's digest
+      ansible.builtin.assert:
+        that:
+          - >-
+            github_release_install_win_stamp_value
+            == 'v8.1.2-3+nvenc-n13.0.19.1 sha256:444444444444444444444444444444444444444444444444'
+               ~ '4444444444444444'
+        fail_msg: >-
+          Stamp was '{{ github_release_install_win_stamp_value }}'. It must be the raw tag_name plus
+          the digest of the asset that was actually selected — the 4444... one, not another asset's.
+        quiet: true
+
+    # C3 - a pattern that catches two assets must fail the run, not pick one. This is the branch
+    # that turns a silent wrong-build install into a stopped play.
+    - name: C3 setup - a pattern that matches both Windows assets
+      block:
+        - name: C3 setup - match with an unanchored pattern
+          ansible.builtin.include_role:
+            name: github_release_install_win
+            tasks_from: select_asset
+          vars:
+            __github_release_install_win_release: "{{ release }}"
+            github_release_install_win_asset_patterns:
+              x86_64: 'clang-gpl\.zip$'
+        - name: C3 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c3_rejected: false
+      rescue:
+        - name: C3 setup - record which failure fired
+          ansible.builtin.set_fact:
+            c3_rejected: true
+            c3_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: C3 - two matches fails the run on the role's own assert
+      ansible.builtin.assert:
+        that:
+          - c3_rejected
+          - "'Expected exactly one asset matching' in c3_msg"
+        fail_msg: >-
+          Expected the exactly-one assert. Got: {{ c3_msg | default('no failure at all') }}.
+          Without it the role installs whichever asset GitHub happened to list first, and asset
+          ordering is not a contract.
+        quiet: true
+
+    # C4 - zero matches must also fail, and for the same reason rather than by crashing on `first`.
+    - name: C4 setup - a pattern that matches nothing
+      block:
+        - name: C4 setup - match with a pattern present in no asset name
+          ansible.builtin.include_role:
+            name: github_release_install_win
+            tasks_from: select_asset
+          vars:
+            __github_release_install_win_release: "{{ release }}"
+            github_release_install_win_asset_patterns:
+              x86_64: 'solaris-sparc\.zip$'
+        - name: C4 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c4_rejected: false
+      rescue:
+        - name: C4 setup - record which failure fired
+          ansible.builtin.set_fact:
+            c4_rejected: true
+            c4_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: C4 - zero matches fails on the assert, not on `| first`
+      ansible.builtin.assert:
+        that:
+          - c4_rejected
+          - "'Expected exactly one asset matching' in c4_msg"
+        fail_msg: >-
+          Expected the exactly-one assert. Got: {{ c4_msg | default('no failure at all') }}.
+        quiet: true
+
+    # C5 - the id: fallback. GitHub added `digest` recently; without the fallback the stamp
+    # collapses to tag-only and a re-uploaded asset under an unchanged tag is never noticed, which
+    # is exactly the failure the stamp exists to catch. Live responses cannot reach this branch.
+    - name: C5 setup - a release whose asset has no digest
+      ansible.builtin.include_role:
+        name: github_release_install_win
+        tasks_from: select_asset
+      vars:
+        __github_release_install_win_release: "{{ release_no_digest }}"
+        github_release_install_win_asset_patterns:
+          x86_64: 'win64\.zip$'
+
+    - name: C5 - with no digest the stamp falls back to the asset id, not to tag-only
+      ansible.builtin.assert:
+        that:
+          - github_release_install_win_stamp_value == 'v1.0.0 id:987654'
+          - "'id:' in github_release_install_win_stamp_value"
+        fail_msg: >-
+          Stamp was '{{ github_release_install_win_stamp_value }}'. With no digest it must fall back
+          to id:<n>; a bare tag matches forever and never notices a replaced asset.
+        quiet: true

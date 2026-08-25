@@ -1,0 +1,59 @@
+---
+## Pure computation, no I/O — so it can be exercised by a local test with no Windows host and no
+## GitHub. See ansible/tests/test-github-release-install-win.yml.
+##
+## Inputs:
+##   - __github_release_install_win_release  a parsed GitHub releases API response
+##   - github_release_install_win_asset_patterns, and ansible_facts['architecture2']
+## Outputs:
+##   - github_release_install_win_matching_assets  every asset name matching this arch's pattern
+##   - github_release_install_win_asset_name       the one that matched
+##   - github_release_install_win_stamp_value      '<tag_name> <digest-or-id>'
+
+# Matched once into a fact, then asserted, then taken — rather than repeating the select()
+# expression in an assert and again in a set_fact. Two expressions that must agree are two
+# expressions someone can edit apart.
+- name: Match release assets against this architecture's pattern
+  ansible.builtin.set_fact:
+    github_release_install_win_matching_assets: >-
+      {{ __github_release_install_win_release.assets
+         | map(attribute='name')
+         | select('search', github_release_install_win_asset_patterns[ansible_facts['architecture2']])
+         | list }}
+
+# Exactly one, not `| first`. A pattern that catches two assets silently installs whichever
+# GitHub happens to list first, and release asset ordering is not a contract. The real case this
+# guards: 'win64-clang-gpl\.zip$' must not also catch winarm64-clang-gpl.zip.
+- name: Assert the pattern matched exactly one asset
+  ansible.builtin.assert:
+    that: github_release_install_win_matching_assets | length == 1
+    fail_msg: >-
+      Expected exactly one asset matching
+      '{{ github_release_install_win_asset_patterns[ansible_facts['architecture2']] }}',
+      got {{ github_release_install_win_matching_assets | length }}:
+      {{ github_release_install_win_matching_assets }}.
+    quiet: true
+
+- name: Record the asset name
+  ansible.builtin.set_fact:
+    github_release_install_win_asset_name: >-
+      {{ github_release_install_win_matching_assets | first }}
+
+# The stamp records the RAW tag_name AND the digest of the asset that tag resolved to. Both halves
+# matter: a release can have its assets replaced in place under an unchanged tag, and a tag-only
+# comparison then matches forever while the host keeps a build the release no longer offers.
+# `digest` is a recent addition to the releases API; falling back to the asset id keeps the
+# comparison meaningful when it is absent, instead of collapsing to tag-only.
+- name: Compute the expected release stamp
+  vars:
+    selected_asset: >-
+      {{ __github_release_install_win_release.assets
+         | selectattr('name', 'equalto', github_release_install_win_asset_name)
+         | first }}
+    asset_fingerprint: >-
+      {{ selected_asset.digest | default('', true)
+         if (selected_asset.digest | default('', true) | length > 0)
+         else ('id:' ~ selected_asset.id) }}
+  ansible.builtin.set_fact:
+    github_release_install_win_stamp_value: >-
+      {{ __github_release_install_win_release.tag_name ~ ' ' ~ asset_fingerprint }}
