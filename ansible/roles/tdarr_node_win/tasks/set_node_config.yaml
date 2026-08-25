@@ -1,0 +1,49 @@
+---
+## Pure computation, no I/O — so it can be exercised by a local test with no Windows host.
+## See ansible/tests/test-tdarr-node-win-config.yml.
+##
+## Inputs:
+##   - __tdarr_node_win_existing_config  parsed contents of the host's Tdarr_Node_Config.json
+##   - the nine optional tdarr_node_win_* vars below; UNSET means that key is not managed and
+##     whatever the host already has survives untouched
+## Output fact: __tdarr_node_win_node_config
+
+# `| type_debug == 'list'` rather than `is sequence`: a string is also a sequence in Jinja, so the
+# obvious test passes for a value that would then be written as a scalar.
+- name: Assert managed value types
+  ansible.builtin.assert:
+    that:
+      - tdarr_node_win_priority is not defined or tdarr_node_win_priority | type_debug == 'int'
+      - >-
+        tdarr_node_win_path_translators is not defined
+        or tdarr_node_win_path_translators | type_debug == 'list'
+    fail_msg: >-
+      tdarr_node_win_priority must be an integer and tdarr_node_win_path_translators a list.
+      Types are load-bearing here: the file is compared by parsed value, so -1 and "-1" are
+      different configs and Tdarr reads one of them wrong.
+    quiet: true
+
+# `list_merge` defaults to `replace` (ansible-doc -t filter ansible.builtin.combine), which is what
+# makes a pathTranslators list given here replace the host's rather than append to it — appending
+# would grow the list without bound across runs. See the README for what merging buys.
+#
+# no_log because tdarr_node_win_api_key is one of the nine and ends up in this fact.
+- name: Set __tdarr_node_win_node_config
+  vars:
+    __tdarr_node_win_managed: >-
+      {{
+        {}
+        | combine({'nodeName': tdarr_node_win_node_name} if tdarr_node_win_node_name is defined else {})
+        | combine({'serverURL': tdarr_node_win_server_url} if tdarr_node_win_server_url is defined else {})
+        | combine({'ffmpegPath': tdarr_node_win_ffmpeg_path} if tdarr_node_win_ffmpeg_path is defined else {})
+        | combine({'pathTranslators': tdarr_node_win_path_translators} if tdarr_node_win_path_translators is defined else {})
+        | combine({'nodeType': tdarr_node_win_node_type} if tdarr_node_win_node_type is defined else {})
+        | combine({'unmappedNodeCache': tdarr_node_win_unmapped_node_cache} if tdarr_node_win_unmapped_node_cache is defined else {})
+        | combine({'priority': tdarr_node_win_priority} if tdarr_node_win_priority is defined else {})
+        | combine({'apiKey': tdarr_node_win_api_key} if tdarr_node_win_api_key is defined else {})
+        | combine({'logLevel': tdarr_node_win_log_level} if tdarr_node_win_log_level is defined else {})
+      }}
+  ansible.builtin.set_fact:
+    __tdarr_node_win_node_config: >-
+      {{ __tdarr_node_win_existing_config | combine(__tdarr_node_win_managed) }}
+  no_log: true

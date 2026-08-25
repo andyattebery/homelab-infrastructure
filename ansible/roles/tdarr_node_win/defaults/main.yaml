@@ -1,0 +1,14 @@
+---
+# Where Tdarr lives. A host-shaped path, so it belongs here where a caller can override it.
+# This is the directory Tdarr's own installer uses, holding Tdarr_Updater.exe, configs\, logs\,
+# .staging\ and the module directories.
+tdarr_node_win_install_dir: 'C:\Program Files\Tdarr'
+
+# The identity that runs Tdarr — the tray app, and any by-hand Tdarr_Updater.exe run. It is granted
+# Full Control of the install directory, because under C:\Program Files only administrators can
+# write and the updater runs as this user.
+#
+# On a bootstrap it must be the connecting user: the startup shortcut can only be written into
+# ansible_user's profile, so a different value here would grant one account and autostart another.
+# The role asserts that rather than letting the two drift apart silently.
+tdarr_node_win_owner: "{{ ansible_user }}"

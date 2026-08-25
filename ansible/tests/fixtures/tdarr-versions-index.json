@@ -1,0 +1,41 @@
+{
+  "2.10.01": {
+    "win32_x64": {
+      "Tdarr_Server": "https://storage.tdarr.io/versions/2.10.01/win32_x64/Tdarr_Server.zip",
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.10.01/win32_x64/Tdarr_Node.zip",
+      "Tdarr_Updater": "https://storage.tdarr.io/versions/2.10.01/win32_x64/Tdarr_Updater.zip"
+    },
+    "linux_x64": {
+      "Tdarr_Updater": "https://storage.tdarr.io/versions/2.10.01/linux_x64/Tdarr_Updater.zip"
+    }
+  },
+  "2.9.01": {
+    "win32_x64": {
+      "Tdarr_Server": "https://storage.tdarr.io/versions/2.9.01/win32_x64/Tdarr_Server.zip",
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.9.01/win32_x64/Tdarr_Node.zip",
+      "Tdarr_Updater": "https://storage.tdarr.io/versions/2.9.01/win32_x64/Tdarr_Updater.zip"
+    }
+  },
+  "2.5.00": {
+    "win32_x64": {
+      "Tdarr_Server": "https://storage.tdarr.io/versions/2.5.00/win32_x64/Tdarr_Server.zip",
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.5.00/win32_x64/Tdarr_Node.zip"
+    }
+  },
+  "2.3.00": {
+    "win32_x64": {
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.3.00/win32_x64/Tdarr_Node.zip"
+    },
+    "linux_x64": {
+      "Tdarr_Updater": "https://storage.tdarr.io/versions/2.3.00/linux_x64/Tdarr_Updater.zip"
+    }
+  },
+  "2.2.00": {
+    "linux_x64": {
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.2.00/linux_x64/Tdarr_Node.zip"
+    },
+    "darwin_arm64": {
+      "Tdarr_Node": "https://storage.tdarr.io/versions/2.2.00/darwin_arm64/Tdarr_Node.zip"
+    }
+  }
+}

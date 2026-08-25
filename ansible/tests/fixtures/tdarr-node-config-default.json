@@ -1,0 +1,24 @@
+{
+  "nodeName": "half-hyrax",
+  "serverURL": "http://0.0.0.0:8266",
+  "serverIP": "0.0.0.0",
+  "serverPort": "8266",
+  "handbrakePath": "",
+  "ffmpegPath": "",
+  "mkvpropeditPath": "",
+  "pathTranslators": [
+    {
+      "server": "",
+      "node": ""
+    }
+  ],
+  "nodeType": "mapped",
+  "unmappedNodeCache": "C:/Users/andya/Downloads/Tdarr_Updater/unmappedNodeCache",
+  "logLevel": "INFO",
+  "priority": -1,
+  "cronPluginUpdate": "",
+  "apiKey": "",
+  "maxLogSizeMB": 10,
+  "pollInterval": 2000,
+  "startPaused": false
+}

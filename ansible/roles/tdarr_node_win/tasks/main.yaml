@@ -1,0 +1,251 @@
+---
+- name: Validate inputs
+  ansible.builtin.assert:
+    that: tdarr_node_win_install_dir | default('') | length > 0
+    fail_msg: tdarr_node_win_install_dir must not be emptied.
+    quiet: true
+
+# Tdarr publishes one Windows build, win32_x64. There is no win32_arm64 in its version index,
+# so an ARM host has nothing to install rather than something to translate.
+#
+# architecture2, NOT architecture: on Windows the latter is a localized string from WMI and is
+# null outright when the connecting token is not in the Administrator role.
+- name: Assert this is an x86_64 host
+  ansible.builtin.assert:
+    that: ansible_facts['architecture2'] == 'x86_64'
+    fail_msg: >-
+      Tdarr publishes only a win32_x64 Windows build; this host reports
+      '{{ ansible_facts['architecture2'] }}'.
+    quiet: true
+
+# configs\ is where the node config lives, which this role merges into. Created here rather than
+# relying on the updater or the node to make it, because whether either does on a bare host is
+# untested and its absence would only surface on a fresh provision.
+- name: Create Tdarr directories
+  ansible.windows.win_file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+    - "{{ tdarr_node_win_install_dir }}"
+    - '{{ tdarr_node_win_install_dir }}\configs'
+
+# Under C:\Program Files a new directory inherits that tree's ACLs, where only administrators can
+# write. Tdarr_Updater.exe runs as the logged-in user and fails on that, so the user needs Full
+# Control of its own install directory.
+#
+# Every run, not bootstrap-only: the by-hand updater runs that keep Tdarr current afterwards need
+# the same permission, so the role keeps asserting it rather than setting it once and hoping.
+#
+# `inherit` is left at the module default, which ansible-doc documents as
+# `ContainerInherit, ObjectInherit` for directories. That is relied on deliberately, not omitted:
+# the updater creates .staging\, Tdarr_Node\ and the rest AFTER this ACE exists, and they inherit it.
+- name: Grant the Tdarr identity full control of the install directory
+  ansible.windows.win_acl:
+    path: "{{ tdarr_node_win_install_dir }}"
+    user: "{{ tdarr_node_win_owner }}"
+    rights: FullControl
+    type: allow
+
+- name: Stat the updater
+  ansible.windows.win_stat:
+    path: '{{ tdarr_node_win_install_dir }}\Tdarr_Updater.exe'
+    get_checksum: false
+  register: tdarr_node_win_updater_stat
+
+# Downloaded when absent, never replaced. The updater is run once, to bootstrap; afterwards
+# updating Tdarr is a manual procedure, so there is no version here to keep current. To refresh
+# it, delete it and re-run.
+- name: Install the updater
+  when: not tdarr_node_win_updater_stat.stat.exists
+  block:
+    - name: Create temp directory for the updater
+      ansible.windows.win_tempfile:
+        state: directory
+        suffix: tdarr_node_win
+      register: tdarr_node_win_tempdir
+
+    - name: Get the Tdarr version index
+      ansible.windows.win_uri:
+        url: https://storage.tdarr.io/versions.json
+        return_content: true
+      register: tdarr_node_win_version_index
+
+    # from_json, not the module's `json` key: win_uri populates that only when the server sends
+    # Content-Type application/json, which is a property of the remote rather than of this play.
+    - name: Parse the version index
+      ansible.builtin.set_fact:
+        __tdarr_node_win_version_index: "{{ tdarr_node_win_version_index.content | from_json }}"
+
+    - name: Select the updater URL from the index
+      ansible.builtin.include_tasks: select_updater_url.yaml
+
+    - name: Download the updater
+      ansible.windows.win_get_url:
+        url: "{{ __tdarr_node_win_updater_url }}"
+        dest: '{{ tdarr_node_win_tempdir.path }}\Tdarr_Updater.zip'
+
+    - name: Extract the updater
+      community.windows.win_unzip:
+        src: '{{ tdarr_node_win_tempdir.path }}\Tdarr_Updater.zip'
+        dest: '{{ tdarr_node_win_tempdir.path }}\extract'
+
+    - name: Install Tdarr_Updater.exe
+      ansible.windows.win_copy:
+        remote_src: true
+        src: '{{ tdarr_node_win_tempdir.path }}\extract\Tdarr_Updater.exe'
+        dest: '{{ tdarr_node_win_install_dir }}\Tdarr_Updater.exe'
+
+  always:
+    - name: Remove the updater temp directory
+      when: tdarr_node_win_tempdir.path is defined
+      ansible.windows.win_file:
+        path: "{{ tdarr_node_win_tempdir.path }}"
+        state: absent
+
+# --- bootstrap ----------------------------------------------------------------------------------
+# Everything below runs ONLY on a host where Tdarr_Node\ does not exist. Tdarr_Updater.exe is
+# destructive when it fails and still exits 0, so it is kept away from anything already installed —
+# see the README for what it does and why this is the division.
+#
+# The gate is the DIRECTORY, not Tdarr_Node.exe inside it, because the two failure directions do
+# not cost the same. Skipping when it should have run leaves a green play that installed nothing,
+# which a human notices. Running when it should have skipped destroys an install. A tree missing
+# only its exe is exactly the second case, so anything present at all means skip.
+- name: Stat the Tdarr node module directory
+  ansible.windows.win_stat:
+    path: '{{ tdarr_node_win_install_dir }}\Tdarr_Node'
+    get_checksum: false
+  register: tdarr_node_win_module_stat
+
+- name: Bootstrap Tdarr
+  when: not tdarr_node_win_module_stat.stat.exists
+  block:
+    # TRAP: a failed bootstrap does NOT retry. Once the updater has created Tdarr_Node\ the gate
+    # above is false on the next run and this whole block is skipped — no shortcut, no config, a
+    # half-installed host and a green play. Recovery is manual: remove the partial Tdarr_Node\ and
+    # re-run, or finish it by hand.
+    #
+    # The verdict is computed in check_updater_result.yaml rather than inline, because the exit code
+    # carries no information and that string check is the entire failure detector — it needs tests.
+    - name: Run the Tdarr updater
+      ansible.windows.win_command: '"{{ tdarr_node_win_install_dir }}\Tdarr_Updater.exe"'
+      args:
+        chdir: "{{ tdarr_node_win_install_dir }}"
+      register: tdarr_node_win_updater_run
+      changed_when: true
+
+    - name: Judge the updater result
+      ansible.builtin.include_tasks: check_updater_result.yaml
+      vars:
+        __tdarr_node_win_updater_stdout: "{{ tdarr_node_win_updater_run.stdout }}"
+
+    - name: Fail if the updater reported an error
+      ansible.builtin.assert:
+        that: not __tdarr_node_win_updater_failed
+        fail_msg: >-
+          Tdarr_Updater.exe reported a failure, or printed nothing at all. It returns 0 either way
+          and dismantles the install before it discovers it cannot finish, so treat
+          {{ tdarr_node_win_install_dir }} as half-installed: remove Tdarr_Node\ and re-run, or
+          finish it by hand.
+        quiet: true
+
+    # ansible_facts['env'] is the SSH session's environment, so APPDATA is always ansible_user's
+    # profile and the shortcut can only ever be created for that account. If _owner named someone
+    # else, the ACL above would grant one identity and autostart would belong to another — two
+    # things that must be the same, written two different ways.
+    #
+    # ansible_facts['env'], not ansible_env: the injected ansible_* aliases are deprecated. Same
+    # transform as ansible_facts['architecture2'] above.
+    - name: Assert the Tdarr identity is the connecting user
+      ansible.builtin.assert:
+        that: tdarr_node_win_owner == ansible_user
+        fail_msg: >-
+          tdarr_node_win_owner is '{{ tdarr_node_win_owner }}' but this play connects as
+          '{{ ansible_user }}'. The startup shortcut can only be written into the connecting user's
+          profile, so bootstrapping as a different identity would grant permissions to one account
+          and autostart Tdarr for another.
+        quiet: true
+
+    # Bootstrap-only: a shortcut later moved or deleted is left alone. The tray app is what a
+    # human wants at login.
+    - name: Create the Tdarr node startup shortcut
+      community.windows.win_shortcut:
+        src: '{{ tdarr_node_win_install_dir }}\Tdarr_Node\Tdarr_Node_Tray.exe'
+        dest: "{{ ansible_facts['env'].APPDATA }}\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\Tdarr Node.lnk"
+        description: Tdarr transcode node
+
+    # The node POLLS for this file and never writes it, so nothing else will create it — see the
+    # README. force: false is what makes this unable to clobber a real config: ansible-doc win_copy
+    # defines it as "only transferred if the destination does not exist", which holds independently
+    # of the bootstrap gate above.
+    - name: Write the initial node config
+      ansible.windows.win_copy:
+        content: "{{ tdarr_node_win__config_skeleton | to_json(indent=2) }}"
+        dest: '{{ tdarr_node_win_install_dir }}\configs\Tdarr_Node_Config.json'
+        force: false
+
+# --- node config -------------------------------------------------------------------------------
+# Merged into. On a bootstrap the skeleton above has just created it, so a bare host converges in
+# one run; on any other host this merges into whatever is already there and never creates anything.
+# Keys the role does not manage — including ones a future Tdarr adds — survive untouched.
+- name: Stat the node config
+  ansible.windows.win_stat:
+    path: '{{ tdarr_node_win_install_dir }}\configs\Tdarr_Node_Config.json'
+    get_checksum: false
+  register: tdarr_node_win_node_config_stat
+
+# Reachable only on a host that has Tdarr_Node\ but no config — an install this role did not
+# bootstrap, or one whose config was deleted. The node cannot produce one itself, so say what will
+# fix it rather than leaving the operator to wait for a file that never appears.
+- name: Note that the node config does not exist yet
+  when: not tdarr_node_win_node_config_stat.stat.exists
+  ansible.builtin.debug:
+    msg: >-
+      No Tdarr_Node_Config.json under {{ tdarr_node_win_install_dir }}\configs. This role writes
+      one only when it bootstraps an install, and the node polls for this file rather than creating
+      it. Copy a config from another node or remove {{ tdarr_node_win_install_dir }}\Tdarr_Node
+      and re-run to bootstrap from scratch.
+
+- name: Manage the node config
+  when: tdarr_node_win_node_config_stat.stat.exists
+  block:
+    # No rescue: a config that does not parse is not something to merge into. Failing here is
+    # correct — writing a "repaired" file over it would be inventing content nobody asked for.
+    - name: Read the existing node config
+      ansible.builtin.slurp:
+        src: '{{ tdarr_node_win_install_dir }}\configs\Tdarr_Node_Config.json'
+      register: tdarr_node_win_node_config_slurp
+      no_log: true
+
+    - name: Set __tdarr_node_win_existing_config
+      ansible.builtin.set_fact:
+        __tdarr_node_win_existing_config: >-
+          {{ tdarr_node_win_node_config_slurp.content | b64decode | from_json }}
+      no_log: true
+
+    - name: Compute the merged node config
+      ansible.builtin.include_tasks: set_node_config.yaml
+
+    # Gated on the PARSED comparison, not on win_copy's own content check. The two are not the
+    # same: Tdarr writes this file in its own formatting, and if to_json's differs by so much as
+    # indent width, a content check reports changed on every run while the values are identical.
+    # Comparing dicts takes formatting out of the decision entirely — which is why nothing here
+    # pins indent, key order or the trailing newline.
+    #
+    # no_log because tdarr_node_win_api_key, when set, is in this content.
+    - name: Deploy the node config
+      when: __tdarr_node_win_node_config != __tdarr_node_win_existing_config
+      ansible.windows.win_copy:
+        content: "{{ __tdarr_node_win_node_config | to_json(indent=2) }}"
+        dest: '{{ tdarr_node_win_install_dir }}\configs\Tdarr_Node_Config.json'
+      register: tdarr_node_win_node_config_write
+      no_log: true
+
+    # noqa no-handler: there is no handler to notify — this role does not own the node process.
+    # Deliberately says nothing about WHAT changed: the config may contain an apiKey.
+    - name: Note that the node must be restarted # noqa no-handler
+      when: tdarr_node_win_node_config_write is changed
+      ansible.builtin.debug:
+        msg: >-
+          Tdarr_Node_Config.json changed. A running node holds the settings it read at startup, so
+          restart it for this to take effect. Writing the file while the node runs is safe.

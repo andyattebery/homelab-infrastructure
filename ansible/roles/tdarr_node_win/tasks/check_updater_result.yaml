@@ -1,0 +1,18 @@
+---
+## Pure computation, no I/O — so it can be exercised by a local test with no Windows host.
+## See ansible/tests/test-tdarr-node-win-config.yml, C17-C19.
+##
+## Input:  __tdarr_node_win_updater_stdout  stdout of a Tdarr_Updater.exe run
+## Output: __tdarr_node_win_updater_failed  bool
+##
+## This is the only thing that turns a failed updater run into a failed play. Tdarr_Updater.exe
+## dismantles an install before it discovers it cannot finish, and then exits 0 — so the return code
+## carries no information and this string check is the whole detector.
+##
+## Empty stdout counts as FAILURE, deliberately. The updater is chatty; a run that printed nothing
+## did not run. Treating no evidence as success is the trap this role exists to avoid.
+- name: Set __tdarr_node_win_updater_failed
+  ansible.builtin.set_fact:
+    __tdarr_node_win_updater_failed: >-
+      {{ '[ERROR]' in __tdarr_node_win_updater_stdout
+         or (__tdarr_node_win_updater_stdout | trim | length) == 0 }}

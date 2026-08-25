@@ -1,0 +1,19 @@
+[2026-08-24T23:52:57.161] [INFO] Tdarr_Updater - Tdarr_Updater | v2.81.01
+[2026-08-24T23:52:57.161] [INFO] Tdarr_Updater - Tdarr_Updater | Required platform_arch:win32_x64
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - 
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - 
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - Tdarr_Node | Current version:  | Required version: 2.86.01
+[2026-08-24T23:52:57.624] [WARN] Tdarr_Updater - Tdarr_Node | Does not exist! Updating to version: 2.86.01!
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - 
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - 
+[2026-08-24T23:52:57.624] [INFO] Tdarr_Updater - Tdarr_Server | Current version:  | Required version: 2.86.01
+[2026-08-24T23:52:57.624] [WARN] Tdarr_Updater - Tdarr_Server | Does not exist! Updating to version: 2.86.01!
+[2026-08-24T23:53:01.137] [INFO] Tdarr_Updater - Tdarr_Node | Downloaded!
+[2026-08-24T23:53:01.137] [INFO] Tdarr_Updater - Tdarr_Node | Unzipping!
+[2026-08-24T23:53:04.614] [INFO] Tdarr_Updater - Tdarr_Server | Downloaded!
+[2026-08-24T23:53:08.073] [INFO] Tdarr_Updater - Tdarr_Node | Updated!
+[2026-08-24T23:53:08.073] [INFO] Tdarr_Updater - Tdarr_Server | Unzipping!
+[2026-08-24T23:53:14.725] [INFO] Tdarr_Updater - Tdarr_Server | Updated!
+[2026-08-24T23:53:14.725] [INFO] Tdarr_Updater - 
+[2026-08-24T23:53:14.725] [INFO] Tdarr_Updater - Finished!
+

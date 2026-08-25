@@ -1,0 +1,470 @@
+---
+# Exercises roles/tdarr_node_win/tasks/set_node_config.yaml — the REAL task file, not a copy of its
+# expressions. `connection: local`, no host is contacted, so run it any time:
+#
+#   cd ansible
+#   ANSIBLE_ROLES_PATH=roles .venv/bin/ansible-playbook -i localhost, tests/test-tdarr-node-win-config.yml
+#
+# ANSIBLE_ROLES_PATH is required: role resolution is relative to the playbook's directory, and this
+# playbook lives in tests/, so ansible/roles is not otherwise on the search path.
+#
+# The fixture below has the same 17 keys and the same types as a real Tdarr_Node_Config.json —
+# priority/maxLogSizeMB/pollInterval int, startPaused bool, pathTranslators list, the rest str —
+# with placeholder values. Types are not cosmetic: the file is compared by parsed value, so -1 and
+# "-1" are different configs.
+- name: Tdarr node config merge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    fixture:
+      nodeName: test-node
+      serverURL: "http://tdarr.example.invalid:8266"
+      serverIP: "0.0.0.0"
+      serverPort: "8266"
+      handbrakePath: ""
+      ffmpegPath: 'C:/Program Files/ffmpeg/ffmpeg.exe'
+      mkvpropeditPath: ""
+      pathTranslators:
+        - {server: /media, node: '\\storage-host\storage'}
+        - {server: /temp, node: 'D:/tdarr/temp'}
+      nodeType: mapped
+      unmappedNodeCache: 'C:/Program Files/Tdarr/unmappedNodeCache'
+      logLevel: INFO
+      priority: -1
+      cronPluginUpdate: ""
+      apiKey: ""
+      maxLogSizeMB: 10
+      pollInterval: 2000
+      startPaused: false
+
+    # A deliberately shorter list, defined here so the backslashes live in YAML.
+    replacement_translators:
+      - {server: /media, node: '\\other-host\share'}
+
+    # C9 renders the role's own skeleton, whose unmappedNodeCache derives from this var. Set to
+    # the directory the committed reference config was generated in, so the derived value has to
+    # come out identical rather than merely plausible.
+    tdarr_node_win_install_dir: 'C:/Users/andya/Downloads/Tdarr_Updater'
+
+    # The oracle for C9: the config Tdarr itself wrote on a fresh install, committed unmodified.
+    default_config: >-
+      {{ lookup('file', playbook_dir ~ '/fixtures/tdarr-node-config-default.json') | from_json }}
+
+    # C14/C15 — synthetic on purpose. See fixtures/README.md: against the LIVE index sort and
+    # version_sort agree, so live data cannot test the filter choice at all.
+    version_index: >-
+      {{ lookup('file', playbook_dir ~ '/fixtures/tdarr-versions-index.json') | from_json }}
+
+    # C16 — an index where nothing publishes a win32_x64 updater. The live index always has one,
+    # so this branch is unreachable with real data.
+    version_index_no_updater:
+      2.40.00:
+        win32_x64:
+          Tdarr_Node: https://storage.tdarr.io/versions/2.40.00/win32_x64/Tdarr_Node.zip
+      2.41.00:
+        linux_x64:
+          Tdarr_Updater: https://storage.tdarr.io/versions/2.41.00/linux_x64/Tdarr_Updater.zip
+
+  tasks:
+    # C1 — the one that matters. Every managed var set to the value the fixture already has, so a
+    # correct merge is a no-op. The oracle is the fixture ITSELF, unmodified: nothing expected is
+    # constructed from the change under test, which is how the previous version of this test passed
+    # while the code was wrong.
+    - name: C1 setup - all nine vars set to the fixture's own values
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_node_config
+      vars:
+        __tdarr_node_win_existing_config: "{{ fixture }}"
+        tdarr_node_win_node_name: "{{ fixture.nodeName }}"
+        tdarr_node_win_server_url: "{{ fixture.serverURL }}"
+        tdarr_node_win_ffmpeg_path: "{{ fixture.ffmpegPath }}"
+        tdarr_node_win_path_translators: "{{ fixture.pathTranslators }}"
+        tdarr_node_win_node_type: "{{ fixture.nodeType }}"
+        tdarr_node_win_unmapped_node_cache: "{{ fixture.unmappedNodeCache }}"
+        tdarr_node_win_priority: "{{ fixture.priority }}"
+        tdarr_node_win_api_key: "{{ fixture.apiKey }}"
+        tdarr_node_win_log_level: "{{ fixture.logLevel }}"
+
+    - name: C1 - a converged host produces no change
+      ansible.builtin.assert:
+        that: __tdarr_node_win_node_config == fixture
+        fail_msg: >-
+          Merging the fixture's own values back over it changed something, so a converged host
+          would be rewritten on every run.
+        quiet: true
+
+    - name: C7 - the result parses back to itself
+      ansible.builtin.assert:
+        that: (__tdarr_node_win_node_config | to_json | from_json) == __tdarr_node_win_node_config
+        fail_msg: "Serialising and reparsing the merged config does not round-trip."
+        quiet: true
+
+    - name: C2/C3 setup - unknown key present, priority left unmanaged
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_node_config
+      vars:
+        __tdarr_node_win_existing_config: "{{ fixture | combine({'someFutureKey': 'written by a later Tdarr'}) }}"
+        tdarr_node_win_ffmpeg_path: 'D:/ffmpeg/ffmpeg.exe'
+
+    - name: C2 - a key the role knows nothing about survives the merge
+      ansible.builtin.assert:
+        that: __tdarr_node_win_node_config.someFutureKey == 'written by a later Tdarr'
+        fail_msg: "A key the role does not manage was dropped. A second run would damage the host."
+        quiet: true
+
+    - name: C3 - an unset var leaves the host's value alone
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_node_config.priority == -1
+          - __tdarr_node_win_node_config.nodeName == 'test-node'
+        fail_msg: "An unset role var overwrote a value on the host."
+        quiet: true
+
+    - name: C4 - a real change is detected
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_node_config.ffmpegPath == 'D:/ffmpeg/ffmpeg.exe'
+          - __tdarr_node_win_node_config != fixture
+        fail_msg: "A changed managed value did not reach the merged config."
+        quiet: true
+
+    - name: C5 - types survive the merge
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_node_config.priority | type_debug == 'int'
+          - __tdarr_node_win_node_config.maxLogSizeMB | type_debug == 'int'
+          - __tdarr_node_win_node_config.startPaused | type_debug == 'bool'
+          - __tdarr_node_win_node_config.pathTranslators | type_debug == 'list'
+          - __tdarr_node_win_node_config.serverPort | type_debug in ['str', 'AnsibleUnicode', 'NativeJinjaText']
+        fail_msg: >-
+          A value changed type. serverPort as an int, or priority as a string, is a different
+          config to Tdarr even though it still parses.
+        quiet: true
+
+    # C6 — pathTranslators is a list, and combine's list_merge defaults to `replace`. If it ever
+    # appended instead, the list would grow without bound across runs.
+    - name: C6 setup - replace the translator list with a shorter one
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_node_config
+      vars:
+        __tdarr_node_win_existing_config: "{{ fixture }}"
+        tdarr_node_win_path_translators: "{{ replacement_translators }}"
+
+    # Compared against the same YAML-defined var that was passed in, never against a backslash
+    # string written as a Jinja literal — Ansible does not unescape \\ inside one, so an inline
+    # literal here does not equal the value it was built from.
+    - name: C6 - the translator list is replaced wholesale, not appended to
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_node_config.pathTranslators | length == 1
+          - __tdarr_node_win_node_config.pathTranslators == replacement_translators
+        fail_msg: >-
+          pathTranslators was merged rather than replaced — it had
+          {{ __tdarr_node_win_node_config.pathTranslators | length }} entries, expected 1.
+        quiet: true
+
+    # C8 last on purpose: it also proves no var set by an earlier case leaked into this one.
+    - name: C8 setup - no managed vars set at all
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_node_config
+      vars:
+        __tdarr_node_win_existing_config: "{{ fixture }}"
+
+    - name: C8 - with nothing managed the config is returned untouched
+      ansible.builtin.assert:
+        that: __tdarr_node_win_node_config == fixture
+        fail_msg: >-
+          With no managed vars the merge still changed something, or a var from an earlier case
+          leaked into this include.
+        quiet: true
+
+    # C9 - the skeleton had no coverage at all until this case. It is the entire file a fresh host
+    # gets. It does NOT cover the slash conversion — the reference config's own install directory
+    # is already forward-slashed, so replace and regex_replace are both no-ops against it. C13
+    # covers that.
+    #
+    # include_vars rather than include_role: include_role defaults to public: false, so the role's
+    # vars are not exposed to the play afterwards.
+    - name: C9 setup - load the role's config skeleton
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../roles/tdarr_node_win/vars/main.yaml"
+
+    # nodeName is compared separately because it deviates from the reference on purpose. Excluding
+    # it from the dict comparison and then asserting it directly keeps the oracle untouched — the
+    # expected value is never built from the thing under test.
+    - name: C9 - the skeleton still reproduces the config Tdarr writes on a fresh install
+      vars:
+        _skeleton_rest: >-
+          {{ tdarr_node_win__config_skeleton | dict2items
+             | rejectattr('key', 'equalto', 'nodeName') | items2dict }}
+        _default_rest: >-
+          {{ default_config | dict2items
+             | rejectattr('key', 'equalto', 'nodeName') | items2dict }}
+      ansible.builtin.assert:
+        that:
+          - _skeleton_rest == _default_rest
+          - tdarr_node_win__config_skeleton.nodeName == inventory_hostname
+          # Key ORDER, which == on dicts cannot see. Tdarr rewrites the file in this order on
+          # every save, so a reordered skeleton means a spurious diff on the first real run.
+          - tdarr_node_win__config_skeleton.keys() | list == default_config.keys() | list
+        fail_msg: >-
+          The skeleton no longer matches tests/fixtures/tdarr-node-config-default.json.
+        quiet: true
+
+    # C10/C11 - the type asserts in set_node_config had never been exercised in the direction that
+    # fails. An assert that has never fired is not known to fire, and the justification for those
+    # lines is that -1 and "-1" are different configs to Tdarr.
+    #
+    # The fact-then-assert shape is deliberate: a bare block/rescue would also catch a `fail` used
+    # to signal "the assert did not fire", so the case would pass either way.
+    - name: C10 setup - a string priority
+      block:
+        - name: C10 setup - merge with priority as a string
+          ansible.builtin.include_role:
+            name: tdarr_node_win
+            tasks_from: set_node_config
+          vars:
+            __tdarr_node_win_existing_config: "{{ fixture }}"
+            tdarr_node_win_priority: "-1"
+        - name: C10 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c10_rejected: false
+      rescue:
+        - name: C10 setup - record that the assert fired
+          ansible.builtin.set_fact:
+            c10_rejected: true
+
+    - name: C10 - a string priority is rejected
+      ansible.builtin.assert:
+        that: c10_rejected
+        fail_msg: >-
+          set_node_config accepted priority as a string. Tdarr reads "-1" and -1 differently, and
+          the config is compared by parsed value, so this would rewrite the file every run.
+        quiet: true
+
+    - name: C11 setup - path translators as a dict
+      block:
+        - name: C11 setup - merge with path_translators as a mapping
+          ansible.builtin.include_role:
+            name: tdarr_node_win
+            tasks_from: set_node_config
+          vars:
+            __tdarr_node_win_existing_config: "{{ fixture }}"
+            tdarr_node_win_path_translators: {server: /media, node: 'D:/x'}
+        - name: C11 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c11_rejected: false
+      rescue:
+        - name: C11 setup - record that the assert fired
+          ansible.builtin.set_fact:
+            c11_rejected: true
+
+    - name: C11 - a non-list path_translators is rejected
+      ansible.builtin.assert:
+        that: c11_rejected
+        fail_msg: >-
+          set_node_config accepted path_translators as a mapping, which would be written into
+          pathTranslators where Tdarr expects a list.
+        quiet: true
+
+    # C12 - README says unset means unmanaged and distinguishes that from set-to-empty. C1 sets
+    # api_key to "" but the fixture's apiKey is ALREADY "", so it passes either way. This sets an
+    # empty value over a non-empty one, which is the only form that can tell the two apart.
+    - name: C12 setup - an empty string over a non-empty host value
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_node_config
+      vars:
+        __tdarr_node_win_existing_config: "{{ fixture }}"
+        tdarr_node_win_ffmpeg_path: ""
+
+    - name: C12 - an empty string is applied, not treated as unset
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_node_config.ffmpegPath == ""
+          - fixture.ffmpegPath | length > 0
+        fail_msg: >-
+          A var set to "" did not overwrite the host's value, so "unset" and "set to empty" are
+          the same thing and the README claim is wrong.
+        quiet: true
+
+    # C13 - the slash conversion, which C9 cannot see. regex_replace("\\", "/") already shipped
+    # once as replace("\\", "/"): Ansible does not unescape \\ inside a Jinja string literal, so
+    # replace looks for a DOUBLED backslash, finds none, and silently returns the path unchanged.
+    # A mixed-separator path reaches Tdarr looking plausible.
+    #
+    # Task-level vars, because the skeleton templates lazily — install_dir is resolved where the
+    # value is referenced, not where the file was loaded. The expected string is written out in
+    # full rather than derived, so it cannot agree with a broken expression by construction.
+    - name: C13 - a backslashed install dir yields a forward-slashed cache path
+      vars:
+        tdarr_node_win_install_dir: 'C:\Program Files\Tdarr'
+      ansible.builtin.assert:
+        that:
+          - >-
+            tdarr_node_win__config_skeleton.unmappedNodeCache
+            == 'C:/Program Files/Tdarr/unmappedNodeCache'
+        fail_msg: >-
+          unmappedNodeCache came out as
+          '{{ tdarr_node_win__config_skeleton.unmappedNodeCache }}'. Tdarr takes local paths with
+          forward slashes; check that this is regex_replace and not replace.
+        quiet: true
+
+    # C14 - the updater URL comes from the index, and version ordering decides which entry.
+    # The fixture holds 2.9.01 and 2.10.01, both with a win32_x64 updater: plain `sort` picks
+    # 2.9.01, version_sort picks 2.10.01. That is the whole point of the fixture.
+    - name: C14 setup - select the updater URL from the index
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: select_updater_url
+      vars:
+        __tdarr_node_win_version_index: "{{ version_index }}"
+
+    - name: C14 - the newest version by VERSION order wins, and the URL is taken from the index
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_updater_versions | last == '2.10.01'
+          - >-
+            __tdarr_node_win_updater_url
+            == 'https://storage.tdarr.io/versions/2.10.01/win32_x64/Tdarr_Updater.zip'
+        fail_msg: >-
+          Selected {{ __tdarr_node_win_updater_versions | last }}. Plain string order would pick
+          2.9.01 here — check this is community.general.version_sort.
+        quiet: true
+
+    # C15 - a version is only a candidate if it publishes a win32_x64 updater specifically.
+    #
+    # Every non-candidate in the fixture sorts BELOW the winner on purpose: 2.5.00 has win32_x64
+    # with no updater, 2.3.00's updater is linux-only, 2.2.00 has no win32_x64 at all. A broken
+    # filter therefore grows the candidate list WITHOUT moving the chosen version, so C14 still
+    # passes and only this case fails. Put them above the winner and C14 masks C15 entirely.
+    - name: C15 - versions without a win32_x64 updater are excluded
+      ansible.builtin.assert:
+        that:
+          - __tdarr_node_win_updater_versions == ['2.9.01', '2.10.01']
+          # 2.5.00 sorts BELOW the winner, so a selectattr that lets it through changes the
+          # candidate list without changing the chosen version — C14 would still pass.
+          - "'2.5.00' not in __tdarr_node_win_updater_versions"
+          - "'2.3.00' not in __tdarr_node_win_updater_versions"
+          - "'2.2.00' not in __tdarr_node_win_updater_versions"
+        fail_msg: >-
+          Candidate list was {{ __tdarr_node_win_updater_versions }}. A version with a linux-only
+          updater, or with no win32_x64 key at all, is not a candidate.
+        quiet: true
+
+    # C16 - the branch live data can never reach: an index that publishes no Windows updater must
+    # fail loudly rather than index into nothing.
+    - name: C16 setup - an index with no Windows updater anywhere
+      block:
+        - name: C16 setup - select from an index with no win32_x64 updater
+          ansible.builtin.include_role:
+            name: tdarr_node_win
+            tasks_from: select_updater_url
+          vars:
+            __tdarr_node_win_version_index: "{{ version_index_no_updater }}"
+        - name: C16 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c16_rejected: false
+      rescue:
+        # The MESSAGE, not just the fact that something failed. An empty candidate list makes
+        # `| last` raise on its own, so a case asserting only "it failed" passes whether or not
+        # the assert exists — it would be testing the crash, not the guard.
+        - name: C16 setup - record which failure fired
+          ansible.builtin.set_fact:
+            c16_rejected: true
+            c16_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: C16 - an index with no Windows updater fails on the assert, with a sentence
+      ansible.builtin.assert:
+        that:
+          - c16_rejected
+          - "'publishes a win32_x64 Tdarr_Updater' in c16_msg"
+        fail_msg: >-
+          Expected the role's own assert to fire. Got: {{ c16_msg | default('no failure at all') }}.
+          Without that assert the role reaches `| last` on an empty list and dies on a template
+          error instead of a sentence.
+        quiet: true
+
+    # C17-C19 - the updater failure detector. Tdarr_Updater.exe dismantles an install before it
+    # discovers it cannot finish and then exits 0, so this string check is the ENTIRE detector.
+    # The failure transcript's [ERROR]/Finished! pair is what the run that destroyed a production
+    # install actually produced — see fixtures/README.md for what is real and what is not.
+    - name: C17 setup - a real failure transcript
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: check_updater_result
+      vars:
+        __tdarr_node_win_updater_stdout: >-
+          {{ lookup('file', playbook_dir ~ '/fixtures/tdarr-updater-stdout-failure.txt') }}
+
+    - name: C17 - a transcript containing [ERROR] is a failure, despite ending in Finished!
+      ansible.builtin.assert:
+        that: __tdarr_node_win_updater_failed
+        fail_msg: >-
+          The detector passed a run that logged [ERROR]. That run exits 0 and leaves a gutted
+          install, so this is the difference between a failed play and silent destruction.
+        quiet: true
+
+    - name: C18 setup - a clean transcript
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: check_updater_result
+      vars:
+        __tdarr_node_win_updater_stdout: >-
+          {{ lookup('file', playbook_dir ~ '/fixtures/tdarr-updater-stdout-success.txt') }}
+
+    - name: C18 - a clean transcript is a success
+      ansible.builtin.assert:
+        that: not __tdarr_node_win_updater_failed
+        fail_msg: >-
+          The detector failed a clean run, which would make every bootstrap fail.
+        quiet: true
+
+    # C19 - deliberate behaviour, not an accident of the expression. The updater is chatty; a run
+    # that printed nothing did not run. Treating no evidence as success is the trap this role
+    # exists to avoid.
+    - name: C19 setup - no output at all
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: check_updater_result
+      vars:
+        __tdarr_node_win_updater_stdout: "   \n  "
+
+    - name: C19 - empty stdout is a failure, not a pass
+      ansible.builtin.assert:
+        that: __tdarr_node_win_updater_failed
+        fail_msg: >-
+          Empty stdout was treated as success. `'[ERROR]' in ''` is false, so a bare containment
+          check silently passes a run that never happened.
+        quiet: true
+
+    # C20 - the BYTES, not the parsed values. C9 compares dicts and key order; this compares the
+    # rendered text to the file Tdarr itself wrote, line for line.
+    #
+    # Boundary, stated rather than implied: this proves the skeleton serialises to Tdarr's format
+    # under to_json(indent=2). It does NOT prove main.yaml still calls to_json(indent=2) — that is
+    # a second expression, and switching it to to_nice_json (indent=4, sort_keys=True) would not be
+    # caught here. Verifying that needs the write extracted, which is not worth a task file.
+    - name: C20 - the skeleton serialises to exactly the bytes Tdarr writes
+      vars:
+        _rendered: "{{ (tdarr_node_win__config_skeleton | to_json(indent=2)).split('\n') }}"
+        # Double-quoted, NOT a `>-` folded scalar: YAML turns \n into a real newline here, where a
+        # folded scalar would leave it as two literal characters and split() would find nothing.
+        _expected: "{{ lookup('file', playbook_dir ~ '/fixtures/tdarr-node-config-default.json').split('\n') }}"
+      ansible.builtin.assert:
+        that:
+          - _rendered | length == _expected | length
+          # nodeName is the one deliberate deviation, so it is excluded here and asserted by C9.
+          - >-
+            (_rendered | reject('search', '"nodeName"') | list)
+            == (_expected | reject('search', '"nodeName"') | list)
+        fail_msg: >-
+          Rendered {{ _rendered | length }} lines against {{ _expected | length }} expected.
+          Tdarr writes JSON.stringify(obj, null, 2): two-space indent, LF only, no trailing newline.
+        quiet: true

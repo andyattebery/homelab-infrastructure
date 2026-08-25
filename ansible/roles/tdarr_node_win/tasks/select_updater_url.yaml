@@ -1,0 +1,32 @@
+---
+## Pure computation, no I/O — so it can be exercised by a local test with no Windows host and no
+## network. See ansible/tests/test-tdarr-node-win-config.yml, C14-C16.
+##
+## Input:  __tdarr_node_win_version_index  the parsed storage.tdarr.io/versions.json, version -> platform
+## Output: __tdarr_node_win_updater_url    download URL for the newest published win32_x64 updater
+
+# version_sort, not sort: plain string order puts 2.9 after 2.10. The live index does not currently
+# distinguish the two — its four updater versions sort identically either way — so the fixture the
+# test uses carries a 2.9/2.10 pair that only version_sort orders correctly.
+- name: Select the versions that publish a Windows updater
+  ansible.builtin.set_fact:
+    __tdarr_node_win_updater_versions: >-
+      {{ __tdarr_node_win_version_index | dict2items
+         | selectattr('value.win32_x64.Tdarr_Updater', 'defined')
+         | map(attribute='key') | community.general.version_sort | list }}
+
+# The updater is published at its own cadence and most versions do not carry one: of the 133 in the
+# live index, four do. Taking the URL from the index is what makes that visible — assembling one
+# from a version number yields a well-formed 404 for the other 129.
+- name: Assert the index still publishes a Windows updater
+  ansible.builtin.assert:
+    that: __tdarr_node_win_updater_versions | length > 0
+    fail_msg: >-
+      No version in the Tdarr version index publishes a win32_x64 Tdarr_Updater.
+    quiet: true
+
+- name: Set __tdarr_node_win_updater_url
+  ansible.builtin.set_fact:
+    __tdarr_node_win_updater_url: >-
+      {{ __tdarr_node_win_version_index[__tdarr_node_win_updater_versions | last]
+         .win32_x64.Tdarr_Updater }}

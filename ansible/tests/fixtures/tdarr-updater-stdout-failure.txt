@@ -1,0 +1,10 @@
+[2026-08-22T00:52:41.102] [INFO] Tdarr_Updater - Tdarr_Updater | v2.81.01
+[2026-08-22T00:52:41.102] [INFO] Tdarr_Updater - Tdarr_Updater | Required platform_arch:win32_x64
+[2026-08-22T00:52:41.550] [INFO] Tdarr_Updater - 
+[2026-08-22T00:52:41.550] [INFO] Tdarr_Updater - Tdarr_Node | Current version: 2.85.01 | Required version: 2.86.01
+[2026-08-22T00:52:41.550] [WARN] Tdarr_Updater - Tdarr_Node | Updating to version: 2.86.01!
+[2026-08-22T00:52:45.311] [INFO] Tdarr_Updater - Tdarr_Node | Downloaded!
+[2026-08-22T00:52:45.311] [INFO] Tdarr_Updater - Tdarr_Node | Unzipping!
+[2026-08-22T00:52:52.887] [ERROR] Tdarr_Updater - Tdarr_Node | Access is denied. (os error 5)
+[2026-08-22T00:52:52.887] [INFO] Tdarr_Updater - 
+[2026-08-22T00:52:52.887] [INFO] Tdarr_Updater - Finished!
