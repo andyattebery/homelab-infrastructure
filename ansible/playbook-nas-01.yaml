@@ -126,7 +126,11 @@
           - username: "{{ smb_nas_01_username }}"
             password: "{{ smb_nas_01_password }}"
         samba_homes_enabled: true
-        samba_shares:
+        # The five one-off shares. One share per media data disk is appended from
+        # nas_01_media_disk_samba_shares in host_vars/nas-01/vars.yaml, which derives them
+        # from storage_media_data_disks — the same list htpc-01 and media-01 mount. Order
+        # matters only in that it is the order smb.conf comes out in.
+        _nas_01_one_off_shares:
           - name: depot
             path: /mnt/depot
           - name: proxmox
@@ -137,36 +141,8 @@
             path: /mnt/storage
           - name: tank
             path: /mnt/tank
-          - name: data01
-            path: /mnt/data/data01
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
-          - name: data02
-            path: /mnt/data/data02
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
-          - name: data03
-            path: /mnt/data/data03
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
-          - name: data08
-            path: /mnt/data/data08
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
-          - name: data11
-            path: /mnt/data/data11
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
-          - name: data12
-            path: /mnt/data/data12
-            browseable: false
-            vfs_objects: streams_xattr
-            veto_files: /.snapshots/
+        samba_shares: "{{ _nas_01_one_off_shares + nas_01_media_disk_samba_shares }}"
+      tags: samba
     # - role: mise
     - role: docker_compose_traefik
       vars:

@@ -20,8 +20,14 @@ one that can actually fail for the right reason.**
 cd ansible
 
 # invariant checks — safe any time, contact no host
-ANSIBLE_ROLES_PATH=roles .venv/bin/ansible-playbook -i localhost, \
-  tests/test-tdarr-node-win-config.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh ANSIBLE_ROLES_PATH=roles \
+  .venv/bin/ansible-playbook -i localhost, tests/test-tdarr-node-win-config.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i localhost, tests/test-media-data-disks.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh ANSIBLE_ROLES_PATH=roles \
+  .venv/bin/ansible-playbook -i localhost, tests/test-github-release-install-win.yml
+
+# this one DOES read the vault — the MACs it checks are vaulted values
 .venv/bin/ansible-playbook tests/test-network-interface-pinning.yml
 
 # role fixture tests
@@ -126,9 +132,26 @@ subject-specific.
 
 ## Fixtures and secrets
 
-Test fixtures must not need the vault. `tests/apt-sources/` ships a stub
-(`no-vault.sh`) returning a deliberately-wrong password, so anything that
-genuinely needs a secret fails to decrypt loudly instead of silently proceeding —
-and so that a test loop does not queue hundreds of 1Password prompts. Do the same
-for any new container harness; never point a stub at a play that touches a real
-host.
+Test fixtures must not need the vault. `tests/apt-sources/no-vault.sh` returns a
+deliberately-wrong password, so anything that genuinely needs a secret fails to
+decrypt loudly instead of silently proceeding — and so that a test loop does not
+queue hundreds of 1Password prompts. It lives under `apt-sources/` for historical
+reasons but serves any test that reads no vaulted variable. Never point a stub at
+a play that touches a real host.
+
+**A test that needs no secret still needs that variable.** `ansible.cfg` sets
+`vault_password_file = ./scripts/vault-password-op.sh`, and ansible-core reads it
+at CLI init on every invocation, not on first decryption — so an invariant check
+that opens nothing encrypted still prompts 1Password, and *fails outright* if the
+prompt is dismissed. `ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh`
+is what makes "contacts nothing, needs no secret" actually true at the command
+line.
+
+The other half is `-i localhost,`. Ansible loads `group_vars/` from the inventory's
+directory and the playbook's directory; a playbook in `tests/` given a comma
+inventory sees neither, so `ansible/group_vars/all/vault.yaml` is never opened. Point
+the same playbook at `inventory.ini` and it is back to needing a real password.
+`tests/test-media-data-disks.yml` pulls in the real `group_vars`/`host_vars` files it
+checks with `include_vars` instead — and namespaces `group_vars/all` under a name,
+because loading it flat also defines `ansible_user: "{{ vault_ansible_user }}"`, which
+Ansible templates as the `remote_user` keyword for every later task.

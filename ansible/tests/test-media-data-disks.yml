@@ -1,0 +1,300 @@
+---
+# Invariants for storage_media_data_disks (group_vars/all/vars.yaml) and the three structures
+# derived from it. Contacts nothing, needs no secret:
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i localhost, tests/test-media-data-disks.yml
+#
+# Both parts of that invocation are load-bearing. `-i localhost,` means inventory.ini and
+# ansible/group_vars/ are never loaded, so no encrypted file is opened — the real files under
+# test come in through include_vars instead. ANSIBLE_VAULT_PASSWORD_FILE overrides
+# ansible.cfg's vault_password_file, which ansible-core reads at CLI init on every invocation
+# and which prompts 1Password; nothing here is vaulted, so the stub's deliberately-wrong
+# password is never exercised.
+#
+# The four files are loaded unnamespaced on purpose: storage_media_data_disks has to be in
+# scope for the two derivations to template. Their variable names do not collide.
+#
+# "Run it twice" (tests/README.md) does not apply — this writes no state and touches no host,
+# so a second run is identical by construction.
+#
+# The fixtures below are the oracle: the lists exactly as they stood in the playbooks before
+# the extraction, retyped from `git show HEAD:ansible/playbook-{nas-01,htpc-01,media-01}.yaml`.
+# Nothing expected is built from storage_media_data_disks or from any expression under test.
+# When a disk is genuinely added or removed, these are updated in the same change — that edit
+# is the reviewable record of the intent.
+#
+# Scope: the six DERIVED entries at each site, not the 11, 7 and 8 totals. nas-01's five one-off
+# shares, htpc-01's pool mount and eta's /media + /temp translators stay literal and are not
+# touched here.
+#
+# domain_name is set below to a placeholder. eta's translators template it, group_vars/all/vault
+# is never loaded here, and the real domain must not appear in a committed file anyway.
+- name: Media data disk invariants
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # eta's translators template this. Any value works; it just has to match the fixture below.
+    domain_name: example.invalid
+
+    # A single backslash, defined in YAML because it cannot be written as a Jinja string literal:
+    # "\" is a parse error and "\\" stays two characters.
+    backslash: "\\"
+
+    fixture_disks:
+      - data01
+      - data02
+      - data03
+      - data08
+      - data11
+      - data12
+
+    fixture_nas_01_shares:
+      - name: data01
+        path: /mnt/data/data01
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+      - name: data02
+        path: /mnt/data/data02
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+      - name: data03
+        path: /mnt/data/data03
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+      - name: data08
+        path: /mnt/data/data08
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+      - name: data11
+        path: /mnt/data/data11
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+      - name: data12
+        path: /mnt/data/data12
+        browseable: false
+        vfs_objects: streams_xattr
+        veto_files: /.snapshots/
+
+    # Retyped from the node config eta carried before Ansible touched it, with nas-01 changed to
+    # the FQDN. The source is not committed: it holds the real domain. The FQDN change is
+    # deliberate — the bare form worked for a long-running node but a freshly started one could
+    # not resolve it.
+    # Retyped rather than generated from storage_media_data_disks, so this oracle is independent of
+    # the expression it checks.
+    fixture_eta_translators:
+      - {server: /media-raw/data01, node: '\\nas-01.example.invalid\data01'}
+      - {server: /media-raw/data02, node: '\\nas-01.example.invalid\data02'}
+      - {server: /media-raw/data03, node: '\\nas-01.example.invalid\data03'}
+      - {server: /media-raw/data08, node: '\\nas-01.example.invalid\data08'}
+      - {server: /media-raw/data11, node: '\\nas-01.example.invalid\data11'}
+      - {server: /media-raw/data12, node: '\\nas-01.example.invalid\data12'}
+
+    fixture_htpc_raw_mounts:
+      - {src: /run/media/system/tdarr_media_raw/data01, dest: /media-raw/data01, share: data01}
+      - {src: /run/media/system/tdarr_media_raw/data02, dest: /media-raw/data02, share: data02}
+      - {src: /run/media/system/tdarr_media_raw/data03, dest: /media-raw/data03, share: data03}
+      - {src: /run/media/system/tdarr_media_raw/data08, dest: /media-raw/data08, share: data08}
+      - {src: /run/media/system/tdarr_media_raw/data11, dest: /media-raw/data11, share: data11}
+      - {src: /run/media/system/tdarr_media_raw/data12, dest: /media-raw/data12, share: data12}
+
+  tasks:
+    # Namespaced, and only storage_media_data_disks is lifted out of it. Loading that file
+    # unnamespaced also defines `ansible_user: "{{ vault_ansible_user }}"`, and Ansible
+    # templates the remote_user keyword for every task that follows — so every later task
+    # dies on an undefined vault variable, in a test that needs no vault at all.
+    - name: Load the real group_vars/all
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/all/vars.yaml"
+        name: _group_vars_all
+
+    - name: Put the source list in scope under its real name
+      ansible.builtin.set_fact:
+        storage_media_data_disks: "{{ _group_vars_all.storage_media_data_disks | default(undef()) }}"
+
+    # Unnamespaced: the derivations in these files reference storage_media_data_disks by name,
+    # and they carry nothing that collides.
+    - name: Load the real host_vars
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../host_vars/nas-01/vars.yaml"
+        - "{{ playbook_dir }}/../host_vars/media-01/vars.yaml"
+        - "{{ playbook_dir }}/../host_vars/htpc-01/vars.yaml"
+        - "{{ playbook_dir }}/../host_vars/eta/vars.yaml"
+      loop_control:
+        label: "{{ item | dirname | basename }}"
+
+    - name: C1 - the source list is present, six long, and unchanged
+      ansible.builtin.assert:
+        that:
+          - storage_media_data_disks is defined
+          - storage_media_data_disks | length == 6
+          - storage_media_data_disks | unique | length == 6
+          - storage_media_data_disks == fixture_disks
+        fail_msg: >-
+          storage_media_data_disks is not the six disks the playbooks carried before the
+          extraction. If a disk was genuinely added or removed, update fixture_disks in this
+          file in the same change; otherwise something has drifted.
+        quiet: true
+
+    - name: C2 - nas-01 derives one share per disk, unchanged
+      ansible.builtin.assert:
+        that:
+          - nas_01_media_disk_samba_shares | length == 6
+          - nas_01_media_disk_samba_shares == fixture_nas_01_shares
+        fail_msg: >-
+          nas_01_media_disk_samba_shares does not match the shares playbook-nas-01.yaml
+          carried. smb.conf would come out different, and Samba would reload on a production
+          fileserver.
+        quiet: true
+
+    # C3 - browseable is the one key whose TYPE changes behaviour rather than just its value.
+    # smb.conf.j2 renders `{{ 'yes' if samba_share.browseable else 'no' }}`, and a non-empty
+    # string is truthy in Jinja, so a quoted 'false' would publish all six disks into network
+    # browse lists while still looking correct in the variable.
+    - name: C3 - browseable is a real bool, and the other keys are non-empty strings
+      ansible.builtin.assert:
+        that:
+          - item.browseable | type_debug == 'bool'
+          - item.browseable == false
+          - item.path | length > 0
+          - item.vfs_objects | length > 0
+          - item.veto_files | length > 0
+        fail_msg: >-
+          Share {{ item.name }} has browseable as
+          {{ item.browseable | type_debug }} ({{ item.browseable }}). Anything but a YAML
+          false renders `browseable = yes`.
+        quiet: true
+      loop: "{{ nas_01_media_disk_samba_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: C4 - htpc-01 derives one mount per disk, unchanged
+      ansible.builtin.assert:
+        that:
+          - htpc_tdarr_media_raw_mounts | length == 6
+          - htpc_tdarr_media_raw_mounts == fixture_htpc_raw_mounts
+        fail_msg: >-
+          htpc_tdarr_media_raw_mounts does not match the mounts playbook-htpc-01.yaml carried.
+          The .mount units would be rewritten.
+        quiet: true
+
+    # C5 - the pool mount takes noserverino and these must not: `find -samefile` needs
+    # server-provided inode numbers. systemd will not remount in place, so a wrong option here
+    # is reported and then silently breaks hardlink detection at the next remount.
+    - name: C5 - no per-disk mount carries mount options
+      ansible.builtin.assert:
+        that:
+          - htpc_tdarr_media_raw_mounts | selectattr('options', 'defined') | list | length == 0
+        fail_msg: >-
+          A per-disk mount grew an `options` key:
+          {{ htpc_tdarr_media_raw_mounts | selectattr('options', 'defined') | map(attribute='src') | list }}.
+          Only the /media pool mount may take noserverino.
+        quiet: true
+
+    - name: C6 - media-01 gets the disks through host_vars, not a role var
+      ansible.builtin.assert:
+        that:
+          - docker_compose_tdarr_hardlink_disks | length == 6
+          - docker_compose_tdarr_hardlink_disks == fixture_disks
+        fail_msg: >-
+          docker_compose_tdarr_hardlink_disks is not the six disks. If playbook-media-01.yaml
+          set it again in the role's vars, that would outrank host_vars and this check would
+          not see it — look there first.
+        quiet: true
+
+    - name: C7 - eta derives one path translator per disk, unchanged
+      ansible.builtin.assert:
+        that:
+          - eta_tdarr_media_raw_translators | length == 6
+          - eta_tdarr_media_raw_translators == fixture_eta_translators
+        fail_msg: >-
+          eta_tdarr_media_raw_translators does not match the translators eta's config carried
+          (with nas-01 at its FQDN). Tdarr would be handed paths that do not resolve, and every
+          file operation on a mapped path would fail on the node rather than here.
+        quiet: true
+
+    # C8 - the slash convention is Tdarr's and counter-intuitive: UNC takes backslashes, local
+    # paths take forward slashes. Normalising either way breaks it, and a mixed separator parses
+    # as a different value while still looking plausible.
+    - name: C8 - eta's UNC translators are backslashed and carry no forward slash
+      ansible.builtin.assert:
+        that:
+          - item.node.startswith(unc_prefix)
+          - "'/' not in item.node"
+          - item.server.startswith('/media-raw/')
+        fail_msg: >-
+          Translator for {{ item.server }} is malformed: {{ item.node }}
+      vars:
+        unc_prefix: "{{ backslash }}{{ backslash }}"
+      loop: "{{ eta_tdarr_media_raw_translators }}"
+      loop_control:
+        label: "{{ item.server }}"
+
+    # C9 - the check that was impossible while each host kept its own copy. Built from the
+    # derived values rather than the fixtures, so it still holds after the list legitimately
+    # changes.
+    - name: C9 - every mounted share exists on nas-01
+      vars:
+        _nas_01_share_names: "{{ nas_01_media_disk_samba_shares | map(attribute='name') | list }}"
+        _htpc_shares: "{{ htpc_tdarr_media_raw_mounts | map(attribute='share') | list }}"
+        # eta names the share in the last path component of the UNC.
+        _eta_shares: >-
+          {{ eta_tdarr_media_raw_translators | map(attribute='node')
+             | map('split', backslash) | map('last') | list }}
+      ansible.builtin.assert:
+        that:
+          - _nas_01_share_names | length == 6
+          - _htpc_shares | length == 6
+          - _eta_shares | length == 6
+          - _htpc_shares | difference(_nas_01_share_names) | length == 0
+          - _eta_shares | difference(_nas_01_share_names) | length == 0
+          - docker_compose_tdarr_hardlink_disks | difference(_nas_01_share_names) | length == 0
+        fail_msg: >-
+          A client mounts a share nas-01 does not serve:
+          htpc-01 {{ _htpc_shares | difference(_nas_01_share_names) }},
+          eta {{ _eta_shares | difference(_nas_01_share_names) }},
+          media-01 {{ docker_compose_tdarr_hardlink_disks | difference(_nas_01_share_names) }}.
+          That fails at mount time on the client, not here.
+        quiet: true
+
+    # C11 - eta's two derived Windows paths. Same concern as C8 and the same file already has
+    # them in scope: these are LOCAL paths, so Tdarr wants forward slashes, and both are built
+    # with path_join rather than written out. A backslash here reaches Tdarr_Node_Config.json.
+    #
+    # unmapped_node_cache is the reason this case exists. It derives from eta_tdarr_dir, not from
+    # tdarr_node_win_install_dir, so it does not follow the install directory anywhere it is
+    # overridden — which put a test node's cache inside the production install.
+    - name: C11 - eta's derived Windows paths are forward-slashed
+      ansible.builtin.assert:
+        that:
+          - backslash not in item
+          - item.startswith('C:/')
+        fail_msg: >-
+          {{ item }} is not a forward-slashed local path. Tdarr takes local paths with forward
+          slashes and UNC with backslashes; a mixed separator parses as a different value while
+          still looking plausible.
+        quiet: true
+      loop:
+        - "{{ tdarr_node_win_ffmpeg_path }}"
+        - "{{ tdarr_node_win_unmapped_node_cache }}"
+
+    # Printed rather than summarised: an extraction that silently produced empty lists would
+    # satisfy several of the checks above and report itself as a perfect pass.
+    - name: C10 - report the derived values
+      ansible.builtin.debug:
+        msg:
+          - "disks ({{ storage_media_data_disks | length }}): {{ storage_media_data_disks | join(', ') }}"
+          - "nas-01 shares ({{ nas_01_media_disk_samba_shares | length }}): {{ nas_01_media_disk_samba_shares | map(attribute='name') | join(', ') }}"
+          - "htpc-01 mounts ({{ htpc_tdarr_media_raw_mounts | length }}): {{ htpc_tdarr_media_raw_mounts | map(attribute='dest') | join(', ') }}"
+          - "media-01 disks ({{ docker_compose_tdarr_hardlink_disks | length }}): {{ docker_compose_tdarr_hardlink_disks | join(', ') }}"
+          - "eta translators ({{ eta_tdarr_media_raw_translators | length }}): {{ eta_tdarr_media_raw_translators | map(attribute='server') | join(', ') }}"

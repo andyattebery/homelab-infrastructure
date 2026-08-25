@@ -135,13 +135,9 @@
             dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/keepOriginalDate/1.0.0/index.js
           - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
             dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
-        docker_compose_tdarr_hardlink_disks:
-          - data01
-          - data02
-          - data03
-          - data08
-          - data11
-          - data12
+        # docker_compose_tdarr_hardlink_disks is set in host_vars/media-01/vars.yaml, from
+        # storage_media_data_disks. Not repeated here: a role var would outrank the host var
+        # and the test could no longer see the value this play uses.
       tags: tdarr
     # Commented out — competes with kohya_ss for the A4000; enable one at a time.
     #

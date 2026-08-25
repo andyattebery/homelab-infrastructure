@@ -512,27 +512,25 @@
         apply:
           tags: tdarr
       vars:
-        # A literal list rather than a filter-built one, so the noserverino distinction is
-        # visible at a glance. (community.general's dict_kv would shorten it and is not in
-        # requirements.yaml — it resolves today only because the venv bundles it.)
+        # The pool mount stays literal here because it is the one entry that takes
+        # noserverino. The six per-disk mounts come from htpc_tdarr_media_raw_mounts in
+        # host_vars/htpc-01/vars.yaml, derived from storage_media_data_disks — the same list
+        # that creates the shares on nas-01, so a disk cannot be mounted here and missing
+        # there. The pool takes noserverino; the per-disk shares must NOT, because
+        # `find -samefile` needs server-provided inode numbers. mount.cifs(8) has serverino
+        # on by default, so those entries pass no options at all. See docs/tdarr-av1-flow.md.
         #
         # dest is NOT free choice. detectHardlinks derives its `find -samefile` search root
         # from the first three path components of the file path — /media-raw/<disk>/<x> —
         # so the per-disk mounts have to land exactly there. /media likewise matches what
         # the server on media-01 sees, which nodeType=mapped requires: the server hands
         # this node absolute paths from its own view.
-        #
-        # The pool takes noserverino; the per-disk shares must NOT, because `find -samefile`
-        # needs server-provided inode numbers. mount.cifs(8) has serverino on by default,
-        # so those entries pass no options at all. See docs/tdarr-av1-flow.md.
-        podman_quadlet_tdarr_mounts:
-          - {src: /run/media/system/tdarr_media, dest: /media, share: storage, options: noserverino}
-          - {src: /run/media/system/tdarr_media_raw/data01, dest: /media-raw/data01, share: data01}
-          - {src: /run/media/system/tdarr_media_raw/data02, dest: /media-raw/data02, share: data02}
-          - {src: /run/media/system/tdarr_media_raw/data03, dest: /media-raw/data03, share: data03}
-          - {src: /run/media/system/tdarr_media_raw/data08, dest: /media-raw/data08, share: data08}
-          - {src: /run/media/system/tdarr_media_raw/data11, dest: /media-raw/data11, share: data11}
-          - {src: /run/media/system/tdarr_media_raw/data12, dest: /media-raw/data12, share: data12}
+        _htpc_tdarr_pool_mount:
+          src: /run/media/system/tdarr_media
+          dest: /media
+          share: storage
+          options: noserverino
+        podman_quadlet_tdarr_mounts: "{{ [_htpc_tdarr_pool_mount] + htpc_tdarr_media_raw_mounts }}"
 
         podman_quadlet_tdarr_server_ip: "tdarr.{{ domain_name }}"
         podman_quadlet_tdarr_puid: "{{ smb_nas_01_uid }}"

@@ -1,2 +1,23 @@
 ---
 docker_compose_dst_data_directory_path: "/mnt/docker"
+
+# One Samba share per media data disk, appended to the one-off shares in playbook-nas-01.yaml.
+# Derived from storage_media_data_disks (group_vars/all/vars.yaml) so this host, media-01 and
+# htpc-01 cannot drift: the same list creates the share here and mounts it there.
+#
+# browseable: false because these are reached by name — /mnt/storage, the merged mergerfs pool,
+# is what browsing should show. streams_xattr carries macOS resource forks on btrfs, and
+# veto_files hides the btrfs snapshot directories from clients.
+#
+# browseable must stay an unquoted YAML false. smb.conf.j2 renders
+# `{{ 'yes' if samba_share.browseable else 'no' }}`, and the string 'false' is truthy in Jinja,
+# so quoting it would publish all six disks into network browse lists.
+nas_01_media_disk_samba_shares: "{{ _nas_01_media_disk_shares_yaml | from_yaml }}"
+_nas_01_media_disk_shares_yaml: |
+  {% for disk in storage_media_data_disks %}
+  - name: {{ disk }}
+    path: /mnt/data/{{ disk }}
+    browseable: false
+    vfs_objects: streams_xattr
+    veto_files: /.snapshots/
+  {% endfor %}

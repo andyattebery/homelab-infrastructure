@@ -361,3 +361,22 @@ podsync_feeds:
   - id: nerd-nest
     url: "https://www.youtube.com/playlist?list=PLly4JWEWaZCpkvpv3BLgOpqJ-Xki455HU"
     title: "The Nerd Nest (via Podsync)"
+
+# storage media data disks
+# The nas-01 disks holding media libraries — six of the twelve; the rest are not media.
+# Each is an SMB share of the same name on nas-01, and each Tdarr consumer mounts it at
+# /media-raw/<disk>: detectHardlinks derives its `find -samefile` root from the first three
+# path components, so the disk name is a path component, not a label. Adding one here creates
+# the share and the client mounts; removing one leaves files already on it invisible to
+# hardlink detection.
+#
+# Consumers: host_vars/{nas-01,media-01,htpc-01}/vars.yaml. playbook-wsl-01.yaml still carries
+# its own copy of this list until that host is retired in favour of eta — it is NOT checked by
+# tests/test-media-data-disks.yml, so a disk added here has to be added there by hand.
+storage_media_data_disks:
+  - data01
+  - data02
+  - data03
+  - data08
+  - data11
+  - data12

@@ -5,3 +5,20 @@
 # geerlingguy.security enables passwordless sudo so it's no longer needed.
 # Keeping it for bootstrap on a fresh install.
 ansible_ssh_extra_args: "-o SetEnv=TERM=dumb"
+
+# The Tdarr node's per-disk CIFS mounts, derived from storage_media_data_disks
+# (group_vars/all/vars.yaml) — the same list that creates the shares on nas-01, so a disk
+# cannot be mounted here and missing there. The /media pool mount is NOT here: it is the one
+# entry taking noserverino, and it stays literal in playbook-htpc-01.yaml.
+#
+# These must not take noserverino. `find -samefile` needs server-provided inode numbers, and
+# mount.cifs(8) has serverino on by default, so they pass no options at all. dest is not free
+# choice either — see the comment at the podman_quadlet_tdarr invocation in
+# playbook-htpc-01.yaml, and docs/tdarr-av1-flow.md.
+htpc_tdarr_media_raw_mounts: "{{ _htpc_tdarr_media_raw_mounts_yaml | from_yaml }}"
+_htpc_tdarr_media_raw_mounts_yaml: |
+  {% for disk in storage_media_data_disks %}
+  - src: /run/media/system/tdarr_media_raw/{{ disk }}
+    dest: /media-raw/{{ disk }}
+    share: {{ disk }}
+  {% endfor %}

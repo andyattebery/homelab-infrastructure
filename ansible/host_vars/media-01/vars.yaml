@@ -38,3 +38,13 @@ onyx_llm_models:
   - name: gemma-4-26b-a4b # ctx 65536
     is_visible: true
     max_input_tokens: 55296
+
+# The Tdarr server's per-disk CIFS mounts — the same disks nas-01 shares, from
+# storage_media_data_disks in group_vars/all/vars.yaml.
+#
+# Here rather than in playbook-media-01.yaml's role vars for two reasons: it is the value
+# tests/test-media-data-disks.yml asserts on, and a test cannot see a role's vars block. It
+# still reaches the role — inventory host_vars outrank role defaults, and
+# roles/docker_compose_tdarr/defaults/main.yaml has this as []. Setting it in the playbook
+# again would silently win over this line.
+docker_compose_tdarr_hardlink_disks: "{{ storage_media_data_disks }}"
