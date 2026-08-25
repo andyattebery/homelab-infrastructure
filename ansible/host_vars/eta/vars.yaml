@@ -1,0 +1,79 @@
+---
+# The Windows 11 side of eta, reached over SSH. wsl-01 is the WSL install on the same machine and
+# is being retired; until then both entries resolve to this name.
+ansible_host: "eta.{{ domain_name }}"
+ansible_connection: ssh
+# Must match the DefaultShell registry value on the host — see docs/ansible-windows-readme.md,
+# Phase 3. If DefaultShell is ever left at the cmd.exe default this has to be `cmd` instead, and
+# several core code paths degrade.
+ansible_shell_type: powershell
+
+# A single backslash. Written here, where YAML owns the escaping, because it cannot be written as
+# a Jinja string literal at all: `"\"` is a parse error (the lexer takes it as escaping the closing
+# quote) and `"\\"` stays two characters, since Ansible does not unescape it.
+eta_windows_path_sep: "\\"
+
+# --- jellyfin-ffmpeg ------------------------------------------------------------------------
+# Where github_release_install_win puts the fork's win64 build. The host also still has the
+# hand-made `C:\Program Files\ffmpeg (jellyfin-nvenc-n13.0.19.1)` and `C:\Program Files\ffmpeg
+# (BtbN)`; neither is managed here.
+eta_ffmpeg_dir: 'C:\Program Files\jellyfin-ffmpeg\bin'
+
+# --- Tdarr ------------------------------------------------------------------------------------
+# Where Tdarr is installed. tdarr_node_win puts Tdarr_Updater.exe here and merges the node config
+# under configs\. It bootstraps only a host with no Tdarr_Node\ directory; eta has one, so it
+# never will here.
+eta_tdarr_dir: 'C:\Program Files\Tdarr'
+tdarr_node_win_install_dir: "{{ eta_tdarr_dir }}"
+
+# --- Tdarr node config ------------------------------------------------------------------------
+# These are the nine tdarr_node_win_* keys the role merges into Tdarr_Node_Config.json. They live
+# here rather than in playbook-eta.yaml's role vars for the same two reasons media-01 records for
+# its disk list: this is the value tests assert on and a test cannot see a role's vars block, and
+# an include_role param outranks host_vars, so setting them again in the playbook would silently
+# win over these lines.
+#
+# tdarr_node_win_api_key is deliberately absent. The server runs with auth off, and unset means the
+# key is not managed — the role leaves whatever the host has.
+tdarr_node_win_node_name: eta
+tdarr_node_win_server_url: "http://tdarr.{{ domain_name }}:8266"
+tdarr_node_win_node_type: mapped
+# -1 is "unprioritised", not "lowest": 0 is highest, then 1, 2, ...
+tdarr_node_win_priority: -1
+tdarr_node_win_log_level: INFO
+
+# Tdarr wants a single forward slash for local paths, so these are NOT the backslash form above.
+# split + path_join rather than a string substitution: path_join is controller-side os.path.join
+# and the controller is always POSIX (Ansible cannot run on Windows), so it always emits `/`.
+# Deriving keeps one source of truth instead of two spellings of the same path that can drift.
+tdarr_node_win_ffmpeg_path: >-
+  {{ (eta_ffmpeg_dir.split(eta_windows_path_sep) + ['ffmpeg.exe']) | path_join }}
+tdarr_node_win_unmapped_node_cache: >-
+  {{ (eta_tdarr_dir.split(eta_windows_path_sep) + ['unmappedNodeCache']) | path_join }}
+
+# The six per-disk path translators, derived from storage_media_data_disks (group_vars/all) — the
+# same list that creates the shares on nas-01 and mounts them on htpc-01 and media-01, so eta
+# cannot mount a disk that is not served.
+#
+# `server` is the absolute path media-01 hands this node under nodeType=mapped; `node` is where
+# that lives here. Slashes are Tdarr's convention and not an oversight: UNC uses backslashes,
+# local paths use forward slashes. They are safe in this block scalar — the text is templated and
+# then re-parsed by from_yaml, so no backslash passes through a Jinja string literal.
+#
+# The FQDN is deliberate and differs from the config this host carried before: the bare `\\nas-01`
+# form worked for a long-running node but a freshly started one could not resolve it.
+#
+# The /media pool and /temp entries are NOT here. They do not vary with the disk list, so they stay
+# literal at the role invocation — the same split htpc-01 uses for its noserverino pool mount, and
+# what keeps tests/test-media-data-disks.yml's "six derived entries per site" scope true for eta.
+#
+# Those two are defined here rather than inline in the playbook because the UNC one carries
+# backslashes, and YAML is the only place they can be written safely.
+eta_tdarr_storage_unc: '\\nas-01.{{ domain_name }}\storage'
+eta_tdarr_transcode_cache: 'D:/tdarr/temp'
+eta_tdarr_media_raw_translators: "{{ _eta_tdarr_media_raw_translators_yaml | from_yaml }}"
+_eta_tdarr_media_raw_translators_yaml: |
+  {% for disk in storage_media_data_disks %}
+  - server: /media-raw/{{ disk }}
+    node: '\\nas-01.{{ domain_name }}\{{ disk }}'
+  {% endfor %}

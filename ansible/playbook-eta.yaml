@@ -1,0 +1,76 @@
+---
+- name: Configure eta
+  hosts: eta
+  # No `become`, unlike every other playbook here: an SSH login by a member of the local
+  # Administrators group already carries an elevated token. `become: true` without a `become_user`
+  # sends Ansible into the `runas` plugin and fails. See docs/ansible-windows-readme.md.
+  gather_facts: true
+
+  tasks:
+    - name: Check connectivity
+      ansible.windows.win_ping:
+
+    - name: Show host identity
+      ansible.builtin.debug:
+        # `distribution` is sourced from WMI and comes back null on a non-elevated logon, so a
+        # blank here is the elevation warning, not a cosmetic gap.
+        msg: >-
+          {{ ansible_facts['distribution'] }}
+          ({{ ansible_facts['distribution_version'] }}),
+          PowerShell {{ ansible_facts['powershell_version'] }}
+
+    # The role does not create its destination — ACLs on it are the caller's business.
+    - name: Create jellyfin-ffmpeg directory
+      tags: [tdarr, ffmpeg]
+      ansible.windows.win_file:
+        path: "{{ eta_ffmpeg_dir }}"
+        state: directory
+
+    # The same fork htpc-01 and media-01 run. Both av1_nvenc and hevc_nvenc are present, which the
+    # AV1 flows need and the node's bundled ffmpeg has not got. host_vars derives
+    # tdarr_node_win_ffmpeg_path from eta_ffmpeg_dir, so this directory and ffmpegPath are one
+    # value and cannot drift.
+    #
+    # The host also carries 'ffmpeg (jellyfin-nvenc-n13.0.19.1)' and 'ffmpeg (BtbN)', unpacked by
+    # hand and left alone — Ansible does not delete what it did not install. Safe to remove once
+    # this play has run AND the node has been restarted; until then the running node is still
+    # executing whichever one its startup config named.
+    - name: Install jellyfin-ffmpeg (fork build with av1_nvenc)
+      tags: [tdarr, ffmpeg]
+      ansible.builtin.include_role:
+        name: github_release_install_win
+        # `apply` is required: tags on an include_role task gate the include itself, they do
+        # not propagate to the tasks inside the role.
+        apply:
+          tags: [tdarr, ffmpeg]
+      vars:
+        github_release_install_win_repo: andyattebery/jellyfin-ffmpeg
+        # That release publishes linux64, linuxarm64, win64-clang and winarm64-clang. This
+        # matches exactly one: winarm64-clang-gpl.zip contains no "win64".
+        github_release_install_win_asset_patterns:
+          x86_64: 'win64-clang-gpl\.zip$'
+        github_release_install_win_files_in_archive: [ffmpeg.exe, ffprobe.exe]
+        github_release_install_win_dest_dir: "{{ eta_ffmpeg_dir }}"
+
+    # Installs a node and merges the managed keys into Tdarr_Node_Config.json. It bootstraps only
+    # a host with no Tdarr_Node\ directory; eta has one, so it will not here. See the role README.
+    #
+    # This vars: block is deliberately just the one value. Every other input is in
+    # host_vars/eta/vars.yaml, because an include_role param outranks host_vars and anything set
+    # here would silently win over that file and the tests that assert on it — the trap
+    # host_vars/media-01/vars.yaml records for its disk list.
+    #
+    # path_translators is the exception: it has to be assembled. The six per-disk entries derive
+    # from storage_media_data_disks; /media and /temp do not vary with the disk list and stay
+    # literal.
+    - name: Deploy the Tdarr node
+      tags: tdarr
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        apply:
+          tags: tdarr
+      vars:
+        tdarr_node_win_path_translators: >-
+          {{ eta_tdarr_media_raw_translators
+             + [{'server': '/media', 'node': eta_tdarr_storage_unc},
+                {'server': '/temp', 'node': eta_tdarr_transcode_cache}] }}
