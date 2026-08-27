@@ -96,6 +96,19 @@
     - role: docker_compose
       vars:
         docker_compose_src_file_path: files/media-01/docker-compose-ai.yml
+    # Speech-to-text for Home Assistant's Assist pipeline, over the Wyoming TCP protocol
+    # on 10300. Here rather than jetson-01, whose own Wyoming stack is untouched: that one
+    # runs a locally-built aarch64 Tegra image, and this one is published linux/amd64 only.
+    - role: docker_compose_wyoming_faster_whisper
+      vars:
+        wyoming_faster_whisper_model: turbo
+        # compute-type is pinned rather than left at upstream's `default`, which resolves
+        # per-device: the A4000 is shared with Immich ML, the Onyx model servers and Tdarr,
+        # so the smaller int8_float16 footprint matters more than the marginal accuracy.
+        # --language pins English so faster-whisper skips per-utterance detection.
+        wyoming_faster_whisper_extra_params: >-
+          --compute-type int8_float16 --language en --beam-size 5 --vad-filter
+      tags: whisper
     # Retrieval layer in front of llama-swap on htpc-01. Lives here rather than
     # docker-01 for the A4000: a GPU turns on multipass indexing, which indexes at two
     # chunk granularities and is the retrieval-quality lever this deployment is about.

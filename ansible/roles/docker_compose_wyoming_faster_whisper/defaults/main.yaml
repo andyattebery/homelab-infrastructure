@@ -1,0 +1,24 @@
+---
+wyoming_faster_whisper_image_tag: latest
+
+# --model. Passed straight through to faster-whisper, which downloads it into /data on first
+# start. The image's own HEALTHCHECK has --start-period=10m to cover that download, so the
+# container reads `starting` rather than `unhealthy` while it happens.
+wyoming_faster_whisper_model: turbo
+
+# Extra arguments, appended after --model. A flat string, not a list: Compose interpolates it
+# into the `command:` line and splits the result shlex-style, so quoting an inner value keeps
+# it one argument (--initial-prompt "a b c"). There is no shell involved, so no $VAR
+# expansion, no globbing, no &&.
+#
+# The image already supplies --uri, --data-dir, --device and --download-dir. Do not repeat
+# --data-dir: upstream declares it action="append", so a second one is added, not substituted.
+#
+# No " # " anywhere in this value. It is written to the host's shared .env unquoted, and
+# Docker's env-file parser treats a space-preceded # as an inline comment and drops the rest
+# of the line.
+wyoming_faster_whisper_extra_params: ""
+
+# Host port published to 10300 in the container. The container side is fixed: the image's
+# run.sh hard-codes --uri tcp://0.0.0.0:10300, so it cannot be changed from here.
+wyoming_faster_whisper_port: 10300

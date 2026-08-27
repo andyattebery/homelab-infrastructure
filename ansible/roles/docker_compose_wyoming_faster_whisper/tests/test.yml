@@ -1,0 +1,233 @@
+---
+# Exercises docker_compose_wyoming_faster_whisper against a throwaway directory. Runs entirely
+# on localhost, starts no container, contacts no host, and needs no Docker daemon -- only the
+# docker CLI, because `docker compose config` renders and exits.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/docker_compose_wyoming_faster_whisper/tests/inventory \
+#       roles/docker_compose_wyoming_faster_whisper/tests/test.yml
+#
+# What it is actually for: wyoming_faster_whisper_extra_params is a flat string containing
+# spaces, and it reaches the container's argv by way of the host's shared .env -- which
+# docker_compose writes unquoted, slurps back, and re-parses through
+# community.general.jc('env') on the next run, before Docker's own env-file parser reads it.
+# Five links. Nothing else in this repo pushes a space-containing value down that path
+# (docker_compose_onyx sets OPENSEARCH_JAVA_OPTS with spaces, but its template hardcodes the
+# value and never reads the variable), so the round trip is unproven without this.
+- name: Test docker_compose_wyoming_faster_whisper
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # group_vars/all is not loaded under `-i <file>`, and these four are what docker_compose
+    # writes into every .env. Literals: no vault, no real domain.
+    timezone: America/Chicago
+    domain_name: example.test
+    lang_two_letter: en
+    language_region_with_underscore: en_US
+
+    # Play vars, which outrank role defaults. Each one turns off a docker_compose step that
+    # would otherwise need root, a docker group, or a daemon:
+    #   uid/gid        skips the ansible_non_become_user_facts include, and keeps every
+    #                  owner:/group: within reach of an unprivileged run
+    #   docker_gid     skips `getent group docker`, which asserts -- and there is no such
+    #                  group on a Mac
+    #   render_gid     skips the sibling getent
+    #   copy_scripts   would write dc/dcup into /usr/local/bin
+    #   should_pull    would contact ghcr.io
+    #   should_run_up  would start the container
+    docker_compose_uid: "{{ ansible_facts['user_uid'] }}"
+    docker_compose_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_docker_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_render_gid: ""
+    docker_compose_copy_scripts: false
+    docker_compose_should_pull: false
+    docker_compose_should_run_up: false
+
+    _case_a: --compute-type int8_float16 --language en --beam-size 5 --vad-filter
+    _expect_a:
+      - --model
+      - turbo
+      - --compute-type
+      - int8_float16
+      - --language
+      - en
+      - --beam-size
+      - "5"
+      - --vad-filter
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: wyoming-whisper-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        # ---------- 0. the docker CLI is present ----------
+        # Asserted up front so a missing binary reads as that, rather than as a confusing
+        # failure three tasks later. `compose version` is client-side; no daemon needed.
+        - name: Check the docker CLI is available
+          ansible.builtin.command:
+            cmd: docker compose version
+          register: _docker_version
+          changed_when: false
+
+        - name: docker compose CLI reported a version
+          ansible.builtin.assert:
+            that:
+              - _docker_version.stdout | length > 0
+            success_msg: "{{ _docker_version.stdout }}"
+
+        # ---------- 1. the real default set ----------
+        - name: Deploy case A
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}"
+            wyoming_faster_whisper_extra_params: "{{ _case_a }}"
+          ansible.builtin.import_role:
+            name: docker_compose_wyoming_faster_whisper
+
+        - name: Render case A
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-wyoming-faster-whisper.yaml
+              config --format json
+          register: _render_a
+          changed_when: false
+
+        - name: Case A reaches argv intact
+          vars:
+            _cmd: "{{ (_render_a.stdout | from_json).services['wyoming-faster-whisper'].command }}"
+          ansible.builtin.assert:
+            that:
+              - _cmd | length == 9
+              - _cmd == _expect_a
+            success_msg: "{{ _cmd }}"
+
+        # The other three envs, asserted rather than assumed. An UNSET variable is only a
+        # warning to Compose -- it substitutes a blank and carries on -- so a name dropped
+        # from docker_compose_envs would silently blank rather than fail. Only an assertion
+        # on the rendered value catches that.
+        - name: The image tag, port and data volume all resolve
+          vars:
+            _svc: "{{ (_render_a.stdout | from_json).services['wyoming-faster-whisper'] }}"
+          ansible.builtin.assert:
+            that:
+              - _svc.image == 'ghcr.io/andyattebery/faster-whisper-cuda-docker:latest'
+              - _svc.ports | length == 1
+              - _svc.ports[0].published == '10300'
+              - _svc.ports[0].target == 10300
+              - _svc.volumes | length == 1
+              - _svc.volumes[0].source == _tmp.path ~ '/wyoming-faster-whisper'
+              - _svc.volumes[0].target == '/data'
+            success_msg: >-
+              image={{ _svc.image }} published={{ _svc.ports[0].published }}
+              source={{ _svc.volumes[0].source }}
+
+        # ---------- 2. the same thing again ----------
+        # The "run it twice" rule, and the whole reason this test exists: this second run
+        # slurps the .env the first one wrote and re-parses it through jc('env') before
+        # rewriting it. A round trip that truncated at the first space passes step 1 and
+        # fails here.
+        - name: Deploy case A a second time
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}"
+            wyoming_faster_whisper_extra_params: "{{ _case_a }}"
+          ansible.builtin.import_role:
+            name: docker_compose_wyoming_faster_whisper
+
+        - name: Render case A again
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-wyoming-faster-whisper.yaml
+              config --format json
+          register: _render_a2
+          changed_when: false
+
+        - name: Case A survives the .env read-modify-write cycle
+          vars:
+            _cmd: "{{ (_render_a2.stdout | from_json).services['wyoming-faster-whisper'].command }}"
+          ansible.builtin.assert:
+            that:
+              - _cmd | length == 9
+              - _cmd == _expect_a
+            success_msg: "{{ _cmd }}"
+
+        # ---------- 3. a quoted value containing spaces ----------
+        # Goes red if Compose ever splits before interpolating, or if the .env writer starts
+        # quoting values.
+        - name: Deploy case B
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}"
+            wyoming_faster_whisper_extra_params: '--initial-prompt "a b c" --vad-filter'
+          ansible.builtin.import_role:
+            name: docker_compose_wyoming_faster_whisper
+
+        - name: Render case B
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-wyoming-faster-whisper.yaml
+              config --format json
+          register: _render_b
+          changed_when: false
+
+        - name: A quoted argument with spaces stays one element
+          vars:
+            _cmd: "{{ (_render_b.stdout | from_json).services['wyoming-faster-whisper'].command }}"
+          ansible.builtin.assert:
+            that:
+              - _cmd | length == 5
+              - _cmd == ['--model', 'turbo', '--initial-prompt', 'a b c', '--vad-filter']
+            success_msg: "{{ _cmd }}"
+
+        # ---------- 4. the # truncation ----------
+        # This is the evidence for the README's no-" # " rule. The .env is written unquoted,
+        # and Docker's env-file parser treats a space-preceded # as an inline comment. If that
+        # ever stops being true, this fails and the README claim comes out rather than
+        # quietly becoming false.
+        - name: Deploy case C
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}"
+            # Quoted, or YAML eats the comment itself and the # never reaches the .env --
+            # which would make the assertion below pass for the wrong reason.
+            wyoming_faster_whisper_extra_params: '--language en # note'
+          ansible.builtin.import_role:
+            name: docker_compose_wyoming_faster_whisper
+
+        - name: Render case C
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-wyoming-faster-whisper.yaml
+              config --format json
+          register: _render_c
+          changed_when: false
+
+        - name: 'A space-preceded # truncates the value'
+          vars:
+            _cmd: "{{ (_render_c.stdout | from_json).services['wyoming-faster-whisper'].command }}"
+          ansible.builtin.assert:
+            that:
+              - _cmd | length == 4
+              - _cmd == ['--model', 'turbo', '--language', 'en']
+            success_msg: "{{ _cmd }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

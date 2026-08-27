@@ -1,0 +1,27 @@
+---
+services:
+  wyoming-faster-whisper:
+    container_name: wyoming-faster-whisper
+    image: ghcr.io/andyattebery/faster-whisper-cuda-docker:${WYOMING_FASTER_WHISPER_IMAGE_TAG}
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Appended to the arguments the image already supplies (--uri, --data-dir, --device,
+    # --download-dir). Compose interpolates first and splits shlex-style after, so a quoted
+    # value inside EXTRA_PARAMS stays a single argument.
+    command: --model ${WYOMING_FASTER_WHISPER_MODEL} ${WYOMING_FASTER_WHISPER_EXTRA_PARAMS}
+    # Model cache and download directory. Docker creates this root-owned, which is correct:
+    # the container runs as root and writes model downloads here.
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/wyoming-faster-whisper:/data
+    # Wyoming is a raw TCP protocol, not HTTP, so Traefik cannot front it and the published
+    # port is the only way in. No healthcheck here: the image ships its own, which speaks
+    # Wyoming rather than probing the port.
+    ports:
+      - "${WYOMING_FASTER_WHISPER_PORT}:10300"

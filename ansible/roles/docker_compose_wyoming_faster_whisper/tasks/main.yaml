@@ -1,0 +1,23 @@
+---
+# No task creating the /data bind source, deliberately. The obvious move is the
+# docker_compose_kohya_ss idiom -- a `file:` task with
+# owner: "{{ docker_compose_uid | default('1000') }}" -- and it is wrong here twice over.
+#
+# docker_compose_uid is a default of the docker_compose role, not of this one, so it is
+# undefined at this point and the `default` would *guess* the owner while every file
+# docker_compose goes on to write uses the real uid. And kohya_ss needs a user-owned
+# directory because its container runs as ${PUID}; this one runs as root (the image sets no
+# USER) and downloads models into /data itself.
+#
+# So Docker creates the directory root-owned, the same way ${DOCKER_DATA_DIRECTORY}/comfyui,
+# /tdarr-node and /open-webui are already left to it.
+- name: Deploy wyoming-faster-whisper with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-wyoming-faster-whisper.yaml
+    docker_compose_envs:
+      WYOMING_FASTER_WHISPER_IMAGE_TAG: "{{ wyoming_faster_whisper_image_tag }}"
+      WYOMING_FASTER_WHISPER_MODEL: "{{ wyoming_faster_whisper_model }}"
+      WYOMING_FASTER_WHISPER_EXTRA_PARAMS: "{{ wyoming_faster_whisper_extra_params }}"
+      WYOMING_FASTER_WHISPER_PORT: "{{ wyoming_faster_whisper_port }}"
+  ansible.builtin.include_role:
+    name: docker_compose
