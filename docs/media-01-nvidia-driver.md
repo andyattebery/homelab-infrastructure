@@ -43,9 +43,74 @@
 >   repo does not carry `nvidia-driver-595-server-open`. It is pinned to `ubuntu2404` and must be
 >   removed before the 26.04 upgrade.
 >
+>   **UPDATE 2026-08-26 — "removed the packages" was itself too generous.** Checked per-package
+>   with `apt-cache policy` on 2026-08-26, **eight installed packages still resolve to that repo**:
+>   `cuda-keyring`, `dkms`, `libnvidia-egl-wayland1`, `libxnvctrl0`, `nvidia-settings`, and all
+>   four of `nvidia-container-toolkit`, `nvidia-container-toolkit-base`, `libnvidia-container1`,
+>   `libnvidia-container-tools`.
+>
+>   The last four are the point: the 600 pin outranks `nvidia.github.io/libnvidia-container` at
+>   500, so the CUDA repo has been serving the very packages `nvidia_container_toolkit` configures
+>   a source for. That role has not owned them. `dkms` — which builds the kernel module — comes
+>   from there too.
+>
+>   "Nothing is orphaned" needs qualifying, and **`do-release-upgrade` does not fix it** — checked
+>   against resolute, the installed version is *higher* than 26.04's for three of them:
+>
+>   | package | installed | noble | resolute (26.04) |
+>   | --- | --- | --- | --- |
+>   | `nvidia-container-toolkit` ×4 | 1.20.0-1 | — | identical at `nvidia.github.io` |
+>   | `dkms` | 1:3.4.1-1ubuntu1 | 3.0.11-1ubuntu13 | 3.2.2-1ubuntu1 |
+>   | `libnvidia-egl-wayland1` | 1:1.1.21-1ubuntu1 | 1:1.1.13-1ubuntu0.1 | 1:1.1.21-1 |
+>   | `libxnvctrl0`, `nvidia-settings` | 610.57.04-1ubuntu1 | 510.47.03-0ubuntu4.24.04.1 | 510.47.03-0ubuntu7 |
+>
+>   The four toolkit packages are genuinely neutral — `nvidia.github.io` publishes the identical
+>   `1.20.0-1`, and every version back to `1.16.1-1`. The rest stay installed above any configured
+>   source, and apt will not downgrade them on its own.
+>
+>   **`dkms` is the one that cannot resolve itself: NVIDIA's carries epoch `1:` and Ubuntu's does
+>   not**, so `1:3.4.1` outranks any Ubuntu version at any release, forever. It needs one explicit
+>   `--allow-downgrades` — scheduled as a numbered step of the 26.04 upgrade, forcing resolute's
+>   3.2.2 rather than noble's 3.0.11, because 3.4.1 → 3.0.11 crosses dkms 3.0.13's module-compression
+>   rework and 3.1.7's archived-module relocation, while 3.4.1 → 3.2.2 crosses neither.
+>
+>   The repo removal is now a `pre_task` in `playbook-media-01.yaml`, asserted every run rather than
+>   done once.
+>
+>   The earlier claim rested on `apt list --installed | grep -c 'developer.download.nvidia'`
+>   returning 0 — but that command never prints repository URLs, so it could only ever return 0.
+>   Recorded because the shape of the mistake matters more than the fact: a check that cannot fail.
+>
 > More generally: the roles in this repo have not been applied to media-01 in their current state
 > (`geerlingguy.docker` 8.0.0 would have removed `docker.list`, and it is still there), so the
 > host's apt configuration is an older generation of the repo than the repo now contains.
+
+> **The package set recommended below was wrong, corrected 2026-08-24. The role is now adopted.**
+>
+> This document recommended `nvidia-headless-{branch}-server-open` on the reasoning that a headless
+> VM does not need Xorg. The reasoning is sound; the conclusion was not. Read from
+> `archive.ubuntu.com/ubuntu/dists/noble-updates/multiverse/binary-amd64/Packages.gz`:
+>
+>     nvidia-headless-no-dkms-595-server-open Depends:
+>         nvidia-kernel-common-595-server, nvidia-kernel-source-595-server-open,
+>         libnvidia-compute-595-server, nvidia-compute-utils-595-server, libnvidia-cfg1-595-server
+>
+> No `libnvidia-encode`, no `libnvidia-decode`. The two metapackages are **parallel**, not nested —
+> `nvidia-driver-*` is not "headless plus Xorg", it depends on the same leaves *and* on
+> `libnvidia-encode`, `libnvidia-decode`, `libnvidia-gl`, `libnvidia-extra`, `libnvidia-fbc1` and
+> `xserver-xorg-video-nvidia`.
+>
+> Those codec libraries are what the container toolkit injects for
+> `NVIDIA_DRIVER_CAPABILITIES=all`, which is what Plex
+> (`ansible/files/media-01/docker-compose-media.yml:75`) and the Tdarr server
+> (`roles/docker_compose_tdarr/templates/docker-compose-tdarr-server.yaml.j2:33`) both request —
+> and every Tdarr flow is `hevc_nvenc` / `av1_nvenc` / `tonemap_cuda`. Headless would have left CUDA
+> working and silently removed the encoder from every container: Immich fine, Plex and Tdarr broken.
+>
+> The role therefore owns `nvidia-driver-{branch}-server-open` — the set the host was already
+> running — so adopting it changed no packages and needed no reboot. `ansible/roles/nvidia_driver/`
+> is rewritten and wired into `playbook-media-01.yaml` as of 2026-08-24; its README carries the
+> package-set comparison in full.
 
 ## Context
 
@@ -79,7 +144,7 @@ Both vendors recommend their own source. Honest disagreement:
 
 When each wins:
 
-| Canonical archive (`nvidia-headless-XXX-server-open`) | NVIDIA CUDA repo (`nvidia-headless-XXX-open`) |
+| Canonical archive (`nvidia-driver-XXX-server-open`) | NVIDIA CUDA repo (`nvidia-driver-XXX-open`) |
 |---|---|
 | Signed for Secure Boot | Latest patch releases ship faster |
 | SRU-tested security backports via `-updates` pocket | Has more branches available (NVIDIA's full set) |
@@ -91,7 +156,11 @@ When each wins:
 
 ## Recommendation: Canonical archive, branch-pinned in the playbook
 
-**Install `nvidia-headless-{branch}-server-open` from Canonical's archive via direct `apt` in a rewritten local role.** Branch number is a variable passed from the playbook, not the role default.
+**Install `nvidia-driver-{branch}-server-open` from Canonical's archive via direct `apt` in a rewritten local role.** Branch number is a variable passed from the playbook, not the role default.
+
+> **UPDATE 2026-08-24** — this said `nvidia-headless-…` until the package-set correction at the top
+> of this file. Everything else in this section stands: the archive-over-CUDA-repo choice and the
+> direct-`apt`-over-`ubuntu-drivers` choice are unaffected by which metapackage is named.
 
 Why Canonical archive over NVIDIA's CUDA repo, given pinning:
 
@@ -103,22 +172,24 @@ Why Canonical archive over NVIDIA's CUDA repo, given pinning:
 Why direct `apt` instead of wrapping `ubuntu-drivers install --gpgpu`:
 
 - `ubuntu-drivers` is a non-idempotent `command:` task unless you wrap it carefully; Ansible's `apt` module is idempotent and explicit about the exact package set.
-- `ubuntu-drivers` reads from *whatever* apt sources are configured. If a stray CUDA repo gets added later, `ubuntu-drivers` will silently start preferring NVIDIA's packages. Direct `apt install nvidia-headless-595-server-open` is unambiguous.
-- The package name is descriptive: `nvidia-headless-{branch}-server-open` says everything (headless, branch, ERD/server, open modules).
+- `ubuntu-drivers` reads from *whatever* apt sources are configured. If a stray CUDA repo gets added later, `ubuntu-drivers` will silently start preferring NVIDIA's packages. Direct `apt install nvidia-driver-595-server-open` is unambiguous.
+- The package name is descriptive: `nvidia-driver-{branch}-server-open` says everything (branch, ERD/server, open kernel modules).
 
-### Branch choice for the rebuild
+### Branch choice
 
-**Pin to `nvidia-headless-595-server-open`** (currently `595.58.03-0ubuntu2` in 26.04 resolute).
+**Pin to `nvidia-driver-595-server-open`.** On media-01 today that resolves to
+`595.71.05-0ubuntu0.24.04.1` from `noble-updates/multiverse` — the version already installed, which
+is why adoption is a no-op.
 
 Verified by direct probe of `archive.ubuntu.com/ubuntu/dists/resolute/restricted/`:
 
-- Resolute (26.04) release archive ships these `-server-open` branches: **535, 570, 580, 590, 595**.
+- Resolute (26.04) release archive ships these `-server-open` branches: **535, 570, 580, 590, 595**. Noble (24.04) `-updates` currently carries **550, 575, 595**.
 - 595 is the highest, and it matches NVIDIA's current Recommended/Certified branch for the A4000 (NVIDIA ships 595.71.05; Canonical ships 595.58.03-0ubuntu2 — same branch, one patch release behind; expect Canonical to catch up via `-updates`).
 
-Re-verify on rebuild day in case Canonical has added a newer branch via `resolute-updates`:
+Re-verify before any bump, in case Canonical has added a newer branch via `-updates`:
 
 ```
-apt-cache search '^nvidia-headless-[0-9]\+-server-open$' | sort -V
+apt-cache search '^nvidia-driver-[0-9]\+-server-open$' | sort -V
 ```
 
 Pick the highest number from that output.
@@ -127,93 +198,119 @@ Pick the highest number from that output.
 
 ## Implementation
 
-### Rewritten role
+**Done 2026-08-24.** What follows describes the role as written, not as proposed; the authority is
+`ansible/roles/nvidia_driver/` and its README.
+
+`defaults/main.yaml` carries two variables: `nvidia_driver_branch` (default `"595"`) and
+`nvidia_driver_reboot_on_change` (default `true`).
+
+`tasks/main.yaml`:
 
 ```yaml
-# ansible/roles/nvidia_driver/defaults/main.yaml
----
-# Override in playbook. Pick the highest available -server-open branch in
-# the LTS archive at install time (verify with apt-cache search).
-nvidia_driver_branch: "595"
-```
-
-```yaml
-# ansible/roles/nvidia_driver/tasks/main.yaml
----
-- name: Install NVIDIA driver (headless, ERD, open kernel modules)
+- name: Install NVIDIA driver (ERD, open kernel modules)
   ansible.builtin.apt:
-    name:
-      - "nvidia-headless-{{ nvidia_driver_branch }}-server-open"
-      - "nvidia-utils-{{ nvidia_driver_branch }}-server"
-    update_cache: true
-  notify: reboot host
+    name: "nvidia-driver-{{ nvidia_driver_branch }}-server-open"
+    state: present
+  register: nvidia_driver_apt_result
 
 - name: Enable nvidia-persistenced
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
     name: nvidia-persistenced
     enabled: true
-```
 
-```yaml
-# ansible/roles/nvidia_driver/handlers/main.yaml
----
-- name: reboot host
+- name: Reboot into the new driver
+  when:
+    - nvidia_driver_apt_result.changed
+    - nvidia_driver_reboot_on_change | bool
   ansible.builtin.reboot:
 ```
 
 Notes on the package set:
 
-- `nvidia-headless-{branch}-server-open` is Canonical's ERD headless meta — pulls `nvidia-dkms-{branch}-server-open` (kernel modules via DKMS, pre-signed), `libnvidia-compute-{branch}-server`, `nvidia-kernel-common-{branch}-server`. No Xorg.
-- `nvidia-utils-{branch}-server` — provides `nvidia-smi`. May be transitional on some versions; apt resolves it to whatever actually ships the binary.
-- nouveau blacklist is handled by the packaging (`nvidia-kernel-common-{branch}-server` ships the blacklist). No explicit task needed.
-- `nvidia-persistenced` is pulled transitively by `libnvidia-compute`; we just enable the systemd unit.
+- `nvidia-driver-{branch}-server-open` is Canonical's ERD meta for the open kernel modules. It pulls
+  `nvidia-dkms-{branch}-server-open` (modules via DKMS, pre-signed), `libnvidia-compute`,
+  `nvidia-kernel-common`, **and** `libnvidia-encode` / `libnvidia-decode` — the last two being the
+  reason it is used instead of `nvidia-headless-…`. See the correction at the top of this file.
+- `nvidia-utils-{branch}-server` provides `nvidia-smi` and is pulled transitively; it is not named
+  separately.
+- The nouveau blacklist ships in `nvidia-kernel-common-{branch}-server`. No explicit task needed.
+- `nvidia-persistenced` comes from `nvidia-compute-utils-{branch}-server`; the role only enables the
+  unit.
+
+**The reboot is an inline conditional task, not a handler.** Handlers notified from a play's
+`roles:` section flush at the end of the play's `tasks:` section — after every other role. This role
+runs before the `docker_compose_*` roles, so a handler would deploy every GPU container against a
+mismatched module and reboot afterwards. `roles/nvidia_container_toolkit` avoids the same trap for
+the same reason.
 
 ### Playbook delta
 
-Replace the commented `nvidia.nvidia_driver` block in [../ansible/playbook-media-01.yaml](../ansible/playbook-media-01.yaml) with:
+In `ansible/playbook-media-01.yaml`, between `geerlingguy.docker` and `nvidia_container_toolkit`:
 
 ```yaml
 - role: nvidia_driver
+  tags: nvidia
   vars:
-    nvidia_driver_branch: "595"   # bump deliberately; verify with `apt-cache search '^nvidia-headless-[0-9]\+-server-open$'` before
+    nvidia_driver_branch: "595"
 ```
 
-Order remains: `geerlingguy.docker` → `nvidia_driver` → `nvidia_container_toolkit` → docker-compose workloads. The driver must be installed (and reboot completed, if any) before `nvidia-ctk runtime configure` runs.
+Order is `geerlingguy.docker` → `nvidia_driver` → `nvidia_container_toolkit` → the compose roles.
 
 ### Other repo cleanup tied to this change
 
-- Drop `nvidia.nvidia_driver` from [../ansible/requirements.yaml](../ansible/requirements.yaml). `grep -R "nvidia.nvidia_docker" ansible/` shows zero hits, so remove that too.
-- Dedupe the apt sources in [../ansible/roles/nvidia_container_toolkit/tasks/main.yaml](../ansible/roles/nvidia_container_toolkit/tasks/main.yaml) — currently adds both `stable/deb/$(ARCH)` and the legacy `stable/ubuntu18.04/$(ARCH)`. Keep `stable/deb/$(ARCH)` only.
-- Make `nvidia-ctk runtime configure` + Docker restart in that role conditional on actual change (compare `/etc/docker/daemon.json`, or convert to a handler) instead of `changed_when: false` + unconditional restart.
+All three are **done**:
+
+- `nvidia.nvidia_driver` and `nvidia.nvidia_docker` dropped from `ansible/requirements.yaml`;
+  `grep -rn 'nvidia\.nvidia' ansible/` returns nothing.
+- The toolkit apt sources were deduped by the 2026-08-23 deb822 migration — one source, architecture
+  resolved by Ansible, legacy `stable/ubuntu18.04` suite gone.
+- The toolkit's Docker restart is now a checksum-gated `reload`, not an unconditional `restart`.
 
 ### Files modified
 
-- [../ansible/roles/nvidia_driver/defaults/main.yaml](../ansible/roles/nvidia_driver/defaults/main.yaml) (rewrite — just the branch default)
-- [../ansible/roles/nvidia_driver/tasks/main.yaml](../ansible/roles/nvidia_driver/tasks/main.yaml) (rewrite)
-- [../ansible/roles/nvidia_driver/handlers/main.yaml](../ansible/roles/nvidia_driver/handlers/main.yaml) (new)
-- [../ansible/playbook-media-01.yaml](../ansible/playbook-media-01.yaml) (uncomment the GPU stack, switch to local role with `nvidia_driver_branch` var)
-- [../ansible/requirements.yaml](../ansible/requirements.yaml) (drop `nvidia.nvidia_driver`, `nvidia.nvidia_docker`)
-- [../ansible/roles/nvidia_container_toolkit/tasks/main.yaml](../ansible/roles/nvidia_container_toolkit/tasks/main.yaml) (dedupe sources, fix restart logic)
+- `ansible/roles/nvidia_driver/defaults/main.yaml` (rewritten)
+- `ansible/roles/nvidia_driver/tasks/main.yaml` (rewritten)
+- `ansible/roles/nvidia_driver/README.md` (new)
+- `ansible/playbook-media-01.yaml` (role added, `tags: nvidia`)
+
+No `handlers/main.yaml` — see above.
 
 ---
 
 ## Verification
 
-After fresh provision on Ubuntu 26.04:
+The adoption run is expected to change **nothing** — the role names the package set the host is
+already on. That is the check.
 
-0. **Pre-flight on the new VM**: `apt-cache search '^nvidia-headless-[0-9]\+-server-open$' | sort -V` → confirm the branch you want to pin is present in 26.04's archive. If your pinned `nvidia_driver_branch` isn't there, pick the highest one that is.
-1. After play run: `apt-cache policy nvidia-headless-${branch}-server-open` → installed, candidate from `archive.ubuntu.com`. `dpkg -l 'nvidia-*'` shows the consistent versioned set.
+```
+cd /Users/andy/Projects/homelab-infrastructure/ansible
+.venv/bin/ansible-playbook playbook-media-01.yaml --limit media-01 --tags nvidia
+```
+
+0. **Pass = `changed=0` on the apt task.** A non-zero `changed` means the host is not on
+   `nvidia-driver-595-server-open` and the premise is wrong — stop rather than let the reboot task
+   fire on a host running Plex, Immich and the Tdarr server.
+1. `apt-cache policy nvidia-driver-${branch}-server-open` → installed, candidate from
+   `archive.ubuntu.com` (`noble-updates/multiverse`), **not** from
+   `developer.download.nvidia.com`. `dpkg -l 'nvidia-*'` shows one consistent versioned set.
 2. `nvidia-smi` → reports `${branch}.xx.yy` and lists the A4000.
-3. `lsmod | grep nvidia` → shows `nvidia`, `nvidia_uvm`; `lsmod | grep nouveau` is empty.
-4. `modinfo nvidia | grep -i license` → confirms open-source licensed modules (MIT/GPL dual).
-5. `systemctl is-enabled nvidia-persistenced` → enabled and running.
+3. `lsmod | grep nvidia` → `nvidia`, `nvidia_uvm`; `lsmod | grep nouveau` is empty.
+4. `modinfo nvidia | grep -i license` → open-source licensed modules (MIT/GPL dual).
+5. `systemctl is-enabled nvidia-persistenced` → enabled.
 6. `docker info | grep -i runtimes` → `nvidia` listed.
-7. `docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi` → succeeds, sees A4000.
-8. Spin up Immich-ML container; confirm `/proc/driver/nvidia/version` inside the container matches host and a sample inference job completes.
+7. `docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi` → succeeds, sees the
+   A4000. **This is the one that matters most**: it is the only step that exercises the container
+   toolkit's library injection, which is what the headless package set would have broken.
+8. A Tdarr transcode using an `hevc_nvenc` or `av1_nvenc` flow completes. Steps 1–7 all pass on a
+   compute-only driver; this is the step that would have caught the wrong package set.
 
 ### Bumping the driver later
 
-1. Check `apt-cache search '^nvidia-headless-[0-9]\+-server-open$' | sort -V` on the host for newly-available branches (Canonical adds them to `-updates` over time).
-2. Edit the `nvidia_driver_branch` value in [../ansible/playbook-media-01.yaml](../ansible/playbook-media-01.yaml).
-3. Re-run the play — apt swaps to the new versioned package set, `reboot host` handler fires.
-4. Re-run the verification block above.
+1. `apt-cache search '^nvidia-driver-[0-9]\+-server-open$' | sort -V` on the host, for branches
+   Canonical has added to `-updates` since.
+2. Edit `nvidia_driver_branch` in [../ansible/playbook-media-01.yaml](../ansible/playbook-media-01.yaml).
+3. Re-run `--tags nvidia`. apt swaps the versioned set and the role reboots the host, because the
+   new DKMS module cannot load against the running kernel until it does. Set
+   `nvidia_driver_reboot_on_change: false` only if that reboot is being scheduled by hand — until it
+   happens, `nvidia-smi` returns `Driver/library version mismatch` and every GPU container fails.
+4. Re-run the verification block above, step 8 included.

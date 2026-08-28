@@ -1,3 +1,40 @@
 ---
-nvidia_driver_branch: "535"
-nvidia_driver_server: true
+# Driver branch, from Canonical's archive. ERD (`-server`) with the open kernel
+# modules, which is NVIDIA's stated default on Turing and newer GPUs and the
+# only option on the branches to come.
+#
+# Override from the calling playbook; upgrades are a deliberate edit here, not a
+# rolling `state: latest`. List what the host can actually see:
+#
+#   apt-cache search '^nvidia-driver-[0-9]\+-server-open$' | sort -V
+#
+# A branch that is not in the archive fails the play at the apt task with
+# "No package matching 'nvidia-driver-<branch>-server-open'".
+nvidia_driver_branch: "595"
+
+# Reboot the host when the package set actually changes.
+#
+# Not cosmetic, and not safe to leave off by accident: a branch change installs a
+# new DKMS module while the running kernel keeps the old one loaded. Until the
+# reboot, `nvidia-smi` fails with "Driver/library version mismatch" and every GPU
+# container on the host fails with it.
+#
+# Set false only when the reboot is being scheduled by hand -- the host is then
+# in that mismatched state until someone reboots it.
+nvidia_driver_reboot_on_change: true
+
+# Superseded driver metapackages to remove, once the wanted one is installed and
+# marked manual.
+#
+# A host can arrive at the current branch by dependency rather than by choice: an
+# older `nvidia-driver-<old>-server-open` whose only Depends: is the current one,
+# with the old name marked manual and the current one auto. Nothing is wrong while
+# that holds. Remove the old name first, though, and the current driver becomes an
+# orphan that the next `apt autoremove` is entitled to take, along with the whole
+# stack under it.
+#
+# This is a role input rather than a playbook task precisely because of that
+# ordering: the removal has to follow the install task, which is what promotes the
+# wanted driver to manually installed. Empty by default -- most hosts have nothing
+# to clean up.
+nvidia_driver_superseded_packages: []

@@ -110,8 +110,11 @@ loaded the runtime. Ordering matters more than handler deduplication here.
 **It does not install or manage the NVIDIA driver**, and it assumes one is already present.
 `nvidia.github.io/libnvidia-container` is a *different* apt repository from
 `developer.download.nvidia.com/compute/cuda/...`; using the toolkit does not pull the host into
-the CUDA repo for drivers. In this repo no playbook installs the driver either — it is
-maintained by `apt` on the host, for the reasons in `docs/media-01-nvidia-driver.md`.
+the CUDA repo for drivers.
+
+The driver is `roles/nvidia_driver`, which must run **before** this role. Callers that do not use
+it leave the driver to `apt` on the host; either way this role only assumes one is there. See
+`docs/media-01-nvidia-driver.md` for the package-set reasoning.
 
 ## Why the architecture is resolved by Ansible, not `$(ARCH)`
 

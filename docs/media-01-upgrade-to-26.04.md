@@ -1,11 +1,14 @@
 # media-01 — upgrading to Ubuntu 26.04
 
-> **Research, written 2026-08-22. Updated 2026-08-23 — see "What has changed since" below.**
+> **This document is the current state: what is true of the host, and the procedure to follow.**
+> It is not a progress tracker — progress lives in `tasks/media-01-26.04-upgrade.md`, which is where
+> a new thread should start. Keep this file accurate as things change; do not log work in it.
 >
-> The upgrade itself has still not been executed. But the apt-source migration landed on this host
-> on 2026-08-23 and closed two of the prerequisites below, so parts of the original text no longer
-> describe the machine. Corrections are marked **UPDATE 2026-08-23** in place rather than rewritten
-> away, because what was found on 2026-08-22 is the reason the work happened.
+> The upgrade itself has still not been executed.
+>
+> Written as research on 2026-08-22. Corrections since are marked **UPDATE 2026-08-23** in place
+> rather than rewritten away, because what was found on 2026-08-22 is the reason the apt-source
+> migration happened.
 >
 > This file fills the reference `plans/media-01-restore-scsi0-from-backup.md` left dangling: the
 > 26.04 upgrade was deliberately deferred to "on or after 27 August", and that runbook noted the
@@ -18,12 +21,60 @@
 
 **Upgrade in place, on or after 2026-08-27, after a preparation pass on 24.04.**
 
-1. ~~Fix `fish_install`~~ — **DONE 2026-08-23.** The `apt-key` call is gone; see
-   [What has changed since](#changed-since).
-2. Run the full playbook on 24.04 to converge the host with the current roles.
-3. Remove the apt sources Ansible does not own (CUDA repo; decide about the fish PPA).
-4. Fresh PBS snapshot, then `do-release-upgrade`.
-5. Afterwards: **decline `zpool upgrade`**, and re-run the playbook to restore third-party repos.
+Already closed, and listed so it is not re-derived: ~~fix `fish_install`~~ — **DONE 2026-08-23**,
+the `apt-key` call is gone. See [What has changed since](#changed-since).
+
+1. **Capture `/etc/apt/` first.** Before changing anything, copy `sources.list.d/`,
+   `trusted.gpg.d/` and `keyrings/` off the host. Step 6's PBS snapshot is the real rollback; this
+   is what makes a *partial* apt problem cheap to undo without restoring a whole disk — and it is
+   the thing most likely to be needed, because the upgrade disables every third-party source by
+   design.
+2. **Confirm 26.04.1 actually released.** Scheduled 2026-08-27, and that date has already moved once
+   (from 2026-08-04). It is a schedule, not an event.
+3. ~~**Remove the unmanaged CUDA repo.**~~ **NOW PLAYBOOK-OWNED, 2026-08-26** — a `pre_task` in
+   `playbook-media-01.yaml` removes `cuda-keyring` with `purge`, which takes the source, the
+   `preferences.d` pin and the keyring with it (all three are files that package owns; the first two
+   are conffiles, hence `purge`). Runs under `--tags nvidia`. It has not yet been executed against
+   the host — until it is, this step is still outstanding, it is just no longer manual.
+
+   **It is a bigger removal than this step assumed.** The repo is not a dormant leftover: eight
+   installed packages still resolve to it, including `dkms` and all four
+   `nvidia-container-toolkit` packages, which it wins from `nvidia.github.io` on the strength of its
+   priority-600 pin. This is the "don't mix sources" hazard actually biting, not a tidy-up.
+
+   The four toolkit packages are neutral — `nvidia.github.io` publishes the identical `1.20.0-1`.
+   The rest are left installed above any configured source, and **this upgrade does not fix that**:
+   resolute ships `dkms` 3.2.2, `libxnvctrl0`/`nvidia-settings` 510.47.03, all *lower* than what is
+   installed, so apt leaves them. Details in `docs/media-01-nvidia-driver.md`.
+
+   (The fish PPA was the other half of this item and is **closed** — Ansible manages it now.)
+3a. **Force `dkms` back onto an archive version — early in the upgrade, not after.**
+   NVIDIA's `dkms` carries epoch `1:` and Ubuntu's does not, so `1:3.4.1-1ubuntu1` outranks any
+   Ubuntu version at any release. Nothing reclaims it on its own, ever:
+
+       apt install --allow-downgrades dkms=3.2.2-1ubuntu1
+       apt install --reinstall nvidia-dkms-<branch>-server-open   # regenerate state under 3.2.2
+       dkms status                                                # built for the new kernel
+
+   resolute's 3.2.2 rather than noble's 3.0.11 deliberately: 3.4.1 → 3.0.11 crosses dkms 3.0.13's
+   module-compression rework and 3.1.7's archived-module relocation; 3.4.1 → 3.2.2 crosses neither.
+   Doing it here also means DKMS rebuilds once, since the kernel is moving 6.8 → 7.0 anyway.
+
+   **Early**, because `do-release-upgrade` may treat the sourceless 3.4.1 as an obsolete package and
+   remove it — which would take `nvidia-dkms-*` with it.
+4. **Run the full untagged playbook on 24.04**, converging the host with the current roles while the
+   OS is still known-good. Not yet done: the apt-source rollout deliberately applied only each
+   role's `tasks/apt_repo.yaml`, so `docker.list` and the rest of the drift are untouched.
+5. ~~**Decide on the `nvidia_driver` role.**~~ **DECIDED 2026-08-24 — adopted, no package change.**
+   It is not a package-set change after all: the role owns `nvidia-driver-{branch}-server-open`, the
+   set the host already runs, so adoption is idempotent and needs no window of its own. The
+   `-headless-…` alternative was rejected because it drops `libnvidia-encode`/`libnvidia-decode`,
+   which Plex and Tdarr need injected into their containers. See `docs/media-01-nvidia-driver.md`.
+6. **Fresh PBS snapshot immediately before**, then `do-release-upgrade`.
+7. **Afterwards: decline `zpool upgrade`**, then re-run the playbook to restore third-party repos.
+
+The list is in execution order. Step 4 is the preparation pass and wants its own window on 24.04 —
+do not fold it into the same session as step 6.
 
 The upgrade is **the fix** for the ZFS problem that forced August's rollback, not a repeat of it.
 That is the single most important thing in this document and the easiest to get backwards.
@@ -40,7 +91,8 @@ closes two prerequisites outright and makes a third finding moot:
 - **Bug #2150614 no longer applies to this host.** The inline-key fish source is gone. The host now
   has `fish-shell-release-4.sources` with
   `Signed-By: /etc/apt/keyrings/fish-shell-release-4.asc`, and **no source on the host contains an
-  inline PGP key**. The "decide about the fish PPA before upgrading" item below is closed.
+  inline PGP key**. The "decide about the fish PPA before upgrading" item is closed, and step 3 of
+  the Recommendation now names only the CUDA repo.
 - **The NVIDIA toolkit source is now deduped for real.** It is one deb822 source with the
   architecture resolved to `amd64`; the legacy `stable/ubuntu18.04` suite is gone.
 
@@ -53,13 +105,14 @@ Host state as read on 2026-08-23 16:51 CDT — Ubuntu 24.04.4, kernel 6.8.0-137-
                                mise.sources                      migrated
                                nvidia-container-toolkit.sources  migrated
                                ubuntu.sources
+    /etc/apt/keyrings/         fish-shell-release-4.asc, mise.asc,
+                               nvidia-container-toolkit.asc
+    inline PGP keys in sources: none
 
-**What is still outstanding is unchanged:** remove the CUDA source, run the full untagged playbook
-on 24.04, decide on the `nvidia_driver` role, take a fresh PBS snapshot, and decline
-`zpool upgrade` afterwards. The migration deliberately applied only each role's
-`tasks/apt_repo.yaml`, so the rest of the drift this document found is untouched.
+**What is still outstanding is the numbered procedure above.** The migration deliberately applied
+only each role's `tasks/apt_repo.yaml`, so the rest of the drift this document found is untouched.
 
-Live pickup notes: `tasks/media-01-26.04-upgrade.md`.
+Progress against the procedure above is tracked in `tasks/media-01-26.04-upgrade.md`.
 
 ## Why 26.04 fixes the thing that broke in August
 
@@ -214,8 +267,10 @@ harness at `ansible/tests/apt-sources/`.
 ansible-core 2.20.4. It did not exist when the manual apt tasks in this repo were written. Takes
 `name`/`types`/`uris`/`suites`/`components`/`signed_by`/`enabled`/`state`.
 
-Candidates: the hand-rolled `copy:`-a-`.list` in `nvidia_container_toolkit`, the `apt_repository`
-call in `apt_add_launchpad_ppa`, and the `< 26` branch of `mise`.
+The candidates identified on 2026-08-22 were the hand-rolled `copy:`-a-`.list` in
+`nvidia_container_toolkit`, the `apt_repository` call in `apt_add_launchpad_ppa`, and the `< 26`
+branch of `mise`. **All three were migrated on 2026-08-23**, along with six more roles the original
+scan missed. This list is kept as the record of where the work started, not as an open list.
 
 **Use `signed_by` as an absolute keyring path, not an inline key block.** The module accepts inline
 armored keys, and that is precisely the shape bug #2150614 truncates during `do-release-upgrade` —
@@ -224,8 +279,15 @@ its most convenient option is the one to avoid on a host that gets release-upgra
 
 ### Already migrated
 
-`mise` branches on `distribution_major_version >= 26` and uses `add-apt-repository` there;
-`fish_install`'s Debian path templates a deb822 `.sources`.
+**UPDATE 2026-08-23: this section described a half-way state that no longer exists.** As found on
+2026-08-22, `mise` branched on `distribution_major_version >= 26` and shelled out to
+`add-apt-repository` there, and `fish_install`'s Debian path templated a deb822 `.sources` by hand.
+
+Both are gone. Each role now has a single `tasks/apt_repo.yaml` using `deb822_repository`, and
+`fish_install`'s per-distro install files and its `shells_fish_release_4.sources.j2` template were
+deleted. `mise`'s PPA branch survives only as a call to `apt_add_launchpad_ppa`, gated on
+`>= 26` **and** `x86_64` — Launchpad publishes no arm64 build. No task file in any role invokes
+`add-apt-repository` or `apt_key` any more.
 
 ### Watch, not blockers
 
@@ -272,9 +334,15 @@ scale. The rollback is the PBS snapshot, restored per
 `plans/media-01-restore-scsi0-from-backup.md` — proven on 2026-08-10, ~18 minutes, root disk only,
 ZFS pool untouched.
 
-Two things keep it viable:
+Three things keep it viable:
 
 - **A fresh PBS snapshot immediately before starting.**
+- **A file-level copy of `/etc/apt/` before that** — step 1. Restoring a whole disk to undo one
+  mangled `.sources` file is a poor trade, and third-party sources are exactly what the upgrader
+  rewrites. The apt-source migration took its own pre-deploy captures of this host on 2026-08-23 and
+  they were **deleted on the same day, deliberately**: a rollback inherited from unrelated work is
+  only correct for as long as nobody touches apt in between. Take a fresh one at the time it is
+  needed.
 - **Do not run `zpool upgrade` afterwards.** Importing an older pool under ZFS 2.4 is fine and is
   all that is needed. *Upgrading* it is one-way and enables features 24.04's 2.2.2 cannot read —
   which silently destroys the rollback, because the restore reverts only the root disk (`scsi0`) and

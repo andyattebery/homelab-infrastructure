@@ -12,6 +12,46 @@
     media_ffmpeg_dir: /opt/jellyfin-ffmpeg/bin
 
   pre_tasks:
+    # NVIDIA's CUDA repo, added by hand in 2025 and never fully removed. Its driver packages
+    # were purged in March 2026; the repo was not, and it has kept serving eight installed
+    # packages since — including `dkms`, and all four nvidia-container-toolkit packages, which
+    # it wins from nvidia.github.io because its pin sits at 600 against that repo's 500. So a
+    # role in this play has not actually owned the packages it configures a source for.
+    #
+    # `cuda-keyring` owns the source, the pin and the keyring, so removing the package removes
+    # the repo. `purge` is required rather than tidy: the source and the pin are both conffiles,
+    # and a plain `absent` leaves them in place with the repo still configured.
+    #
+    # Asserted every run rather than done once, so a stray `apt install cuda-keyring` or a
+    # restored backup cannot quietly bring the repo back.
+    #
+    # The four toolkit packages are unaffected — nvidia.github.io publishes the identical
+    # 1.20.0-1 — but the rest are left installed above any configured source, and 26.04 does
+    # not fix that: resolute ships lower versions than what is installed. `dkms` is the one
+    # that cannot resolve itself, because NVIDIA's carries an epoch and Ubuntu's does not.
+    # See step 3a of docs/media-01-upgrade-to-26.04.md.
+    #
+    # `autoremove: false` explicitly, on this and every other removal in this play. Nothing
+    # here is currently autoremovable, but `apt-get -s purge --auto-remove` on the transitional
+    # 590 metapackage below measured at 95 packages — the whole GPU stack — so the flag is
+    # stated rather than left to the module default.
+    - name: Remove the NVIDIA CUDA apt repository
+      ansible.builtin.apt:
+        name: cuda-keyring
+        state: absent
+        purge: true
+        autoremove: false
+      tags: nvidia
+
+    # Separate task, because `update_cache` on the removal above would have run BEFORE it:
+    # ansible.builtin.apt refreshes the cache at modules/apt.py:1448 and only reaches the
+    # `state: absent` branch at :1601. Refreshing there would have rebuilt the cache with the
+    # CUDA repo still configured, which is the opposite of what is wanted.
+    - name: Refresh apt after removing the CUDA repository
+      ansible.builtin.apt:
+        update_cache: true
+      tags: nvidia
+
     - name: Install packages
       ansible.builtin.package:
         name:
@@ -68,8 +108,21 @@
         zfs_arc_max_gb: 2
     - geerlingguy.docker
     - role: mise
-    # The NVIDIA driver is deliberately not managed here. It is installed from Canonical's
-    # archive and maintained by apt on the host — see docs/media-01-nvidia-driver.md.
+    # Adopted 2026-08-24: the playbook now owns the driver, at the package set the host was
+    # already running. `-driver-` and not `-headless-` is deliberate and load-bearing — the
+    # headless metapackage drops libnvidia-encode/decode, which Plex and Tdarr need injected
+    # into their containers. See docs/media-01-nvidia-driver.md and the role README.
+    - role: nvidia_driver
+      tags: nvidia
+      vars:
+        nvidia_driver_branch: "595"
+        # 590 is a transitional metapackage — `Depends: nvidia-driver-595-server-open` and
+        # nothing else — and it is the only *manually* installed driver metapackage here, with
+        # 595 marked auto beneath it. The role removes it only after installing 595, which is
+        # what promotes 595 to manual; the other order would leave the whole driver stack
+        # autoremovable.
+        nvidia_driver_superseded_packages:
+          - nvidia-driver-590-server-open
     - role: nvidia_container_toolkit
     - role: power_saving
       vars:

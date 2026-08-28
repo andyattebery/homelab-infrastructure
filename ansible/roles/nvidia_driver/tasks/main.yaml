@@ -1,11 +1,84 @@
 ---
-- name: Install packages
-  ansible.builtin.package:
-    name: ubuntu-drivers-common
-- name: Install driver
+# Direct apt, not `ubuntu-drivers install --gpgpu`.
+#
+# `ubuntu-drivers` resolves against whatever apt sources happen to be configured,
+# so a third-party driver repo added later silently changes what it installs --
+# and hosts here have carried exactly that hazard for months at a time (a vendor
+# CUDA repo pinned above the archive; see the README). An explicit package name
+# cannot drift that way. It is also a bare `command:`, so Ansible cannot report
+# whether it changed anything.
+#
+# `-driver-` and not `-headless-`: the headless metapackage is compute-only. It
+# does NOT pull libnvidia-encode or libnvidia-decode, which the container toolkit
+# injects into containers asking for NVIDIA_DRIVER_CAPABILITIES=all. See the
+# README.
+- name: Install NVIDIA driver (ERD, open kernel modules)
+  ansible.builtin.apt:
+    name: "nvidia-driver-{{ nvidia_driver_branch }}-server-open"
+    state: present
+  register: nvidia_driver_apt_result
+
+# The removal below is safe only because the install task above ran first:
+# `ansible.builtin.apt` runs `apt-mark manual` on every name it is given, on every
+# run, even when it reports changed=false, so by this point the wanted driver is
+# explicitly held. That is an invisible precondition, and the cost of it being
+# wrong is not small -- so it is checked rather than assumed.
+#
+# `apt-mark showmanual <pkg>` prints the name when the package is manually
+# installed and prints nothing when it is auto, exiting 0 either way. The test is
+# therefore on stdout; rc says nothing.
+- name: Confirm the wanted driver is manually installed
+  when: nvidia_driver_superseded_packages | length > 0
   ansible.builtin.command:
-    cmd: "ubuntu-drivers install --gpgpu nvidia:{{ nvidia_driver_branch }}{{ '-server' if nvidia_driver_server else '' }}"
-  register: ubuntu_drivers_result
-- name: debug
-  ansible.builtin.debug:
-    var: ubuntu_drivers_result
+    cmd: apt-mark showmanual nvidia-driver-{{ nvidia_driver_branch }}-server-open
+  register: nvidia_driver_manual_check
+  changed_when: false
+
+- name: Refuse to remove superseded packages unless it is
+  when: nvidia_driver_superseded_packages | length > 0
+  ansible.builtin.assert:
+    that:
+      - "'nvidia-driver-' ~ nvidia_driver_branch ~ '-server-open' in nvidia_driver_manual_check.stdout"
+    fail_msg: >-
+      nvidia-driver-{{ nvidia_driver_branch }}-server-open is not marked manually installed.
+      Removing {{ nvidia_driver_superseded_packages | join(', ') }} now would leave the driver
+      stack with no manual reference, and the next `apt autoremove` would be entitled to take
+      all of it -- measured on one host at 95 packages, including libnvidia-encode,
+      libnvidia-decode and the DKMS module. Refusing.
+    success_msg: >-
+      nvidia-driver-{{ nvidia_driver_branch }}-server-open is manually installed; superseded
+      packages can be removed safely.
+
+# No autoremove here, and no reboot: a transitional metapackage's entire content
+# is its Depends:, so removing it takes no files and unloads no module.
+- name: Remove superseded driver metapackages
+  when: nvidia_driver_superseded_packages | length > 0
+  ansible.builtin.apt:
+    name: "{{ nvidia_driver_superseded_packages }}"
+    state: absent
+    autoremove: false
+    purge: true
+
+# Keeps the driver loaded when no client has a context open. Without it the
+# module unloads between jobs and the next container pays the initialisation
+# cost; on a host doing intermittent transcodes that is every job.
+#
+# The unit ships in nvidia-compute-utils-<branch>-server, a dependency of the
+# driver metapackage the first task installs, so it exists by the time this runs.
+- name: Enable nvidia-persistenced
+  ansible.builtin.systemd_service:
+    name: nvidia-persistenced
+    enabled: true
+
+# Inline and conditional rather than a handler, deliberately.
+#
+# Handlers notified from a play's `roles:` section are flushed at the end of the
+# play's `tasks:` section -- after every other role has run. Callers put this
+# role before the docker_compose_* roles, so a handler would deploy every GPU
+# container against a driver whose module does not match its userspace, and only
+# then reboot. Same reasoning as the reload in roles/nvidia_container_toolkit.
+- name: Reboot into the new driver
+  when:
+    - nvidia_driver_apt_result.changed
+    - nvidia_driver_reboot_on_change | bool
+  ansible.builtin.reboot:
