@@ -186,6 +186,14 @@
           - truenas:scale
           - ubuntu:desktop-lts
           - ubuntu:live-server-lts
+    # Runs here rather than on docker-01 so it can bind-mount /mnt/storage directly. The pool is
+    # local to this host; from docker-01 it was only reachable over SMB, where Calibre's rename
+    # and hardlink operations do not work.
+    - role: docker_compose_calibre
+      vars:
+        calibre_extra_mount_paths:
+          - /mnt/storage
+      tags: calibre
     # - role: docker_compose_diun
     # - role: docker_compose_frigate
     #   vars:

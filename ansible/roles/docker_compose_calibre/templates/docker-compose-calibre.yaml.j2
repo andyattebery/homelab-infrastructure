@@ -1,0 +1,50 @@
+---
+services:
+  calibre:
+    image: lscr.io/linuxserver/calibre:latest
+    container_name: calibre
+    # Upstream ships this in its own example, commented "optional": it is there for hosts whose
+    # kernel or libseccomp is old enough that Docker's default syscall filter breaks a GUI
+    # desktop app. Not a knob here, because it is what has been running since this container was
+    # first deployed and dropping it is an untested change, not a cleanup.
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - PASSWORD=${CALIBRE_PASSWORD}
+      - CLI_ARGS=${CALIBRE_CLI_ARGS}
+    networks:
+      - traefik
+    volumes:
+      - ${CALIBRE_CONFIG_DIRECTORY}:/config
+{% for path in calibre_extra_mount_paths %}
+      # Same path inside and out, so what Calibre's file browser shows matches the host and any
+      # SMB share of the same tree. rslave because these are real mounts (mergerfs is FUSE) and a
+      # plain bind goes stale when the host remounts underneath it.
+      - type: bind
+        source: {{ path }}
+        target: {{ path }}
+        bind:
+          propagation: rslave
+{% endfor %}
+    restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.calibre.rule=Host(`{{ calibre_desktop_hostname }}.$DOMAIN_NAME`)
+      - traefik.http.routers.calibre.service=calibre
+      - traefik.http.services.calibre.loadbalancer.server.port=8080
+      - traefik.http.routers.calibre-server.rule=Host(`{{ calibre_server_hostname }}.$DOMAIN_NAME`)
+      - traefik.http.routers.calibre-server.service=calibre-server
+      - traefik.http.services.calibre-server.loadbalancer.server.port=8081
+      # Two routers on one container, so dashboard-services-manager has to pick which host it
+      # advertises. Without this it picks nondeterministically and the desktop hostname flaps in
+      # and out of DNS. The server hostname never gets a DSM record either way — it needs a
+      # static entry in the network inventory.
+      - dsm.traefik.router=calibre
+
+networks:
+  traefik:
+    name: traefik
+    external: true

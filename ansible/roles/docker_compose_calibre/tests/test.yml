@@ -1,0 +1,296 @@
+---
+# Exercises docker_compose_calibre against a throwaway directory. Runs entirely on localhost,
+# starts no container, contacts no host, and needs no Docker daemon -- only the docker CLI,
+# because `docker compose config` renders and exits.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/docker_compose_calibre/tests/inventory \
+#       roles/docker_compose_calibre/tests/test.yml
+#
+# What it is actually for: calibre_extra_mount_paths is rendered by a Jinja `for` loop that
+# emits long-syntax bind mounts INSIDE a YAML list, at a fixed indentation. Nothing about a
+# loop like that fails loudly -- a wrong indent produces a different document, not an error,
+# and an empty list has to leave a valid file behind too. Three list lengths (0, 1, 2) are the
+# case set, and only a real Compose parse settles it.
+#
+# The second thing it pins is the destination filename. docker_compose does not strip `.j2`,
+# and files/dc globs docker-compose*.y*ml -- so dropping docker_compose_dst_file_name would
+# deploy a file that works when Ansible names it explicitly and is invisible to `dc` forever
+# after. Nothing else in the repo would go red.
+- name: Test docker_compose_calibre
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # group_vars/all is not loaded under `-i <file>`, and these four are what docker_compose
+    # writes into every .env. Literals: no vault, no real domain.
+    timezone: America/Chicago
+    domain_name: example.test
+    lang_two_letter: en
+    language_region_with_underscore: en_US
+
+    # Play vars, which outrank role defaults. Each one turns off a docker_compose step that
+    # would otherwise need root, a docker group, or a daemon:
+    #   uid/gid        skips the ansible_non_become_user_facts include, and keeps every
+    #                  owner:/group: within reach of an unprivileged run
+    #   docker_gid     skips `getent group docker`, which asserts -- and there is no such
+    #                  group on a Mac
+    #   render_gid     skips the sibling getent
+    #   should_pull    would contact lscr.io
+    #   should_run_up  would start the container
+    # docker_compose_copy_scripts is already false in the role's own task vars.
+    docker_compose_uid: "{{ ansible_facts['user_uid'] }}"
+    docker_compose_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_docker_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_render_gid: ""
+    docker_compose_should_pull: false
+    docker_compose_should_run_up: false
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: calibre-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        # ---------- 0. the docker CLI is present ----------
+        # Asserted up front so a missing binary reads as that, rather than as a confusing
+        # failure three tasks later. `compose version` is client-side; no daemon needed.
+        - name: Check the docker CLI is available
+          ansible.builtin.command:
+            cmd: docker compose version
+          register: _docker_version
+          changed_when: false
+
+        - name: docker compose CLI reported a version
+          ansible.builtin.assert:
+            that:
+              - _docker_version.stdout | length > 0
+            success_msg: "{{ _docker_version.stdout }}"
+
+        # ---------- 1. one extra mount ----------
+        - name: Deploy case A -- one extra mount path
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}/data"
+            calibre_extra_mount_paths:
+              - /srv/pool
+          ansible.builtin.import_role:
+            name: docker_compose_calibre
+
+        # The destination filename, not the rendered content. `.j2` is not stripped by
+        # docker_compose, so this is the assertion that keeps the file visible to files/dc.
+        - name: Stat the deployed compose file
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/docker-compose-calibre.yaml"
+          register: _deployed
+
+        - name: Stat the .j2 name that must NOT be deployed
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/docker-compose-calibre.yaml.j2"
+          register: _deployed_j2
+
+        - name: The compose file lands under a name files/dc can glob
+          ansible.builtin.assert:
+            that:
+              - _deployed.stat.exists
+              - not _deployed_j2.stat.exists
+            success_msg: "{{ _tmp.path }}/docker-compose-calibre.yaml"
+
+        - name: Render case A
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-calibre.yaml
+              config --format json
+          register: _render_a
+          changed_when: false
+
+        # Compose normalises every short-syntax mount into the long form, so /config and the
+        # looped bind can be compared the same way.
+        - name: Case A mounts /config plus the one extra path, same source and target
+          vars:
+            _svc: "{{ (_render_a.stdout | from_json).services.calibre }}"
+            _vols: "{{ _svc.volumes }}"
+            _extra: "{{ _vols | rejectattr('target', 'eq', '/config') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length == 2
+              - _vols | selectattr('target', 'eq', '/config') | map(attribute='source') | first
+                == _tmp.path ~ '/data/calibre'
+              - _extra | length == 1
+              - _extra[0].source == '/srv/pool'
+              - _extra[0].target == '/srv/pool'
+              - _extra[0].bind.propagation == 'rslave'
+            success_msg: "{{ _vols | to_json }}"
+
+        # An UNSET variable is only a warning to Compose -- it substitutes a blank and carries
+        # on -- so a name dropped from docker_compose_envs would silently blank rather than
+        # fail. Only an assertion on the rendered value catches that.
+        - name: Case A image, routers and the DSM pin all resolve
+          vars:
+            _svc: "{{ (_render_a.stdout | from_json).services.calibre }}"
+            _labels: "{{ _svc.labels }}"
+          ansible.builtin.assert:
+            that:
+              - _svc.image == 'lscr.io/linuxserver/calibre:latest'
+              - _svc.container_name == 'calibre'
+              - _svc.security_opt == ['seccomp:unconfined']
+              - _labels['traefik.http.routers.calibre.rule']
+                == 'Host(`calibre.example.test`)'
+              - _labels['traefik.http.routers.calibre-server.rule']
+                == 'Host(`calibre-server.example.test`)'
+              - _labels['traefik.http.services.calibre.loadbalancer.server.port'] == '8080'
+              - _labels['traefik.http.services.calibre-server.loadbalancer.server.port'] == '8081'
+              # The pin names a ROUTER, so it must match a router that exists. dsm advertises
+              # this one and no other; a rename that missed it would put the DNS record back
+              # to flapping between the two.
+              - _labels['dsm.traefik.router'] == 'calibre'
+              # Not a restatement of the line above: this one proves the pin names a router
+              # that actually exists. A router renamed without updating the pin leaves dsm
+              # resolving nothing and picking arbitrarily again.
+              - "'traefik.http.routers.' ~ _labels['dsm.traefik.router'] ~ '.rule' in _labels"
+            success_msg: "{{ _labels | to_json }}"
+
+        # ---------- 2. the same thing again ----------
+        # The "run it twice" rule. This second run slurps the .env the first one wrote and
+        # re-parses it through jc('env') before rewriting it. CALIBRE_PASSWORD and
+        # CALIBRE_CLI_ARGS default to the empty string, so this is also the check that an
+        # empty .env value survives the round trip instead of vanishing from the file and
+        # turning into an unset-variable warning.
+        - name: Deploy case A a second time
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}/data"
+            calibre_extra_mount_paths:
+              - /srv/pool
+          ansible.builtin.import_role:
+            name: docker_compose_calibre
+
+        - name: Read the .env back
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/.env"
+          register: _env_slurp
+
+        - name: All three CALIBRE_ names are still present after the read-modify-write
+          vars:
+            _env: "{{ _env_slurp.content | b64decode | community.general.jc('env', raw=true) }}"
+          ansible.builtin.assert:
+            that:
+              - _env['CALIBRE_CONFIG_DIRECTORY'] == _tmp.path ~ '/data/calibre'
+              - "'CALIBRE_PASSWORD' in _env"
+              - "'CALIBRE_CLI_ARGS' in _env"
+              - _env['CALIBRE_PASSWORD'] == ''
+              - _env['CALIBRE_CLI_ARGS'] == ''
+            success_msg: >-
+              CALIBRE_CONFIG_DIRECTORY={{ _env['CALIBRE_CONFIG_DIRECTORY'] }}
+              CALIBRE_PASSWORD='{{ _env['CALIBRE_PASSWORD'] }}'
+              CALIBRE_CLI_ARGS='{{ _env['CALIBRE_CLI_ARGS'] }}'
+
+        - name: Render case A again
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-calibre.yaml
+              config --format json
+          register: _render_a2
+          changed_when: false
+
+        - name: Case A is byte-identical on the second run
+          ansible.builtin.assert:
+            that:
+              - _render_a2.stdout == _render_a.stdout
+            success_msg: idempotent
+
+        # ---------- 3. no extra mounts, the role default ----------
+        # The loop body vanishes entirely. If its indentation were wrong the surrounding
+        # document would still have to parse, so this is the case that proves the `volumes:`
+        # list is not left malformed or empty-keyed.
+        - name: Deploy case B -- no extra mount paths
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}/data"
+          ansible.builtin.import_role:
+            name: docker_compose_calibre
+
+        - name: Render case B
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-calibre.yaml
+              config --format json
+          register: _render_b
+          changed_when: false
+
+        - name: Case B mounts /config and nothing else
+          vars:
+            _vols: "{{ (_render_b.stdout | from_json).services.calibre.volumes }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length == 1
+              - _vols[0].target == '/config'
+            success_msg: "{{ _vols | to_json }}"
+
+        # ---------- 4. two extra mounts, and non-default hostnames ----------
+        # Two entries is what catches a loop that renders the first item correctly and the
+        # second at the wrong indent. The hostname overrides go in the same case because the
+        # role must keep the Traefik router NAMES fixed while the Host() rules move -- the
+        # dsm pin is written against the name, not the hostname.
+        - name: Deploy case C -- two extra mounts and renamed hosts
+          vars:
+            docker_compose_dst_directory_path: "{{ _tmp.path }}"
+            docker_compose_dst_data_directory_path: "{{ _tmp.path }}/data"
+            calibre_extra_mount_paths:
+              - /srv/pool
+              - /srv/books
+            calibre_desktop_hostname: books
+            calibre_server_hostname: books-opds
+          ansible.builtin.import_role:
+            name: docker_compose_calibre
+
+        - name: Render case C
+          ansible.builtin.command:
+            cmd: >-
+              docker compose
+              --env-file {{ _tmp.path }}/.env
+              --file {{ _tmp.path }}/docker-compose-calibre.yaml
+              config --format json
+          register: _render_c
+          changed_when: false
+
+        - name: Case C renders both mounts, in order, each at its own path
+          vars:
+            _vols: "{{ (_render_c.stdout | from_json).services.calibre.volumes }}"
+            _extra: "{{ _vols | rejectattr('target', 'eq', '/config') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length == 3
+              - _extra | map(attribute='source') | list == ['/srv/pool', '/srv/books']
+              - _extra | map(attribute='target') | list == ['/srv/pool', '/srv/books']
+              - _extra | map(attribute='bind') | map(attribute='propagation') | unique | list
+                == ['rslave']
+            success_msg: "{{ _extra | to_json }}"
+
+        - name: Case C moves the Host() rules but keeps the router names
+          vars:
+            _labels: "{{ (_render_c.stdout | from_json).services.calibre.labels }}"
+          ansible.builtin.assert:
+            that:
+              - _labels['traefik.http.routers.calibre.rule'] == 'Host(`books.example.test`)'
+              - _labels['traefik.http.routers.calibre-server.rule']
+                == 'Host(`books-opds.example.test`)'
+              - _labels['dsm.traefik.router'] == 'calibre'
+            success_msg: "{{ _labels['traefik.http.routers.calibre.rule'] }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

@@ -147,8 +147,10 @@ homelab_hosts:
 
 # Services (that work like ones returned by dashboard-services-manager)
 services:
-  calibre-web:
-    hostname: docker-01
+  # dashboard-services-manager advertises one router per container, and calibre's is pinned to
+  # the desktop UI, so the content server needs a static entry.
+  calibre-server:
+    hostname: nas-01
   comfyui.htpc-01:
     hostname: htpc-01
   llama-swap.htpc-01:

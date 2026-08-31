@@ -34,12 +34,17 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh ANSIBLE_ROLES_PATH=rol
 .venv/bin/ansible-playbook -i roles/e1000e_disable_offloads/tests/inventory \
   roles/e1000e_disable_offloads/tests/test.yml
 
-# this fixture test needs the `docker` CLI -- the only one with an external dependency.
-# It needs no daemon: `docker compose config` renders and exits, starts nothing.
+# these two fixture tests need the `docker` CLI -- the only ones with an external
+# dependency. Neither needs a daemon: `docker compose config` renders and exits,
+# starts nothing.
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook \
     -i roles/docker_compose_wyoming_faster_whisper/tests/inventory \
     roles/docker_compose_wyoming_faster_whisper/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook \
+    -i roles/docker_compose_calibre/tests/inventory \
+    roles/docker_compose_calibre/tests/test.yml
 
 # container integration — see tests/apt-sources/README.md, and use its wrapper
 tests/apt-sources/run.sh setup.yml verify-fish.yml
@@ -71,7 +76,8 @@ resolution starts from the *playbook's* directory, which is `tests/`. See
 A role that itself `include_role`s another needs **one link per role**, or the
 nested include fails the same way. `roles/docker_compose_wyoming_faster_whisper/tests/roles/`
 has two: `docker_compose_wyoming_faster_whisper -> ../../` and
-`docker_compose -> ../../../docker_compose`.
+`docker_compose -> ../../../docker_compose`. `roles/docker_compose_calibre/tests/roles/`
+is the same shape -- every `docker_compose_*` wrapper role needs both links.
 
 ## Where a new test goes
 

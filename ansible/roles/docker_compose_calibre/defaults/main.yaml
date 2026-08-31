@@ -1,0 +1,25 @@
+---
+# Calibre's /config: the library itself lives here (Calibre Library/metadata.db), alongside
+# plugins and settings. Whatever filesystem this lands on is the one that needs backing up.
+calibre_config_directory: "{{ docker_compose_dst_data_directory_path }}/calibre"
+
+# Host directories bind-mounted into the container at the SAME path inside, so the paths Calibre's
+# file browser shows match the host and any SMB share of the same tree. Empty by default: Calibre
+# then sees nothing but /config and books can only arrive by upload through the browser.
+#
+# Mounted with propagation: rslave — these are expected to be real mounts (a mergerfs pool, a
+# ZFS dataset), and a plain bind goes stale if the host remounts underneath it.
+calibre_extra_mount_paths: []
+
+# Hostnames, before .<domain_name>, for the two routers this one container serves.
+# calibre_desktop_hostname is also the router dashboard-services-manager advertises.
+calibre_desktop_hostname: calibre
+calibre_server_hostname: calibre-server
+
+# Upstream PASSWORD: sets a password for the GUI. Empty means no password, which is what has been
+# running -- anyone who can reach Traefik gets a desktop session with write access to every path in
+# calibre_extra_mount_paths.
+calibre_password: ""
+
+# Upstream CLI_ARGS: start arguments passed to calibre. Empty leaves the image's own defaults.
+calibre_cli_args: ""

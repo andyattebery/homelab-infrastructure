@@ -1,0 +1,14 @@
+---
+- name: Configure calibre docker compose
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-calibre.yaml.j2
+    # Set explicitly: the docker_compose role does not strip .j2, and files/dc globs
+    # docker-compose*.y*ml — a docker-compose-calibre.yaml.j2 on disk would be invisible to it.
+    docker_compose_dst_file_name: docker-compose-calibre.yaml
+    docker_compose_copy_scripts: false
+    docker_compose_envs:
+      CALIBRE_CONFIG_DIRECTORY: "{{ calibre_config_directory }}"
+      CALIBRE_PASSWORD: "{{ calibre_password }}"
+      CALIBRE_CLI_ARGS: "{{ calibre_cli_args }}"
+  ansible.builtin.include_role:
+    name: docker_compose
