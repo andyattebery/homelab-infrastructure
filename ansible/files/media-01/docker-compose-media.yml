@@ -33,7 +33,38 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu, compute, video, utility]
+    # Arc B580 for QSV/VA-API, alongside NVENC on the A4000 above. Which one is used is set in
+    # Dashboard > Playback; the device field only appears once QSV or VAAPI is selected.
+    #
+    # The WHOLE directory, bind-mounted, and NOT a `devices:` entry. Three reasons, each
+    # measured on this host:
+    #
+    #   1. iHD requires a node's NAME to match its MINOR. Presenting the Arc's renderD129 as
+    #      /dev/dri/renderD128 fails with "Failed to a DRM display" no matter how it is passed
+    #      — --device, bind mount, with or without the card node. So the container has to see
+    #      the real names, which means seeing the whole directory.
+    #   2. Docker resolves a `devices:` entry to a major:minor at container CREATE time and
+    #      reuses it on restart. After a reboot that renumbers, the container keeps the old
+    #      minor and silently uses the other card.
+    #   3. A bind mount of a directory is re-established at container START, so the names
+    #      inside always match the host, and /dev/dri/by-path resolves live.
+    #
+    # Long volume syntax because the PCI address in the by-path name contains colons, which
+    # the short `src:dst` form splits on.
+    #
+    # Nothing here names a renderD* node. Selection is by the by-path name, which is fixed by
+    # hostpci1 in the VM config — set it in the app, not here.
+    # Access by DRM major with a wildcard minor, so there is no minor to go stale either.
+    device_cgroup_rules:
+      - 'c 226:* rmw'
+    # This image runs as ${PUID}:${PGID} with no supplementary groups, and the render nodes are
+    # root:render 0660 — without this they are present but unopenable.
+    group_add:
+      - "${RENDER_GID}"
     volumes:
+      - type: bind
+        source: /dev/dri
+        target: /dev/dri
       - ${DOCKER_DATA_DIRECTORY}/jellyfin/config:/config
       - ${DOCKER_DATA_DIRECTORY}/jellyfin/cache:/cache
       - nas-01_storage:/media
@@ -66,9 +97,21 @@ services:
       - DOCKER_MODS=linuxserver/mods:plex-audnexus|linuxserver/mods:plex-absolute-hama
       # - PLEX_CLAIM=${PLEX_CLAIM_TOKEN}
     network_mode: host
-    # devices:
-    #   - /dev/dri:/dev/dri
+    # Arc B580 for QSV/VA-API, alongside NVENC above — see the jellyfin service for why this
+    # is a whole-directory bind mount rather than a `devices:` entry. Needs Plex Pass, and
+    # PMS >= 1.43.1 for Battlemage. LSIO's init-video already adds abc to the group owning
+    # /dev/dri/*, but state it anyway rather than depend on image internals.
+    #
+    # Plex auto-detects rather than taking a device path, and it will see both render nodes
+    # here. Whether it picks the Arc is untested — it stays on NVENC until that is answered.
+    device_cgroup_rules:
+      - 'c 226:* rmw'
+    group_add:
+      - "${RENDER_GID}"
     volumes:
+      - type: bind
+        source: /dev/dri
+        target: /dev/dri
       - ${DOCKER_DATA_DIRECTORY}/plex/config:/config
       - ${DOCKER_DATA_DIRECTORY}/plex/transcode:/transcode
       - nas-01_storage:/data

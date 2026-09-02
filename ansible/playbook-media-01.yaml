@@ -197,6 +197,7 @@
         kohya_ss_models_path: "{{ docker_compose_dst_data_directory_path }}/comfyui/models"
       tags: kohya_ss
     - role: docker_compose
+      tags: media
       vars:
         docker_compose_copy_scripts: true
         docker_compose_src_file_path: files/media-01/docker-compose-media.yml
