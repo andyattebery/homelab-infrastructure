@@ -3,7 +3,16 @@
 # hardlink-manager URL that has to be templated — which this role cannot do, because the
 # only directory-copy mechanism (docker_compose_src_config_dirs) uses ansible.builtin.copy
 # and never renders Jinja. The caller passes them as docker_compose_src_config_files
-# entries instead; see playbook-media-01.yaml.
+# entries instead; see the calling playbook.
+
+- name: Assert the tdarr component is set
+  ansible.builtin.assert:
+    that: docker_compose_tdarr_component in ['server', 'node']
+    fail_msg: >-
+      docker_compose_tdarr_component must be "server" or "node"; got
+      "{{ docker_compose_tdarr_component }}". One invocation deploys one component — a host
+      running both invokes this role twice, giving each its own docker_compose_tdarr_env_suffix.
+      An empty value would otherwise render a node and deploy it to docker-compose-tdarr-.yaml.
 
 - name: Assert tdarr storage host is set
   ansible.builtin.assert:
@@ -13,41 +22,55 @@
       Without it the CIFS volume names and device paths render empty, and the containers
       start with nothing mounted at /media.
 
-- name: Configure tdarr server
-  when: docker_compose_tdarr_server
-  vars:
-    docker_compose_src_file_path: templates/docker-compose-tdarr-server.yaml.j2
-    docker_compose_dst_file_name: docker-compose-tdarr-server.yaml
-    docker_compose_envs:
-      TDARR_IMAGE_TAG: "{{ docker_compose_tdarr_image_tag }}"
-      TDARR_NODE_NAME: "{{ docker_compose_tdarr_node_name }}"
-      TDARR_TRANSCODE_CACHE_PATH: "{{ docker_compose_tdarr_transcode_cache_path }}"
-      SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
-      SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
-      SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
-      SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
-  ansible.builtin.include_role:
-    name: docker_compose
+# Length tests only, so no credential reaches the play output on failure.
+- name: Assert tdarr SMB credentials are set
+  ansible.builtin.assert:
+    that:
+      - docker_compose_tdarr_smb_username | string | length > 0
+      - docker_compose_tdarr_smb_password | string | length > 0
+      - docker_compose_tdarr_smb_uid | string | length > 0
+      - docker_compose_tdarr_smb_gid | string | length > 0
+    fail_msg: >-
+      Set docker_compose_tdarr_smb_username, _password, _uid and _gid. This role always mounts
+      the CIFS share, so an empty value renders mount options reading "username=,password="
+      and fails at mount time on the host instead of here.
 
-- name: Configure tdarr node
-  when: docker_compose_tdarr_node
+- name: "Configure tdarr {{ docker_compose_tdarr_component }}"
   vars:
-    docker_compose_src_file_path: templates/docker-compose-tdarr-node.yaml.j2
-    docker_compose_dst_file_name: docker-compose-tdarr-node.yaml
-    docker_compose_envs:
-      TDARR_IMAGE_TAG: "{{ docker_compose_tdarr_image_tag }}"
-      TDARR_NODE_NAME: "{{ docker_compose_tdarr_node_name }}"
-      TDARR_SERVER_IP: "{{ docker_compose_tdarr_server_ip }}"
-      TDARR_SERVER_PORT: "{{ docker_compose_tdarr_server_port }}"
-      TDARR_API_KEY: "{{ docker_compose_tdarr_api_key }}"
-      TDARR_TRANSCODE_GPU_WORKERS: "{{ docker_compose_tdarr_transcode_gpu_workers }}"
-      TDARR_TRANSCODE_CPU_WORKERS: "{{ docker_compose_tdarr_transcode_cpu_workers }}"
-      TDARR_HEALTHCHECK_GPU_WORKERS: "{{ docker_compose_tdarr_healthcheck_gpu_workers }}"
-      TDARR_HEALTHCHECK_CPU_WORKERS: "{{ docker_compose_tdarr_healthcheck_cpu_workers }}"
-      TDARR_TRANSCODE_CACHE_PATH: "{{ docker_compose_tdarr_transcode_cache_path }}"
-      SMB_STORAGE_USERNAME: "{{ smb_nas_01_username }}"
-      SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
-      SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
-      SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
+    _sfx: "{{ docker_compose_tdarr_env_suffix }}"
+    docker_compose_src_file_path: templates/docker-compose-tdarr.yaml.j2
+    docker_compose_dst_file_name: "docker-compose-tdarr-{{ docker_compose_tdarr_component }}.yaml"
+    # Keys are built with `~` so the suffix lands in the NAME, not the value. `.env` is a
+    # host-global namespace that is merged rather than rewritten and never pruned, so two
+    # invocations on one host must not write the same names — that is what the suffix is for.
+    #
+    # The four worker names are written whether or not the template reads them: a server only
+    # reads them when docker_compose_tdarr_server_manage_workers is true, but they belong to this
+    # role either way and the suffix already keeps components apart.
+    #
+    # SMB_STORAGE_* is deliberately NOT suffixed. docker_compose_comfyui writes the same four
+    # names on purpose so both roles converge on one credential set per host.
+    docker_compose_envs: >-
+      {{
+        {
+          'TDARR_IMAGE_TAG' ~ _sfx: docker_compose_tdarr_image_tag,
+          'TDARR_NODE_NAME' ~ _sfx: docker_compose_tdarr_node_name,
+          'TDARR_TRANSCODE_CACHE_PATH' ~ _sfx: docker_compose_tdarr_transcode_cache_path,
+          'TDARR_TRANSCODE_GPU_WORKERS' ~ _sfx: docker_compose_tdarr_transcode_gpu_workers,
+          'TDARR_TRANSCODE_CPU_WORKERS' ~ _sfx: docker_compose_tdarr_transcode_cpu_workers,
+          'TDARR_HEALTHCHECK_GPU_WORKERS' ~ _sfx: docker_compose_tdarr_healthcheck_gpu_workers,
+          'TDARR_HEALTHCHECK_CPU_WORKERS' ~ _sfx: docker_compose_tdarr_healthcheck_cpu_workers,
+          'SMB_STORAGE_USERNAME': docker_compose_tdarr_smb_username,
+          'SMB_STORAGE_PASSWORD': docker_compose_tdarr_smb_password,
+          'SMB_STORAGE_UID': docker_compose_tdarr_smb_uid,
+          'SMB_STORAGE_GID': docker_compose_tdarr_smb_gid
+        } | combine(
+          {
+            'TDARR_SERVER_IP' ~ _sfx: docker_compose_tdarr_server_ip,
+            'TDARR_SERVER_PORT' ~ _sfx: docker_compose_tdarr_server_port,
+            'TDARR_API_KEY' ~ _sfx: docker_compose_tdarr_api_key
+          } if docker_compose_tdarr_component == 'node' else {}
+        )
+      }}
   ansible.builtin.include_role:
     name: docker_compose

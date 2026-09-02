@@ -285,7 +285,8 @@ Samba share config uses `veto files = /.snapshots/` on all per-disk shares to hi
 
 ### Tdarr node container (wsl-01)
 
-- Template: `ansible/roles/docker_compose_tdarr/templates/docker-compose-tdarr-node.yaml.j2`
+- Template: `ansible/roles/docker_compose_tdarr/templates/docker-compose-tdarr.yaml.j2`,
+  rendered with `docker_compose_tdarr_component: node`
 - Custom ffmpeg: BtbN/FFmpeg-Builds master build at `/opt/ffmpeg-btbn/bin/ffmpeg` (mounted as `/ffmpeg/ffmpeg` in container). Required for `-tune uhq` support in `av1_nvenc`.
 - CIFS volumes: `/media` (merged storage, `noserverino`) for Tdarr library browsing. `/media-raw/dataXX` (per-disk, `serverino` via default) for hardlink operations.
 - GPU: NVIDIA runtime with WSL2 library passthrough.

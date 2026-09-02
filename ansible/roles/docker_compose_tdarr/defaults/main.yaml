@@ -1,20 +1,76 @@
 ---
-docker_compose_tdarr_server: false
-docker_compose_tdarr_node: false
+# Which component this invocation deploys: "server" or "node". No default — the role asserts it,
+# because an empty value would render a node and deploy it to docker-compose-tdarr-.yaml.
+#
+# One invocation deploys one component. A host running both invokes the role twice, and must give
+# each invocation its own docker_compose_tdarr_env_suffix; see below.
+docker_compose_tdarr_component: ""
 
+# Appended to every TDARR_* name this role writes into the host's shared .env.
+#
+# `.env` is a host-global namespace — one file per host, shared by every role, merged rather than
+# rewritten, and never pruned. Two invocations of this role on one host would therefore have the
+# second silently redefine the first's worker counts and nodeName. A distinct suffix per
+# invocation ("_SERVER" / "_NODE") keeps them apart.
+#
+# Empty by default, so a host running a single component gets unsuffixed names and sees no change.
+# SMB_STORAGE_* is never suffixed: it is shared with other roles on purpose.
+docker_compose_tdarr_env_suffix: ""
+
+# Where a NODE dials to reach the server. Not the server's own settings — the server listens on
+# 0.0.0.0:8266 unconditionally.
 docker_compose_tdarr_server_ip: "tdarr.{{ domain_name }}"
 docker_compose_tdarr_server_port: 8266
-docker_compose_tdarr_node_name: "{{ inventory_hostname }}"
 docker_compose_tdarr_api_key: ""
 
+# The name this component registers under in the Tdarr UI. For a server this names its internal
+# node. Two components on one host must not share it.
+docker_compose_tdarr_node_name: "{{ inventory_hostname }}"
+
+# Worker counts. A node always emits them; a server only when manage_workers is true, below.
 docker_compose_tdarr_transcode_gpu_workers: 0
 docker_compose_tdarr_transcode_cpu_workers: 2
 docker_compose_tdarr_healthcheck_gpu_workers: 0
 docker_compose_tdarr_healthcheck_cpu_workers: 1
 
+# Whether the SERVER's internal node takes its worker counts from the four variables above.
+#
+# false: the server emits no worker variables and the internal node's counts stay whatever the
+# Tdarr UI holds. This is the historical behaviour and the safe default — turning it on adopts
+# the four values above, which are node-shaped defaults and are very likely not what the
+# internal node is running today.
+#
+# true: the four are emitted and Ansible owns them. Tdarr's documented precedence is
+# "Environment Variables take precedence, followed by JSON files, then defaults", so the UI
+# values are overridden at container start.
+#
+# Only read when the component is "server". A node always emits its four.
+docker_compose_tdarr_server_manage_workers: false
+
 docker_compose_tdarr_nvidia_gpu: false
 docker_compose_tdarr_nvidia_gpu_wsl: false
 docker_compose_tdarr_intel_gpu: false
+
+# Which GPU the caller intends the flows to use, when docker_compose_tdarr_intel_gpu is true.
+#
+# DOCUMENTATION ONLY. This role emits it nowhere — not into .env, not into the compose file. The
+# device a flow uses is set by hand in the Tdarr UI; this variable records which one the host was
+# wired for so the playbook and the UI can be checked against each other.
+#
+# It cannot be a device to map. When intel_gpu is true the template bind-mounts the whole /dev/dri
+# and grants access by DRM major with a wildcard minor, because iHD requires a node's NAME to
+# match its MINOR: a container handed one node renamed to a fixed /dev/dri/renderD128 fails with
+# "Failed to a DRM display" however it is passed. The container sees the real names.
+#
+# Prefer the by-path form, which is fixed by the PCI address and survives reboots:
+#
+#   docker_compose_tdarr_intel_render_device: /dev/dri/by-path/pci-0000:02:00.0-render
+#
+# The renderD* number is not stable — it follows driver probe order, so on a host with a
+# discrete card as well it can move between boots. Find the right one with
+# `readlink -f /dev/dri/by-path/*-render` and confirm 0x8086 in
+# /sys/class/drm/<node>/device/vendor.
+docker_compose_tdarr_intel_render_device: /dev/dri/renderD128
 
 docker_compose_tdarr_transcode_cache_path: /transcode_cache
 
@@ -24,9 +80,25 @@ docker_compose_tdarr_transcode_cache_path: /transcode_cache
 docker_compose_tdarr_storage_host: ""
 docker_compose_tdarr_storage_share: storage
 
+# Credentials for the CIFS volumes above. Required — this role always mounts the share, so the
+# role asserts all four are non-empty rather than deploying a volume whose mount options read
+# "username=,password=" and fail at mount time.
+#
+# They are written to the shared .env under SMB_STORAGE_*, unsuffixed and deliberately the same
+# four names docker_compose_comfyui uses, so both roles converge on one credential set on a host
+# running both. Callers must therefore pass the same credentials.
+docker_compose_tdarr_smb_username: ""
+docker_compose_tdarr_smb_password: ""
+docker_compose_tdarr_smb_uid: ""
+docker_compose_tdarr_smb_gid: ""
+
 # Per-disk shares mounted at /media-raw/<disk>, WITHOUT noserverino so inode numbers are
 # stable and hardlink detection works. The merged share above uses noserverino and cannot
 # be used for that. Empty when no flow manipulates hardlinks.
 docker_compose_tdarr_hardlink_disks: []
 
 docker_compose_tdarr_image_tag: latest
+
+# Note: docker_compose_tdarr_custom_ffmpeg_path is deliberately NOT defaulted. The template gates
+# on `is defined`, so absence is the switch — giving it a default of "" would make that test
+# permanently true and mount /ffmpeg from an empty source on every host.

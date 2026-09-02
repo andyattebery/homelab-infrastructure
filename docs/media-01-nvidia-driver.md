@@ -102,10 +102,17 @@
 >
 > Those codec libraries are what the container toolkit injects for
 > `NVIDIA_DRIVER_CAPABILITIES=all`, which is what Plex
-> (`ansible/files/media-01/docker-compose-media.yml:75`) and the Tdarr server
-> (`roles/docker_compose_tdarr/templates/docker-compose-tdarr-server.yaml.j2:33`) both request —
+> (`ansible/files/media-01/docker-compose-media.yml`) and the Tdarr server
+> (then `roles/docker_compose_tdarr/templates/docker-compose-tdarr-server.yaml.j2`) both request —
 > and every Tdarr flow is `hevc_nvenc` / `av1_nvenc` / `tonemap_cuda`. Headless would have left CUDA
 > working and silently removed the encoder from every container: Immich fine, Plex and Tdarr broken.
+>
+> [2026-09-01 — line numbers dropped from the two references above; both had rotted, the Plex one
+> before this note was even written. The conclusion is unaffected. Since then the two Tdarr
+> templates were merged into `docker-compose-tdarr.yaml.j2`, and the NVIDIA card moved off the
+> Tdarr server onto a separate node component — which still requests
+> `NVIDIA_DRIVER_CAPABILITIES=all`, so the package set this document settles on is still the one
+> needed.]
 >
 > The role therefore owns `nvidia-driver-{branch}-server-open` — the set the host was already
 > running — so adopting it changed no packages and needed no reboot. `ansible/roles/nvidia_driver/`

@@ -112,8 +112,12 @@
       ansible.builtin.include_role:
         name: docker_compose_tdarr
       vars:
-        docker_compose_tdarr_node: true
+        docker_compose_tdarr_component: node
         docker_compose_tdarr_storage_host: nas-01
+        docker_compose_tdarr_smb_username: "{{ smb_nas_01_username }}"
+        docker_compose_tdarr_smb_password: "{{ smb_nas_01_password }}"
+        docker_compose_tdarr_smb_uid: "{{ smb_nas_01_uid }}"
+        docker_compose_tdarr_smb_gid: "{{ smb_nas_01_gid }}"
         docker_compose_tdarr_nvidia_gpu: true
         docker_compose_tdarr_nvidia_gpu_wsl: true
         docker_compose_tdarr_transcode_gpu_workers: 3

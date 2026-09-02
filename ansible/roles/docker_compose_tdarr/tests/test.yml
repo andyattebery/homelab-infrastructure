@@ -1,0 +1,567 @@
+---
+# Exercises docker_compose_tdarr against throwaway directories. Runs entirely on localhost, starts
+# no container, contacts no host, and needs no Docker daemon -- only the docker CLI, because
+# `docker compose config` renders and exits.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/docker_compose_tdarr/tests/inventory \
+#       roles/docker_compose_tdarr/tests/test.yml
+#
+# What it is actually for: this role deploys ONE component per invocation from ONE template, and a
+# host can invoke it twice. Two things about that only a real Compose parse settles.
+#
+# First, the `{% if %}` split. One template emits either a server or a node, and the differing 29%
+# is spread across eight conditional blocks. A block attached to the wrong branch produces a
+# different valid document, not an error -- a node with `internalNode=true`, or a server with no
+# `ports`, would deploy and misbehave quietly.
+#
+# Second, and the reason this file exists at all: `.env` is a host-global namespace, merged rather
+# than rewritten and never pruned. Two invocations on one host share it, so the later one can
+# silently redefine the earlier one's worker counts and nodeName. That is what
+# docker_compose_tdarr_env_suffix prevents, and case C-CONTROL below reproduces the failure it
+# prevents -- built from a legal setting (the suffix defaults to "") so it stays runnable after the
+# fix, rather than needing an unmodified copy of the role.
+- name: Test docker_compose_tdarr
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # group_vars/all is not loaded under `-i <file>`, and these four are what docker_compose
+    # writes into every .env. Literals: no vault, no real domain.
+    timezone: America/Chicago
+    domain_name: example.test
+    lang_two_letter: en
+    language_region_with_underscore: en_US
+
+    # Play vars, which outrank role defaults. Each one turns off a docker_compose step that would
+    # otherwise need root, a docker group, or a daemon:
+    #   uid/gid        skips the ansible_non_become_user_facts include
+    #   docker_gid     skips `getent group docker`, which asserts -- no such group on a Mac
+    #   render_gid     skips the sibling getent. A real-looking value, not "", because the Intel
+    #                  cases render `group_add: ["${RENDER_GID}"]` and an empty entry is a
+    #                  different document
+    #   should_pull    would contact ghcr.io
+    #   should_run_up  would start the container
+    #   copy_scripts   would install dc/dcup into /usr/local/bin, which needs root. This role
+    #                  does not set it false in its own task vars the way docker_compose_calibre
+    #                  does, so the test has to.
+    docker_compose_uid: "{{ ansible_facts['user_uid'] }}"
+    docker_compose_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_docker_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_render_gid: "989"
+    docker_compose_should_pull: false
+    docker_compose_should_run_up: false
+    docker_compose_copy_scripts: false
+
+    # Role params override these per case; they are the same for every case but G.
+    # Fixture credentials -- no vault, nothing real.
+    docker_compose_tdarr_storage_host: storage-host
+    docker_compose_tdarr_smb_username: fixture-user
+    docker_compose_tdarr_smb_password: fixture-pass
+    docker_compose_tdarr_smb_uid: "1000"
+    docker_compose_tdarr_smb_gid: "1000"
+
+    _disks: [data01, data02, data03, data08, data11, data12]
+
+  tasks:
+    - name: Create scratch directories
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: "tdarr-tests-{{ item }}"
+      register: _tmps
+      loop: [both, control, node, empty, asserts]
+
+    - name: Name the scratch directories
+      ansible.builtin.set_fact:
+        _d: "{{ dict(_tmps.results | map(attribute='item') | zip(_tmps.results | map(attribute='path'))) }}"
+
+    - name: Run the suite
+      block:
+        # ---------- 0. the docker CLI is present ----------
+        # Asserted up front so a missing binary reads as that, rather than as a confusing failure
+        # several tasks later. `compose version` is client-side; no daemon needed.
+        - name: Check the docker CLI is available
+          ansible.builtin.command:
+            cmd: docker compose version
+          register: _docker_version
+          changed_when: false
+
+        - name: docker compose CLI reported a version
+          ansible.builtin.assert:
+            that:
+              - _docker_version.stdout | length > 0
+            success_msg: "{{ _docker_version.stdout }}"
+
+        # ---------- A. the server component ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks
+        # the vars on an import_role task -- so pointing a later case at a different
+        # directory takes another set_fact, not a task var.
+        - name: Point the role at the scratch directory for the server case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.both }}"
+
+        - name: Deploy case A -- server, _SERVER suffix, Intel, custom ffmpeg, managed workers
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.both }}/data"
+            docker_compose_tdarr_component: server
+            docker_compose_tdarr_env_suffix: _SERVER
+            docker_compose_tdarr_node_name: fixture-server
+            docker_compose_tdarr_intel_gpu: true
+            docker_compose_tdarr_nvidia_gpu: false
+            docker_compose_tdarr_custom_ffmpeg_path: /opt/jellyfin-ffmpeg/bin
+            docker_compose_tdarr_server_manage_workers: true
+            docker_compose_tdarr_transcode_gpu_workers: 1
+            docker_compose_tdarr_transcode_cpu_workers: 0
+            docker_compose_tdarr_healthcheck_gpu_workers: 0
+            docker_compose_tdarr_healthcheck_cpu_workers: 1
+            docker_compose_tdarr_hardlink_disks: "{{ _disks }}"
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        # The destination filename, not the rendered content. `.j2` is not stripped by
+        # docker_compose, so this is the assertion that keeps the file visible to files/dc.
+        - name: Stat the deployed server file, and the .j2 name that must not exist
+          ansible.builtin.stat:
+            path: "{{ _d.both }}/{{ item }}"
+          register: _stats
+          loop:
+            - docker-compose-tdarr-server.yaml
+            - docker-compose-tdarr-server.yaml.j2
+            - docker-compose-tdarr.yaml.j2
+
+        - name: The component names the deployed file, under a name files/dc can glob
+          ansible.builtin.assert:
+            that:
+              - _stats.results[0].stat.exists
+              - not _stats.results[1].stat.exists
+              - not _stats.results[2].stat.exists
+            success_msg: "{{ _d.both }}/docker-compose-tdarr-server.yaml"
+
+        - name: Render case A
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-tdarr-server.yaml config --format json
+          register: _render_a
+          changed_when: false
+
+        - name: Case A is the server service, with the server-only blocks and no NVIDIA
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _svc: "{{ _cfg.services.tdarr }}"
+            _env: "{{ _svc.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _cfg.services | length == 1
+              - _svc.container_name == 'tdarr'
+              - _svc.image == 'ghcr.io/haveagitgat/tdarr:latest'
+              # server-only structure
+              - _svc.ports | length == 1
+              - _svc.labels['traefik.enable'] == 'true'
+              - "'traefik' in _cfg.networks"
+              - _env['internalNode'] == 'true'
+              - _env['serverIP'] == '0.0.0.0'
+              - _env['webUIPort'] == '8265'
+              # node-only keys must be absent
+              - "'nodeType' not in _env"
+              - "'apiKey' not in _env"
+              - "'pollInterval' not in _env"
+              # the Arc half present, the NVIDIA half absent
+              - _svc.device_cgroup_rules == ['c 226:* rmw']
+              - _svc.group_add == ['989']
+              - "'runtime' not in _svc"
+              - "'deploy' not in _svc"
+              - "'NVIDIA_DRIVER_CAPABILITIES' not in _env"
+            success_msg: "tdarr: ports={{ _svc.ports | length }} cgroup={{ _svc.device_cgroup_rules }}"
+
+        - name: Case A mounts /dev/dri, the six per-disk shares, and the custom ffmpeg
+          vars:
+            _vols: "{{ (_render_a.stdout | from_json).services.tdarr.volumes }}"
+            _raw: "{{ _vols | selectattr('target', 'match', '^/media-raw/') | list }}"
+            _dri: "{{ _vols | selectattr('target', 'eq', '/dev/dri') | list }}"
+            _ff: "{{ _vols | selectattr('target', 'eq', '/ffmpeg') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _raw | length == 6
+              - _raw | map(attribute='source') | list
+                == _disks | map('regex_replace', '^', 'storage-host_') | list
+              - _dri | length == 1
+              - _dri[0].source == '/dev/dri'
+              - _ff | length == 1
+              - _ff[0].source == '/opt/jellyfin-ffmpeg/bin'
+            success_msg: "{{ _raw | map(attribute='target') | join(', ') }}"
+
+        # An UNSET variable is only a warning to Compose -- it substitutes a blank and carries on --
+        # so a name dropped from docker_compose_envs would silently blank rather than fail. Only an
+        # assertion on the rendered value catches that.
+        - name: Case A worker counts and nodeName resolved through the _SERVER names
+          vars:
+            _env: "{{ (_render_a.stdout | from_json).services.tdarr.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _env['nodeName'] == 'fixture-server'
+              - _env['transcodegpuWorkers'] == '1'
+              - _env['transcodecpuWorkers'] == '0'
+              - _env['healthcheckgpuWorkers'] == '0'
+              - _env['healthcheckcpuWorkers'] == '1'
+            success_msg: >-
+              nodeName={{ _env['nodeName'] }} gpu={{ _env['transcodegpuWorkers'] }}
+              cpu={{ _env['transcodecpuWorkers'] }}
+
+        # The CIFS path is fed by role inputs now, not by variables the role reached out for, so it
+        # is worth proving the values actually arrive. The password is neither asserted on nor
+        # printed.
+        - name: Case A CIFS volume carries the share and the credentials it was given
+          vars:
+            _v: "{{ (_render_a.stdout | from_json).volumes['storage-host_storage'] }}"
+          ansible.builtin.assert:
+            that:
+              - _v.driver_opts.type == 'cifs'
+              - _v.driver_opts.device == '//storage-host.example.test/storage'
+              - "'username=fixture-user' in _v.driver_opts.o"
+              - "'uid=1000' in _v.driver_opts.o"
+              - "'gid=1000' in _v.driver_opts.o"
+              - "'noserverino' in _v.driver_opts.o"
+            success_msg: "{{ _v.driver_opts.device }}"
+
+        # ---------- A again. the run-it-twice rule ----------
+        # The second run slurps the .env the first wrote and re-parses it through jc('env') before
+        # rewriting it. TDARR_API_KEY defaults to empty, so this also checks an empty .env value
+        # survives the round trip instead of vanishing and becoming an unset-variable warning.
+        - name: Deploy case A a second time
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.both }}/data"
+            docker_compose_tdarr_component: server
+            docker_compose_tdarr_env_suffix: _SERVER
+            docker_compose_tdarr_node_name: fixture-server
+            docker_compose_tdarr_intel_gpu: true
+            docker_compose_tdarr_nvidia_gpu: false
+            docker_compose_tdarr_custom_ffmpeg_path: /opt/jellyfin-ffmpeg/bin
+            docker_compose_tdarr_server_manage_workers: true
+            docker_compose_tdarr_transcode_gpu_workers: 1
+            docker_compose_tdarr_transcode_cpu_workers: 0
+            docker_compose_tdarr_healthcheck_gpu_workers: 0
+            docker_compose_tdarr_healthcheck_cpu_workers: 1
+            docker_compose_tdarr_hardlink_disks: "{{ _disks }}"
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Render case A again
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-tdarr-server.yaml config --format json
+          register: _render_a2
+          changed_when: false
+
+        - name: Case A resolves the same on the second run
+          ansible.builtin.assert:
+            that:
+              - _render_a2.stdout == _render_a.stdout
+            success_msg: idempotent
+
+        # ---------- B. the node component, into the SAME directory ----------
+        # Which is also case C: the second invocation on one host, sharing one .env.
+        - name: Deploy case B -- node, _NODE suffix, NVIDIA, into the same directory
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.both }}/data"
+            docker_compose_tdarr_component: node
+            docker_compose_tdarr_env_suffix: _NODE
+            docker_compose_tdarr_node_name: fixture-node
+            docker_compose_tdarr_nvidia_gpu: true
+            docker_compose_tdarr_intel_gpu: false
+            docker_compose_tdarr_transcode_gpu_workers: 3
+            docker_compose_tdarr_transcode_cpu_workers: 0
+            docker_compose_tdarr_healthcheck_gpu_workers: 0
+            docker_compose_tdarr_healthcheck_cpu_workers: 2
+            docker_compose_tdarr_hardlink_disks: "{{ _disks }}"
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Render case B
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-tdarr-node.yaml config --format json
+          register: _render_b
+          changed_when: false
+
+        - name: Case B is the node service, with the node-only blocks and no server ones
+          vars:
+            _cfg: "{{ _render_b.stdout | from_json }}"
+            _svc: "{{ _cfg.services['tdarr-node'] }}"
+            _env: "{{ _svc.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _cfg.services | length == 1
+              - _svc.container_name == 'tdarr-node'
+              - _svc.image == 'ghcr.io/haveagitgat/tdarr_node:latest'
+              # node-only structure
+              - _env['nodeType'] == 'mapped'
+              - _env['serverIP'] == 'tdarr.example.test'
+              - _env['serverPort'] == '8266'
+              - _env['startPaused'] == 'false'
+              # server-only keys and blocks must be absent
+              - "'internalNode' not in _env"
+              - "'webUIPort' not in _env"
+              - "'ports' not in _svc"
+              - "'labels' not in _svc"
+              - "'traefik' not in _cfg.networks | default({})"
+              # the NVIDIA half present, the Arc half absent
+              - _svc.runtime == 'nvidia'
+              - _env['NVIDIA_DRIVER_CAPABILITIES'] == 'all'
+              - _svc.deploy.resources.reservations.devices[0].driver == 'nvidia'
+              - "'device_cgroup_rules' not in _svc"
+              - _svc.volumes | selectattr('target', 'eq', '/dev/dri') | list | length == 0
+            success_msg: "tdarr-node: runtime={{ _svc.runtime }} serverIP={{ _env['serverIP'] }}"
+
+        # ---------- C. the regression this refactor exists for ----------
+        # Both components have now written the one shared .env. Re-render the SERVER file: its
+        # values must be untouched by the node invocation that ran after it.
+        - name: Re-render case A after the node invocation shared its .env
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-tdarr-server.yaml config --format json
+          register: _render_c
+          changed_when: false
+
+        - name: Case C -- each component keeps its own workers and nodeName from one .env
+          vars:
+            _srv: "{{ (_render_c.stdout | from_json).services.tdarr.environment }}"
+            _nod: "{{ (_render_b.stdout | from_json).services['tdarr-node'].environment }}"
+          ansible.builtin.assert:
+            that:
+              # the server is unchanged by the later invocation
+              - _srv['nodeName'] == 'fixture-server'
+              - _srv['transcodegpuWorkers'] == '1'
+              - _srv['healthcheckcpuWorkers'] == '1'
+              # the node has its own, different values
+              - _nod['nodeName'] == 'fixture-node'
+              - _nod['transcodegpuWorkers'] == '3'
+              - _nod['healthcheckcpuWorkers'] == '2'
+              # and they are genuinely different -- not both defaulted to the same thing
+              - _srv['nodeName'] != _nod['nodeName']
+              - _srv['transcodegpuWorkers'] != _nod['transcodegpuWorkers']
+            success_msg: >-
+              server({{ _srv['nodeName'] }}, gpu={{ _srv['transcodegpuWorkers'] }})
+              node({{ _nod['nodeName'] }}, gpu={{ _nod['transcodegpuWorkers'] }})
+
+        # ---------- C-CONTROL. the same two invocations WITHOUT distinct suffixes ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks
+        # the vars on an import_role task -- so pointing a later case at a different
+        # directory takes another set_fact, not a task var.
+        - name: Point the role at the scratch directory for the control
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.control }}"
+
+        # The positive control. Both use the default empty suffix, which is a legal setting, so this
+        # keeps working after the fix rather than requiring an unmodified copy of the role. The
+        # server must come back holding the NODE's worker counts -- the failure the suffix prevents.
+        - name: Control -- deploy server with no suffix
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.control }}/data"
+            docker_compose_tdarr_component: server
+            docker_compose_tdarr_node_name: fixture-server
+            docker_compose_tdarr_server_manage_workers: true
+            docker_compose_tdarr_transcode_gpu_workers: 1
+            docker_compose_tdarr_healthcheck_cpu_workers: 1
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Control -- deploy node with no suffix, same directory
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.control }}/data"
+            docker_compose_tdarr_component: node
+            docker_compose_tdarr_node_name: fixture-node
+            docker_compose_tdarr_transcode_gpu_workers: 3
+            docker_compose_tdarr_healthcheck_cpu_workers: 2
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Control -- re-render the server
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.control }}/.env
+              --file {{ _d.control }}/docker-compose-tdarr-server.yaml config --format json
+          register: _render_ctl
+          changed_when: false
+
+        - name: Control reproduces the collision the suffix prevents
+          vars:
+            _srv: "{{ (_render_ctl.stdout | from_json).services.tdarr.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _srv['nodeName'] == 'fixture-node'
+              - _srv['transcodegpuWorkers'] == '3'
+              - _srv['healthcheckcpuWorkers'] == '2'
+            success_msg: >-
+              collision reproduced: the server rendered the node's values
+              (nodeName={{ _srv['nodeName'] }}, gpu={{ _srv['transcodegpuWorkers'] }}).
+              Case C shows the suffix preventing exactly this.
+
+        # ---------- D. the WSL node shape ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks
+        # the vars on an import_role task -- so pointing a later case at a different
+        # directory takes another set_fact, not a task var.
+        - name: Point the role at the scratch directory for the WSL node case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.node }}"
+
+        - name: Deploy case D -- node, no suffix, NVIDIA + WSL passthrough, no Intel
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.node }}/data"
+            docker_compose_tdarr_component: node
+            docker_compose_tdarr_nvidia_gpu: true
+            docker_compose_tdarr_nvidia_gpu_wsl: true
+            docker_compose_tdarr_custom_ffmpeg_path: /opt/ffmpeg-btbn/bin
+            docker_compose_tdarr_hardlink_disks: "{{ _disks }}"
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Render case D
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.node }}/.env
+              --file {{ _d.node }}/docker-compose-tdarr-node.yaml config --format json
+          register: _render_d
+          changed_when: false
+
+        - name: Case D adds the WSL library passthrough and resolves unsuffixed names
+          vars:
+            _svc: "{{ (_render_d.stdout | from_json).services['tdarr-node'] }}"
+            _env: "{{ _svc.environment }}"
+            _wsl: "{{ _svc.volumes | selectattr('target', 'eq', '/usr/lib/wsl/lib') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _env['LD_LIBRARY_PATH'] == '/usr/lib/wsl/lib:/usr/lib/x86_64-linux-gnu'
+              - _wsl | length == 1
+              - _wsl[0].source == '/usr/lib/wsl/lib'
+              - _svc.volumes | selectattr('target', 'eq', '/dev/dri') | list | length == 0
+              # unsuffixed names still resolve -- the default path every single-component host takes
+              - _env['nodeName'] | length > 0
+              - _env['transcodecpuWorkers'] == '2'
+            success_msg: "LD_LIBRARY_PATH={{ _env['LD_LIBRARY_PATH'] }}"
+
+        # ---------- E. the disk loop vanishing ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks
+        # the vars on an import_role task -- so pointing a later case at a different
+        # directory takes another set_fact, not a task var.
+        - name: Point the role at the scratch directory for the empty-disks case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.empty }}"
+
+        # If the `for` were mis-indented the surrounding document would still have to parse, so this
+        # is the case that proves an empty list leaves `volumes:` valid rather than malformed.
+        - name: Deploy case E -- no hardlink disks
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.empty }}/data"
+            docker_compose_tdarr_component: node
+            docker_compose_tdarr_hardlink_disks: []
+          ansible.builtin.import_role:
+            name: docker_compose_tdarr
+
+        - name: Render case E
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.empty }}/.env
+              --file {{ _d.empty }}/docker-compose-tdarr-node.yaml config --format json
+          register: _render_e
+          changed_when: false
+
+        - name: Case E leaves one CIFS volume, no /media-raw mounts, and no ffmpeg mount
+          vars:
+            _cfg: "{{ _render_e.stdout | from_json }}"
+            _vols: "{{ _cfg.services['tdarr-node'].volumes }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length > 0
+              - _vols | selectattr('target', 'match', '^/media-raw/') | list | length == 0
+              - _vols | selectattr('target', 'eq', '/media') | list | length == 1
+              - _cfg.volumes | length == 1
+              # custom_ffmpeg_path is undefined here, and `is defined` is the switch -- a default
+              # of "" would mount /ffmpeg from an empty source instead
+              - _vols | selectattr('target', 'eq', '/ffmpeg') | list | length == 0
+            success_msg: "{{ _vols | map(attribute='target') | join(', ') }}"
+
+        # ---------- F. the component guard ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks
+        # the vars on an import_role task -- so pointing a later case at a different
+        # directory takes another set_fact, not a task var.
+        - name: Point the role at the scratch directory for the guard cases
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.asserts }}"
+
+        - name: Case F -- component unset must fail the play
+          block:
+            - name: Deploy with no component
+              vars:
+                docker_compose_tdarr_component: ""
+              ansible.builtin.import_role:
+                name: docker_compose_tdarr
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _f_unset_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _f_unset_fired: true
+
+        - name: Case F -- a misspelled component must fail the play
+          block:
+            - name: Deploy with a misspelled component
+              vars:
+                docker_compose_tdarr_component: Server
+              ansible.builtin.import_role:
+                name: docker_compose_tdarr
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _f_typo_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _f_typo_fired: true
+
+        - name: Case F -- both bad component values were rejected
+          ansible.builtin.assert:
+            that:
+              - _f_unset_fired
+              - _f_typo_fired
+            success_msg: "empty and misspelled component both rejected"
+
+        # ---------- G. the SMB credential guard ----------
+        - name: Case G -- empty SMB credentials must fail the play
+          block:
+            - name: Deploy with empty credentials
+              vars:
+                docker_compose_tdarr_component: node
+                docker_compose_tdarr_smb_username: ""
+                docker_compose_tdarr_smb_password: ""
+                docker_compose_tdarr_smb_uid: ""
+                docker_compose_tdarr_smb_gid: ""
+              ansible.builtin.import_role:
+                name: docker_compose_tdarr
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _g_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _g_fired: true
+
+        - name: Case G -- empty credentials were rejected
+          ansible.builtin.assert:
+            that:
+              - _g_fired
+            success_msg: >-
+              empty SMB credentials rejected, rather than deploying a volume whose mount
+              options read "username=,password="
+
+      always:
+        - name: Remove the scratch directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: "{{ _tmps.results | map(attribute='path') | list }}"

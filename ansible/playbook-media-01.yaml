@@ -11,6 +11,18 @@
     # hold nothing else. Same path as htpc-01, deliberately — the two hosts run one build.
     media_ffmpeg_dir: /opt/jellyfin-ffmpeg/bin
 
+    # The Arc B580's render node, for QSV in jellyfin, plex and tdarr. Referenced from
+    # files/media-01/docker-compose-media.yml too — that file goes through
+    # ansible.builtin.template regardless of its extension, so Jinja renders in it.
+    #
+    # by-path, not renderD*: this host has two GPUs and the numbering follows driver probe
+    # order. renderD128 is the Arc and renderD129 the A4000 today, but that is not guaranteed
+    # across a reboot. The PCI address is fixed by hostpci1 in the VM config, so this name is.
+    #
+    # Only usable since the 26.04 upgrade — kernel 6.8 predated `xe` support for Battlemage
+    # and the card enumerated on the PCI bus with no DRM node at all.
+    media_intel_render_device: /dev/dri/by-path/pci-0000:02:00.0-render
+
   pre_tasks:
     # Tagged so the kernel can be installed on its own with `--tags kernel` and its DKMS build
     # checked before the reboot that activates it. `--tags` runs only tagged tasks, so nothing
@@ -145,10 +157,46 @@
     # connection and any in-flight work across the fleet to gain nothing.
     - role: docker_compose_tdarr
       vars:
-        docker_compose_tdarr_server: true
+        docker_compose_tdarr_component: server
         docker_compose_tdarr_custom_ffmpeg_path: "{{ media_ffmpeg_dir }}"
         docker_compose_tdarr_storage_host: nas-01
-        docker_compose_tdarr_nvidia_gpu: true
+        docker_compose_tdarr_smb_username: "{{ smb_nas_01_username }}"
+        docker_compose_tdarr_smb_password: "{{ smb_nas_01_password }}"
+        docker_compose_tdarr_smb_uid: "{{ smb_nas_01_uid }}"
+        docker_compose_tdarr_smb_gid: "{{ smb_nas_01_gid }}"
+
+        # This host runs the role twice, so each invocation needs its own .env namespace — see
+        # the role's README, "One host running both server and node". Without it the node
+        # invocation, running later, would redefine this one's worker counts and nodeName.
+        docker_compose_tdarr_env_suffix: _SERVER
+
+        # The Arc B580 is this component's card. The A4000 belongs to the node in `tasks:` at the
+        # end of this play: one card per component, so a flow routed at one cannot land on the
+        # other. See media_intel_render_device above for why the Arc is addressed by-path — and
+        # note the role emits that variable nowhere, it records intent for the Tdarr UI.
+        docker_compose_tdarr_intel_gpu: true
+        docker_compose_tdarr_nvidia_gpu: false
+        docker_compose_tdarr_intel_render_device: "{{ media_intel_render_device }}"
+
+        # The internal node's worker counts, taken off the Tdarr UI and into this file.
+        #
+        # One GPU transcode worker, no CPU one — the count the iPad-kids recipe gives this host.
+        # Type is a gate, not a label: a CPU transcode worker refuses any job whose ffmpeg
+        # arguments contain nvenc/cuda/vaapi, so a CPU-only node would register, report healthy,
+        # and take nothing from a hardware-accelerated library.
+        #
+        # Deliberately NOT zeroed. This node transcodes on the Arc while the A4000 node adds
+        # concurrency; pausing either one in the Tdarr UI is the off switch, which is a per-job
+        # decision and does not belong hard-coded here.
+        #
+        # manage_workers is opt-in per host because turning it on ADOPTS the four values below
+        # over whatever the UI held — Tdarr's precedence is environment variables first. That is
+        # wanted here, and is not a safe default for a server nobody has chosen counts for.
+        docker_compose_tdarr_server_manage_workers: true
+        docker_compose_tdarr_transcode_gpu_workers: 1
+        docker_compose_tdarr_transcode_cpu_workers: 0
+        docker_compose_tdarr_healthcheck_gpu_workers: 0
+        docker_compose_tdarr_healthcheck_cpu_workers: 1
         # Custom flow plugins. Listed per file rather than as a config_dir because
         # config_dirs copy verbatim while config_files template — and detectHardlinks /
         # replaceHardlinks embed the hardlink-manager URL as {{ domain_name }}.
@@ -207,3 +255,67 @@
           SMB_STORAGE_PASSWORD: "{{ smb_nas_01_password }}"
           SMB_STORAGE_UID: "{{ smb_nas_01_uid }}"
           SMB_STORAGE_GID: "{{ smb_nas_01_gid }}"
+
+  tasks:
+    # The A4000 transcode node — a second deployment of docker_compose_tdarr against the same host
+    # as the server above. The server holds the Arc; this one holds the NVIDIA card, so each
+    # component reaches exactly one and a flow routed at one cannot land on the other.
+    #
+    # It is here rather than in `roles:` because the role has no meta/main.yml: a role listed
+    # twice under `roles:` runs ONCE, so the second entry would be skipped silently and the node
+    # would never deploy. include_role has no such dedup, and is how wsl-01 invokes this role.
+    # `tasks:` also runs after `roles:`, which is the ordering wanted — the server is up before
+    # the node registers against it.
+    # `apply:` is load-bearing, not decoration. include_role does NOT pass this task's tags down to
+    # the included role's tasks, so under `--tags tdarr` the include runs and everything inside it
+    # is filtered out -- the node silently does not deploy and the play still reports success.
+    # That is exactly what happened on the first 2026-09-01 deploy. The github_release_install
+    # include earlier in this file carries the same `apply:` for the same reason.
+    - name: Deploy the A4000 Tdarr node
+      tags: tdarr
+      ansible.builtin.include_role:
+        name: docker_compose_tdarr
+        apply:
+          tags: tdarr
+      vars:
+        docker_compose_tdarr_component: node
+        docker_compose_tdarr_node_name: media-01-a4000
+        docker_compose_tdarr_storage_host: nas-01
+        docker_compose_tdarr_smb_username: "{{ smb_nas_01_username }}"
+        docker_compose_tdarr_smb_password: "{{ smb_nas_01_password }}"
+        docker_compose_tdarr_smb_uid: "{{ smb_nas_01_uid }}"
+        docker_compose_tdarr_smb_gid: "{{ smb_nas_01_gid }}"
+
+        # The second .env namespace on this host; the server invocation above takes _SERVER.
+        # Without a distinct suffix this invocation, running later, would redefine the server's
+        # worker counts and nodeName — `.env` is host-global and merged, never rewritten.
+        docker_compose_tdarr_env_suffix: _NODE
+
+        # The A4000. No Intel wiring here: the Arc belongs to the server component.
+        docker_compose_tdarr_nvidia_gpu: true
+
+        # The same jellyfin-ffmpeg fork build the server runs, not the image's bundled ffmpeg.
+        # It carries the NVENC half as well as the VAAPI one — av1_nvenc, hevc_nvenc and
+        # tonemap_cuda are all in it, which is what this node encodes with.
+        docker_compose_tdarr_custom_ffmpeg_path: "{{ media_ffmpeg_dir }}"
+
+        # A GPU transcode worker on the A4000, adding concurrency alongside the server's Arc
+        # worker. Pause this node in the Tdarr UI when the card is wanted for ML.
+        #
+        # Type is a gate, not a label: a CPU transcode worker refuses any job whose ffmpeg
+        # arguments contain nvenc/cuda/vaapi, so a CPU-only node would register, report healthy,
+        # and take nothing from a hardware-accelerated library.
+        docker_compose_tdarr_transcode_gpu_workers: 1
+        docker_compose_tdarr_transcode_cpu_workers: 0
+        docker_compose_tdarr_healthcheck_gpu_workers: 0
+        docker_compose_tdarr_healthcheck_cpu_workers: 1
+
+        # Not passed, deliberately:
+        #
+        #   docker_compose_tdarr_server_ip — the role default tdarr.{{ domain_name }} is what
+        #     wsl-01, eta and htpc-01 all use, so that name serves 8266. From a container on this
+        #     host it reaches a published host port through the bridge; no router hairpin.
+        #
+        #   docker_compose_tdarr_hardlink_disks — set in host_vars/media-01/vars.yaml from
+        #     storage_media_data_disks, and inherited here. Passing it would make it a role var
+        #     outranking the host var, the same reason the server invocation does not repeat it.

@@ -1,0 +1,166 @@
+---
+{#
+  One template for both Tdarr components. Each render emits exactly ONE service, chosen by
+  docker_compose_tdarr_component ("server" or "node"), and the role is invoked once per component.
+
+  It is one template and two deployed files rather than one file holding both services, because
+  every compose file in the destination directory is already ONE Compose project: the role's
+  command passes no --project-name, so Compose derives the project from the directory, and
+  files/dc globs them all into a single invocation. Two files therefore buy no isolation — the
+  duplication they used to cost was 71% of this file, and that is what merging removes.
+
+  Because a render emits one service, nothing needs sharing *within* a file: no YAML anchors, no
+  macros. The `{% if %}` blocks below are the only structure.
+
+  Every TDARR_* name is suffixed with docker_compose_tdarr_env_suffix, empty by default. `.env` is
+  a host-global namespace shared by every role on the host, and it accumulates rather than being
+  rewritten — so a host running BOTH components would otherwise have the second invocation
+  redefine the first's worker counts and nodeName. SMB_STORAGE_* is deliberately NOT suffixed; it
+  is shared with other roles on purpose.
+#}
+{% set _server = docker_compose_tdarr_component == 'server' %}
+{% set _sfx = docker_compose_tdarr_env_suffix %}
+services:
+{% if _server %}
+  tdarr:
+    container_name: tdarr
+    image: ghcr.io/haveagitgat/tdarr:${TDARR_IMAGE_TAG{{ _sfx }}}
+{% else %}
+  tdarr-node:
+    container_name: tdarr-node
+    image: ghcr.io/haveagitgat/tdarr_node:${TDARR_IMAGE_TAG{{ _sfx }}}
+{% endif %}
+    restart: unless-stopped
+{% if docker_compose_tdarr_nvidia_gpu %}
+    runtime: nvidia
+{% endif %}
+{% if _server %}
+    ports:
+      - 8266:8266
+    networks:
+      - traefik
+{% endif %}
+    environment:
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK_SET=002
+      - inContainer=true
+      - ffmpegVersion=7
+      - maxLogSizeMB=10
+      - cronPluginUpdate=
+      - nodeName=${TDARR_NODE_NAME{{ _sfx }}}
+{% if _server %}
+{# The server listens on all interfaces and runs its node inside itself; a node dials out to it. #}
+      - serverIP=0.0.0.0
+      - serverPort=8266
+      - webUIPort=8265
+      - internalNode=true
+      - auth=false
+{% else %}
+      - serverIP=${TDARR_SERVER_IP{{ _sfx }}}
+      - serverPort=${TDARR_SERVER_PORT{{ _sfx }}}
+      - apiKey=${TDARR_API_KEY{{ _sfx }}}
+      - nodeType=mapped
+      - priority=-1
+      - pollInterval=2000
+      - startPaused=false
+{% endif %}
+{% if not _server or docker_compose_tdarr_server_manage_workers %}
+{# Worker counts. Tdarr documents these as node variables and they are environment-only — there is
+   no key for them in Tdarr_Node_Config.json — so this is the only way to manage them.
+   A node always emits them. The server emits them only when it has been told to manage its
+   internal node, otherwise they are omitted entirely and the Tdarr UI's values stand. #}
+      - transcodegpuWorkers=${TDARR_TRANSCODE_GPU_WORKERS{{ _sfx }}}
+      - transcodecpuWorkers=${TDARR_TRANSCODE_CPU_WORKERS{{ _sfx }}}
+      - healthcheckgpuWorkers=${TDARR_HEALTHCHECK_GPU_WORKERS{{ _sfx }}}
+      - healthcheckcpuWorkers=${TDARR_HEALTHCHECK_CPU_WORKERS{{ _sfx }}}
+{% endif %}
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - ffmpegPath=/ffmpeg/ffmpeg
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu %}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu_wsl %}
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib:/usr/lib/x86_64-linux-gnu
+{% endif %}
+    volumes:
+{% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
+      - {{ docker_compose_tdarr_custom_ffmpeg_path }}:/ffmpeg:ro
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu_wsl %}
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+{% endif %}
+{% if _server %}
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/server:/app/server
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/configs:/app/configs
+      - ${DOCKER_DATA_DIRECTORY}/tdarr/logs:/app/logs
+{% else %}
+      - ${DOCKER_DATA_DIRECTORY}/tdarr-node/configs:/app/configs
+      - ${DOCKER_DATA_DIRECTORY}/tdarr-node/logs:/app/logs
+{% endif %}
+      - {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:/media
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+      - {{ docker_compose_tdarr_storage_host }}_{{ disk }}:/media-raw/{{ disk }}
+{% endfor %}
+      - ${TDARR_TRANSCODE_CACHE_PATH{{ _sfx }}}:/temp
+{% if docker_compose_tdarr_intel_gpu %}
+      # The WHOLE /dev/dri, bind-mounted, rather than a `devices:` entry naming one node.
+      #
+      # iHD requires a node's NAME to match its MINOR: presenting the Intel card's renderD129
+      # as /dev/dri/renderD128 fails with "Failed to a DRM display" however it is passed. So
+      # the container has to see the real names, which means the whole directory. And a
+      # `devices:` entry is resolved to a major:minor at container CREATE time and reused on
+      # restart, so it goes stale the first time a reboot renumbers the nodes; a directory
+      # bind mount is re-established at START, so the names always match the host.
+      #
+      # Nothing here names a renderD* node. Which card a flow uses is selected in the Tdarr UI.
+      - type: bind
+        source: /dev/dri
+        target: /dev/dri
+{% endif %}
+{% if docker_compose_tdarr_intel_gpu %}
+    # Access by DRM major with a wildcard minor — no minor to go stale here either.
+    device_cgroup_rules:
+      - 'c 226:* rmw'
+    group_add:
+      - "${RENDER_GID}"
+{% endif %}
+{% if docker_compose_tdarr_nvidia_gpu %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+{% endif %}
+{% if _server %}
+    labels:
+      - traefik.enable=true
+
+networks:
+  traefik:
+    name: traefik
+    external: true
+{% endif %}
+
+volumes:
+  {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ docker_compose_tdarr_storage_share }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ docker_compose_tdarr_storage_share }}"
+      o: noserverino,username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% for disk in docker_compose_tdarr_hardlink_disks %}
+  {{ docker_compose_tdarr_storage_host }}_{{ disk }}:
+    name: {{ docker_compose_tdarr_storage_host }}_{{ disk }}
+    driver: local
+    driver_opts:
+      type: cifs
+      device: "//{{ docker_compose_tdarr_storage_host }}.${DOMAIN_NAME}/{{ disk }}"
+      o: username=${SMB_STORAGE_USERNAME},password=${SMB_STORAGE_PASSWORD},uid=${SMB_STORAGE_UID},gid=${SMB_STORAGE_GID}
+{% endfor %}
