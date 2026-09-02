@@ -16,6 +16,9 @@ docker_compose_default_envs:
   PUID: "{{ docker_compose_uid }}"
   PGID: "{{ docker_compose_gid }}"
   DOCKER_GID: "{{ docker_compose_docker_gid }}"
+  # Empty string on hosts with no `render` group. Compose interpolates `${RENDER_GID}` to
+  # nothing there, so only reference it from a compose file on a host that has a DRM device.
+  RENDER_GID: "{{ docker_compose_render_gid }}"
   TZ: "{{ timezone }}"
   LANGUAGE_TWO_LETTER: "{{ lang_two_letter }}"
   LANGUAGE_REGION_WITH_UNDERSCORE: "{{ language_region_with_underscore }}"

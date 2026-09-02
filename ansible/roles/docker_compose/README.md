@@ -38,6 +38,7 @@ Optional: `tailscale_tailnet` — when defined it is added as `TAILSCALE_TAILNET
 | `docker_compose_src_config_files` | `[]` | Per file, via `ansible.builtin.template` — **renders Jinja**. Keys: `src_file_path`, `dst_relative_file_path`; optional `mode`, `service_name_to_restart`, `run_command`, `command_arguments`, `changed_when`. |
 | `docker_compose_src_config_dirs` | `[]` | Recursive, via `ansible.builtin.copy` — **does not render Jinja**. Use for source trees that must land verbatim. Keys: `src_dir_path`, `dst_relative_dir_path`; optional `mode`, `directory_mode`, `service_name_to_restart`. |
 | `docker_compose_docker_gid` | discovered | From `getent group docker`; the role asserts the group exists before continuing. |
+| `docker_compose_render_gid` | discovered | From `getent group render`, exposed as `RENDER_GID`. **No assert** — `render` only exists on hosts with a DRM device, so it falls back to an empty string. A compose file that does `group_add: ["${RENDER_GID}"]` on a host without the group gets an empty entry and fails at `up`; only reference it where a GPU is present. |
 
 `vars/main.yaml` derives `docker_compose_src_file_name`, `docker_compose_dst_file_path`,
 `docker_compose_dst_env_path` and `docker_compose_base_command`. Those are internal — they
@@ -64,6 +65,7 @@ sit at a higher precedence than role defaults and are not meant as caller overri
 | Fact | Set in | Consequence |
 | --- | --- | --- |
 | `docker_compose_docker_gid` | `tasks/main.yaml` | Looked up once per host per play. |
+| `docker_compose_render_gid` | `tasks/main.yaml` | Looked up once per host per play; empty string when the group does not exist. |
 | `docker_compose_dst_directory_path` | `tasks/main.yaml` | Set to itself, which pins it as a **fact** for the rest of the play — above host_vars and play vars. Only role params (`vars:` on the `roles:` entry or `include_role`) and extra vars can override it after that. |
 | `docker_compose_existing_envs` | `tasks/copy_env.yaml` | The `.env` as read from disk before merging. |
 | `ansible_non_become_user_*` | indirectly | Via `ansible_non_become_user_facts`, when uid/gid are not already resolvable. |

@@ -21,6 +21,24 @@
     - name: Set docker_compose_docker_gid
       ansible.builtin.set_fact:
         docker_compose_docker_gid: "{{ ansible_facts['getent_group']['docker'][1] }}"
+# Mirrors the docker block above with one deliberate difference: no assert. `render` only
+# exists on hosts with a DRM device, and every other host still has to run this role. The fact
+# is set either way, because copy_env.yaml templates docker_compose_default_envs on every host
+# and an undefined fact would fail all of them. `fail_key: false` sets the key to None rather
+# than omitting it, which is what the `is not none` test below reads.
+- name: Discover render group GID
+  when: docker_compose_render_gid is not defined
+  block:
+    - name: Look up render group
+      ansible.builtin.getent:
+        database: group
+        key: render
+        fail_key: false
+    - name: Set docker_compose_render_gid
+      ansible.builtin.set_fact:
+        docker_compose_render_gid: >-
+          {{ ansible_facts['getent_group']['render'][1]
+             if ansible_facts['getent_group']['render'] is not none else '' }}
 - name: Set docker_compose_dst_directory_path fact
   ansible.builtin.set_fact:
     docker_compose_dst_directory_path: "{{ docker_compose_dst_directory_path }}"
