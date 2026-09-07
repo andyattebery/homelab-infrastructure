@@ -11,7 +11,7 @@
 - RAM
     - 4x 16 GB DDR4-3200
     - 4x 32 GB DDR4-3200
-- [Broadcom 9305-24e](https://docs.broadcom.com/doc/BC00-0392EN)
+- [Broadcom 9305-24i](https://www.broadcom.com/products/storage/host-bus-adapters/sas-9305-24i)
 - 2x [Asus Hyper M.2 x16 Gen 4](https://www.asus.com/us/motherboards-components/motherboards/accessories/hyper-m-2-x16-gen-4-card/)
 - [Linkreal 4x U.2 to PCIe x16 Adapter](http://www.linkreal.com.cn/en/products/LRNV94NF.html) [[AliExpress]](https://www.aliexpress.us/item/3256803285836696.html?spm=a2g0o.order_list.order_list_main.41.39d11802Y8aRJw&gatewayAdapt=glo2usa)
 - [Nvidia RTX A4000](https://www.nvidia.com/en-us/products/workstations/rtx-a4000/)
@@ -26,16 +26,24 @@
     - 4x [Intel Optane P1600X - 118 GB](https://ark.intel.com/content/www/us/en/ark/products/211867/intel-optane-ssd-p1600x-series-118gb-m-2-80mm-pcie-3-0-x4-3d-xpoint.html) [[Newegg]](https://www.newegg.com/intel-optane-ssd-p1600x-118gb/p/1Z4-009F-00621?Item=1Z4-009F-00621)
     - 2x [Solidigm P44 Pro - 2 TB](https://www.solidigm.com/products/client/pro-series/p44.html#form=M.2%202280&cap=2%20TB)
     - 2x [Samsung 980 Pro - 2 TB](https://semiconductor.samsung.com/consumer-storage/internal-ssd/980pro/)
-- Hard Drives
-    - 1x Seagate BarraCuda - 24 TB
-    - 1x Seagate Exos (Refurbished) - 22 TB
-    - 3x WD Easystore shucked - 18 TB
-    - 1x Seagate Exos X20 (Refurbished) - 18 TB
-    - 1x Seagate Exos X18 (Refurbished) - 18 TB
-    - 4x WD Easystore shucked - 14 TB
-    - 1x Seagate Exos X18 (Refurbished) - 14 TB
-    - 2x Seagate Exos X16 (Refurbished) - 14 TB
-    - 4x WD Red - 8 TB
+- Hard Drives — 18 total, in 18 of the 24 bays (6 bays empty)
+    - 1x Seagate BarraCuda - 24 TB — `ST24000DM001`
+    - 1x Seagate Exos (Refurbished) - 22 TB — `ST22000NM000C`
+    - 3x WD Easystore shucked - 18 TB — `WD180EDGZ`
+    - 2x Seagate Exos X20 (Refurbished) - 18 TB — `ST18000NM003D`
+    - 1x Seagate Exos X18 (Refurbished) - 18 TB — `ST18000NM000J`
+    - 3x WD Easystore shucked - 14 TB — `WD140EDFZ`
+    - 1x WD Easystore shucked - 14 TB — `WD140EDGZ`
+    - 1x Seagate Exos X18 (Refurbished) - 14 TB — `ST14000NM000J`
+    - 1x Seagate Exos X16 (Refurbished) - 14 TB — `ST14000NM001G`
+    - 2x WD shucked white-label - 8 TB — `WD80EMAZ`
+    - 2x WD shucked white-label - 8 TB — `WD80EZAZ`
+
+Model numbers are recorded because the family names alone are ambiguous — `ST18000NM003D`
+(X20) and `ST18000NM000J` (X18) are both 18 TB, as are `ST14000NM000J` (X18) and
+`ST14000NM001G` (X16) at 14 TB. The 8 TB drives are Easystore/Elements shucks, not retail
+WD Red; a genuine 8 TB Red would be `WD80EFAX`/`WD80EFZX` (both CMR — the 2020 SMR
+change affected only the 2/3/4/6 TB Reds).
 
 ### Motherboard
 
@@ -44,6 +52,112 @@ I initially had a [Supermicro H12SSL-i](https://www.supermicro.com/en/products/m
 ### CPU
 
 I chose the 7282 because it has a 120 W TDP vs the comparable 16 core 7302P that has a 155W TDP. It achieves this by only having 2 active CCDs vs the 7302P's 4 CCDs. [However this limits it to 4 memory channels vs the full 8 memory channels](https://www.servethehome.com/amd-epyc-7002-rome-cpus-with-half-memory-bandwidth/). I value lower power consumption over raw performance, so the trade-off was worth it. Additionally, I chose DDR4-3200 RAM (the fastest supported) to try to make up some of the performance.
+
+## Cooling
+
+Established 2026-09-04 by measurement, not from vendor docs — most of it is undocumented.
+
+### Fan headers
+
+The ROMED8-2T has **7 fan headers, all 6-pin**, rated 5 A / 60 W each. Each header carries
+**two tachometer inputs and one PWM control**:
+
+| pin | 1 | 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|---|
+| | GND | FAN_VOLTAGE | FAN_SPEED_SENSOR1 | FAN_SPEED_CONTROL | FAN_SPEED_SENSOR2 | NC |
+
+Pins 1-4 are the standard 4-pin PWM order, so an ordinary fan plugs straight in. That
+second tach on pin 5 is why the BMC exposes `FANn` **and** `FANn_2` sensors — 14 sensors
+for 7 headers. `FANn_2` is not a separate fan, it is the second rotor of the fan on
+header *n*.
+
+### Header to fan mapping
+
+Derived from maximum RPM at 100% duty and PWM response, since nothing labels them:
+
+| header | RPM @100% | responds to PWM | fan |
+|---|---|---|---|
+| FAN1 | 3700 | yes | Noctua NF-A4x20 PWM (5000 rated) |
+| FAN2 | 2300 | yes | **3x EK-Vardar F4-120ER on a splitter — front intake** |
+| FAN3 | 4900 | **no — flat at 35% and 100%** | Supermicro SP3 cooler fan |
+| FAN4 | 1900 | yes | Noctua NF-A14 industrialPPC-2000 |
+| FAN5 | — | — | *empty* |
+| FAN6 | 1700 (see below) | yes | **2x Noctua NF-A8 PWM on a splitter** |
+| FAN7 | — | — | *empty* |
+
+Eight fans on five headers. FAN2 was identified by elimination: 2300 RPM exceeds the
+NF-A14's 2000 rating even at +10% tolerance, so FAN2 cannot be the NF-A14.
+
+### Known issues
+
+- **FAN6's tachometer is intermittent.** Both NF-A8s spin, confirmed visually, but the
+  header reports `0 RPM` / `lnc`. It read a steady 1700 earlier the same day and briefly
+  returned to 1700 after a duty change, so it is a flaky contact rather than a dead fan or
+  a severed wire (a severed tach reads `ns`, like FAN5/FAN7). Reseat the splitter. Until
+  then FAN6 sits in permanent alarm and **cannot report a real failure on that header**.
+- **FAN3 ignores PWM** — 4900 RPM at both 35% and 100% duty. Most likely a 3-pin fan on a
+  PWM header seeing a constant 12 V, meaning the CPU cooler has no thermal response.
+  Unconfirmed.
+- **A splitter discards tach.** FAN2 carries three fans but reports one; two of the three
+  front intakes are unmonitored. A 6-pin header has only two tach inputs, so no cable fixes
+  all three — but FAN5 and FAN7 are empty, so splitting them 2+1 across two headers would
+  cover all of them. A dual-tach adapter (e.g. modDIY `2PWM4-ASRR`) wires the second fan's
+  tach to pin 5; a generic splitter does not.
+
+### Control
+
+netfn `0x3a`, per ASRock Rack [TSDQA-72](https://download.asrock.com/Rack/TSD/FAQ/TSDQA-72.pdf).
+**AST2500-only** — AST2600 boards use entirely different commands and `0x02` for manual mode.
+
+| purpose | command |
+|---|---|
+| set mode (16 bytes) | `0x3a 0xd8` — `00` auto, `01` manual, `02` custom |
+| set duty (16 bytes) | `0x3a 0xd6` — hex of the percentage |
+| get mode | `0x3a 0xd9` |
+| get saved setpoint | `0x3a 0xd7` |
+| get current duty | `0x3a 0xda` |
+| reset to defaults | `0x3a 0xd8` with all sixteen bytes `0x00` |
+
+Managed with [ipmitool-asrock-fan-control](https://github.com/andyattebery/ipmitool-asrock-fan-control)
+(`~/projects/ipmitool-asrock-fan-control` on the host).
+
+Things that cost time to work out and are not written down anywhere else:
+
+- **The arrays are always 16 bytes** even though the board has 7 headers. Slot 8 is
+  firmware-live but has no physical header; 9-16 are unpopulated. Every write rewrites all
+  16 slots — there is no per-slot command — so setting one fan re-applies a duty to every
+  fan on the board.
+- **Minimum duty is 20%.** The BMC accepts 20 and *rejects* 19 and below outright with
+  `rsp=0xcc: Invalid data field in request`, discarding the whole write. It does not clamp.
+  Fans cannot be stopped through this interface.
+- **`0xd7` is the saved setpoint, `0xda` is the live duty.** They diverge whenever a fan is
+  in auto mode. Rebuilding a write from `0xda` overwrites every other fan's stored setpoint
+  with a live sample of the BMC curve. TSDQA-72 calls `0xd7` "fan setting mode", which is
+  wrong for this board.
+- **The BMC sometimes reports failure for a write it applied** — `rsp=0xff` with
+  ipmitool's "Received a response with unexpected ID". Verify by reading back; neither
+  trusting nor ignoring the exit status is correct.
+
+### Backplane
+
+**The backplane is a black box and the fans are wired direct to the motherboard on
+purpose.** Its own fan headers are driven by an onboard temperature controller keyed to
+drive temperature, which is the wrong input when the thing overheating is a GPU.
+
+There is no software path to it, confirmed rather than assumed:
+
+- No SES device. The SCSI bus shows only disks and cd/dvd, no `enclosu` type, and
+  `/sys/class/enclosure` is empty. Checked independently of the `ses` driver, which is not
+  even available in the nas-01 kernel.
+- No expander — `sas_expander` count is 0, consistent with 6x SFF-8643 direct-attach into
+  a 24-port HBA.
+- The `enclosure logical id` the drives report (`0x500062b203e59c80`) is derived from the
+  HBA's own SAS address (`...c87`), as are the drive addresses (`0x3000_62b203e59c8X`).
+  That is mpt3sas synthesising an enclosure for direct-attach SATA, not a real one.
+
+So no HBA configuration, jumper or cable change would expose SES — there is nothing there
+to expose. A genuine Supermicro BPN-SAS-846A carries an MG9072 SES-2 chip; this does not,
+which suggests it is a clone rather than a rebadge.
 
 ## Motherboard Layout
 
@@ -112,25 +226,34 @@ Empty
 
 #### PCIE1
 
-##### Broadcom 9305-24e
+##### Broadcom 9305-24i
 
 Connected to the case backplane that all of the hard drives are connected to.
 
 ## Summary
 
 - **CPU**: AMD EPYC 7282 — 16 cores / 32 threads
-- **RAM**: 192 GB DDR4-3200 (154 GB used, 34 GB available at host level)
+- **RAM**: 192 GB DDR4-3200 as 4× 32 GB + 4× 16 GB, all running at 3200 MT/s
+- **BIOS**: P3.90
+- **Hypervisor**: PVE 9.2.11, kernel 7.0.14-14-pve
 
-### VMs (as of 2026-08-08)
+### VMs (as of 2026-09-06)
 
-| VMID | VM | Status | vCPUs | RAM Allocated |
-| --- | --- | --- | --- | --- |
-| 200 | nas-01 | running | 14 | 48 GB |
-| 201 | media-01 | running | 16 | 96 GB |
-| 203 | network-03 | running | 2 | 4 GB |
+| VMID | VM | Status | vCPUs | RAM Allocated | Boot disk |
+| --- | --- | --- | --- | --- | --- |
+| 200 | nas-01 | running | 14 | 48 GB — **88 GB staged** | 128 GB |
+| 201 | media-01 | running | 24 | 56 GB | 192 GB (+ 640 GB scsi1) |
+| 203 | network-03 | running | 2 | 4 GB | 64 GB (Ceph) |
 
-**Running totals**: 32 vCPUs allocated against 32 threads (no overcommit), 148 GB
-RAM allocated of 192 GB.
+**Running totals**: 40 vCPUs allocated against 32 threads, 108 GB RAM of 192 GB.
+
+The vCPU figure is **overcommitted on purpose and temporarily** — media-01 was widened from
+16 to 24 for a one-time job and gets narrowed again. Do not treat 40/32 as the steady state.
+
+nas-01's `200.conf` carries a `[PENDING] memory: 90112`. It is intended and applies on the
+next stop/start, taking nas-01 from 48 GB to 88 GB. Until then `qm list` reports 48.
+
+media-01 also holds a `pre-26-04` snapshot taken before the Ubuntu 26.04 upgrade.
 
 ## Use
 
@@ -149,7 +272,7 @@ All conventional PCI passthrough — no `pcie=1`.
 
 | `hostpciN` | Mapping | Device | Serial | Role |
 | --- | --- | --- | --- | --- |
-| `hostpci0` | `broadcom_9305_24e` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24e HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
+| `hostpci0` | `broadcom_9305_24e` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24i HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
 | `hostpci1` | `solidigm_p44_pro_1` | Solidigm P44 Pro 2 TB | `SDC1N403710501322` | ZFS sink pool |
 | `hostpci2` | `solidigm_p44_pro_2` | Solidigm P44 Pro 2 TB | `SJC1N5037101A1H3A` | ZFS sink pool |
 | `hostpci3` | `samsung_980_pro_1` | Samsung 980 Pro 2 TB | `S6B0NU0W400960M` | ZFS sink pool |
@@ -162,7 +285,7 @@ All conventional PCI passthrough — no `pcie=1`.
 disk, never from the HBA.
 
 - ZFS Mirror Pool (tank) - 16 TB
-    - 4x WD Red 8 TB
+    - 4x WD shucked white-label 8 TB (`WD80EMAZ` x2, `WD80EZAZ` x2)
     - 2x Intel Optane P1600X - 118 GB as [ZFS mirrored metadata special device](https://forum.level1techs.com/t/zfs-metadata-special-device-z/159954)
 - ZFS Mirror Pool (sink) - 4 TB
     - 2x Solidigm P44 Pro - 2 TB
@@ -170,13 +293,13 @@ disk, never from the HBA.
 - Staging/Temp data
     - HPE VK003840KWWFP (Rebranded SK Hynix PE6011) - 3.84 TB
 - Snapraid/mergerfs Pool
-    - Data Disks
+    - Data Disks — 12
         - 3x WD Easystore shucked - 18 TB
-        - 1x Seagate Exos X20 (Refurbished) - 18 TB
+        - 2x Seagate Exos X20 (Refurbished) - 18 TB
         - 1x Seagate Exos X18 (Refurbished) - 18 TB
         - 4x WD Easystore shucked - 14 TB
         - 1x Seagate Exos X18 (Refurbished) - 14 TB
-        - 2x Seagate Exos X16 (Refurbished) - 14 TB
+        - 1x Seagate Exos X16 (Refurbished) - 14 TB
     - Parity Disks
         - 1x Seagate BarraCuda - 24 TB
         - 1x Seagate Exos (Refurbished) - 22 TB
@@ -191,9 +314,14 @@ All use `pcie=1` (the VM is `q35`).
 | `hostpci1` | `intel_arc_b580` | Intel Arc B580 | Transcoding (QSV/VA-API) |
 | `hostpci2` | `intel_arc_b580_audio` | Intel Arc B580 HDA | Rides along with the B580 |
 
-The A4000's mapping path is function-less, so it attaches the GPU and its HDA
-together. The B580's GPU and HDA are on different buses with different device IDs,
-so they cannot share one mapping.
+**The A4000 passes as GPU only.** Its mapping path is `0000:01:00.0` — function-scoped, not
+function-less — so the card's HDA at `0000:01:00.1` is *not* attached. Confirmed twice:
+`pci.cfg` on the host, and `lspci` inside media-01, which shows the A4000 with no NVIDIA audio
+device. `01:00.1` sits unmapped on the host. (An earlier revision of this file claimed the
+opposite; it was wrong.)
+
+The B580's GPU and HDA are on different buses with different device IDs, so they cannot share
+one mapping — hence the two separate entries above.
 
 ### Resource mappings
 
@@ -235,3 +363,27 @@ Working with mappings:
 - There is no rename API — renaming means create-new, re-point the VM, delete the old.
 - `delete` has no in-use guard; deleting a mapping a VM still references leaves it
   unbootable.
+
+**Mappings are not managed by Ansible.** They exist only in `/etc/pve/mapping/pci.cfg` on this
+node, were created by hand through `pvesh`/the GUI, and are referenced nowhere in `ansible/` or
+`nix/` — only by these hardware docs. Nothing re-creates them if the node is rebuilt.
+
+One consequence is already visible: **`broadcom_9305_24e` names a card that is a 9305-24i.**
+The name is wrong and is kept as-is because it is the string PVE matches on, and there is no
+rename API — fixing it means create-new, re-point VM 200, restart, delete-old. Doing that by
+hand would deepen exactly the drift this file exists to prevent, so it waits on a role that
+owns the mappings. The table above, re-verified live on 2026-09-06, is that role's input.
+
+## PVE storages
+
+| Name | Type | Backing |
+| --- | --- | --- |
+| `local` | dir | rpool |
+| `local-zfs` | zfspool | rpool |
+| `local-zfs_pve-optane-01` | zfspool | `pve-optane-01` — the 1.5 TB 905P. VM root disks for nas-01 and media-01 |
+| `pve_pool` | rbd | Ceph, across all three OSDs. network-03 and every vm-host-0x guest |
+| `pve_cephfs` | cephfs | Ceph |
+| `nas-01_proxmox` | cifs | An SMB share back from nas-01 |
+| `backup-01_pbs_nas-host-01` | pbs | backup-01, active |
+| `backup-01_pbs_vm-host-01`, `backup-01_pbs_vm-host-02` | pbs | **disabled** |
+| `local-lvm` | lvmthin | **disabled** |

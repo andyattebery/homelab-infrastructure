@@ -4,18 +4,24 @@ Cross-host snapshot of every SSD in the Proxmox cluster and the nas-01 VM. See [
 
 Refresh source: `lsblk`, `zpool status`, `pvesm status`, `/etc/pve/qemu-server/*.conf`, `lspci`, `smartctl` on each host.
 
+Last verified: 2026-09-06.
+
 ## nas-host-01 (Proxmox bare-metal)
 
 `nvmeN` numbers are not stable across boots or changes to what is passed through —
 a passed-through drive has no host node at all. The serial is the identity. Names
-below are from 2026-08-08 with both passthrough VMs running.
+below are from 2026-09-06 with both passthrough VMs running.
+
+They have already moved once: the two `rpool` P1600X were `nvme7n1`/`nvme10n1` on
+2026-08-08 and are `nvme10n1`/`nvme9n1` today, with no hardware change. Match on the
+serial, never the node name.
 
 | Device | Serial | Model | Cap | Class | Use |
 |---|---|---|---|---|---|
-| nvme7n1 | `PHOC1456007B118B` | [Intel Optane P1600X](https://ark.intel.com/content/www/us/en/ark/products/211867/intel-optane-ssd-p1600x-series-118gb-m-2-80mm-pcie-3-0-x4-3d-xpoint.html) | 118 GB | Optane / 3D XPoint, PLP | `rpool` mirror — PVE boot |
-| nvme10n1 | `PHOC14550050118B` | Intel Optane P1600X | 118 GB | Optane | `rpool` mirror |
+| nvme10n1 | `PHOC1456007B118B` | [Intel Optane P1600X](https://ark.intel.com/content/www/us/en/ark/products/211867/intel-optane-ssd-p1600x-series-118gb-m-2-80mm-pcie-3-0-x4-3d-xpoint.html) | 118 GB | Optane / 3D XPoint, PLP | `rpool` mirror — PVE boot |
+| nvme9n1 | `PHOC14550050118B` | Intel Optane P1600X | 118 GB | Optane | `rpool` mirror |
 | nvme4n1 | `PHM2911300BM960CGN` | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147529/intel-optane-ssd-905p-series-960gb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D960GA`) | 960 GB | Optane | Ceph OSD for `pve_pool` (single OSD on this node) |
-| nvme5n1 | `PHKE336300RL1P5CGN` | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147526/intel-optane-ssd-905p-series-1-5tb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D015TA`) | 1.5 TB | Optane | `pve-optane-01` single-vdev ZFS — VM root disks for nas-01, media-01, network-03 |
+| nvme5n1 | `PHKE336300RL1P5CGN` | [Intel Optane 905P](https://www.intel.com/content/www/us/en/products/sku/147526/intel-optane-ssd-905p-series-1-5tb-2-5in-pcie-x4-3d-xpoint/specifications.html) (`SSDPE21D015TA`) | 1.5 TB | Optane | `pve-optane-01` single-vdev ZFS — VM root disks for nas-01 and media-01 (network-03 is on Ceph) |
 
 The two `rpool` P1600X are in the onboard M.2 slots. The other two are on the PCIE4
 splitter and belong to nas-01 — same model, same IDs, so only the serial
@@ -28,11 +34,16 @@ IOMMU groups in [nas-host-01.md](nas-host-01.md#resource-mappings).
 
 | `hostpci` | Mapping | Device |
 |---|---|---|
-| 0 | `broadcom_9305_24e` | [Broadcom 9305-24e](https://docs.broadcom.com/doc/BC00-0392EN) SAS HBA (all SATA HDDs + SATADOM) |
+| 0 | `broadcom_9305_24e` | [Broadcom 9305-24i](https://www.broadcom.com/products/storage/host-bus-adapters/sas-9305-24i) SAS HBA (all SATA HDDs) |
 | 1, 2 | `solidigm_p44_pro_1/_2` | 2× [Solidigm P44 Pro](https://www.solidigm.com/products/client/pro-series/p44.html#form=M.2%202280&cap=2%20TB) |
 | 3, 4 | `samsung_980_pro_1/_2` | 2× [Samsung 980 PRO 2TB](https://semiconductor.samsung.com/consumer-storage/internal-ssd/980pro/) |
 | 5 | `skhynix_pe6011` | [HPE VK003840KWWFP](https://www.techpowerup.com/ssd-specs/sk-hynix-pe6011-3-8-tb.d1490) (SK hynix PE6011 OEM) |
 | 6, 7 | `intel_p1600x_1/_2` | 2× Intel Optane P1600X 118 GB |
+
+**The mapping is named `broadcom_9305_24e`; the card is a 9305-24i.** The name is wrong and
+is kept verbatim here because that is the string PVE matches on. PCI resource mappings are not
+managed by Ansible — see [nas-host-01.md](nas-host-01.md#resource-mappings) for why the rename
+is a followup rather than a one-liner.
 
 ## nas-01 (Proxmox VM on nas-host-01)
 
@@ -43,14 +54,21 @@ All NVMe devices and the SAS HBA are PCIe-passed-through from nas-host-01.
 | nvme0n1, nvme1n1 | Solidigm P44 Pro (`SSDPFKKW020X7`) | 2 TB each | Consumer TLC NVMe | `sink` zpool — mirror-0 |
 | nvme2n1, nvme3n1 | Samsung 980 PRO 2TB | 2 TB each | Consumer TLC NVMe | `sink` zpool — mirror-1 |
 | nvme5n1, nvme6n1 | Intel Optane P1600X | 118 GB each | Optane | [`tank` special vdev mirror](https://forum.level1techs.com/t/zfs-metadata-special-device-z/159954) (metadata for the 4× 8TB HDDs) |
-| nvme4n1 | HPE VK003840KWWFP | 3.84 TB | Enterprise TLC NVMe | `/mnt/depot` ext4 — snapraid content + scratch (158 GB used) |
-| sdr | Innodisk DEMSM-A28M41BW1DC-27 (3ME4) | 128 GB | Industrial SATA M.2 (SLC-mode MLC) | **Unused** — holds Ubuntu Live leftovers |
-| sda, sdb, sdc | QEMU virtual disks on `pve-optane-01` | 128 / 64 / 32 GB | Virtual | rootfs / `/mnt/docker` / `/mnt/content/snapraid` |
-| sdd..sdv | WD / Seagate SATA HDDs | 8–24 TB | HDD | snapraid data + parity (12 disks) and `tank` zpool (4× 8TB mirror-of-mirrors). Full list in [nas-host-01.md](nas-host-01.md). |
+| nvme4n1 | HPE VK003840KWWFP | 3.84 TB | Enterprise TLC NVMe | `/mnt/depot` ext4 — snapraid content + scratch (**1.4 TB used of 3.5 TB**) |
+| sda, sdb, sdc | QEMU virtual disks on `pve-optane-01` | 128 / 64 / 32 GB | Virtual | rootfs / `/mnt/docker` (btrfs) / `/mnt/content/snapraid` (btrfs) |
+| sdd..sdu | WD / Seagate SATA HDDs | 8–24 TB | HDD | snapraid data + parity (14 disks) and `tank` zpool (4× 8TB mirror-of-mirrors). Full list in [nas-host-01.md](nas-host-01.md). |
+
+**Filesystems on the bulk disks:** the 12 snapraid data disks are **btrfs**, mounted at
+`/mnt/data/data01`–`data12` and pooled by mergerfs at `/mnt/storage`. The 2 parity disks are
+**ext4** at `/mnt/parity01` (ST24000DM001, 24 TB) and `/mnt/parity02` (ST22000NM000C, 22 TB).
+
+**Gone since 2026-08-08:** the Innodisk DEMSM-A28M41BW1DC-27 (3ME4) 128 GB industrial SATA
+M.2, previously `sdr` and unused. It is absent from both `lsblk` and `/dev/disk/by-id`. `sdr`
+is now a WD80EMAZ — another reason not to trust a device node across time.
 
 Note: `tank` carries Immich, Nextcloud, Paperless, Forgejo, Linkwarden, Minio, Syncthing, Frigate, Shinobi, and all their postgres DBs. It has a P1600X metadata special vdev but **no SLOG** — sync writes land on the 8TB HDDs.
 
-## vm-host-01 (Proxmox — Dell OptiPlex SFF)
+## vm-host-01 (Proxmox — Dell OptiPlex Micro 5070)
 
 | Device | Model | Cap | Class | Use |
 |---|---|---|---|---|
@@ -60,14 +78,18 @@ Note: `tank` carries Immich, Nextcloud, Paperless, Forgejo, Linkwarden, Minio, S
 
 M.2 slots reported via DMI: 1× Socket 3 NVMe (x4, used), 1× Socket 1-SD (x1, WLAN). Length "Long" — practical assumption is 2280 only.
 
-## vm-host-02 (Proxmox — Dell OptiPlex SFF)
+## vm-host-02 (Proxmox — Dell OptiPlex Micro 3070)
 
 | Device | Model | Cap | Class | Use |
 |---|---|---|---|---|
 | sda | Intel SSDSCKJB150G7 (DC S3520 M.2) | 150 GB | Enterprise SATA M.2 | PVE boot (LVM) |
-| nvme0n1 | Samsung 970 EVO 500GB | 500 GB | Consumer TLC NVMe (no PLP) | Ceph OSD |
+| nvme0n1 | Samsung 970 EVO 500GB | 500 GB | Consumer TLC NVMe (no PLP) | Ceph OSD (osd.1) |
 
 Same chassis class and slot constraints as vm-host-01.
+
+The node is idle by design, but it currently runs `vdesktop-01` (VMID 120) plus two stopped
+templates. None of them touch a local device — their disks are on `pve_pool`, the Ceph RBD
+pool that spans all three OSDs, so nothing above changes.
 
 ## Unused / shelved
 
@@ -91,6 +113,12 @@ ssh nas-01      'lsblk -d -o NAME,SIZE,MODEL,SERIAL,ROTA,TRAN && sudo zpool stat
 # Passthrough map on nas-host-01. Read the mappings rather than filtering on
 # hardcoded addresses — a card move changes every bus number under it.
 ssh nas-host-01 'sudo cat /etc/pve/mapping/pci.cfg'
-ssh nas-host-01 'sudo grep -E "hostpci|name" /etc/pve/qemu-server/200.conf /etc/pve/qemu-server/201.conf'
 ssh nas-host-01 'sudo lspci -nnD | grep -E "Non-Volatile|Serial Attached SCSI|VGA|Ethernet controller"'
+
+# Grep the VM configs, never `cat` them: 200.conf carries a cipassword.
+ssh nas-host-01 'sudo grep -E "hostpci|name" /etc/pve/qemu-server/200.conf /etc/pve/qemu-server/201.conf'
+
+# Which VMIDs actually exist. Settles the class of drift where a doc keeps describing a
+# guest that was deleted — 101 and 202 both outlived their VMs in these files.
+for h in vm-host-01 vm-host-02 nas-host-01; do ssh $h 'sudo qm list'; done
 ```

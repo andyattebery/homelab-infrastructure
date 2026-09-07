@@ -1,38 +1,56 @@
 # Homelab host inventory
 
-Last verified: 2026-05-13.
-Sources: `ansible/inventory.ini`, playbooks under `ansible/`, `qm list` on each
-Proxmox node, and `docker ps` on each Docker host.
+Last verified: 2026-09-06, over read-only ssh to every reachable host.
+See [Refresh commands](#refresh-commands) at the bottom to re-derive all of it.
 
-Service descriptions reflect what is **actually running** on the host today,
-which in places differs from what the playbook applies (many `docker_compose_*`
-role lines are commented but the underlying stacks remain deployed).
+[inventory.ini](../ansible/inventory.ini) now holds **21 names — 20 distinct machines**,
+since `network-02` is an alias for `pi-rack`. **16 of the 21 answered** on the audit date.
+`pi-camera`, `jetson-01`, `offsite-nas` and `wsl-01` did not answer, and `ideapad3` was not
+probed; all five are marked *not verified 2026-09-06* where they appear and carry forward what
+was there before.
+
+(It was 23 names during the audit. `pi-01` and `pi-octoprint` were removed on 2026-09-07 —
+see [Retired / not managed](#retired--not-managed).)
+
+## What the "roles" column does and does not tell you
+
+Each row points at the playbook that owns the host. **That is the set of roles Ansible
+applies — it is not the set of services running.** The two have drifted apart on purpose:
+`playbook-nas-01.yaml` has **23 commented-out roles whose stacks are still deployed and
+running**, and `playbook-docker-01.yaml` has **8**. Commenting a role out stops Ansible
+managing the stack; it does not remove it.
+
+So: for "what is Ansible responsible for", read the playbook. For "what is actually running",
+run the refresh command. Do not infer either from the other.
 
 ## Proxmox cluster — physical nodes
 
-The three nodes form one Proxmox cluster (`pve_cluster_name: homelab`) with a
-dedicated Ceph cluster network (CIDR set per-host via `ceph_cluster_nic_address_cidr`,
-range in [group_vars/prod_proxmox_cluster/vars.yaml](../ansible/group_vars/prod_proxmox_cluster/vars.yaml)).
-Inventory group: `prod_proxmox_cluster`. See
+Three nodes, one cluster (`pve_cluster_name: homelab`), all on **PVE 9.2.11**, kernel
+`7.0.14-14-pve`. Dedicated Ceph cluster network, CIDR set per-host via
+`ceph_cluster_nic_address_cidr` ([group_vars/prod_proxmox_cluster/vars.yaml](../ansible/group_vars/prod_proxmox_cluster/vars.yaml)).
+Inventory group `prod_proxmox_cluster`; all three managed by
 [playbook-prod-proxmox-cluster.yaml](../ansible/playbook-prod-proxmox-cluster.yaml).
 
-All three nodes are managed by [playbook-prod-proxmox-cluster.yaml](../ansible/playbook-prod-proxmox-cluster.yaml) (targets the `prod_proxmox_cluster` group).
+| Host | Chassis | CPU | RAM | Ceph OSD | Guests |
+| --- | --- | --- | --- | --- | --- |
+| `vm-host-01` | Dell OptiPlex Micro 5070 | Intel i5-9500T, 6C/6T | 62 GB | Samsung 960 PRO 512G (osd.0) | `docker-01` (102), `network-01` (103), `homeassistant` (110) |
+| `vm-host-02` | Dell OptiPlex Micro 3070 | Intel i3-9100T, 4C/4T | 38 GB | Samsung 970 EVO 500G (osd.1) | `vdesktop-01` (120) + two templates. **HA failover target for vm-host-01's VMs** |
+| `nas-host-01` | Innovision S45624 4U, Asrock Rack ROMED8-2T ([nas-host-01.md](nas-host-01.md)) | AMD EPYC 7282, 16C/32T | 192 GB | Intel Optane 905P 960G (osd.2) | `nas-01` (200, HBA + bulk storage), `media-01` (201, RTX A4000 + Arc B580), `network-03` (203) |
 
-| Host | Hardware | Role | Hosts VMs |
-| --- | --- | --- | --- |
-| `vm-host-01` | Intel + Realtek r8125/r8152 NICs ([host_vars/vm-host-01/vars.yaml](../ansible/host_vars/vm-host-01/vars.yaml)) | PVE node, Ceph OSD on Samsung 960 PRO 512G | `network-01` (101), `docker-01` (102), `homeassistant` (110) |
-| `vm-host-02` | Intel + r8125 + r8168 NICs ([host_vars/vm-host-02/vars.yaml](../ansible/host_vars/vm-host-02/vars.yaml)) | PVE node, Ceph OSD on Samsung 970 EVO 500G. **HA failover target for vm-host-01's VMs** (see HA rules below) | (idle by design — only an Ubuntu 24.04 cloud-init template, stopped) |
-| `nas-host-01` | AMD EPYC 7282 / Asrock Rack ROMED8-2T ([hardware/nas-host-01.md](nas-host-01.md)) | PVE node, Ceph OSD on Intel Optane 905P 960G, designated cluster runner | `nas-01` (200, HBA + bulk-storage passthrough), `media-01` (201, RTX A4000 + Arc B580 passthrough), `network-03` (202) |
+All three OSDs `up`, one per node.
 
-`pve_cluster_designated_runner` is computed as the alphabetically-first node →
-currently `nas-host-01`. It owns cluster-wide writes (ACME, storage defs, Ceph
-init).
+`pve_cluster_designated_runner` is the alphabetically-first node → currently `nas-host-01`. It
+owns cluster-wide writes (ACME, storage defs, Ceph init). It is also the current CRM master,
+which is a separate thing and can move.
+
+**vm-host-02 is idle by design.** `vdesktop-01` is an experiment; if it stays it moves to
+vm-host-01. The two templates are `1000` ubuntu-2404-cloudinit and `1001` nixos-2511.
 
 ### Network interface names
 
-Interface names are pinned to MACs by the [pve_pin_network_interface](../ansible/roles/pve_pin_network_interface/README.md)
-role, so moving a card between PCIe slots can't rename a NIC out from under
-`vmbr0`'s `bridge-ports`. Names are chip-family based, management port first.
+Pinned to MACs by the [pve_pin_network_interface](../ansible/roles/pve_pin_network_interface/README.md)
+role, so moving a card between PCIe slots cannot rename a NIC out from under `vmbr0`'s
+`bridge-ports`. Names are chip-family based, management port first.
 
 | Host | vmbr0 uplink | Ceph cluster net |
 | --- | --- | --- |
@@ -40,16 +58,16 @@ role, so moving a card between PCIe slots can't rename a NIC out from under
 | `vm-host-02` | `rtl8168p0` (Realtek RTL8168 1G) | `rtl8125p0` (Realtek RTL8125 2.5G) |
 | `nas-host-01` | `cx4p0` (Mellanox ConnectX-4 Lx p1) | `cx4p1` (Mellanox ConnectX-4 Lx p2) |
 
-Pins live in `/usr/local/lib/systemd/network/50-pmx-<name>.link` on each node and
-take effect at boot. nas-host-01's BMC USB gadget is deliberately unpinned — its
-`enx<mac>` name is already slot-independent.
+Pins live in `/usr/local/lib/systemd/network/50-pmx-<name>.link` on each node and take effect
+at boot. nas-host-01's BMC USB gadget is deliberately unpinned — its `enx<mac>` name is already
+slot-independent.
 
 ### HA rules
 
 Being **HA-managed** and being in a **node-affinity rule** are two different things — check
 `ha-manager status` for the former, `/etc/pve/ha/rules.cfg` for the latter.
 
-HA-managed resources (`ha-manager status`): `vm:102`, `vm:103`, `vm:110`.
+HA-managed resources: `vm:102`, `vm:103`, `vm:110`.
 
 One node-affinity rule (`ha-group-main`) covers only two of them:
 
@@ -59,52 +77,159 @@ One node-affinity rule (`ha-group-main`) covers only two of them:
 | `vm:110` | homeassistant | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
 
 `vm:103` (network-01) is HA-managed but has no affinity rule, so it may run on any node and HA
-will not pull it toward a preferred one. `vm:101` — also named `network-01`, currently stopped —
-is not HA-managed at all.
+will not pull it toward a preferred one.
 
-**Consequence for maintenance:** because the rule is priority-ordered, the CRM actively migrates
-`vm:102`/`vm:110` back to vm-host-01 whenever it is online. Plainly migrating them elsewhere
-does not stick. Use `ha-manager crm-command node-maintenance enable <node>` instead — it
-evacuates all HA resources, survives a reboot, and moves them back only when maintenance is
+**Consequence for maintenance:** because the rule is priority-ordered, the CRM actively
+migrates `vm:102`/`vm:110` back to vm-host-01 whenever it is online. Plainly migrating them
+elsewhere does not stick. Use `ha-manager crm-command node-maintenance enable <node>` instead —
+it evacuates all HA resources, survives a reboot, and moves them back only when maintenance is
 disabled.
 
-**Unresolved**: VMIDs 101 and 103 are both named `network-01`, the same duplicate-name situation
-as 202/203 on nas-host-01. One of each pair is leftover and should be identified and removed.
-
-`strict 0` = non-strict: if all preferred nodes are down, HA will start the VM on any remaining online node. `nas-host-01`'s passthrough VMs (`nas-01`, `media-01`, `network-03`) are **not** HA-managed — they're pinned to that node by hardware passthrough and would not survive failover.
+`strict 0` = non-strict: if all preferred nodes are down, HA will start the VM on any remaining
+online node. nas-host-01's passthrough VMs (`nas-01`, `media-01`) are **not** HA-managed —
+they are pinned to that node by hardware passthrough and would not survive failover.
+`network-03` is likewise not HA-managed.
 
 ## Virtual machines
 
-| VM | Parent | VMID | OS | Playbook | Purpose | Key services |
-| --- | --- | --- | --- | --- | --- | --- |
-| `network-01` | vm-host-01 | 101 | NixOS | _(not Ansible-managed)_ [nix/hosts/network-01/](../nix/hosts/network-01/) | DNS primary | AdGuardHome (keepalived MASTER, prio 200), AdGuardHome-sync, network-inventory-manager, Keepalived (+keepalived-exporter), dashboard-services-manager-provider, nginx reverse proxy, Tailscale |
-| `docker-01` | vm-host-01 | 102 | Linux VM | [playbook-docker-01.yaml](../ansible/playbook-docker-01.yaml) | Main app/observability docker host | Traefik, tsdproxy, Beszel (hub+agent), Homepage, Dashy, Grafana, Prometheus, InfluxDB v2, Healthchecks, Uptime-Kuma, Dockwatch, Diun, Cup, dashboard-services-manager (+provider), Changedetection.io (+playwright), Wallos, SearXNG (+redis), Vaultwarden, Jellystat, Tautulli, Octoprint, Spoolman, Cert-bot (ASRock IPMI cert updater) |
-| `homeassistant` | vm-host-01 | 110 | Home Assistant OS (HAOS, x86_64) | _(none — not Ansible-managed)_ | Home automation | Home Assistant supervised stack |
-| `nas-01` | nas-host-01 | 200 | Linux VM (HBA passthrough → all bulk storage) | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services | Traefik, tsdproxy, Diun, Frigate (NVR), Immich (server/redis/postgres), Nextcloud (+mariadb/redis), Paperless-ngx (+postgres/redis/tika/gotenberg), Forgejo, Manyfold, Linkwarden (+postgres), Linkding, Minio, Syncthing, Resilio-sync, Scrutiny-web (+influxdb), Calibre. Also runs snapraid/mergerfs/ZFS, syncoid → backup-01 and offsite-nas. |
-| `media-01` | nas-host-01 | 201 | Linux VM (RTX A4000 + Intel Arc B580 passthrough) | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference | Traefik, Plex, Jellyfin, Audiobookshelf, Tdarr, Ollama, Open-WebUI, Immich machine-learning (CUDA), Diun |
-| `network-03` | nas-host-01 | 202 | NixOS | _(not Ansible-managed)_ [nix/hosts/network-03/](../nix/hosts/network-03/) | DNS tertiary | AdGuardHome (keepalived BACKUP, prio 100), Keepalived (+keepalived-exporter), dashboard-services-manager-provider, Tailscale |
+Nine guests across the cluster: **seven running, two stopped templates**.
 
-`network-02` is **not** a separate VM — it is an inventory alias for the bare-metal `pi-rack` (see Pis below). The three `network-XX` names share the AdGuardHome VRRP cluster behind the `dns_server_vip`.
+| VM | Parent | VMID | vCPU | RAM | Disks | OS | Playbook | Purpose |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `docker-01` | vm-host-01 | 102 | 4 | 16 GB | 2× 128 GB (Ceph) | Ubuntu 24.04.4 | [playbook-docker-01.yaml](../ansible/playbook-docker-01.yaml) | Apps + observability. Traefik, the Prometheus/Grafana stack and its exporters, dashboards, and the small self-hosted utilities. |
+| `network-01` | vm-host-01 | 103 | 2 | 4 GB | 64 GB (Ceph) | NixOS 26.05 | _(not Ansible-managed)_ [nix/hosts/network-01/](../nix/hosts/network-01/) | DNS primary. AdGuardHome (keepalived MASTER, prio 200), AdGuardHome-sync, network-inventory-manager, nginx, Tailscale. |
+| `homeassistant` | vm-host-01 | 110 | 4 | 12 GB | 128 GB (Ceph) | HAOS 18.2 (HA 2026.9.1, supervisor 2026.08.0) | _(none)_ | Home automation. |
+| `vdesktop-01` | vm-host-02 | 120 | 4 | 8 GB | 64 GB (Ceph) | — | _(none)_ | Virtual desktop **experiment**. Moves to vm-host-01 if it stays. |
+| `ubuntu-2404-cloudinit-template` | vm-host-02 | 1000 | 2 | 8 GB | 64 GB (Ceph) | Ubuntu 24.04 | — | Template, stopped. |
+| `nixos-2511-template` | vm-host-02 | 1001 | 2 | 4 GB | 64 GB (Ceph) | NixOS 25.11 | — | Template, stopped. |
+| `nas-01` | nas-host-01 | 200 | 14 | 48 GB **(88 GB staged)** | 128 + 32 + 64 GB on `pve-optane-01`, plus all passed-through storage | Ubuntu 22.04.5 | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services. Owns every bulk disk via HBA passthrough; runs the ZFS pools, snapraid/mergerfs, and syncoid to backup-01 and offsite-nas. |
+| `media-01` | nas-host-01 | 201 | 24 | 56 GB | 192 + 640 GB on `pve-optane-01` | Ubuntu 26.04.1 | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference. RTX A4000 + Intel Arc B580 passthrough; media servers, Tdarr **server and an A4000 node**, Immich ML, Whisper. |
+| `network-03` | nas-host-01 | 203 | 2 | 4 GB | 64 GB (Ceph) | NixOS 26.05 | _(not Ansible-managed)_ [nix/hosts/network-03/](../nix/hosts/network-03/) | DNS tertiary. AdGuardHome (keepalived BACKUP, prio 100), Tailscale. |
 
-The three are split across two config systems: `network-01` and `network-03` are NixOS, deployed from `nix/hosts/`; `pi-rack` (= `network-02`) is still Ubuntu and is the only member `ansible/playbook-network.yaml` targets. WireGuard runs on `pi-rack` and `cloud-01` only — the two VM peers dropped it at the NixOS migration.
+`docker-01`, `network-01`, `nas-01`, `media-01` and `network-03` each run `beszel-agent`
+plus a node exporter — see [Monitoring coverage](#monitoring-coverage). `homeassistant` is an
+appliance OS and was not checked for either; `vdesktop-01` and the two templates were not
+checked.
+
+**nas-01's 88 GB is staged, not applied.** `/etc/pve/qemu-server/200.conf` carries a
+`[PENDING] memory: 90112`. It lands on the next stop/start. This is intended.
+
+**media-01 is temporarily wide.** 14 + 24 + 2 = **40 vCPU allocated against nas-host-01's 32
+threads**, and 108 GB of 192. The overcommit is deliberate and temporary — media-01 was widened
+for a one-time job and will be narrowed again. media-01 also carries a `pre-26-04` snapshot from
+the Ubuntu 26.04 upgrade.
+
+`network-02` is **not** a separate VM — it is an inventory alias for the bare-metal `pi-rack`
+(see below). The three `network-XX` names share the AdGuardHome VRRP cluster behind the
+`dns_server_vip`, and are split across two config systems: `network-01` and `network-03` are
+NixOS deployed from `nix/hosts/`; `pi-rack` (= `network-02`) is still Ubuntu and is the only
+member [playbook-network.yaml](../ansible/playbook-network.yaml) targets. WireGuard runs on
+`pi-rack` and `cloud-01` only — the two VM peers dropped it at the NixOS migration.
 
 ## Bare-metal services & pis
 
-| Host | Hardware | Playbook | Purpose | Key services |
-| --- | --- | --- | --- | --- |
-| `backup-01` | x86 server, ZFS, PMX 7.0 kernel | [playbook-backup-01.yaml](../ansible/playbook-backup-01.yaml) | Proxmox Backup Server + ZFS replication target + Time Machine target | PBS (`pbs_config`, ACME), Samba (Time Machine share), syncoid destination (from nas-01) → forwards to offsite-nas, sanoid, shutdown_tracker, NUT client, Tailscale, remote_power_control target |
-| `pi-rack` / `network-02` | Raspberry Pi 4 Model B Rev 1.4 (rack-mounted, PoE+ HAT) | [playbook-pi-rack.yaml](../ansible/playbook-pi-rack.yaml) + [playbook-network.yaml](../ansible/playbook-network.yaml) (as `network-02`) | UPS server + DNS HA member + rack ops | NUT server (APC SMT1500RM2U via AP9630 SNMP; `admin` + `monitor-primary` + 5 secondary accounts — `nas-host-01`, `vm-host-01`, `vm-host-02`, `backup-01` run `upsmon`, `homeassistant` polls via the HA NUT integration), nut-exporter, scrutiny_collector, AdGuardHome (keepalived BACKUP, prio 150), WireGuard, Keepalived, dashboard-services-manager-provider, Diun, Certbot. Two inventory aliases (`pi-rack`, `network-02`) point at this same Pi, and it is the only host `playbook-network.yaml` targets. |
-| `pi-camera` | Raspberry Pi 5 Model B Rev 1.0 | [playbook-pi-camera.yaml](../ansible/playbook-pi-camera.yaml) | Camera streamer | `go2rtc` (rpi5 config), Certbot. No docker. |
-| `pi-turntable` | Raspberry Pi 4 Model B Rev 1.1 | [playbook-pi-turntable.yaml](../ansible/playbook-pi-turntable.yaml) | Turntable audio streaming | Traefik + Owntone + `turntable-pipe.service` (ALSA → named pipe → Owntone) |
-| `pikvm` | Pi (armv7l, 6.12 rpi kernel) | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Primary PiKVM | PiKVM OS stack, Tailscale exit node, esphome-api-cli outlet control (backup_01, mac_mini_01, nas_host_01, vm_host_01, vm_host_02), remote_power_control client to all four servers, HID switching to `pikvm-hid` |
-| `pikvm-hid` | Pi (armv7l, 6.12 rpi kernel) | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Secondary PiKVM (HID/USB-keyboard-only) | PiKVM stack, slaved to `pikvm`'s `pikvm_hid_kvm_switch_input` |
-| `jetson-01` | NVIDIA Jetson Orin Nano Dev Kit Super (Tegra R36) | [playbook-jetson-01.yaml](../ansible/playbook-jetson-01.yaml) | AI offload for HA + Immich | Wyoming `faster-whisper`, Wyoming `piper-tts`, Immich machine-learning (jetson build) |
-| `ideapad3` | Lenovo IdeaPad 3 laptop | [playbook-ideapad3.yaml](../ansible/playbook-ideapad3.yaml) | Workstation (powered off during audit) | Only `configure_server` — no services to document |
+| Host | Hardware | Playbook | Purpose |
+| --- | --- | --- | --- |
+| `backup-01` | Intel N150 4C/4T, 32 GB DDR5-4800, whitebox board (DMI reports `Default string`). Boot on an Intel S3520 150 GB; `backups` zpool 20 TB = 2× 10 TB + 2× 12 TB mirrors | [playbook-backup-01.yaml](../ansible/playbook-backup-01.yaml) | **Proxmox Backup Server** (datastore `zfs_backups_pbs` at `/mnt/backups/pbs`) on Debian 13 trixie / PVE 7.0 kernel. Also ZFS replication target (syncoid from nas-01, forwards to offsite-nas), Samba Time Machine target, NUT client, `remote_power_control` target. |
+| `pi-rack` / `network-02` | Raspberry Pi 4 Model B Rev 1.4, 8 GB, PoE+ HAT, boots from a 139.7 GB USB SSD | [playbook-pi-rack.yaml](../ansible/playbook-pi-rack.yaml) + [playbook-network.yaml](../ansible/playbook-network.yaml) (as `network-02`) | UPS server + DNS HA member + rack ops. NUT **server** for the APC SMT1500RM2U (via AP9630 SNMP) with `nas-host-01`, `vm-host-01`, `vm-host-02`, `backup-01` as `upsmon` secondaries and `homeassistant` polling via the HA NUT integration. AdGuardHome (keepalived BACKUP, prio 150), WireGuard, Diun, Certbot. `scrutiny-collector` is a **systemd timer**, not a container. |
+| `pi-camera` | Raspberry Pi 5 Model B Rev 1.0 | [playbook-pi-camera.yaml](../ansible/playbook-pi-camera.yaml) | Camera streamer — `go2rtc` (rpi5 config), Certbot. No docker. **Not verified 2026-09-06** (unreachable). |
+| `pi-turntable` | Raspberry Pi 4 Model B Rev 1.1, 4 GB, 58 GB SD | [playbook-pi-turntable.yaml](../ansible/playbook-pi-turntable.yaml) | Turntable audio streaming. Traefik, Owntone, `needledrop` (Last.fm scrobbling), icecast2, and `owntone-alsa-pipe.service` (ALSA → named pipe → Owntone). |
+| `pikvm` | Raspberry Pi 4 Model B Rev 1.5, 2 GB, Arch Linux ARM, kvmd 4.212-1 | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Primary PiKVM. Tailscale exit node, esphome-api-cli outlet control (`backup_01`, `mac_mini_01`, `nas_host_01`, `vm_host_01`, `vm_host_02`), `remote_power_control` client to four servers, HID switching to `pikvm-hid`. |
+| `pikvm-hid` | Raspberry Pi **Zero 2 W** Rev 1.0, 389 MB, Arch Linux ARM, kvmd 4.212-1 | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Secondary PiKVM (HID / USB-keyboard only), slaved to `pikvm`'s `pikvm_hid_kvm_switch_input`. |
+| `jetson-01` | NVIDIA Jetson Orin Nano Dev Kit Super (Tegra R36) | [playbook-jetson-01.yaml](../ansible/playbook-jetson-01.yaml) | AI offload for Home Assistant — Wyoming `faster-whisper` (:10300) and Wyoming `piper-tts` (:10200). **That is all it runs**; it does not run Immich ML. **Not verified 2026-09-06** (unreachable). |
+
+`playbook-pikvm.yaml` targets three hosts, not two — `pikvm`, `pikvm-hid` and `offsite-pikvm`.
+
+## Workstations & clients
+
+Group `workstations` in [inventory.ini](../ansible/inventory.ini). No `group_vars/workstations/`
+exists, so only `group_vars/all/` and `group_vars/homelab/` apply.
+
+| Host | Hardware | OS | Connection | Playbook | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| `eta` | Gigabyte X570 AORUS MASTER, AMD Ryzen 9 5900X 12C/24T, 32 GB, **NVIDIA RTX 5060 Ti**, Intel Optane 900P 280 GB + a 4 TB Storage Space | Windows 11 Pro (10.0.26200) | **ssh with `ansible_shell_type: powershell`** — no WinRM. No `become`: the ssh login is already an elevated Administrator token, and `become: true` without `become_user` would enter the `runas` plugin and fail | [playbook-eta.yaml](../ansible/playbook-eta.yaml) | Windows workstation. Tdarr **Windows node** (NVENC) with a jellyfin-ffmpeg build; game streaming via `ApolloService`. The only Windows host in the estate. |
+| `htpc-01` | AMD Ryzen 5 5600GE 6C/12T, 32 GB, **ASRock Steel Legend Radeon RX 9070 XT 16 GB** (`1002:7550` / `1849:5403`, gfx1201) + Cezanne iGPU, 4 drives (SK hynix P41 2 TB, Intel DC S3500 1.6 TB, Samsung 850 EVO 500 GB, BC711 256 GB) | Bazzite (Fedora 44 base, rpm-ostree) | ssh as `bazzite`, `become: true`, `-o SetEnv=TERM=dumb` | [playbook-htpc-01.yaml](../ansible/playbook-htpc-01.yaml) | HTPC + local AI. **Rootful Podman quadlets, not Docker.** Caddy, ComfyUI, llama-swap (the LLM backend for Onyx on media-01 and local-deep-research on docker-01), and a VAAPI Tdarr node. |
+| `wsl-01` | eta's hardware — Ubuntu 24.04 under WSL2, same IP as `eta` | Ubuntu 24.04 (WSL2) | ssh to `eta` on **port 2222** (`ssh.socket` drop-in; `sshd_config`'s `Port` is ignored under socket activation) | [playbook-wsl-01.yaml](../ansible/playbook-wsl-01.yaml) | Docker host on eta's GPU — Traefik, a Tdarr node, TabbyAPI. Retirement is intended but it is still being maintained. **Not verified 2026-09-06** (did not answer). |
+| `ideapad3` | Lenovo IdeaPad 3 laptop | — | ssh, `ansible_host=192.168.1.49` | [playbook-ideapad3.yaml](../ansible/playbook-ideapad3.yaml) | Spare laptop. Only `configure_server` — no services. Not probed 2026-09-06. |
 
 ## Offsite / cloud
 
-| Host | Hardware / Provider | Purpose | Key services |
-| --- | --- | --- | --- |
-| `cloud-01` | Ubuntu 24.04 VPS (public hostname in `~/.ssh/conf.d`) | Public ingress + RSS | Traefik, WireGuard (public-facing), FreshRSS (with cron feed updater), Diun |
-| `offsite-nas` | Bare metal NAS at offsite location (unreachable during audit — wakes on demand for syncoid pulls) | Cold-storage backup target | ZFS, syncoid destination (from nas-01 + backup-01 + offsite-homeassistant), Samba (home-assistant backups share), sanoid, shutdown_tracker, Tailscale |
-| `offsite-pikvm` | Pi (armv7l, 6.12 rpi kernel) | PiKVM for `offsite-nas` remote power | PiKVM stack, Tailscale, ACME via Tailscale cert |
+| Host | Hardware / Provider | Purpose |
+| --- | --- | --- |
+| `cloud-01` | Ubuntu 24.04.4 VPS — 1 vCPU on an AMD EPYC 7713 KVM host, 961 MB RAM, 24.5 GB disk | Public ingress + RSS. Traefik, WireGuard (public-facing), FreshRSS with a `*/15` cron feed updater, Diun. |
+| `offsite-nas` | Bare metal NAS at an offsite location; wakes on demand for syncoid pulls | Cold-storage backup target. ZFS, syncoid destination (from nas-01, backup-01, offsite-homeassistant), Samba (home-assistant backups share), sanoid, shutdown_tracker, Tailscale, an `offsite-last-awake` textfile collector. **Not verified 2026-09-06** (asleep). |
+| `offsite-pikvm` | Raspberry Pi **Compute Module 4** Rev 1.1, Arch Linux ARM, kvmd 4.212-1 | PiKVM for `offsite-nas` remote power. Tailscale, ACME via Tailscale cert. |
+
+For the `offsite` group, `domain_name` is the Tailscale tailnet, not the internal domain.
+
+## Monitoring coverage
+
+Checked host by host on 2026-09-06 rather than assumed. **12 of the 14 hosts checked run
+`beszel-agent` plus exactly one node exporter**, and the unit name splits by OS family
+(`network-01` and `network-03` are here as machines, though they are not `inventory.ini`
+names):
+
+| Unit | Hosts |
+| --- | --- |
+| `node_exporter` | backup-01, pi-rack, pi-turntable, cloud-01, docker-01, nas-01, media-01 |
+| `prometheus-node-exporter` | network-01, network-03, pikvm, pikvm-hid, offsite-pikvm |
+| **neither, and no beszel-agent** | **htpc-01, eta** |
+
+htpc-01 has neither because `configure_server` dispatches to the Bazzite
+`tasks/fedora_immutable.yaml` path, which installs no agent and no exporter. Consistent with
+Prometheus, which does not scrape `htpc-01`, `eta`, `wsl-01`, `ideapad3`, `cloud-01` or
+`mac-mini-01`.
+
+Not checkable on the day: `pi-camera`, `jetson-01`, `offsite-nas`, `wsl-01`, `ideapad3`.
+
+## Retired / not managed
+
+Recorded so the next reader does not re-investigate them.
+
+| Name | Status |
+| --- | --- |
+| `pi-01` | **Decommissioned.** Removed from `inventory.ini` on 2026-09-07. It had exactly one reference in the whole repo and never had a playbook. |
+| `pi-octoprint` | **A finished experiment.** Removed from `inventory.ini` on 2026-09-07 along with `playbook-pi-octoprint.yaml`, which could not complete anyway — it templated a `go2rtc-rpi5.yaml.j2` that was never committed. **OctoPrint now runs as a container on docker-01.** |
+| `vm-host-03` / `vm-host-04` | Never hosts here. Their stale `ansible/files/vm-host-0{3,4}/interfaces` were deleted 2026-09-07. **The PiKVM WoL and GPIO entries for `vm-host-03` remain** in `ansible/files/pikvm/override.yaml.j2` and the vault vars — deliberately untouched, a separate decision. |
+| `mac-mini-01` | Real (192.168.1.201) but **not Ansible-managed**. Power only, via the `mac-mini-01-outlet.local` ESPHome outlet from `pikvm`; it has no `remote_power_control` ssh target. `ansible/files/macos/` is applied by hand. |
+| `offsite-homeassistant` | Real but not Ansible-managed. Appears only as a syncoid source and a Samba share on `offsite-nas`. |
+
+## Refresh commands
+
+```sh
+# --- Case set: what actually exists ---
+ansible-inventory -i ansible/inventory.ini --list --yaml   # 21 names, 20 machines
+for h in vm-host-01 vm-host-02 nas-host-01; do ssh $h 'sudo qm list'; done
+
+# --- Cluster + HA ---
+ssh nas-host-01 'sudo pvecm nodes && sudo ha-manager status && sudo cat /etc/pve/ha/rules.cfg'
+ssh nas-host-01 'sudo pveversion && sudo ceph osd tree'
+
+# --- VM sizing. TARGETED GREP, NEVER `cat`: 200.conf contains a cipassword. ---
+# `ssh <host> bash -s` pipes the script to a known shell. Necessary: these hosts have
+# fish as the login shell, so a bare `for ... do ... done` sent over ssh will not parse.
+for h in vm-host-01 vm-host-02 nas-host-01; do
+  echo "===== $h"
+  ssh "$h" bash -s <<'EOF'
+for f in /etc/pve/qemu-server/*.conf; do
+  echo "[$f]"
+  sudo grep -E "^(name|cores|memory|ostype|machine|bios|onboot|template|hostpci[0-9]|scsi[0-9]|net[0-9])" "$f"
+done
+EOF
+done
+
+# --- Per-host: OS, CPU/RAM, containers, and the monitoring pair ---
+for h in backup-01 docker-01 nas-01 media-01 pi-rack pi-turntable cloud-01 \
+         network-01 network-03 pikvm pikvm-hid offsite-pikvm htpc-01; do
+  echo "== $h"
+  ssh $h 'bash -c ". /etc/os-release; echo \$PRETTY_NAME; uname -r; nproc; free -g | head -2
+    systemctl is-active beszel-agent node_exporter prometheus-node-exporter
+    (sudo docker ps --format "{{.Names}}" 2>/dev/null || sudo podman ps --format "{{.Names}}" 2>/dev/null) | sort"'
+done
+
+# htpc-01 runs ROOTFUL podman — `podman ps` as the login user returns nothing.
+ssh htpc-01 'bash -lc "sudo podman ps --format \"{{.Names}}\""'
+
+# eta is Windows: ssh + powershell, no WinRM.
+ssh eta 'powershell -NoProfile -Command "Get-CimInstance Win32_OperatingSystem | Format-List Caption,Version"'
+```
