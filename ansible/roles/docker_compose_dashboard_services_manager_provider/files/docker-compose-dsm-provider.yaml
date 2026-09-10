@@ -3,6 +3,7 @@ services:
   dashboard_services_manager_provider:
     container_name: dashboard-services-manager-provider
     image: ghcr.io/andyattebery/dashboard-services-manager:provider-latest
+    restart: unless-stopped
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
