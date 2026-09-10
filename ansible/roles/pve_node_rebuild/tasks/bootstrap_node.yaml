@@ -1,0 +1,44 @@
+---
+# As root on the freshly installed node (password from --ask-pass, through the builtin
+# ssh connection's SSH_ASKPASS mechanism). Leaves exactly what the main playbook needs
+# to connect: the automation user with the bootstrap key and passwordless sudo.
+# geerlingguy.security adds its own sudoers line and the GitHub keys later; both are
+# harmless next to these.
+
+# A fresh PVE install points at the enterprise repository, which answers 401 without a
+# subscription, so `apt-get update` exits non-zero even though the Debian lists it also
+# fetched are all `sudo` needs. pve_config fixes the sources in the main playbook.
+- name: Refresh the package lists (the enterprise repository fails; the Debian ones suffice)
+  ansible.builtin.command:
+    argv: [apt-get, update]
+  changed_when: false
+  failed_when: false
+
+- name: Install sudo
+  ansible.builtin.apt:
+    name: sudo
+    state: present
+
+# The play runs as root, which shadows group_vars' `ansible_user: "{{ vault_ansible_user }}"`,
+# so the vault variable is read directly.
+- name: Create the automation user
+  ansible.builtin.user:
+    name: "{{ vault_ansible_user }}"
+    groups: sudo
+    append: true
+    shell: /bin/bash
+
+- name: Authorize the bootstrap key
+  ansible.posix.authorized_key:
+    user: "{{ vault_ansible_user }}"
+    key: "{{ rebuild_bootstrap_pubkey }}"
+    state: present
+
+- name: Passwordless sudo for the automation user
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/90-ansible
+    content: "{{ vault_ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: visudo -cf %s

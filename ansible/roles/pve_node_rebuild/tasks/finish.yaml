@@ -1,0 +1,105 @@
+---
+# Survivor side, after the main playbook has converged the rebuilt node: the OSD is up
+# and in (asserted, not assumed), the flags come off, recovery is waited for — measured
+# first if asked — and HA gets the node back. Fixture-tested down to the argv.
+- name: Read the plan the teardown recorded (the guests that left)
+  ansible.builtin.include_tasks:
+    file: load_plan.yaml
+
+- name: The node is back with its OSD up and in
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_quorate | bool
+      - pve_node_rebuild_node_online | bool
+      - pve_node_rebuild_node_osd_ids | length >= 1
+      - pve_node_rebuild_node_osds_down | length == 0
+      - pve_node_rebuild_node_osds_out | length == 0
+    fail_msg: >-
+      {{ rebuild_node }}: online {{ pve_node_rebuild_node_online }}, quorate
+      {{ pve_node_rebuild_quorate }}, OSDs in its bucket {{ pve_node_rebuild_node_osd_ids }},
+      down {{ pve_node_rebuild_node_osds_down }}, out {{ pve_node_rebuild_node_osds_out }}.
+      The main playbook (pve_node_ceph) is what makes the OSD up and in; run it with
+      --limit {{ rebuild_node }} and read its output.
+    quiet: true
+
+- name: Clear noout and norebalance (preserve)
+  when:
+    - rebuild_osd == 'preserve'
+    - item in pve_node_rebuild_osd_flags
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, unset, "{{ item }}"]
+  loop:
+    - noout
+    - norebalance
+  changed_when: true
+
+- name: Measure recovery under both mClock profiles (replace, on request)
+  when:
+    - rebuild_osd == 'replace'
+    - rebuild_measure_recovery | bool
+  ansible.builtin.include_tasks:
+    file: measure_recovery.yaml
+
+- name: Wait for every PG to be active+clean with no recovery
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", -s, -f, json]
+  register: pve_node_rebuild_ceph_status_wait
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ ((pve_node_rebuild_ceph_status_wait.stdout | from_json).pgmap.num_pgs | int) > 0
+         and ((pve_node_rebuild_ceph_status_wait.stdout | from_json).pgmap.pgs_by_state
+              | rejectattr('state_name', 'equalto', 'active+clean') | list | length == 0)
+         and ((pve_node_rebuild_ceph_status_wait.stdout | from_json).pgmap.recovering_bytes_per_sec | default(0) | int) == 0
+         and ((pve_node_rebuild_ceph_status_wait.stdout | from_json).pgmap.degraded_ratio | default(0) | float) == 0
+         and ((pve_node_rebuild_ceph_status_wait.stdout | from_json).pgmap.misplaced_ratio | default(0) | float) == 0 }}
+  retries: "{{ (pve_node_rebuild_backfill_wait_minutes | int) * 2 }}"
+  delay: 30
+
+- name: Take the node out of HA maintenance
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ha_manager_command }}", crm-command, node-maintenance, disable, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Wait for HA to bring the resources whose rule prefers the node back to it
+  when: pve_node_rebuild_ha_rules_preferring_node | length > 0
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_node_rebuild_ha_status_back
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ (pve_node_rebuild_ha_status_back.stdout | from_json) | selectattr('type', 'equalto', 'service')
+           | selectattr('sid', 'in', pve_node_rebuild_ha_rules_preferring_node)
+           | selectattr('node', 'equalto', rebuild_node)
+           | selectattr('state', 'equalto', 'started') | list | length
+         == pve_node_rebuild_ha_rules_preferring_node | length }}
+  retries: "{{ pve_node_rebuild_wait_retries }}"
+  delay: "{{ pve_node_rebuild_wait_delay }}"
+
+- name: Bring the guests HA does not manage back (rebuild_return_guests)
+  when:
+    - rebuild_return_guests | bool
+    - pve_node_rebuild_plan.guests_non_ha | length > 0
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_qm_command }}", migrate, "{{ item.vmid }}", "{{ rebuild_node }}", --online]
+  loop: "{{ pve_node_rebuild_plan.guests_non_ha }}"
+  loop_control:
+    label: "{{ item.vmid }} {{ item.name }}"
+  delegate_to: "{{ pve_node_rebuild_return_delegate }}"
+  changed_when: true
+
+- name: Ceph is healthy at the end
+  vars:
+    _final: "{{ pve_node_rebuild_ceph_status_wait.stdout | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - _final.health.status == 'HEALTH_OK'
+        or (_final.health.status == 'HEALTH_WARN'
+            and ((_final.health.checks | default({}) | list) | difference(pve_node_rebuild_allowed_health_checks) | length == 0))
+    fail_msg: "Ceph is {{ _final.health.status }}: {{ _final.health.checks | default({}) | list }} (allowed: {{ pve_node_rebuild_allowed_health_checks }})"
+    quiet: true

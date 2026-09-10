@@ -1,0 +1,116 @@
+---
+# Survivor side, after the node is down: the raw removals a dead node needs, then the
+# cluster forgets the node. The node's guest directory is removed only when it is
+# empty — the guard the old runbook had as a comment. Fixture-tested.
+- name: Wait for the node to leave the cluster
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/status, --output-format, json]
+  register: pve_node_rebuild_cluster_status_wait
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ (pve_node_rebuild_cluster_status_wait.stdout | from_json) | selectattr('type', 'equalto', 'node')
+           | selectattr('name', 'equalto', rebuild_node) | selectattr('online', 'equalto', 1) | list | length == 0 }}
+  retries: "{{ pve_node_rebuild_wait_retries }}"
+  delay: "{{ pve_node_rebuild_wait_delay }}"
+
+# ---------- dead node: what the node-side play could not do ----------
+# A dead standby manager and metadata server drop out of their maps when their beacons
+# stop; the leftovers in ceph.conf ([mon.<node>], mon_host, [mds.<node>]) are what
+# pve_node_ceph forgets on the rebuilt node.
+- name: Remove the dead node's monitor from the monmap
+  when:
+    - not (_reachable | bool)
+    - _plan.mon | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", mon, remove, "{{ rebuild_node }}"]
+  changed_when: true
+
+# `pveceph mds destroy` and `pveceph mgr destroy` end with `auth del` (PVE::Ceph::Services
+# 354-359 and 429, pve-manager 9.2.11); a dead node skipped both. The rebuilt node's create
+# would reuse a surviving entity (`auth get-or-create`, same caps, same key), but removing
+# it here leaves exactly the state a clean destroy leaves. Safe to re-run: `auth del` on an
+# entity that is already gone returns 0 (AuthMonitor.cc prepare_command, Ceph tentacle).
+- name: Remove the dead node's metadata server and manager auth entities
+  when:
+    - not (_reachable | bool)
+    - item.present | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", auth, del, "{{ item.entity }}"]
+  loop:
+    - { entity: "mds.{{ rebuild_node }}", present: "{{ _plan.mds_state != '' }}" }
+    - { entity: "mgr.{{ rebuild_node }}", present: "{{ _plan.mgr | bool }}" }
+  loop_control:
+    label: "{{ item.entity }}"
+  changed_when: true
+
+- name: Mark the dead node's OSDs out
+  when: not (_reachable | bool)
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, out, "{{ item }}"]
+  loop: "{{ _plan.osd_ids }}"
+  changed_when: true
+
+- name: Purge the dead node's OSDs (replace)
+  when:
+    - not (_reachable | bool)
+    - rebuild_osd == 'replace'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, purge, "{{ item }}", --yes-i-really-mean-it]
+  loop: "{{ _plan.osd_ids }}"
+  changed_when: true
+
+# ---------- the cluster forgets the node ----------
+- name: Look for guest configs still assigned to the node
+  ansible.builtin.find:
+    paths: "{{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}/qemu-server"
+    patterns: "*.conf"
+  register: pve_node_rebuild_qemu_confs_left
+
+- name: Refuse to delete a node that still owns guests
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_qemu_confs_left.matched == 0
+    fail_msg: >-
+      {{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}/qemu-server still holds
+      {{ pve_node_rebuild_qemu_confs_left.files | map(attribute='path') | map('basename') | list }}.
+      Deleting the node deletes those configs for good.
+      {% if _reachable | bool %}The evacuation did not finish; look at `qm migrate` on the node.
+      {% else %}The node is dead, so nothing can migrate them: move the configs by hand at
+      the console — PVE's dead-node recovery — then re-run --tags teardown.{% endif %}
+    quiet: true
+
+- name: Remove the node from the cluster
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvecm_command }}", delnode, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Read the membership afterwards
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/status, --output-format, json]
+  register: pve_node_rebuild_cluster_status_after
+  changed_when: false
+
+- name: The cluster is quorate without the node
+  vars:
+    _rows: "{{ pve_node_rebuild_cluster_status_after.stdout | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - (_rows | selectattr('type', 'equalto', 'cluster') | map(attribute='quorate') | first | int) == 1
+      - _rows | selectattr('type', 'equalto', 'node') | selectattr('name', 'equalto', rebuild_node) | list | length == 0
+    fail_msg: "After `pvecm delnode {{ rebuild_node }}`: {{ _rows }}"
+    quiet: true
+
+- name: Remove the node's directory from pmxcfs
+  ansible.builtin.file:
+    path: "{{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}"
+    state: absent
+
+- name: Next
+  ansible.builtin.debug:
+    msg: >-
+      {{ rebuild_node }} is out of the cluster. Next: the physical swap, then the PVE
+      installer (names in its Options dialog: {{ hostvars[rebuild_node].pve_pin_network_interface_pins | default([]) | map(attribute='name') | list }}),
+      then `--tags bootstrap --ask-pass`, then the main playbook with --limit {{ rebuild_node }}.

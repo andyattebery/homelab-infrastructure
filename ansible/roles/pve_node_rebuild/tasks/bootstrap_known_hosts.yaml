@@ -1,0 +1,23 @@
+---
+# The rebuilt node has a new host key. The control node's known_hosts still carries the
+# old one under whichever name it connected by — short name, FQDN or address — and the
+# bootstrap play's ssh would refuse the node under any of them. Only stale entries are
+# removed; the new key is recorded by the bootstrap play's own connection
+# (StrictHostKeyChecking=accept-new). Runs on localhost, which is in no group that
+# defines domain_name, so the node's own value is used.
+- name: Resolve the node's address
+  vars:
+    _fqdn: "{{ rebuild_node }}.{{ hostvars[rebuild_node].domain_name }}"
+  ansible.builtin.set_fact:
+    pve_node_rebuild_node_fqdn: "{{ _fqdn }}"
+    pve_node_rebuild_node_ip: "{{ lookup('community.general.dig', _fqdn) }}"
+
+- name: Forget the node's old host keys under every name
+  ansible.builtin.known_hosts:
+    name: "{{ item }}"
+    state: absent
+    path: "{{ rebuild_known_hosts_path }}"
+  loop:
+    - "{{ rebuild_node }}"
+    - "{{ pve_node_rebuild_node_fqdn }}"
+    - "{{ pve_node_rebuild_node_ip }}"

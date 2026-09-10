@@ -1,0 +1,44 @@
+---
+# Empties the node of guests while its Ceph services still run (migration needs them).
+# HA moves what it manages once the node is in maintenance; everything else — stopped
+# VMs and templates included — is migrated by hand-equivalent `qm migrate`, which runs
+# on the source node. Fixture-tested: the stubs log their argv.
+- name: Put the node into HA maintenance
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ha_manager_command }}", crm-command, node-maintenance, enable, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Wait for HA to move every managed resource off the node
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_node_rebuild_ha_status_wait
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ (pve_node_rebuild_ha_status_wait.stdout | from_json) | selectattr('type', 'equalto', 'service')
+           | selectattr('node', 'equalto', rebuild_node) | list | length == 0 }}
+  retries: "{{ pve_node_rebuild_wait_retries }}"
+  delay: "{{ pve_node_rebuild_wait_delay }}"
+
+- name: Migrate the guests HA does not manage (qm migrate runs on the source node)
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_qm_command }}", migrate, "{{ item.vmid }}", "{{ rebuild_evacuate_to }}", --online]
+  loop: "{{ pve_node_rebuild_guests_non_ha }}"
+  loop_control:
+    label: "{{ item.vmid }} {{ item.name }} ({{ item.status }}{{ ', template' if (item.template | default(0) | int) == 1 else '' }})"
+  delegate_to: "{{ pve_node_rebuild_migrate_delegate }}"
+  changed_when: true
+
+- name: Wait for the node's guest configs to be gone (pmxcfs, visible from any node)
+  ansible.builtin.find:
+    paths: "{{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}/qemu-server"
+    patterns: "*.conf"
+  register: pve_node_rebuild_qemu_confs
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: "{{ pve_node_rebuild_qemu_confs.matched == 0 }}"
+  retries: "{{ pve_node_rebuild_wait_retries }}"
+  delay: "{{ pve_node_rebuild_wait_delay }}"

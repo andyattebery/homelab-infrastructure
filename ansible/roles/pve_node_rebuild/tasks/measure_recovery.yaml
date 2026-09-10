@@ -1,0 +1,82 @@
+---
+# The measurement the vm-host-02 rebuild lost: the same backfill, sampled under the
+# current mClock profile and then under high_recovery_ops, one variable changed. The
+# profile is restored whatever happens; the samples land as CSV on the control node.
+# Fixture-tested: the sampler's parse, the means, and the restore on a mid-way failure.
+- name: Read the current mClock profile
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", config, get, osd, osd_mclock_profile]
+  register: pve_node_rebuild_mclock_profile
+  changed_when: false
+
+- name: Sample recovery, then switch profiles and sample again
+  vars:
+    _samples: "{{ pve_node_rebuild_measure_samples }}"
+  block:
+    - name: Sample under {{ pve_node_rebuild_mclock_profile.stdout | trim }}
+      ansible.builtin.command:
+        argv: ["{{ pve_node_rebuild_ceph_command }}", -s, -f, json]
+      loop: "{{ range(_samples | int) | list }}"
+      loop_control:
+        pause: "{{ pve_node_rebuild_measure_interval }}"
+        label: "sample {{ item + 1 }}/{{ _samples }}"
+      register: pve_node_rebuild_samples_before
+      changed_when: false
+
+    - name: Switch to high_recovery_ops
+      ansible.builtin.command:
+        argv: ["{{ pve_node_rebuild_ceph_command }}", config, set, osd, osd_mclock_profile, high_recovery_ops]
+      changed_when: true
+
+    - name: Sample under high_recovery_ops
+      ansible.builtin.command:
+        argv: ["{{ pve_node_rebuild_ceph_command }}", -s, -f, json]
+      loop: "{{ range(_samples | int) | list }}"
+      loop_control:
+        pause: "{{ pve_node_rebuild_measure_interval }}"
+        label: "sample {{ item + 1 }}/{{ _samples }}"
+      register: pve_node_rebuild_samples_after
+      changed_when: false
+  always:
+    - name: Restore the mClock profile ({{ pve_node_rebuild_mclock_profile.stdout | trim }})
+      ansible.builtin.command:
+        argv: ["{{ pve_node_rebuild_ceph_command }}", config, set, osd, osd_mclock_profile, "{{ pve_node_rebuild_mclock_profile.stdout | trim }}"]
+      changed_when: true
+
+- name: Reduce the samples
+  vars:
+    _before: >-
+      {{ pve_node_rebuild_samples_before.results | default([]) | selectattr('stdout', 'defined')
+         | map(attribute='stdout') | map('from_json') | map(attribute='pgmap') | list }}
+    _after: >-
+      {{ pve_node_rebuild_samples_after.results | default([]) | selectattr('stdout', 'defined')
+         | map(attribute='stdout') | map('from_json') | map(attribute='pgmap') | list }}
+  ansible.builtin.set_fact:
+    pve_node_rebuild_measure_rows: >-
+      {{ (_before | map('combine', {'profile': pve_node_rebuild_mclock_profile.stdout | trim}) | list)
+         + (_after | map('combine', {'profile': 'high_recovery_ops'}) | list) }}
+    pve_node_rebuild_measure_mean_before: >-
+      {{ ((_before | map(attribute='recovering_bytes_per_sec', default=0) | sum) / (_before | length)) | int if (_before | length > 0) else 0 }}
+    pve_node_rebuild_measure_mean_after: >-
+      {{ ((_after | map(attribute='recovering_bytes_per_sec', default=0) | sum) / (_after | length)) | int if (_after | length > 0) else 0 }}
+
+- name: Write the samples as CSV on the control node
+  ansible.builtin.copy:
+    dest: "{{ pve_node_rebuild_measure_csv_path }}"
+    content: |-
+      sample,profile,recovering_bytes_per_sec,degraded_ratio,misplaced_ratio,num_pgs
+      {% for r in pve_node_rebuild_measure_rows %}
+      {{ loop.index }},{{ r.profile }},{{ r.recovering_bytes_per_sec | default(0) }},{{ r.degraded_ratio | default(0) }},{{ r.misplaced_ratio | default(0) }},{{ r.num_pgs | default(0) }}
+      {% endfor %}
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+
+- name: Recovery rate, mean bytes/s
+  ansible.builtin.debug:
+    msg: >-
+      {{ pve_node_rebuild_mclock_profile.stdout | trim }}: {{ pve_node_rebuild_measure_mean_before }} B/s
+      ({{ (pve_node_rebuild_measure_mean_before | int / 1048576) | round(1) }} MiB/s);
+      high_recovery_ops: {{ pve_node_rebuild_measure_mean_after }} B/s
+      ({{ (pve_node_rebuild_measure_mean_after | int / 1048576) | round(1) }} MiB/s);
+      samples in {{ pve_node_rebuild_measure_csv_path }}

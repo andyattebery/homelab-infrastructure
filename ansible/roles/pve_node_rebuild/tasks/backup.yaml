@@ -1,0 +1,16 @@
+---
+# scripts/pve-pre-wipe-backup.sh, from the control node, into a directory outside the
+# repo — the tarball holds cluster keys and root's SSH keys. Needs the node reachable
+# with passwordless sudo, which the script checks first.
+- name: Pre-wipe backup of the node
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_rebuild_backup_script }}"
+      - "{{ rebuild_node }}"
+      - "{{ rebuild_backup_root }}/{{ rebuild_node }}-{{ hostvars['localhost'].rebuild_timestamp }}"
+  register: pve_node_rebuild_backup
+  changed_when: true
+
+- name: Where the backup went
+  ansible.builtin.debug:
+    msg: "{{ pve_node_rebuild_backup.stdout_lines | select('search', '^==> (Backup directory|Tarball)') | list }}"

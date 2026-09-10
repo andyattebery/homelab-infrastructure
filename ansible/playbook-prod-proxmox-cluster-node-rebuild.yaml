@@ -1,0 +1,220 @@
+---
+# Rebuilding one node of the prod cluster — boot drive replaced, OSD disk kept or
+# replaced — as playbook phases, so nothing between the PVE installer and a verified
+# node is done by hand. Read docs/proxmox_node_reinstall.md first; it is the runbook,
+# this file is its sequencing.
+#
+#   cd ansible
+#   P=playbook-prod-proxmox-cluster-node-rebuild.yaml
+#   V="-e rebuild_node=vm-host-01 -e rebuild_osd=replace -e rebuild_evacuate_to=vm-host-02"
+#   .venv/bin/ansible-playbook $P $V --tags preflight            # read-only; says what teardown will do
+#   .venv/bin/ansible-playbook $P $V --tags teardown             # backup, evacuate, destroy daemons, power off, delnode
+#   # physical swap; PVE installer (NIC names in its Options dialog)
+#   .venv/bin/ansible-playbook $P $V --tags bootstrap --ask-pass # root password once; creates the automation user
+#   .venv/bin/ansible-playbook playbook-prod-proxmox-cluster.yaml --limit vm-host-01
+#   .venv/bin/ansible-playbook $P $V --tags finish               # OSD in, recovery, HA back, verification
+#
+# The survivor that runs cluster-side commands is derived: the first other member of the
+# cluster group, never assumed — pve_cluster_designated_runner will be rebuilt one day too.
+# A node that no longer answers is torn down from the survivor with -e rebuild_node_dead=true.
+
+- name: Resolve the node, the survivor and the timestamp
+  hosts: localhost
+  gather_facts: false
+  tags: always
+  tasks:
+    - name: The inputs are complete
+      ansible.builtin.assert:
+        that:
+          - rebuild_node is defined
+          - rebuild_node in groups[pve_node_rebuild_cluster_group | default('prod_proxmox_cluster')]
+          - rebuild_osd is defined
+          - rebuild_osd in ['preserve', 'replace']
+        fail_msg: >-
+          -e rebuild_node=<member of {{ groups[pve_node_rebuild_cluster_group | default('prod_proxmox_cluster')] }}>
+          and -e rebuild_osd=<preserve|replace> are required
+          (got rebuild_node='{{ rebuild_node | default('') }}', rebuild_osd='{{ rebuild_osd | default('') }}').
+        quiet: true
+
+    - name: Derive the survivor and stamp the run
+      ansible.builtin.set_fact:
+        rebuild_survivor: "{{ groups[pve_node_rebuild_cluster_group | default('prod_proxmox_cluster')] | difference([rebuild_node]) | sort | first }}"
+        rebuild_timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+    - name: Register the survivor and the node as runtime groups
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: "{{ item.group }}"
+      loop:
+        - { name: "{{ rebuild_survivor }}", group: rebuild_survivor }
+        - { name: "{{ rebuild_node }}", group: rebuild_target }
+      changed_when: false
+
+    - name: Roles for this run
+      ansible.builtin.debug:
+        msg: "node {{ rebuild_node }} ({{ rebuild_osd }}); survivor {{ rebuild_survivor }}; evacuate_to {{ rebuild_evacuate_to | default('-') }}; dead acknowledged {{ rebuild_node_dead | default(false) }}"
+
+# ---------- 0. preflight (also the first step of teardown) ----------
+- name: Preflight — can the cluster lose the node, and how
+  hosts: rebuild_survivor
+  become: true
+  tags:
+    - preflight
+    - teardown
+  tasks:
+    - name: Read the cluster state
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: state
+    - name: Decide and record the plan
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: preflight
+
+# ---------- 1. teardown ----------
+- name: Teardown — is the node reachable
+  hosts: rebuild_target
+  gather_facts: false
+  tags: teardown
+  tasks:
+    - name: Probe the node
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+        connect_timeout: 10
+        sleep: 2
+      register: pve_node_rebuild_probe
+      ignore_errors: true
+    - name: Record reachability on the control node
+      ansible.builtin.set_fact:
+        rebuild_node_reachable: "{{ pve_node_rebuild_probe is not failed }}"
+      delegate_to: localhost
+      delegate_facts: true
+
+- name: Teardown — the acknowledgement matches what the probe found
+  hosts: localhost
+  gather_facts: false
+  tags: teardown
+  tasks:
+    - name: A node that answers is not dead, a node that does not is not torn down blind
+      ansible.builtin.assert:
+        that:
+          - rebuild_node_reachable | bool == (not (rebuild_node_dead | default(false) | bool))
+        fail_msg: >-
+          {{ rebuild_node }} {{ 'answers' if (rebuild_node_reachable | bool) else 'does not answer' }}
+          but rebuild_node_dead={{ rebuild_node_dead | default(false) }}. Dead means the survivor
+          removes its daemons raw; only say so for a node that is really gone.
+        quiet: true
+
+- name: Teardown — pre-wipe backup, from the control node
+  hosts: localhost
+  gather_facts: false
+  tags: teardown
+  tasks:
+    - name: Back the node up
+      when: rebuild_node_reachable | bool
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: backup
+
+- name: Teardown — prepare the cluster and empty the node of guests
+  hosts: rebuild_survivor
+  become: true
+  tags: teardown
+  tasks:
+    - name: noout and norebalance for a preserved OSD
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: cluster_prepare
+    - name: HA maintenance and qm migrate
+      when: hostvars['localhost'].rebuild_node_reachable | bool
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: evacuate
+
+- name: Teardown — remove the Ceph daemons from the node itself and power it off
+  hosts: rebuild_target
+  gather_facts: false
+  become: true
+  tags: teardown
+  vars:
+    _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+  tasks:
+    - name: pveceph destroys, OSD out (and destroyed for replace), poweroff
+      when: hostvars['localhost'].rebuild_node_reachable | bool
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: remove_services
+
+- name: Teardown — the cluster forgets the node
+  hosts: rebuild_survivor
+  become: true
+  tags: teardown
+  vars:
+    _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+    _reachable: "{{ hostvars['localhost'].rebuild_node_reachable }}"
+  tasks:
+    - name: Raw removals for a dead node, pvecm delnode, node directory
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: remove_node
+
+# ---------- 4. bootstrap ----------
+- name: Bootstrap — forget the old host keys on the control node
+  hosts: localhost
+  gather_facts: false
+  tags: bootstrap
+  tasks:
+    - name: known_hosts
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: bootstrap_known_hosts
+
+# Root with the installer's password, through the builtin ssh connection: its
+# password_mechanism defaults to ssh_askpass (ansible-core 2.19+), so --ask-pass needs
+# neither sshpass nor paramiko. accept-new records the new host key and still refuses a
+# changed one. Run this play from a terminal — the prompt is interactive.
+- name: Bootstrap — the automation user on the fresh node
+  hosts: rebuild_target
+  gather_facts: false
+  tags: bootstrap
+  vars:
+    ansible_user: root
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+  tasks:
+    - name: sudo, the user, its key, passwordless sudo
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: bootstrap_node
+
+# ---------- 6. finish ----------
+- name: Finish — OSD in, recovery, HA back
+  hosts: rebuild_survivor
+  become: true
+  tags: finish
+  tasks:
+    - name: Read the cluster state
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: state
+    - name: Flags, recovery wait (measured on request), HA maintenance off, guests back on request
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: finish
+
+- name: Finish — verify the rebuilt node
+  hosts: rebuild_target
+  become: true
+  tags: finish
+  tasks:
+    - name: Read the cluster state from the node
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: state
+    - name: The recorded plan (which guests are expected back)
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: load_plan
+    - name: Assertions
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: verify

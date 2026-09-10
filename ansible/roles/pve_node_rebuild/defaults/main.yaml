@@ -1,0 +1,81 @@
+---
+# ---------- inputs, passed with -e; the playbook refuses to guess ----------
+#   rebuild_node         inventory hostname of the node being rebuilt (required)
+#   rebuild_osd          preserve | replace — keep the OSD disk through the rebuild, or
+#                        replace it (required)
+#   rebuild_evacuate_to  the node that takes the guests HA does not manage; required only
+#                        when the node carries any
+#   rebuild_node_dead    true acknowledges a node that no longer answers: the teardown
+#                        skips everything node-side and removes its daemons from a survivor
+#   rebuild_resume       true acknowledges that this node's own teardown is already part
+#                        way through, so preflight tolerates the degradation that teardown
+#                        caused — and only that. See "Resuming a part-finished teardown"
+#                        in the README.
+rebuild_node_dead: false
+rebuild_resume: false
+
+# ---------- decisions, default off ----------
+# replace only: sample the recovery rate under the current mClock profile, then under
+# high_recovery_ops, restore, and write both series as CSV on the control node.
+rebuild_measure_recovery: false
+rebuild_measure_minutes: 10
+# finish: migrate the non-HA guests back from rebuild_evacuate_to.
+rebuild_return_guests: false
+# `discard` acknowledges that the node's `local` storage holds volumes that die with the
+# boot drive (the pre-wipe backup does not copy /var/lib/vz). Anything else refuses while
+# `local` is not empty.
+rebuild_local_content: keep
+
+# ---------- bootstrap ----------
+rebuild_bootstrap_pubkey: "{{ lookup('file', lookup('env', 'HOME') ~ '/.ssh/id_ed25519.pub') }}"
+rebuild_known_hosts_path: "{{ lookup('env', 'HOME') }}/.ssh/known_hosts"
+
+# ---------- backup ----------
+# Outside the repo on purpose: the tarball holds cluster keys and root's SSH keys.
+rebuild_backup_root: "{{ lookup('env', 'HOME') }}/pve-backups"
+
+# ---------- wait budgets: (retries × delay) seconds ----------
+pve_node_rebuild_wait_retries: 60
+pve_node_rebuild_wait_delay: 5
+# finish: every PG active+clean with no recovery. 253 GiB at ~95 MiB/s is ~45 min; the
+# budget is generous because a stalled backfill fails the play with the pgmap in the message.
+pve_node_rebuild_backfill_wait_minutes: 180
+pve_node_rebuild_measure_interval: 30
+pve_node_rebuild_measure_samples: "{{ ((rebuild_measure_minutes | int) * 60 / (pve_node_rebuild_measure_interval | int)) | int }}"
+
+# Health checks that may be present without blocking preflight or finish. Empty: only
+# HEALTH_OK passes. Extend with -e for a warning already judged benign.
+pve_node_rebuild_allowed_health_checks: []
+
+# The inventory group that is the cluster: the survivor is derived from it, and the
+# verify play expects every member online.
+pve_node_rebuild_cluster_group: prod_proxmox_cluster
+
+# ---------- paths, overridable for the tempdir in tests/test.yml ----------
+pve_node_rebuild_pve_nodes_dir: /etc/pve/nodes
+pve_node_rebuild_ceph_conf_path: /etc/pve/ceph.conf
+pve_node_rebuild_cmdline_path: /proc/cmdline
+pve_node_rebuild_sys_net_dir: /sys/class/net
+pve_node_rebuild_running_kernel: "{{ ansible_kernel }}"
+pve_node_rebuild_backup_script: "{{ playbook_dir }}/../scripts/pve-pre-wipe-backup.sh"
+# Working notes on the control node (gitignored): the plan preflight records for the
+# later phases, and the recovery samples.
+pve_node_rebuild_plan_path: "{{ playbook_dir }}/../tasks/{{ rebuild_node }}-rebuild-plan.json"
+pve_node_rebuild_measure_csv_path: "{{ playbook_dir }}/../tasks/{{ rebuild_node }}-recovery-{{ hostvars['localhost'].rebuild_timestamp | default('now') }}.csv"
+
+# Where `qm migrate` runs: on the source node by definition. Overridden to localhost in
+# tests/test.yml.
+pve_node_rebuild_migrate_delegate: "{{ rebuild_node }}"
+pve_node_rebuild_return_delegate: "{{ rebuild_evacuate_to | default('') }}"
+
+# ---------- commands, overridable for the stubs in tests/test.yml ----------
+# Bare names on purpose: the plays run with become, whose PATH has /usr/sbin (qm, ha-manager
+# and dkms live there); the two absolute ones are what pve_node_ceph uses, verified live.
+pve_node_rebuild_ceph_command: /usr/bin/ceph
+pve_node_rebuild_pveceph_command: /usr/bin/pveceph
+pve_node_rebuild_pvesh_command: pvesh
+pve_node_rebuild_qm_command: qm
+pve_node_rebuild_ha_manager_command: ha-manager
+pve_node_rebuild_pvecm_command: pvecm
+pve_node_rebuild_systemctl_command: systemctl
+pve_node_rebuild_dkms_command: dkms

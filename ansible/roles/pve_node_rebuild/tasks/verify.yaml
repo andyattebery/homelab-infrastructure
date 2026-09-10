@@ -1,0 +1,178 @@
+---
+# On the rebuilt node, after state.yaml has run there: the old runbook's "Phase 9 —
+# Verify" as assertions, one task per check so the failing one is named. Fixture-tested
+# with one positive control per assertion.
+- name: Read the daemon versions
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", versions, -f, json]
+  register: pve_node_rebuild_verify_versions
+  changed_when: false
+
+- name: Read the cluster ceph.conf
+  ansible.builtin.slurp:
+    src: "{{ pve_node_rebuild_ceph_conf_path }}"
+  register: pve_node_rebuild_verify_ceph_conf
+
+- name: Read the kernel command line
+  ansible.builtin.slurp:
+    src: "{{ pve_node_rebuild_cmdline_path }}"
+  register: pve_node_rebuild_verify_cmdline
+
+- name: Read dkms status
+  when: install_realtek_r8125 | default(false) | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_dkms_command }}", status]
+  register: pve_node_rebuild_verify_dkms
+  changed_when: false
+
+- name: Stat the node's ACME certificate
+  ansible.builtin.stat:
+    path: "{{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}/pveproxy-ssl.pem"
+  register: pve_node_rebuild_verify_cert
+
+- name: Read the MAC behind each pinned interface name
+  ansible.builtin.slurp:
+    src: "{{ pve_node_rebuild_sys_net_dir }}/{{ item.name }}/address"
+  loop: "{{ pve_pin_network_interface_pins | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: pve_node_rebuild_verify_pins
+  failed_when: false
+
+- name: Set verification facts
+  vars:
+    _versions: "{{ (pve_node_rebuild_verify_versions.stdout | from_json).overall | default({}) }}"
+    _pins_json: >-
+      {% set out = [] %}
+      {% for r in pve_node_rebuild_verify_pins.results | default([]) %}
+        {% if r.content is not defined %}{% set _ = out.append(r.item.name ~ ': no such interface') %}
+        {% elif (r.content | b64decode | trim | lower) != (r.item.mac | lower) %}{% set _ = out.append(r.item.name ~ ' is ' ~ (r.content | b64decode | trim)) %}{% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  ansible.builtin.set_fact:
+    pve_node_rebuild_v_nodes_expected: "{{ groups[pve_node_rebuild_cluster_group] | length }}"
+    pve_node_rebuild_v_versions: "{{ _versions | list }}"
+    pve_node_rebuild_v_versions_off: "{{ _versions | list | reject('search', ' ' ~ pve_ceph_release ~ ' ') | list }}"
+    pve_node_rebuild_v_mon_sections: "{{ (pve_node_rebuild_verify_ceph_conf.content | b64decode) | regex_findall('(?m)^\\[mon\\.([^\\]]+)\\]') }}"
+    pve_node_rebuild_v_cmdline: "{{ (pve_node_rebuild_verify_cmdline.content | b64decode) | trim }}"
+    pve_node_rebuild_v_storages_inactive: >-
+      {{ pve_node_rebuild_storages | selectattr('enabled', 'equalto', 1) | rejectattr('storage', 'equalto', 'local-lvm')
+                                   | rejectattr('active', 'equalto', 1) | map(attribute='storage') | list }}
+    pve_node_rebuild_v_ha_here: "{{ pve_node_rebuild_ha_services | selectattr('node', 'equalto', rebuild_node) | selectattr('state', 'equalto', 'started') | map(attribute='sid') | list }}"
+    pve_node_rebuild_v_dkms_line: >-
+      {{ (pve_node_rebuild_verify_dkms.stdout_lines | default([]))
+         | select('search', '^r8125/[^,]+, ' ~ (pve_node_rebuild_running_kernel | regex_escape) ~ ', [^:]+: installed$') | list }}
+    pve_node_rebuild_v_pins_wrong: "{{ _pins_json | trim | from_json }}"
+
+- name: V1 - the cluster is quorate with every node online
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_quorate | bool
+      - pve_node_rebuild_nodes_online | length == pve_node_rebuild_v_nodes_expected | int
+    fail_msg: "quorate {{ pve_node_rebuild_quorate }}, online {{ pve_node_rebuild_nodes_online }}, expected {{ pve_node_rebuild_v_nodes_expected }}"
+    quiet: true
+
+- name: V2 - Ceph is healthy
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_health == 'HEALTH_OK'
+        or (pve_node_rebuild_health == 'HEALTH_WARN'
+            and (pve_node_rebuild_health_checks | difference(pve_node_rebuild_allowed_health_checks) | length == 0))
+    fail_msg: "Ceph is {{ pve_node_rebuild_health }}: {{ pve_node_rebuild_health_checks }} (allowed: {{ pve_node_rebuild_allowed_health_checks }})"
+    quiet: true
+
+- name: V3 - this node's OSD is up and in
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_node_osd_ids | length >= 1
+      - pve_node_rebuild_node_osds_down | length == 0
+      - pve_node_rebuild_node_osds_out | length == 0
+    fail_msg: "OSDs in {{ rebuild_node }}'s bucket: {{ pve_node_rebuild_node_osd_ids }}, down {{ pve_node_rebuild_node_osds_down }}, out {{ pve_node_rebuild_node_osds_out }}"
+    quiet: true
+
+- name: V4 - one active metadata server and a standby on every other node
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_mds_actives | length == 1
+      - pve_node_rebuild_mds_standbys | length == (pve_node_rebuild_v_nodes_expected | int) - 1
+      - rebuild_node in (pve_node_rebuild_mds_actives + pve_node_rebuild_mds_standbys)
+    fail_msg: "active {{ pve_node_rebuild_mds_actives }}, standby {{ pve_node_rebuild_mds_standbys }}, expected {{ pve_node_rebuild_v_nodes_expected }} nodes"
+    quiet: true
+
+- name: V5 - every daemon runs {{ pve_ceph_release }}
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_v_versions | length > 0
+      - pve_node_rebuild_v_versions_off | length == 0
+    fail_msg: "ceph versions: {{ pve_node_rebuild_v_versions }}; not {{ pve_ceph_release }}: {{ pve_node_rebuild_v_versions_off }}"
+    quiet: true
+
+- name: V6 - ceph.conf has a [mon.<node>] section per node
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_v_mon_sections | length == pve_node_rebuild_v_nodes_expected | int
+      - rebuild_node in pve_node_rebuild_v_mon_sections
+    fail_msg: "[mon.*] sections: {{ pve_node_rebuild_v_mon_sections }}, expected {{ pve_node_rebuild_v_nodes_expected }} including {{ rebuild_node }}"
+    quiet: true
+
+- name: V7 - the r8125 module is built for the running kernel (install_realtek_r8125)
+  when: install_realtek_r8125 | default(false) | bool
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_v_dkms_line | length == 1
+    fail_msg: "dkms status has no `r8125/<ver>, {{ pve_node_rebuild_running_kernel }}, <arch>: installed` line: {{ pve_node_rebuild_verify_dkms.stdout_lines | default([]) }}"
+    quiet: true
+
+- name: V8 - intel_iommu=on is on the kernel command line (kernel_parameters_new_parameters)
+  when: ((kernel_parameters_new_parameters | default({})).intel_iommu | default('')) == 'on'
+  ansible.builtin.assert:
+    that:
+      - "'intel_iommu=on' in (pve_node_rebuild_v_cmdline | split(' '))"
+    fail_msg: "cmdline: {{ pve_node_rebuild_v_cmdline }}"
+    quiet: true
+
+- name: V9 - every enabled storage is active (local-lvm excepted, maxvz 0)
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_storages | length > 0
+      - pve_node_rebuild_v_storages_inactive | length == 0
+    fail_msg: "inactive: {{ pve_node_rebuild_v_storages_inactive }}"
+    quiet: true
+
+- name: V10 - the ACME certificate is in place
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_verify_cert.stat.exists
+    fail_msg: "{{ pve_node_rebuild_pve_nodes_dir }}/{{ rebuild_node }}/pveproxy-ssl.pem is missing; pve_node_acme's order did not land"
+    quiet: true
+
+- name: V11 - the HA resources whose rule prefers this node run here
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_ha_rules_preferring_node | difference(pve_node_rebuild_v_ha_here) | length == 0
+    fail_msg: "rule prefers {{ pve_node_rebuild_ha_rules_preferring_node }} here; started here: {{ pve_node_rebuild_v_ha_here }}"
+    quiet: true
+
+- name: V12 - the guests HA does not manage are back (rebuild_return_guests)
+  when: rebuild_return_guests | bool
+  ansible.builtin.assert:
+    that:
+      - (pve_node_rebuild_plan.guests_non_ha | map(attribute='vmid') | list) | difference(pve_node_rebuild_guest_vmids) | length == 0
+    fail_msg: "expected {{ pve_node_rebuild_plan.guests_non_ha | map(attribute='vmid') | list }} on {{ rebuild_node }}; it has {{ pve_node_rebuild_guest_vmids }}"
+    quiet: true
+
+- name: V13 - every pinned interface name carries its MAC
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_v_pins_wrong | length == 0
+    fail_msg: "pins: {{ pve_node_rebuild_v_pins_wrong }}"
+    quiet: true
+
+- name: Verified
+  ansible.builtin.debug:
+    msg: >-
+      {{ rebuild_node }}: quorate with {{ pve_node_rebuild_nodes_online | length }} nodes,
+      {{ pve_node_rebuild_health }}, OSD {{ pve_node_rebuild_node_osd_ids }} up+in, MDS
+      {{ pve_node_rebuild_node_mds_state }}, {{ pve_ceph_release }} everywhere, mons
+      {{ pve_node_rebuild_v_mon_sections }}, storages active, cert present, HA here
+      {{ pve_node_rebuild_v_ha_here }}, guests {{ pve_node_rebuild_guest_vmids }}, pins ok.

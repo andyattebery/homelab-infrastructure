@@ -1,0 +1,8 @@
+localhost ansible_connection=local
+
+# The cluster group the role derives the survivor from. Never contacted: every play in
+# test.yml targets localhost and every command is a stub.
+[cluster]
+nas-host-01 ansible_connection=local
+vm-host-01 ansible_connection=local
+vm-host-02 ansible_connection=local

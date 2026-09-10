@@ -1,0 +1,92 @@
+---
+# Runs on the node itself, while it still answers: the pveceph destroys keep ceph.conf
+# and the cluster KV consistent, which a raw removal from a survivor does not. What it
+# does comes from the plan preflight recorded on the control node. Fixture-tested: the
+# stubs log their argv, and the two modes are asserted command by command.
+- name: Hand the active metadata server rank to a standby first
+  when: _plan.mds_state == 'active'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", mds, fail, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Destroy the metadata server
+  when: _plan.mds_state != ''
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pveceph_command }}", mds, destroy, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Destroy the manager
+  when: _plan.mgr | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pveceph_command }}", mgr, destroy, "{{ rebuild_node }}"]
+  changed_when: true
+
+# From the node, not a survivor: destroymon reads the address to drop from mon_host out
+# of the monmap, which it can only do while the monitor is still in it.
+- name: Destroy the monitor
+  when: _plan.mon | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pveceph_command }}", mon, destroy, "{{ rebuild_node }}"]
+  changed_when: true
+
+- name: Mark the OSD out
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, out, "{{ item }}"]
+  loop: "{{ _plan.osd_ids }}"
+  changed_when: true
+
+- name: Stop and disable the OSD unit — the disk comes back as it is (preserve)
+  when: rebuild_osd == 'preserve'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_systemctl_command }}", "{{ item.1 }}", "ceph-osd@{{ item.0 }}.service"]
+  loop: "{{ _plan.osd_ids | product(['stop', 'disable']) | list }}"
+  changed_when: true
+
+# A wait, not a question. `ceph osd out` above remaps most PGs at once and they
+# peer for a while afterwards; ok-to-stop asked in that window answers "unsafe to
+# stop osd(s) at this time (70 PGs are or would become offline)" and is simply
+# premature. On 2026-09-08 the very same query went from num_not_ok_pgs 70 to 0
+# inside a minute, with the cluster HEALTH_OK and every PG active throughout.
+#
+# No `failed_when: false` here, deliberately: an exhausted `until` combined with
+# `failed_when: false` does NOT fail the task — it falls through, which would put
+# `pveceph osd destroy --cleanup 1` on an OSD Ceph had just refused to release.
+# Verified locally, not assumed. The `or` short-circuits, so stdout is only parsed
+# when the command actually answered.
+- name: Wait until Ceph agrees the OSD can stop (replace)
+  when: rebuild_osd == 'replace'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, ok-to-stop, "{{ item }}"]
+  loop: "{{ _plan.osd_ids }}"
+  register: pve_node_rebuild_ok_to_stop
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_node_rebuild_ok_to_stop.rc == 0
+         and ((pve_node_rebuild_ok_to_stop.stdout | from_json).ok_to_stop | bool) }}
+  retries: "{{ pve_node_rebuild_wait_retries }}"
+  delay: "{{ pve_node_rebuild_wait_delay }}"
+
+- name: Stop the OSD (replace)
+  when: rebuild_osd == 'replace'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pveceph_command }}", stop, --service, "osd.{{ item }}"]
+  loop: "{{ _plan.osd_ids }}"
+  changed_when: true
+
+- name: Destroy the OSD and zap its disk (replace)
+  when: rebuild_osd == 'replace'
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pveceph_command }}", osd, destroy, "{{ item }}", --cleanup, "1"]
+  loop: "{{ _plan.osd_ids }}"
+  changed_when: true
+
+- name: Power the node off
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_systemctl_command }}", poweroff]
+  async: 1
+  poll: 0
+  changed_when: true
+  failed_when: false

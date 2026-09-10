@@ -1,0 +1,1600 @@
+---
+# Exercises pve_node_rebuild's decisions and command sequences against stub `ceph`,
+# `pvesh`, `qm`, `ha-manager`, `pvecm`, `pveceph`, `systemctl` and `dkms` CLIs that
+# answer with JSON captured from the cluster on 2026-09-08 and log every argv. Runs
+# entirely on localhost; touches no remote host. The parts that need the real cluster
+# — wait_for_connection, the pre-wipe script, the destroys and migrations actually
+# happening, the backfill — are not here: the first live run is vm-host-01's rebuild.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_node_rebuild/tests/inventory \
+#     roles/pve_node_rebuild/tests/test.yml
+- name: Test pve_node_rebuild
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # ---------- Ceph, captured (trimmed to the keys the role reads) ----------
+    _osdmap_ok: '"osdmap":{"epoch":9170,"num_osds":3,"num_up_osds":3,"osd_up_since":1788876714,"num_in_osds":3,"osd_in_since":1788838326,"num_remapped_pgs":0}'
+    _pgmap_ok: '"pgmap":{"pgs_by_state":[{"state_name":"active+clean","count":97}],"num_pgs":97,"num_pools":4,"num_objects":79991,"data_bytes":312780165400,"bytes_used":822355599360,"bytes_avail":2250265681920,"bytes_total":3072621281280,"read_bytes_sec":0,"write_bytes_sec":1050758,"read_op_per_sec":0,"write_op_per_sec":68}'
+    _ceph_s_ok: '{"health":{"status":"HEALTH_OK","checks":{}},{{ _osdmap_ok }},{{ _pgmap_ok }}}'
+    # The live cluster after `ceph osd out 0` and before the OSD is stopped, captured
+    # 2026-09-08: HEALTH_OK, every PG active+clean+remapped, a third of objects
+    # misplaced, nothing degraded, 2 of 3 OSDs in. This is what a resumed teardown
+    # legitimately walks back into.
+    _osdmap_osd0_out: '"osdmap":{"epoch":9172,"num_osds":3,"num_up_osds":3,"num_in_osds":2,"num_remapped_pgs":97}'
+    _pgmap_remapped: '"pgmap":{"pgs_by_state":[{"state_name":"active+clean+remapped","count":97}],"num_pgs":97,"num_pools":4,"num_objects":80015,"data_bytes":312780165400,"bytes_used":546535997440,"bytes_avail":1978613432320,"bytes_total":3072621281280,"misplaced_objects":80015,"misplaced_total":240045,"misplaced_ratio":0.333333,"write_bytes_sec":1153433,"write_op_per_sec":86}'
+    _ceph_s_resume: '{"health":{"status":"HEALTH_OK","checks":{}},{{ _osdmap_osd0_out }},{{ _pgmap_remapped }}}'
+    # Same shape, but a replica is actually missing. Never tolerable, resume or not.
+    _pgmap_remapped_degraded: '"pgmap":{"pgs_by_state":[{"state_name":"active+clean+remapped","count":90},{"state_name":"active+undersized+degraded","count":7}],"num_pgs":97,"num_pools":4,"num_objects":80015,"data_bytes":312780165400,"bytes_used":546535997440,"bytes_avail":1978613432320,"bytes_total":3072621281280,"degraded_objects":5000,"degraded_total":240045,"degraded_ratio":0.02083,"misplaced_ratio":0.333333,"write_bytes_sec":1153433,"write_op_per_sec":86}'
+    _ceph_s_resume_degraded: '{"health":{"status":"HEALTH_OK","checks":{}},{{ _osdmap_osd0_out }},{{ _pgmap_remapped_degraded }}}'
+    # An OSD out that is NOT this node's: same counts, but osd.1 lives on vm-host-02.
+    _osd_dump_osd1_out: '{"epoch":9172,"flags":"sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]},{"osd":1,"up":1,"in":0,"weight":0,"primary_affinity":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]}]}'
+    _osd_dump_osd0_out_clean: '{"epoch":9172,"flags":"sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":0,"weight":0,"primary_affinity":1,"state":["exists","up"]},{"osd":1,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]}]}'
+    _ceph_s_warn_flags: '{"health":{"status":"HEALTH_WARN","checks":{"OSDMAP_FLAGS":{"severity":"HEALTH_WARN","summary":{"message":"noout,norebalance flag(s) set","count":2},"muted":false}}},{{ _osdmap_ok }},{{ _pgmap_ok }}}'
+    # Constructed from PGMap's key names for a backfill in progress: a healthy cluster
+    # has none of the degraded_*/recovering_* keys (captured 2026-09-08), so the sampler's
+    # defaults are the thing under test.
+    _ceph_s_recovering: '{"health":{"status":"HEALTH_WARN","checks":{"PG_DEGRADED":{"severity":"HEALTH_WARN","summary":{"message":"Degraded data redundancy: 79991/239973 objects degraded (33.333%), 33 pgs degraded, 33 pgs undersized","count":33},"muted":false}}},"osdmap":{"epoch":9200,"num_osds":3,"num_up_osds":3,"num_in_osds":3,"num_remapped_pgs":33},"pgmap":{"pgs_by_state":[{"state_name":"active+clean","count":64},{"state_name":"active+undersized+degraded+remapped+backfilling","count":33}],"num_pgs":97,"num_pools":4,"num_objects":79991,"data_bytes":312780165400,"bytes_used":548237066240,"bytes_avail":2524384215040,"bytes_total":3072621281280,"degraded_objects":79991,"degraded_total":239973,"degraded_ratio":0.333333,"recovering_objects_per_sec":24,"recovering_bytes_per_sec":99614720,"recovering_keys_per_sec":0,"read_bytes_sec":0,"write_bytes_sec":1050758,"read_op_per_sec":0,"write_op_per_sec":68}}'
+    _osd_nas: '{"id":-10,"name":"nas-host-01","type":"host","type_id":1,"pool_weights":{},"children":[2]},{"id":2,"device_class":"nvme","name":"osd.2","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1}'
+    _osd_vm02: '{"id":-6,"name":"vm-host-02","type":"host","type_id":1,"pool_weights":{},"children":[1]},{"id":1,"device_class":"ssd","name":"osd.1","type":"osd","type_id":0,"crush_weight":1.4554901123046875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1}'
+    _osd_tree_today: '{"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{{ _osd_nas }},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{{ _osd_vm02 }}],"stray":[]}'
+    _osd_tree_two_osds: '{"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{{ _osd_nas }},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0,3]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":3,"device_class":"ssd","name":"osd.3","type":"osd","type_id":0,"crush_weight":1.4554901123046875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{{ _osd_vm02 }}],"stray":[]}'
+    _osd_tree_osd0_down: '{"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{{ _osd_nas }},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"down","reweight":0,"primary_affinity":1},{{ _osd_vm02 }}],"stray":[]}'
+    _osd_tree_osd0_out: '{"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{{ _osd_nas }},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":0,"primary_affinity":1},{{ _osd_vm02 }}],"stray":[]}'
+    _osd_dump_today: '{"epoch":9170,"flags":"sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":1,"weight":1,"state":["exists","up"]},{"osd":1,"up":1,"in":1,"weight":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"state":["exists","up"]}]}'
+    _osd_dump_flags: '{"epoch":9171,"flags":"noout,norebalance,sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":1,"weight":1,"state":["exists","up"]},{"osd":1,"up":1,"in":1,"weight":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"state":["exists","up"]}]}'
+    _osd_dump_osd0_out: '{"epoch":9172,"flags":"noout,norebalance,sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":0,"weight":0,"state":["exists","up"]},{"osd":1,"up":1,"in":1,"weight":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"state":["exists","up"]}]}'
+    _mon_dump_three: '{"epoch":25,"fsid":"5208baee-5395-42e6-a44e-fc625acb61d7","min_mon_release":20,"min_mon_release_name":"tentacle","mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"},{"rank":2,"name":"vm-host-02"}],"quorum":[0,1,2]}'
+    _mon_dump_two: '{"epoch":19,"fsid":"5208baee-5395-42e6-a44e-fc625acb61d7","min_mon_release":20,"min_mon_release_name":"tentacle","mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}'
+    # ceph fs status -f json as captured during the upgrade (vm-host-01 active).
+    _fs_status: '{"clients":[{"clients":3,"fs":"cephfs"}],"mds_version":[],"mdsmap":[{"caps":18,"dirs":17,"dns":18,"inos":18,"name":"vm-host-01","rank":0,"rate":0,"state":"active"},{"name":"nas-host-01","state":"standby"},{"name":"vm-host-02","state":"standby"}],"pools":[]}'
+    _fs_status_node_standby: '{"clients":[{"clients":3,"fs":"cephfs"}],"mds_version":[],"mdsmap":[{"caps":18,"dirs":17,"dns":18,"inos":18,"name":"nas-host-01","rank":0,"rate":0,"state":"active"},{"name":"vm-host-01","state":"standby"},{"name":"vm-host-02","state":"standby"}],"pools":[]}'
+    _fs_status_one_standby: '{"clients":[{"clients":3,"fs":"cephfs"}],"mds_version":[],"mdsmap":[{"caps":18,"dirs":17,"dns":18,"inos":18,"name":"vm-host-01","rank":0,"rate":0,"state":"active"},{"name":"nas-host-01","state":"standby"}],"pools":[]}'
+    _mgr_dump: '{"epoch":40,"active_gid":84210,"active_name":"nas-host-01","available":true,"standbys":[{"gid":84300,"name":"vm-host-01"},{"gid":84310,"name":"vm-host-02"}]}'
+    _versions_done: '{"mon":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"osd":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mds":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"overall":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":12}}'
+    _versions_mixed: '{"overall":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":8,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3}}'
+    # ---------- PVE, captured 2026-09-08 (management addresses replaced; one guest
+    # name and one CIFS storage name redacted, since the repo's role grep forbids other
+    # hosts' names anywhere under roles/) ----------
+    _cluster_online: '[{"id":"cluster","name":"homelab","nodes":3,"quorate":1,"type":"cluster","version":19},{"id":"node/vm-host-01","ip":"192.0.2.41","level":"","local":0,"name":"vm-host-01","nodeid":1,"online":1,"type":"node"},{"id":"node/vm-host-02","ip":"192.0.2.42","level":"","local":0,"name":"vm-host-02","nodeid":2,"online":1,"type":"node"},{"id":"node/nas-host-01","ip":"192.0.2.31","level":"","local":1,"name":"nas-host-01","nodeid":3,"online":1,"type":"node"}]'
+    _cluster_node_offline: '[{"id":"cluster","name":"homelab","nodes":3,"quorate":1,"type":"cluster","version":19},{"id":"node/vm-host-01","ip":"192.0.2.41","level":"","local":0,"name":"vm-host-01","nodeid":1,"online":0,"type":"node"},{"id":"node/vm-host-02","ip":"192.0.2.42","level":"","local":0,"name":"vm-host-02","nodeid":2,"online":1,"type":"node"},{"id":"node/nas-host-01","ip":"192.0.2.31","level":"","local":1,"name":"nas-host-01","nodeid":3,"online":1,"type":"node"}]'
+    _cluster_after_delnode: '[{"id":"cluster","name":"homelab","nodes":2,"quorate":1,"type":"cluster","version":20},{"id":"node/vm-host-02","ip":"192.0.2.42","level":"","local":0,"name":"vm-host-02","nodeid":2,"online":1,"type":"node"},{"id":"node/nas-host-01","ip":"192.0.2.31","level":"","local":1,"name":"nas-host-01","nodeid":3,"online":1,"type":"node"}]'
+    _ha_resources: '[{"digest":"c4bf12cc53cdf097b4cadd4f559ec379ed80b7f9","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},{"digest":"c4bf12cc53cdf097b4cadd4f559ec379ed80b7f9","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"},{"digest":"c4bf12cc53cdf097b4cadd4f559ec379ed80b7f9","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:110","state":"started","type":"vm"}]'
+    _ha_head: '{"id":"quorum","node":"vm-host-01","quorate":1,"status":"OK","type":"quorum"},{"id":"master","node":"nas-host-01","status":"nas-host-01 (active, Tue Sep  8 19:29:15 2026)","timestamp":1788913755,"type":"master"},{"armed-state":"armed","id":"fencing","node":"nas-host-01","status":"armed (CRM watchdog active)","type":"fencing"},{"id":"lrm:nas-host-01","node":"nas-host-01","status":"nas-host-01 (idle, watchdog standby, Tue Sep  8 19:29:22 2026)","timestamp":1788913762,"type":"lrm"},{"id":"lrm:vm-host-01","node":"vm-host-01","status":"vm-host-01 (active, watchdog active, Tue Sep  8 19:29:15 2026)","timestamp":1788913755,"type":"lrm"},{"id":"lrm:vm-host-02","node":"vm-host-02","status":"vm-host-02 (idle, watchdog standby, Tue Sep  8 19:29:17 2026)","timestamp":1788913757,"type":"lrm"}'
+    _ha_status_on_node: '[{{ _ha_head }},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:102","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:102","state":"started","status":"vm:102 (vm-host-01, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:103","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:103","state":"started","status":"vm:103 (vm-host-01, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:110","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:110","state":"started","status":"vm:110 (vm-host-01, started)","type":"service"}]'
+    _ha_status_moved: '[{{ _ha_head }},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:102","max_relocate":3,"max_restart":2,"node":"vm-host-02","request_state":"started","sid":"vm:102","state":"started","status":"vm:102 (vm-host-02, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:103","max_relocate":3,"max_restart":2,"node":"nas-host-01","request_state":"started","sid":"vm:103","state":"started","status":"vm:103 (nas-host-01, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:110","max_relocate":3,"max_restart":2,"node":"vm-host-02","request_state":"started","sid":"vm:110","state":"started","status":"vm:110 (vm-host-02, started)","type":"service"}]'
+    _ha_status_back: '[{{ _ha_head }},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:102","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:102","state":"started","status":"vm:102 (vm-host-01, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:103","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:103","state":"started","status":"vm:103 (vm-host-01, started)","type":"service"},{"auto-rebalance":1,"crm_state":"started","failback":1,"id":"service:vm:110","max_relocate":3,"max_restart":2,"node":"vm-host-01","request_state":"started","sid":"vm:110","state":"started","status":"vm:110 (vm-host-01, started)","type":"service"}]'
+    _ha_rules: '[{"affinity":"positive","comment":"Generated from HA group ''main''.","digest":"380e2303cbd66278061b6700ab183e521ba23f0d","nodes":"nas-host-01:1,vm-host-01:3,vm-host-02:2","order":1,"resources":"vm:102,vm:103,vm:110","rule":"ha-group-main","type":"node-affinity"}]'
+    _qemu: '[{"cpus":2,"maxmem":4294967296,"name":"network-01","status":"running","uptime":40226,"vmid":103},{"cpus":2,"maxdisk":68719476736,"maxmem":8589934592,"name":"ubuntu-2404-cloudinit-template","serial":1,"status":"stopped","template":1,"uptime":0,"vmid":1000},{"cpus":4,"maxdisk":68719476736,"maxmem":8589934592,"name":"vdesktop-01","serial":1,"status":"running","tags":"community-script","uptime":40225,"vmid":120},{"cpus":4,"maxdisk":137438953472,"maxmem":12884901888,"name":"homeassistant","status":"running","uptime":40226,"vmid":110},{"cpus":4,"maxdisk":137438953472,"maxmem":17179869184,"name":"docker-vm","serial":1,"status":"running","uptime":40229,"vmid":102},{"cpus":2,"maxmem":4294967296,"name":"nixos-2511-template","status":"stopped","template":1,"uptime":0,"vmid":1001}]'
+    _storage: '[{"active":1,"content":"rootdir,images","enabled":1,"shared":1,"storage":"pve_pool","type":"rbd"},{"active":0,"content":"rootdir,images","enabled":0,"shared":0,"storage":"local-zfs_pve-optane-01","type":"zfspool"},{"active":1,"content":"rootdir,iso,snippets,vztmpl,backup,images","enabled":1,"shared":1,"storage":"nas_proxmox","type":"cifs"},{"active":1,"content":"backup","enabled":1,"shared":1,"storage":"backup-01_pbs_vm-host-01","type":"pbs"},{"active":1,"content":"vztmpl,backup,iso,snippets","enabled":1,"shared":1,"storage":"pve_cephfs","type":"cephfs"},{"active":0,"content":"images,rootdir","enabled":0,"shared":0,"storage":"local-zfs","type":"zfspool"},{"active":0,"content":"backup","enabled":0,"shared":1,"storage":"backup-01_pbs_vm-host-02","type":"pbs"},{"active":0,"content":"backup","enabled":0,"shared":1,"storage":"backup-01_pbs_nas-host-01","type":"pbs"},{"active":0,"content":"rootdir,images","enabled":1,"shared":0,"storage":"local-lvm","type":"lvmthin"},{"active":1,"content":"vztmpl,backup,iso","enabled":1,"shared":0,"storage":"local","type":"dir"}]'
+    _storage_cephfs_inactive: '[{"active":1,"content":"rootdir,images","enabled":1,"shared":1,"storage":"pve_pool","type":"rbd"},{"active":0,"content":"vztmpl,backup,iso,snippets","enabled":1,"shared":1,"storage":"pve_cephfs","type":"cephfs"},{"active":1,"content":"vztmpl,backup,iso","enabled":1,"shared":0,"storage":"local","type":"dir"}]'
+    _local_empty: '[]'
+    _local_iso: '[{"content":"iso","ctime":1788800000,"format":"iso","size":1547632640,"volid":"local:iso/proxmox-ve_9.2-1.iso"}]'
+    _cfg_102: '{"ide2": "pve_pool:vm-102-cloudinit,media=cdrom", "scsi0": "pve_pool:vm-102-disk-0,cache=writeback,discard=on,iothread=1,size=128G,ssd=1", "scsi1": "pve_pool:vm-102-disk-1,cache=writeback,discard=on,iothread=1,size=128G,ssd=1", "name": "docker-vm", "cores": 4}'
+    _cfg_103: '{"efidisk0": "pve_pool:vm-103-disk-0,efitype=4m,size=528K", "ide2": "none,media=cdrom", "scsi0": "pve_pool:vm-103-disk-1,cache=writeback,discard=on,iothread=1,size=64G,ssd=1", "name": "network-01"}'
+    _cfg_110: '{"efidisk0": "pve_pool:vm-110-disk-0,efitype=4m,size=528K", "scsi0": "pve_pool:vm-110-disk-1,cache=writeback,discard=on,iothread=1,size=128G,ssd=1", "name": "homeassistant"}'
+    _cfg_120: '{"efidisk0": "pve_pool:vm-120-disk-0,efitype=4m,size=528K", "scsi0": "pve_pool:vm-120-disk-1,discard=on,size=64G,ssd=1", "scsi1": "pve_pool:vm-120-cloudinit,media=cdrom", "name": "vdesktop-01"}'
+    _cfg_120_local: '{"efidisk0": "pve_pool:vm-120-disk-0,efitype=4m,size=528K", "scsi0": "local-lvm:vm-120-disk-1,discard=on,size=64G,ssd=1", "scsi1": "pve_pool:vm-120-cloudinit,media=cdrom", "name": "vdesktop-01"}'
+    _cfg_1000: '{"ide2": "pve_pool:vm-1000-cloudinit,media=cdrom", "scsi0": "pve_pool:base-1000-disk-0,discard=on,size=64G", "template": 1}'
+    _cfg_1001: '{"efidisk0": "pve_pool:base-1001-disk-0,efitype=4m,size=528K", "ide2": "none,media=cdrom", "scsi0": "pve_pool:base-1001-disk-1,discard=on,iothread=1,size=64G,ssd=1", "template": 1}'
+    # ---------- node-side files ----------
+    _ceph_conf: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.11 10.1.40.12
+
+      [mon.nas-host-01]
+      	public_addr = 10.1.40.13
+
+      [mon.vm-host-01]
+      	public_addr = 10.1.40.11
+
+      [mon.vm-host-02]
+      	public_addr = 10.1.40.12
+    _ceph_conf_two_mons: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.12
+
+      [mon.nas-host-01]
+      	public_addr = 10.1.40.13
+
+      [mon.vm-host-02]
+      	public_addr = 10.1.40.12
+    _cmdline_iommu: "BOOT_IMAGE=/boot/vmlinuz-7.0.14-15-pve root=/dev/mapper/pve-root ro quiet intel_iommu=on\n"
+    _cmdline_plain: "BOOT_IMAGE=/boot/vmlinuz-7.0.14-15-pve root=/dev/mapper/pve-root ro quiet\n"
+    # dkms status on vm-host-01, 2026-09-08.
+    _dkms_ok: "r8125/9.015.00, 7.0.14-14-pve, x86_64: installed\nr8125/9.015.00, 7.0.14-15-pve, x86_64: installed\n"
+    _dkms_stale: "r8125/9.015.00, 7.0.14-14-pve, x86_64: installed\n"
+    _pins:
+      - { mac: "aa:bb:cc:dd:ee:01", name: i219p0 }
+      - { mac: "aa:bb:cc:dd:ee:02", name: rtl8125p0 }
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-node-rebuild-tests
+      register: _tmp
+
+    - name: Run the suite
+      vars:
+        _d: "{{ _tmp.path }}"
+        pve_node_rebuild_ceph_command: "{{ _tmp.path }}/ceph"
+        pve_node_rebuild_pveceph_command: "{{ _tmp.path }}/pveceph"
+        pve_node_rebuild_pvesh_command: "{{ _tmp.path }}/pvesh"
+        pve_node_rebuild_qm_command: "{{ _tmp.path }}/qm"
+        pve_node_rebuild_ha_manager_command: "{{ _tmp.path }}/ha-manager"
+        pve_node_rebuild_pvecm_command: "{{ _tmp.path }}/pvecm"
+        pve_node_rebuild_systemctl_command: "{{ _tmp.path }}/systemctl"
+        pve_node_rebuild_dkms_command: "{{ _tmp.path }}/dkms"
+        pve_node_rebuild_cluster_group: cluster
+        pve_node_rebuild_pve_nodes_dir: "{{ _tmp.path }}/nodes"
+        pve_node_rebuild_ceph_conf_path: "{{ _tmp.path }}/ceph.conf"
+        pve_node_rebuild_cmdline_path: "{{ _tmp.path }}/cmdline"
+        pve_node_rebuild_sys_net_dir: "{{ _tmp.path }}/sys"
+        pve_node_rebuild_running_kernel: 7.0.14-15-pve
+        pve_node_rebuild_plan_path: "{{ _tmp.path }}/plan.json"
+        pve_node_rebuild_measure_csv_path: "{{ _tmp.path }}/recovery.csv"
+        pve_node_rebuild_migrate_delegate: localhost
+        pve_node_rebuild_return_delegate: localhost
+        pve_node_rebuild_wait_retries: 1
+        pve_node_rebuild_wait_delay: 0
+        pve_node_rebuild_backfill_wait_minutes: 1
+        pve_node_rebuild_measure_interval: 0
+        pve_node_rebuild_measure_samples: 3
+        pve_ceph_release: tentacle
+        rebuild_node: vm-host-01
+        rebuild_osd: replace
+        rebuild_evacuate_to: vm-host-02
+      block:
+        - name: Install the stubs
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            mode: "0755"
+            content: "{{ item.body }}"
+          loop:
+            - name: ceph
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "ceph $*" >> "$d/calls.log"
+                case "$*" in
+                  "-s -f json")
+                    if [ -f "$d/fail-after" ]; then
+                      n=$(cat "$d/count" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$d/count"
+                      if [ "$n" -gt "$(cat "$d/fail-after")" ]; then echo "stub: ceph -s failing on call $n" >&2; exit 1; fi
+                    fi
+                    cat "$d/ceph-s.json" ;;
+                  "osd tree -f json") cat "$d/osd-tree.json" ;;
+                  "osd dump -f json") cat "$d/osd-dump.json" ;;
+                  "mon dump -f json") cat "$d/mon-dump.json" ;;
+                  "fs status -f json") cat "$d/fs-status.json" ;;
+                  "mgr dump -f json") cat "$d/mgr-dump.json" ;;
+                  "versions -f json") cat "$d/versions.json" ;;
+                  "config get osd osd_mclock_profile") echo balanced ;;
+                  "config set osd osd_mclock_profile "*) ;;
+                  "osd ok-to-stop "*)
+                    if [ -f "$d/ok-to-stop-not-until" ]; then
+                      n=$(cat "$d/ok-count" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$d/ok-count"
+                      if [ "$n" -lt "$(cat "$d/ok-to-stop-not-until")" ]; then
+                        echo '{"ok_to_stop":false,"num_ok_pgs":17,"num_not_ok_pgs":70}'
+                        echo "stub: unsafe to stop osd(s) at this time" >&2
+                        exit 16
+                      fi
+                    fi
+                    echo '{"ok_to_stop":true,"num_ok_pgs":97,"num_not_ok_pgs":0}' ;;
+                  "mds fail "*|"osd out "*|"osd set "*|"osd unset "*|"mon remove "*|"osd purge "*|"auth del "*) ;;
+                  *) echo "stub: unexpected args: $*" >&2; exit 2 ;;
+                esac
+            - name: pvesh
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "pvesh $*" >> "$d/calls.log"
+                case "$*" in
+                  "get /cluster/status --output-format json")
+                    if [ -f "$d/delnode-done" ] && [ -f "$d/cluster-status-after.json" ]; then cat "$d/cluster-status-after.json"
+                    else cat "$d/cluster-status.json"; fi ;;
+                  "get /cluster/ha/resources --output-format json") cat "$d/ha-resources.json" ;;
+                  "get /cluster/ha/status/current --output-format json") cat "$d/ha-status.json" ;;
+                  "get /cluster/ha/rules --output-format json") cat "$d/ha-rules.json" ;;
+                  "get /nodes/vm-host-01/qemu --output-format json") cat "$d/qemu.json" ;;
+                  "get /nodes/vm-host-01/storage --output-format json") cat "$d/storage.json" ;;
+                  "get /nodes/vm-host-01/storage/local/content --output-format json") cat "$d/local-content.json" ;;
+                  "get /nodes/vm-host-01/qemu/"*"/config --output-format json")
+                    v="${2#/nodes/vm-host-01/qemu/}"; v="${v%/config}"; cat "$d/config-$v.json" ;;
+                  *) echo "stub: unexpected args: $*" >&2; exit 2 ;;
+                esac
+            - name: dkms
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "dkms $*" >> "$d/calls.log"
+                cat "$d/dkms.txt"
+            # delnode leaves a marker so the membership answer changes, as the real one does.
+            - name: pvecm
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "pvecm $*" >> "$d/calls.log"
+                case "$*" in "delnode "*) touch "$d/delnode-done" ;; esac
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Install the stubs that only log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item }}"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              echo "{{ item }} $*" >> "$(dirname "$0")/calls.log"
+          loop:
+            - qm
+            - ha-manager
+            - pveceph
+            - systemctl
+
+        - name: Seed the cluster as captured
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-s.json, body: "{{ _ceph_s_ok }}" }
+            - { name: osd-tree.json, body: "{{ _osd_tree_today }}" }
+            - { name: osd-dump.json, body: "{{ _osd_dump_today }}" }
+            - { name: mon-dump.json, body: "{{ _mon_dump_three }}" }
+            - { name: fs-status.json, body: "{{ _fs_status }}" }
+            - { name: mgr-dump.json, body: "{{ _mgr_dump }}" }
+            - { name: versions.json, body: "{{ _versions_done }}" }
+            - { name: cluster-status.json, body: "{{ _cluster_online }}" }
+            - { name: ha-resources.json, body: "{{ _ha_resources }}" }
+            - { name: ha-status.json, body: "{{ _ha_status_on_node }}" }
+            - { name: ha-rules.json, body: "{{ _ha_rules }}" }
+            - { name: qemu.json, body: "{{ _qemu }}" }
+            - { name: storage.json, body: "{{ _storage }}" }
+            - { name: local-content.json, body: "{{ _local_empty }}" }
+            - { name: config-102.json, body: "{{ _cfg_102 }}" }
+            - { name: config-103.json, body: "{{ _cfg_103 }}" }
+            - { name: config-110.json, body: "{{ _cfg_110 }}" }
+            - { name: config-120.json, body: "{{ _cfg_120 }}" }
+            - { name: config-1000.json, body: "{{ _cfg_1000 }}" }
+            - { name: config-1001.json, body: "{{ _cfg_1001 }}" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ---------- R1. preflight on vm-host-01 as it is ----------
+        - name: Read state and run preflight (vm-host-01 today, replace, evacuate to vm-host-02)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+
+        - name: Every fact the phases rely on was read from the capture
+          ansible.builtin.assert:
+            that:
+              - pve_node_rebuild_node_online | bool
+              - pve_node_rebuild_quorate | bool
+              - pve_node_rebuild_health == 'HEALTH_OK'
+              - pve_node_rebuild_pgs_clean | bool
+              - not (pve_node_rebuild_recovering | bool)
+              - pve_node_rebuild_node_osd_ids == [0]
+              - pve_node_rebuild_node_osds_down == []
+              - pve_node_rebuild_node_osds_out == []
+              - pve_node_rebuild_node_mon | bool
+              - pve_node_rebuild_node_mgr | bool
+              - pve_node_rebuild_node_mds_state == 'active'
+              - pve_node_rebuild_mds_standbys == ['nas-host-01', 'vm-host-02']
+              - pve_node_rebuild_ha_sids == ['vm:102', 'vm:103', 'vm:110']
+              - pve_node_rebuild_ha_on_node == ['vm:102', 'vm:103', 'vm:110']
+              - pve_node_rebuild_ha_rules_preferring_node == ['vm:102', 'vm:103', 'vm:110']
+              - pve_node_rebuild_guest_vmids == [102, 103, 110, 120, 1000, 1001]
+              - pve_node_rebuild_guests_non_ha | map(attribute='vmid') | list == [120, 1000, 1001]
+              - pve_node_rebuild_guests_non_ha | selectattr('status', 'equalto', 'running') | map(attribute='vmid') | list == [120]
+              - pve_node_rebuild_shared_storages == ['pve_pool', 'nas_proxmox', 'backup-01_pbs_vm-host-01', 'pve_cephfs', 'backup-01_pbs_vm-host-02', 'backup-01_pbs_nas-host-01']
+              - pve_node_rebuild_guest_local_disks == []
+              - pve_node_rebuild_local_content == []
+              - pve_node_rebuild_nodes_online == ['vm-host-01', 'vm-host-02', 'nas-host-01']
+            success_msg: "osd={{ pve_node_rebuild_node_osd_ids }} mds={{ pve_node_rebuild_node_mds_state }} ha_on_node={{ pve_node_rebuild_ha_on_node }} non_ha={{ pve_node_rebuild_guests_non_ha | map(attribute='vmid') | list }} preferring={{ pve_node_rebuild_ha_rules_preferring_node }}"
+
+        - name: The plan was recorded on the control node and on disk
+          vars:
+            _file: "{{ lookup('file', _d ~ '/plan.json') | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - hostvars['localhost'].rebuild_plan.osd_ids == [0]
+              - hostvars['localhost'].rebuild_plan.mds_state == 'active'
+              - hostvars['localhost'].rebuild_plan.guests_non_ha | map(attribute='vmid') | list == [120, 1000, 1001]
+              - _file.node == 'vm-host-01'
+              - _file.evacuate_to == 'vm-host-02'
+              - _file.rules_preferring_node == ['vm:102', 'vm:103', 'vm:110']
+              - _file.guests_non_ha | map(attribute='vmid') | list == [120, 1000, 1001]
+            success_msg: "plan.json: {{ _file.guests_non_ha | map(attribute='vmid') | list }} → {{ _file.evacuate_to }}"
+
+        # ---------- R2. the non-HA guests need a destination ----------
+        - name: Preflight without rebuild_evacuate_to
+          block:
+            - name: Should be refused
+              vars:
+                rebuild_evacuate_to: ""
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted non-HA guests with nowhere to go"
+          rescue:
+            - name: Refused, naming the guests and the variable
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('somewhere to go')
+                  - "'120 vdesktop-01' in ansible_failed_result.msg"
+                  - "'1000 ubuntu-2404-cloudinit-template' in ansible_failed_result.msg"
+                  - "'rebuild_evacuate_to' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- R3. an offline node: refused unless its death is acknowledged ----------
+        - name: Take the node offline in the membership
+          ansible.builtin.copy:
+            dest: "{{ _d }}/cluster-status.json"
+            content: "{{ _cluster_node_offline }}\n"
+            mode: "0644"
+
+        - name: Preflight on an offline node without rebuild_node_dead
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight went on with the node offline and no acknowledgement"
+          rescue:
+            - name: Refused, pointing at rebuild_node_dead
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('death is acknowledged')
+                  - "'rebuild_node_dead=true' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Preflight on an offline node with rebuild_node_dead (the dead branch)
+          vars:
+            rebuild_node_dead: true
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+
+        - name: A dead node has no guests to read and its plan says so
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_rebuild_node_online | bool)
+              - pve_node_rebuild_guests_non_ha == []
+              - pve_node_rebuild_guest_local_disks == []
+              - pve_node_rebuild_local_content == []
+              - hostvars['localhost'].rebuild_plan.osd_ids == [0]
+              - not (hostvars['localhost'].rebuild_plan.node_online | bool)
+            success_msg: "offline → nothing read from the node, daemons still known: mon={{ hostvars['localhost'].rebuild_plan.mon }} osd={{ hostvars['localhost'].rebuild_plan.osd_ids }}"
+
+        - name: Put the node back online
+          ansible.builtin.copy:
+            dest: "{{ _d }}/cluster-status.json"
+            content: "{{ _cluster_online }}\n"
+            mode: "0644"
+
+        - name: Preflight on an online node with rebuild_node_dead
+          block:
+            - name: Should be refused
+              vars:
+                rebuild_node_dead: true
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted rebuild_node_dead on a node that is online"
+          rescue:
+            - name: Refused — a live node is not torn down blind
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('death is acknowledged')
+                  - "'is online' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- R4. more than one OSD on the node ----------
+        - name: Give vm-host-01 a second OSD
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-tree.json"
+            content: "{{ _osd_tree_two_osds }}\n"
+            mode: "0644"
+
+        - name: Preflight with two OSDs on the node
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted a node with two OSDs"
+          rescue:
+            - name: Refused, naming both
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('at most one OSD')
+                  - "'[0, 3]' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore the tree
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-tree.json"
+            content: "{{ _osd_tree_today }}\n"
+            mode: "0644"
+
+        # ---------- R5. a guest with a disk on local-lvm ----------
+        - name: Move vdesktop-01's disk to local-lvm
+          ansible.builtin.copy:
+            dest: "{{ _d }}/config-120.json"
+            content: "{{ _cfg_120_local }}\n"
+            mode: "0644"
+
+        - name: Preflight with a local disk on the node
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted a guest with a disk on local-lvm"
+          rescue:
+            - name: Refused, naming the guest and the storage
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('does not share')
+                  - "\"120 on ['local-lvm']\" in ansible_failed_result.msg"
+                  - >-
+                    pve_node_rebuild_guest_local_disks == [{'vmid': 120, 'storages': ['local-lvm']}]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Put vdesktop-01's disk back on Ceph
+          ansible.builtin.copy:
+            dest: "{{ _d }}/config-120.json"
+            content: "{{ _cfg_120 }}\n"
+            mode: "0644"
+
+        # ---------- R6. something on the node's local storage ----------
+        - name: Leave an ISO on local
+          ansible.builtin.copy:
+            dest: "{{ _d }}/local-content.json"
+            content: "{{ _local_iso }}\n"
+            mode: "0644"
+
+        - name: Preflight with content on local
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted volumes on local without the acknowledgement"
+          rescue:
+            - name: Refused, naming the volume and the switch
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('local storage')
+                  - "'local:iso/proxmox-ve_9.2-1.iso' in ansible_failed_result.msg"
+                  - "'rebuild_local_content=discard' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Preflight with the loss acknowledged
+          vars:
+            rebuild_local_content: discard
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+
+        - name: Empty local again
+          ansible.builtin.copy:
+            dest: "{{ _d }}/local-content.json"
+            content: "{{ _local_empty }}\n"
+            mode: "0644"
+
+        # ---------- R7. Ceph health: a warning is refused unless allowed; recovery always ----------
+        - name: Set the flags warning
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ceph-s.json"
+            content: "{{ _ceph_s_warn_flags }}\n"
+            mode: "0644"
+
+        - name: Preflight on HEALTH_WARN
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted HEALTH_WARN"
+          rescue:
+            - name: Refused, naming the check
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('healthy enough')
+                  - "'OSDMAP_FLAGS' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Preflight with the warning allowed
+          vars:
+            pve_node_rebuild_allowed_health_checks: [OSDMAP_FLAGS]
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+
+        - name: Set a backfill in progress
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ceph-s.json"
+            content: "{{ _ceph_s_recovering }}\n"
+            mode: "0644"
+
+        - name: Preflight mid-recovery
+          block:
+            - name: Should be refused even with the warning allowed
+              vars:
+                pve_node_rebuild_allowed_health_checks: [PG_DEGRADED]
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted a cluster mid-recovery"
+          rescue:
+            - name: Refused on the PGs
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('healthy enough')
+                  - "'PGs clean: False' in ansible_failed_result.msg"
+                  - pve_node_rebuild_recovering | bool
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore health
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ceph-s.json"
+            content: "{{ _ceph_s_ok }}\n"
+            mode: "0644"
+
+        # ---------- R7b. resuming a teardown this role itself started ----------
+        # 2026-09-08: the first live teardown stopped at ok-to-stop, leaving the node's
+        # OSD out and the PGs remapped. Preflight then refused to re-run, because it
+        # cannot tell the degradation it caused from degradation it did not.
+        # rebuild_resume widens the health gate by exactly that, and nothing else.
+        - name: Put the cluster in the state a stopped teardown leaves behind
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - {name: ceph-s.json, body: "{{ _ceph_s_resume }}"}
+            - {name: osd-dump.json, body: "{{ _osd_dump_osd0_out_clean }}"}
+          loop_control: {label: "{{ item.name }}"}
+
+        - name: Preflight on a part-finished teardown, without the flag
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop: [state, preflight]
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted a degraded cluster with no acknowledgement"
+          rescue:
+            - name: Refused, and the message says how to resume
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('healthy enough')
+                  - "'rebuild_resume=true' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Preflight on a part-finished teardown, with the flag
+          vars:
+            rebuild_resume: true
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop: [state, preflight]
+
+        - name: The flag tolerated exactly the node's own OSD being out
+          ansible.builtin.assert:
+            that:
+              - pve_node_rebuild_node_osds_out == [0]
+              - pve_node_rebuild_pgs_clean | bool == false
+              - pve_node_rebuild_pgs_clean_or_remapped | bool
+              - (pve_node_rebuild_degraded_ratio | float) == 0.0
+              - (pve_node_rebuild_misplaced_ratio | float) > 0.0
+            success_msg: "resume accepted 97 active+clean+remapped, 33% misplaced, 0% degraded"
+
+        - name: A missing replica is refused even with the flag
+          vars:
+            rebuild_resume: true
+          block:
+            - name: Set a genuinely degraded cluster
+              ansible.builtin.copy:
+                dest: "{{ _d }}/ceph-s.json"
+                content: "{{ _ceph_s_resume_degraded }}\n"
+                mode: "0644"
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop: [state, preflight]
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "rebuild_resume accepted a degraded PG"
+          rescue:
+            # Named for the clause that actually refuses: no degraded PG state is in
+            # pgs_clean_or_remapped's allowed list. There is no separate degraded_ratio
+            # guard — it was unreachable and was removed.
+            - name: Refused because a degraded PG state is not in the allowed list
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('healthy enough')
+                  - pve_node_rebuild_pgs_clean_or_remapped | bool == false
+                  - (pve_node_rebuild_degraded_ratio | float) > 0.0
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Another node's OSD being out is refused even with the flag
+          vars:
+            rebuild_resume: true
+          block:
+            - name: osd.1 is out, and it is not on the node being rebuilt
+              ansible.builtin.copy:
+                dest: "{{ _d }}/{{ item.name }}"
+                content: "{{ item.body }}\n"
+                mode: "0644"
+              loop:
+                - {name: ceph-s.json, body: "{{ _ceph_s_resume }}"}
+                - {name: osd-dump.json, body: "{{ _osd_dump_osd1_out }}"}
+              loop_control: {label: "{{ item.name }}"}
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop: [state, preflight]
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "rebuild_resume excused an OSD out that this teardown did not cause"
+          rescue:
+            - name: Refused, because this node's out-OSD list does not explain it
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('healthy enough')
+                  - pve_node_rebuild_node_osds_out == []
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore health and the osd dump
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - {name: ceph-s.json, body: "{{ _ceph_s_ok }}"}
+            - {name: osd-dump.json, body: "{{ _osd_dump_today }}"}
+          loop_control: {label: "{{ item.name }}"}
+
+        # ---------- R8. two monitors cannot lose one ----------
+        - name: Leave only two monitors
+          ansible.builtin.copy:
+            dest: "{{ _d }}/mon-dump.json"
+            content: "{{ _mon_dump_two }}\n"
+            mode: "0644"
+
+        - name: Preflight with two monitors
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - preflight
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "preflight accepted losing one of two monitors"
+          rescue:
+            - name: Refused on quorum
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('Quorum survives')
+                  - "'2 monitor' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore three monitors
+          ansible.builtin.copy:
+            dest: "{{ _d }}/mon-dump.json"
+            content: "{{ _mon_dump_three }}\n"
+            mode: "0644"
+
+        # ---------- R9. cluster_prepare: flags only for preserve, only when unset ----------
+        - name: Preflight again (clean state, replace)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Prepare the cluster (replace)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: cluster_prepare
+        - name: Prepare the cluster (preserve)
+          vars:
+            rebuild_osd: preserve
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: cluster_prepare
+        - name: replace sets nothing; preserve sets noout then norebalance
+          ansible.builtin.assert:
+            that:
+              - lookup('file', _d ~ '/calls.log') | split('\n') == ['ceph osd set noout', 'ceph osd set norebalance']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Read state with the flags already set
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-dump.json"
+            content: "{{ _osd_dump_flags }}\n"
+            mode: "0644"
+        - name: Read state (flags set)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: state
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Prepare the cluster (preserve, flags already set)
+          vars:
+            rebuild_osd: preserve
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: cluster_prepare
+        - name: Flags already set are not set again
+          ansible.builtin.assert:
+            that:
+              - "'noout' in pve_node_rebuild_osd_flags"
+              - lookup('file', _d ~ '/calls.log') == ''
+            success_msg: "flags={{ pve_node_rebuild_osd_flags }} → no calls"
+        - name: Restore the osdmap
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-dump.json"
+            content: "{{ _osd_dump_today }}\n"
+            mode: "0644"
+
+        # ---------- R10. evacuate: maintenance, HA wait, qm migrate in vmid order ----------
+        - name: Read state and preflight (for the guest list)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+        - name: HA has moved its resources; the node's guest directory is empty
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ha-status.json"
+            content: "{{ _ha_status_moved }}\n"
+            mode: "0644"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Evacuate
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: evacuate
+        - name: Maintenance first, then each non-HA guest to vm-host-02 with --online, in vmid order
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'ha-manager crm-command node-maintenance enable vm-host-01',
+                  'pvesh get /cluster/ha/status/current --output-format json',
+                  'qm migrate 120 vm-host-02 --online',
+                  'qm migrate 1000 vm-host-02 --online',
+                  'qm migrate 1001 vm-host-02 --online']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: HA that never moves its resources
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ha-status.json"
+            content: "{{ _ha_status_on_node }}\n"
+            mode: "0644"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Evacuate while HA keeps the resources on the node
+          block:
+            - name: Should fail on the HA wait
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: evacuate
+            - name: Failure should have happened
+              ansible.builtin.fail:
+                msg: "evacuate went on to qm migrate while HA resources were still on the node"
+          rescue:
+            - name: Failed at the wait, before any migration
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('Wait for HA')
+                  - lookup('file', _d ~ '/calls.log') is not search('qm migrate')
+                success_msg: "{{ ansible_failed_task.name }}"
+
+        # ---------- R11. remove_services: the two modes, command by command ----------
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove services (preserve; the node's MDS is active)
+          vars:
+            rebuild_osd: preserve
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_services
+        - name: Read the call log once the async poweroff has landed
+          ansible.builtin.command:
+            argv: [cat, "{{ _d }}/calls.log"]
+          register: _log
+          changed_when: false
+          until: "'systemctl poweroff' in _log.stdout"
+          retries: 10
+          delay: 1
+        - name: preserve — mds fail first, the three destroys, out, stop, disable, poweroff
+          ansible.builtin.assert:
+            that:
+              - >-
+                _log.stdout_lines == [
+                  'ceph mds fail vm-host-01',
+                  'pveceph mds destroy vm-host-01',
+                  'pveceph mgr destroy vm-host-01',
+                  'pveceph mon destroy vm-host-01',
+                  'ceph osd out 0',
+                  'systemctl stop ceph-osd@0.service',
+                  'systemctl disable ceph-osd@0.service',
+                  'systemctl poweroff']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove services (replace)
+          vars:
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_services
+        - name: Read the call log once the async poweroff has landed
+          ansible.builtin.command:
+            argv: [cat, "{{ _d }}/calls.log"]
+          register: _log
+          changed_when: false
+          until: "'systemctl poweroff' in _log.stdout"
+          retries: 10
+          delay: 1
+        - name: replace — out, ok-to-stop, pveceph stop, destroy with cleanup, poweroff
+          ansible.builtin.assert:
+            that:
+              - >-
+                _log.stdout_lines == [
+                  'ceph mds fail vm-host-01',
+                  'pveceph mds destroy vm-host-01',
+                  'pveceph mgr destroy vm-host-01',
+                  'pveceph mon destroy vm-host-01',
+                  'ceph osd out 0',
+                  'ceph osd ok-to-stop 0',
+                  'pveceph stop --service osd.0',
+                  'pveceph osd destroy 0 --cleanup 1',
+                  'systemctl poweroff']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        # `ceph osd out` remaps most PGs at once; ok-to-stop asked while they are
+        # still peering answers "70 PGs are or would become offline". That happened
+        # on the first live teardown (2026-09-08) and the same query answered
+        # num_not_ok_pgs 0 a minute later, cluster HEALTH_OK throughout. So the task
+        # is a wait now, and these two cases pin both of its ends.
+        - name: Empty the call log (ok-to-stop retries)
+          ansible.builtin.copy: {dest: "{{ _d }}/calls.log", content: "", mode: "0644"}
+        - name: Make ok-to-stop refuse twice, then agree
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - {name: ok-to-stop-not-until, body: "3"}
+            - {name: ok-count, body: "0"}
+          loop_control: {label: "{{ item.name }}"}
+        - name: Remove services (replace, ok-to-stop refuses twice)
+          vars:
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+            pve_node_rebuild_wait_retries: 5
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_services
+        - name: Read the call log once the async poweroff has landed
+          ansible.builtin.command:
+            argv: [cat, "{{ _d }}/calls.log"]
+          register: _log
+          changed_when: false
+          until: "'systemctl poweroff' in _log.stdout"
+          retries: 10
+          delay: 1
+        - name: A premature refusal is retried, not fatal, and nothing is destroyed early
+          vars:
+            _oks: "{{ _log.stdout_lines | select('equalto', 'ceph osd ok-to-stop 0') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _oks | length == 3
+              - "'pveceph osd destroy 0 --cleanup 1' in _log.stdout_lines"
+              - _log.stdout_lines.index('pveceph stop --service osd.0')
+                > _log.stdout_lines.index('ceph osd ok-to-stop 0')
+            fail_msg: "{{ _log.stdout_lines }}"
+            success_msg: "refused twice, agreed on the third, then stopped and destroyed"
+
+        - name: Empty the call log (ok-to-stop never agrees)
+          ansible.builtin.copy: {dest: "{{ _d }}/calls.log", content: "", mode: "0644"}
+        - name: Make ok-to-stop refuse for ever
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - {name: ok-to-stop-not-until, body: "999"}
+            - {name: ok-count, body: "0"}
+          loop_control: {label: "{{ item.name }}"}
+        - name: An OSD Ceph will not release is never stopped or destroyed
+          block:
+            - name: Remove services (replace, ok-to-stop never agrees)
+              vars:
+                _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+                pve_node_rebuild_wait_retries: 2
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: remove_services
+            - name: Should not have been reached
+              ansible.builtin.fail:
+                msg: "the teardown continued past an OSD Ceph refused to release"
+          rescue:
+            # The trap this guards: `until` + `failed_when: false` does NOT fail on
+            # exhaustion, it falls through — so the destroy would have run anyway.
+            - name: The play stopped, and neither stop nor destroy was issued
+              vars:
+                _l: "{{ lookup('file', _d ~ '/calls.log').split('\n') }}"
+              ansible.builtin.assert:
+                that:
+                  - "'pveceph stop --service osd.0' not in _l"
+                  - "'pveceph osd destroy 0 --cleanup 1' not in _l"
+                  - "'systemctl poweroff' not in _l"
+                fail_msg: "destroy ran despite ok-to-stop refusing: {{ _l }}"
+                success_msg: "refused {{ _l | select('equalto', 'ceph osd ok-to-stop 0') | list | length }}x, then stopped the play with the OSD intact"
+        - name: Let ok-to-stop agree again for any later case
+          ansible.builtin.file:
+            path: "{{ _d }}/{{ item }}"
+            state: absent
+          loop: [ok-to-stop-not-until, ok-count]
+
+        - name: The node's MDS is a standby
+          ansible.builtin.copy:
+            dest: "{{ _d }}/fs-status.json"
+            content: "{{ _fs_status_node_standby }}\n"
+            mode: "0644"
+        - name: Read state and preflight (standby MDS)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove services (replace, standby MDS)
+          vars:
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_services
+        - name: Read the call log once the async poweroff has landed
+          ansible.builtin.command:
+            argv: [cat, "{{ _d }}/calls.log"]
+          register: _log
+          changed_when: false
+          until: "'systemctl poweroff' in _log.stdout"
+          retries: 10
+          delay: 1
+        - name: A standby is destroyed without being failed first
+          ansible.builtin.assert:
+            that:
+              - pve_node_rebuild_node_mds_state == 'standby'
+              - _log.stdout_lines[0] == 'pveceph mds destroy vm-host-01'
+              - _log.stdout is not search('mds fail')
+            success_msg: "{{ _log.stdout_lines[0] }}"
+        - name: Restore the active MDS
+          ansible.builtin.copy:
+            dest: "{{ _d }}/fs-status.json"
+            content: "{{ _fs_status }}\n"
+            mode: "0644"
+
+        # ---------- R12. remove_node: reachable, guarded, and the dead branch ----------
+        - name: Read state and preflight
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - preflight
+        - name: Leave a guest config behind on the node
+          ansible.builtin.file:
+            path: "{{ _d }}/nodes/vm-host-01/qemu-server"
+            state: directory
+            mode: "0755"
+        - name: Leave 120.conf behind
+          ansible.builtin.copy:
+            dest: "{{ _d }}/nodes/vm-host-01/qemu-server/120.conf"
+            content: "name: vdesktop-01\n"
+            mode: "0644"
+        - name: The node has gone offline; after delnode it is gone from the membership
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: cluster-status.json, body: "{{ _cluster_node_offline }}" }
+            - { name: cluster-status-after.json, body: "{{ _cluster_after_delnode }}" }
+          loop_control:
+            label: "{{ item.name }}"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove the node while it still owns a guest
+          block:
+            - name: Should be refused
+              vars:
+                _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+                _reachable: true
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: remove_node
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "remove_node deleted a node that still owned 120.conf"
+          rescue:
+            - name: Refused before delnode, naming the config
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('still owns guests')
+                  - "'120.conf' in ansible_failed_result.msg"
+                  - lookup('file', _d ~ '/calls.log') is not search('delnode')
+                  - lookup('file', _d ~ '/calls.log') is not search('mon remove')
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: The guest config is gone
+          ansible.builtin.file:
+            path: "{{ _d }}/nodes/vm-host-01/qemu-server/120.conf"
+            state: absent
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove the node (reachable branch)
+          vars:
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+            _reachable: true
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_node
+        - name: Stat the node directory afterwards
+          ansible.builtin.stat:
+            path: "{{ _d }}/nodes/vm-host-01"
+          register: _node_dir_reachable
+        - name: Reachable — no raw removal; wait, delnode, re-read; the node directory is gone
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'pvesh get /cluster/status --output-format json',
+                  'pvecm delnode vm-host-01',
+                  'pvesh get /cluster/status --output-format json']
+              - not _node_dir_reachable.stat.exists
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Forget that delnode ran
+          ansible.builtin.file:
+            path: "{{ _d }}/delnode-done"
+            state: absent
+        - name: Recreate the node directory
+          ansible.builtin.file:
+            path: "{{ _d }}/nodes/vm-host-01/qemu-server"
+            state: directory
+            mode: "0755"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove the node (dead branch, replace)
+          vars:
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+            _reachable: false
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_node
+        - name: Stat the node directory afterwards
+          ansible.builtin.stat:
+            path: "{{ _d }}/nodes/vm-host-01"
+          register: _node_dir
+        - name: Dead — mon remove, the two auth entities, osd out, purge, then delnode; the directory is gone
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'pvesh get /cluster/status --output-format json',
+                  'ceph mon remove vm-host-01',
+                  'ceph auth del mds.vm-host-01',
+                  'ceph auth del mgr.vm-host-01',
+                  'ceph osd out 0',
+                  'ceph osd purge 0 --yes-i-really-mean-it',
+                  'pvecm delnode vm-host-01',
+                  'pvesh get /cluster/status --output-format json']
+              - not _node_dir.stat.exists
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Forget that delnode ran; recreate the node directory
+          ansible.builtin.file:
+            path: "{{ _d }}/delnode-done"
+            state: absent
+        - name: Recreate the node directory again
+          ansible.builtin.file:
+            path: "{{ _d }}/nodes/vm-host-01/qemu-server"
+            state: directory
+            mode: "0755"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Remove the node (dead branch, preserve)
+          vars:
+            rebuild_osd: preserve
+            _plan: "{{ hostvars['localhost'].rebuild_plan }}"
+            _reachable: false
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: remove_node
+        - name: Dead + preserve — out but never purged; the entities go either way
+          ansible.builtin.assert:
+            that:
+              - lookup('file', _d ~ '/calls.log') is search('ceph osd out 0')
+              - lookup('file', _d ~ '/calls.log') is not search('purge')
+              - lookup('file', _d ~ '/calls.log') is search('ceph auth del mds.vm-host-01')
+              - lookup('file', _d ~ '/calls.log') is search('ceph auth del mgr.vm-host-01')
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Restore the membership and forget that delnode ran
+          ansible.builtin.copy:
+            dest: "{{ _d }}/cluster-status.json"
+            content: "{{ _cluster_online }}\n"
+            mode: "0644"
+        - name: Forget that delnode ran
+          ansible.builtin.file:
+            path: "{{ _d }}/delnode-done"
+            state: absent
+
+        # ---------- R13. finish: the node is back ----------
+        - name: The flags are still set from the teardown, HA resources are back
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: osd-dump.json, body: "{{ _osd_dump_flags }}" }
+            - { name: ha-status.json, body: "{{ _ha_status_back }}" }
+          loop_control:
+            label: "{{ item.name }}"
+        - name: Read state
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: state
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Finish (preserve, guests stay where they are)
+          vars:
+            rebuild_osd: preserve
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: finish
+        - name: preserve — unset both flags, wait, maintenance off, HA wait, no return
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'ceph osd unset noout',
+                  'ceph osd unset norebalance',
+                  'ceph -s -f json',
+                  'ha-manager crm-command node-maintenance disable vm-host-01',
+                  'pvesh get /cluster/ha/status/current --output-format json']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Finish (replace, guests back)
+          vars:
+            rebuild_return_guests: true
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: finish
+        - name: replace + return — no flags, the recorded guests come back from vm-host-02
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'ceph -s -f json',
+                  'ha-manager crm-command node-maintenance disable vm-host-01',
+                  'pvesh get /cluster/ha/status/current --output-format json',
+                  'qm migrate 120 vm-host-01 --online',
+                  'qm migrate 1000 vm-host-01 --online',
+                  'qm migrate 1001 vm-host-01 --online']
+            success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        - name: The node's OSD is still out
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-dump.json"
+            content: "{{ _osd_dump_osd0_out }}\n"
+            mode: "0644"
+        - name: Read state (OSD out)
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: state
+        - name: Finish with the OSD out
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: finish
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "finish went on with the node's OSD out"
+          rescue:
+            - name: Refused before touching anything
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('up and in')
+                  - "'out [0]' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+        - name: Restore the osdmap
+          ansible.builtin.copy:
+            dest: "{{ _d }}/osd-dump.json"
+            content: "{{ _osd_dump_today }}\n"
+            mode: "0644"
+
+        - name: Forget the recorded plan
+          ansible.builtin.file:
+            path: "{{ _d }}/plan.json"
+            state: absent
+        - name: Read state
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: state
+        - name: Finish with a guest return but no recorded plan
+          block:
+            - name: Should be refused
+              vars:
+                rebuild_return_guests: true
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: finish
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "finish guessed which guests to return"
+          rescue:
+            - name: Refused, naming the plan file
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('recorded plan')
+                  - "'plan.json' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- R14. the measurement ----------
+        - name: A backfill in progress
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ceph-s.json"
+            content: "{{ _ceph_s_recovering }}\n"
+            mode: "0644"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Measure
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: measure_recovery
+        - name: Read the CSV
+          ansible.builtin.slurp:
+            src: "{{ _d }}/recovery.csv"
+          register: _csv
+        - name: Sampled under balanced, switched, sampled, restored; means and CSV right
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _d ~ '/calls.log') | split('\n') == [
+                  'ceph config get osd osd_mclock_profile',
+                  'ceph -s -f json', 'ceph -s -f json', 'ceph -s -f json',
+                  'ceph config set osd osd_mclock_profile high_recovery_ops',
+                  'ceph -s -f json', 'ceph -s -f json', 'ceph -s -f json',
+                  'ceph config set osd osd_mclock_profile balanced']
+              - pve_node_rebuild_measure_mean_before | int == 99614720
+              - pve_node_rebuild_measure_mean_after | int == 99614720
+              - (_csv.content | b64decode).splitlines() | length == 7
+              - (_csv.content | b64decode).splitlines()[1] == '1,balanced,99614720,0.333333,0,97'
+              - (_csv.content | b64decode).splitlines()[4] == '4,high_recovery_ops,99614720,0.333333,0,97'
+            success_msg: "{{ (_csv.content | b64decode) | replace('\n', ' | ') }}"
+
+        - name: ceph -s fails on the fifth call
+          ansible.builtin.copy:
+            dest: "{{ _d }}/fail-after"
+            content: "4"
+            mode: "0644"
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _d }}/calls.log"
+            content: ""
+            mode: "0644"
+        - name: Measure with a failure mid-way
+          block:
+            - name: Should fail
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: measure_recovery
+            - name: Failure should have happened
+              ansible.builtin.fail:
+                msg: "the sampler survived a failing ceph -s"
+          rescue:
+            - name: The profile was restored anyway
+              ansible.builtin.assert:
+                that:
+                  - (lookup('file', _d ~ '/calls.log') | split('\n')) | last == 'ceph config set osd osd_mclock_profile balanced'
+                  - lookup('file', _d ~ '/calls.log') is search('high_recovery_ops')
+                success_msg: "{{ lookup('file', _d ~ '/calls.log') | replace('\n', ' | ') }}"
+        - name: Stop failing
+          ansible.builtin.file:
+            path: "{{ _d }}/{{ item }}"
+            state: absent
+          loop:
+            - fail-after
+            - count
+        - name: Restore health
+          ansible.builtin.copy:
+            dest: "{{ _d }}/ceph-s.json"
+            content: "{{ _ceph_s_ok }}\n"
+            mode: "0644"
+
+        # ---------- R15. verify: green on the capture, then one control per assertion ----------
+        - name: Seed the node-side files
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: ceph.conf, body: "{{ _ceph_conf }}" }
+            - { name: cmdline, body: "{{ _cmdline_iommu }}" }
+            - { name: dkms.txt, body: "{{ _dkms_ok }}" }
+          loop_control:
+            label: "{{ item.name }}"
+        - name: Seed the certificate and the pinned interfaces
+          ansible.builtin.file:
+            path: "{{ _d }}/{{ item }}"
+            state: directory
+            mode: "0755"
+          loop:
+            - nodes/vm-host-01
+            - sys/i219p0
+            - sys/rtl8125p0
+        - name: Seed the certificate and the MACs
+          ansible.builtin.copy:
+            dest: "{{ _d }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: nodes/vm-host-01/pveproxy-ssl.pem, body: "-----BEGIN CERTIFICATE-----\n" }
+            - { name: sys/i219p0/address, body: "aa:bb:cc:dd:ee:01\n" }
+            - { name: sys/rtl8125p0/address, body: "AA:BB:CC:DD:EE:02\n" }
+          loop_control:
+            label: "{{ item.name }}"
+        - name: Record a plan with the guests back
+          ansible.builtin.copy:
+            dest: "{{ _d }}/plan.json"
+            content: "{{ {'node': 'vm-host-01', 'evacuate_to': 'vm-host-02', 'guests_non_ha': [{'vmid': 120}, {'vmid': 1000}, {'vmid': 1001}]} | to_json }}"
+            mode: "0644"
+
+        - name: Verify the rebuilt node
+          vars:
+            install_realtek_r8125: true
+            kernel_parameters_new_parameters: { intel_iommu: "on" }
+            pve_pin_network_interface_pins: "{{ _pins }}"
+            rebuild_return_guests: true
+          ansible.builtin.include_role:
+            name: pve_node_rebuild
+            tasks_from: "{{ item }}"
+          loop:
+            - state
+            - load_plan
+            - verify
+
+        - name: Verification read what it should
+          ansible.builtin.assert:
+            that:
+              - pve_node_rebuild_v_mon_sections == ['nas-host-01', 'vm-host-01', 'vm-host-02']
+              - pve_node_rebuild_v_versions_off == []
+              - pve_node_rebuild_v_storages_inactive == []
+              - pve_node_rebuild_v_ha_here == ['vm:102', 'vm:103', 'vm:110']
+              - pve_node_rebuild_v_dkms_line | length == 1
+              - pve_node_rebuild_v_pins_wrong == []
+            success_msg: "mons={{ pve_node_rebuild_v_mon_sections }} ha_here={{ pve_node_rebuild_v_ha_here }} dkms={{ pve_node_rebuild_v_dkms_line }}"
+
+        # One mutation per assertion; each must fail exactly the check it targets.
+        - name: Verification controls
+          ansible.builtin.include_tasks:
+            file: verify_control.yml
+          loop:
+            - { check: V4, file: fs-status.json, body: "{{ _fs_status_one_standby }}\n", restore: "{{ _fs_status }}\n", expect: 'active .* standby' }
+            - { check: V5, file: versions.json, body: "{{ _versions_mixed }}\n", restore: "{{ _versions_done }}\n", expect: 'squid' }
+            - { check: V6, file: ceph.conf, body: "{{ _ceph_conf_two_mons }}", restore: "{{ _ceph_conf }}", expect: 'nas-host-01' }
+            - { check: V7, file: dkms.txt, body: "{{ _dkms_stale }}", restore: "{{ _dkms_ok }}", expect: '7.0.14-15-pve' }
+            - { check: V8, file: cmdline, body: "{{ _cmdline_plain }}", restore: "{{ _cmdline_iommu }}", expect: 'cmdline' }
+            - { check: V9, file: storage.json, body: "{{ _storage_cephfs_inactive }}\n", restore: "{{ _storage }}\n", expect: 'pve_cephfs' }
+            - { check: V11, file: ha-status.json, body: "{{ _ha_status_moved }}\n", restore: "{{ _ha_status_back }}\n", expect: 'vm:102' }
+            - { check: V13, file: sys/rtl8125p0/address, body: "aa:bb:cc:dd:ee:99\n", restore: "AA:BB:CC:DD:EE:02\n", expect: 'rtl8125p0 is aa:bb:cc:dd:ee:99' }
+            - { check: V12, file: plan.json, body: "{{ {'node': 'vm-host-01', 'evacuate_to': 'vm-host-02', 'guests_non_ha': [{'vmid': 120}, {'vmid': 130}]} | to_json }}", restore: "{{ {'node': 'vm-host-01', 'evacuate_to': 'vm-host-02', 'guests_non_ha': [{'vmid': 120}]} | to_json }}", expect: '130' }
+            - { check: V3, file: osd-dump.json, body: "{{ _osd_dump_osd0_out }}\n", restore: "{{ _osd_dump_today }}\n", expect: 'out \[0\]' }
+            - { check: V3, file: osd-tree.json, body: "{{ _osd_tree_osd0_down }}\n", restore: "{{ _osd_tree_today }}\n", expect: 'down \[0\]' }
+            - { check: V2, file: ceph-s.json, body: "{{ _ceph_s_warn_flags }}\n", restore: "{{ _ceph_s_ok }}\n", expect: 'OSDMAP_FLAGS' }
+            - { check: V1, file: cluster-status.json, body: "{{ _cluster_node_offline }}\n", restore: "{{ _cluster_online }}\n", expect: 'online' }
+          loop_control:
+            label: "{{ item.check }}"
+
+        - name: Remove the certificate
+          ansible.builtin.file:
+            path: "{{ _d }}/nodes/vm-host-01/pveproxy-ssl.pem"
+            state: absent
+        - name: Verify without the certificate
+          block:
+            - name: Should fail at V10
+              vars:
+                install_realtek_r8125: true
+                kernel_parameters_new_parameters: { intel_iommu: "on" }
+                pve_pin_network_interface_pins: "{{ _pins }}"
+              ansible.builtin.include_role:
+                name: pve_node_rebuild
+                tasks_from: "{{ item }}"
+              loop:
+                - state
+                - load_plan
+                - verify
+            - name: Failure should have happened
+              ansible.builtin.fail:
+                msg: "verify passed without the certificate"
+          rescue:
+            - name: V10 failed
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_task.name is search('V10')
+                  - "'pveproxy-ssl.pem' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # Structural, and deliberately so. Every play in the rebuild playbook that
+        # uses this role runs `become: true`, and a task delegated to localhost
+        # inherits it — so it sudos on the *control node*, which has no passwordless
+        # sudo, and dies with "sudo: a password is required". That is what Phase 0
+        # did on 2026-09-08, and three more tasks carried the same bug, including the
+        # one that writes the recovery CSV after twenty minutes of sampling.
+        #
+        # The stubbed suite cannot reproduce it: it runs `hosts: localhost` with no
+        # become at all, so the escalation never happens. Asserting the invariant over
+        # the role's own task files is the only check that reaches this.
+        - name: Every localhost-delegated task that touches the filesystem sets become false
+          vars:
+            _never_escalates:
+              - ansible.builtin.set_fact
+              - ansible.builtin.debug
+              - ansible.builtin.assert
+              - ansible.builtin.add_host
+              - ansible.builtin.include_tasks
+              - ansible.builtin.include_role
+            _offenders: >-
+              {% set bad = [] %}
+              {% for f in query('fileglob', playbook_dir ~ '/../tasks/*.yaml') | sort %}
+              {% for t in (lookup('file', f) | from_yaml) %}
+              {% set mods = t.keys() | select('match', 'ansible\\.')
+                                     | reject('in', _never_escalates) | list %}
+              {% if (t.delegate_to | default('')) == 'localhost'
+                    and mods | length > 0
+                    and (t.become | default(true)) %}
+              {% set _ = bad.append(f | basename ~ ': ' ~ t.name) %}
+              {% endif %}
+              {% endfor %}
+              {% endfor %}
+              {{ bad | to_json }}
+          ansible.builtin.assert:
+            that:
+              - (_offenders | trim | from_json) | length == 0
+            fail_msg: >-
+              These tasks delegate to localhost but inherit the play's `become: true`,
+              so they will sudo on the control node and fail with
+              "sudo: a password is required": {{ _offenders | trim | from_json }}
+            success_msg: "every localhost-delegated filesystem task sets become: false"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

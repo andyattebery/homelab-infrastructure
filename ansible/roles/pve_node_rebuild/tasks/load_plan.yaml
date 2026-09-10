@@ -1,0 +1,39 @@
+---
+# The plan preflight wrote on the control node: which guests HA does not manage left
+# the node, and for where. Read back by finish and verify, which usually run in a later
+# invocation than the teardown. Without it the guest return is refused rather than
+# guessed.
+- name: Stat the recorded plan
+  ansible.builtin.stat:
+    path: "{{ pve_node_rebuild_plan_path }}"
+  register: pve_node_rebuild_plan_stat
+  delegate_to: localhost
+  become: false
+
+- name: Read the recorded plan
+  when: pve_node_rebuild_plan_stat.stat.exists
+  ansible.builtin.slurp:
+    src: "{{ pve_node_rebuild_plan_path }}"
+  register: pve_node_rebuild_plan_slurp
+  delegate_to: localhost
+  become: false
+
+- name: Set the plan fact
+  ansible.builtin.set_fact:
+    pve_node_rebuild_plan: >-
+      {{ (pve_node_rebuild_plan_slurp.content | b64decode | from_json)
+         if pve_node_rebuild_plan_stat.stat.exists else {'guests_non_ha': [], 'evacuate_to': ''} }}
+
+- name: The guest return needs the recorded plan
+  when: rebuild_return_guests | bool
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_plan_stat.stat.exists
+      - pve_node_rebuild_plan.evacuate_to | length > 0
+    fail_msg: >-
+      rebuild_return_guests asks to migrate guests back, but {{ pve_node_rebuild_plan_path }}
+      {% if pve_node_rebuild_plan_stat.stat.exists %}records no evacuation target{% else %}does
+      not exist (the teardown's preflight writes it){% endif %}, so which guests to move
+      from where is unknown. Move them by decision instead: `qm migrate` from the node that
+      holds them.
+    quiet: true

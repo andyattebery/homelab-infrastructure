@@ -1,0 +1,218 @@
+---
+# Cluster state every phase decides on, read on the survivor. Reads only; every
+# fact is named pve_node_rebuild_*. Fixture-tested in tests/test.yml against
+# JSON captured from the cluster on 2026-09-08.
+- name: Read Ceph status
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", -s, -f, json]
+  register: pve_node_rebuild_ceph_status
+  changed_when: false
+
+- name: Read the CRUSH tree
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, tree, -f, json]
+  register: pve_node_rebuild_osd_tree
+  changed_when: false
+
+- name: Read the osdmap
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, dump, -f, json]
+  register: pve_node_rebuild_osd_dump
+  changed_when: false
+
+- name: Read the monitor map
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", mon, dump, -f, json]
+  register: pve_node_rebuild_mon_dump
+  changed_when: false
+
+- name: Read the filesystem status
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", fs, status, -f, json]
+  register: pve_node_rebuild_fs_status
+  changed_when: false
+
+- name: Read the manager map
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", mgr, dump, -f, json]
+  register: pve_node_rebuild_mgr_dump
+  changed_when: false
+
+- name: Read the cluster membership
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/status, --output-format, json]
+  register: pve_node_rebuild_cluster_status
+  changed_when: false
+
+- name: Read the HA resources
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/ha/resources, --output-format, json]
+  register: pve_node_rebuild_ha_resources
+  changed_when: false
+
+- name: Read the HA status
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_node_rebuild_ha_status
+  changed_when: false
+
+- name: Read the HA rules
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, /cluster/ha/rules, --output-format, json]
+  register: pve_node_rebuild_ha_rules
+  changed_when: false
+
+# A node-affinity rule prefers the node with the highest priority in its `nodes`
+# list ("nas-host-01:1,vm-host-01:3,vm-host-02:2"). The resources of every rule
+# that prefers rebuild_node are the ones HA moves back once maintenance ends.
+- name: Set cluster facts
+  vars:
+    _status: "{{ pve_node_rebuild_ceph_status.stdout | from_json }}"
+    _pgmap: "{{ _status.pgmap }}"
+    _tree_nodes: "{{ (pve_node_rebuild_osd_tree.stdout | from_json).nodes | default([]) }}"
+    _bucket_ids: >-
+      {{ _tree_nodes | selectattr('type', 'equalto', 'host')
+                     | selectattr('name', 'equalto', rebuild_node)
+                     | map(attribute='children', default=[]) | first | default([]) }}
+    _osd_nodes: >-
+      {{ _tree_nodes | selectattr('type', 'equalto', 'osd') | selectattr('id', 'in', _bucket_ids) | list }}
+    _osds: "{{ (pve_node_rebuild_osd_dump.stdout | from_json).osds | default([]) }}"
+    _mgr: "{{ pve_node_rebuild_mgr_dump.stdout | from_json }}"
+    _mgr_names: >-
+      {{ ([_mgr.active_name] if (_mgr.active_name | default('')) else [])
+         + (_mgr.standbys | default([]) | map(attribute='name') | list) }}
+    _mds_rows: >-
+      {{ (pve_node_rebuild_fs_status.stdout | from_json).mdsmap | default([])
+         | selectattr('name', 'equalto', rebuild_node) | list }}
+    _cluster_rows: "{{ pve_node_rebuild_cluster_status.stdout | from_json }}"
+    _node_row: >-
+      {{ _cluster_rows | selectattr('type', 'equalto', 'node')
+                       | selectattr('name', 'equalto', rebuild_node) | list }}
+    _ha_services: >-
+      {{ (pve_node_rebuild_ha_status.stdout | from_json) | selectattr('type', 'equalto', 'service') | list }}
+    _preferring_json: >-
+      {% set out = [] %}
+      {% for r in (pve_node_rebuild_ha_rules.stdout | from_json) | selectattr('type', 'equalto', 'node-affinity') | list %}
+        {% set ns = namespace(best='', prio=-1) %}
+        {% for pair in r.nodes | split(',') | map('trim') | map('split', ':') | list %}
+          {% if (pair[1] | int) > ns.prio %}{% set ns.prio = pair[1] | int %}{% set ns.best = pair[0] %}{% endif %}
+        {% endfor %}
+        {% if ns.best == rebuild_node %}{% set _ = out.extend(r.resources | split(',') | map('trim') | list) %}{% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  ansible.builtin.set_fact:
+    pve_node_rebuild_health: "{{ _status.health.status }}"
+    pve_node_rebuild_health_checks: "{{ _status.health.checks | default({}) | list }}"
+    pve_node_rebuild_num_pgs: "{{ _pgmap.num_pgs | default(0) }}"
+    pve_node_rebuild_pgs_clean: >-
+      {{ (_pgmap.num_pgs | default(0) | int) > 0
+         and (_pgmap.pgs_by_state | default([]) | rejectattr('state_name', 'equalto', 'active+clean') | list | length == 0) }}
+    pve_node_rebuild_recovering: >-
+      {{ ((_pgmap.recovering_bytes_per_sec | default(0) | int) > 0)
+         or ((_pgmap.degraded_ratio | default(0) | float) > 0)
+         or ((_pgmap.misplaced_ratio | default(0) | float) > 0) }}
+    # For a resume only. `remapped` is what an `osd out` leaves behind: every replica
+    # still present, CRUSH simply wanting them elsewhere. `degraded` is a missing
+    # replica and is never tolerated, so the two are kept apart rather than folded
+    # into pve_node_rebuild_recovering.
+    pve_node_rebuild_pgs_clean_or_remapped: >-
+      {{ (_pgmap.num_pgs | default(0) | int) > 0
+         and (_pgmap.pgs_by_state | default([])
+              | rejectattr('state_name', 'in', ['active+clean', 'active+clean+remapped'])
+              | list | length == 0) }}
+    pve_node_rebuild_degraded_ratio: "{{ _pgmap.degraded_ratio | default(0) | float }}"
+    pve_node_rebuild_misplaced_ratio: "{{ _pgmap.misplaced_ratio | default(0) | float }}"
+    pve_node_rebuild_num_osds: "{{ _status.osdmap.num_osds }}"
+    pve_node_rebuild_num_up_osds: "{{ _status.osdmap.num_up_osds }}"
+    pve_node_rebuild_num_in_osds: "{{ _status.osdmap.num_in_osds }}"
+    pve_node_rebuild_mon_names: "{{ (pve_node_rebuild_mon_dump.stdout | from_json).mons | map(attribute='name') | list }}"
+    pve_node_rebuild_node_mon: "{{ rebuild_node in ((pve_node_rebuild_mon_dump.stdout | from_json).mons | map(attribute='name') | list) }}"
+    pve_node_rebuild_node_mgr: "{{ rebuild_node in _mgr_names }}"
+    pve_node_rebuild_node_mds_state: "{{ (_mds_rows | map(attribute='state') | first) if (_mds_rows | length > 0) else '' }}"
+    pve_node_rebuild_mds_standbys: >-
+      {{ (pve_node_rebuild_fs_status.stdout | from_json).mdsmap | default([])
+         | selectattr('state', 'equalto', 'standby') | map(attribute='name') | list }}
+    pve_node_rebuild_mds_actives: >-
+      {{ (pve_node_rebuild_fs_status.stdout | from_json).mdsmap | default([])
+         | selectattr('state', 'equalto', 'active') | map(attribute='name') | list }}
+    pve_node_rebuild_node_osd_ids: "{{ _bucket_ids | map('int') | list }}"
+    pve_node_rebuild_node_osds_down: "{{ _osd_nodes | rejectattr('status', 'equalto', 'up') | map(attribute='id') | list }}"
+    pve_node_rebuild_node_osds_out: >-
+      {{ _osds | selectattr('osd', 'in', _bucket_ids) | selectattr('in', 'equalto', 0) | map(attribute='osd') | list }}
+    pve_node_rebuild_osd_flags: "{{ (pve_node_rebuild_osd_dump.stdout | from_json).flags | default('') | split(',') }}"
+    pve_node_rebuild_quorate: "{{ (_cluster_rows | selectattr('type', 'equalto', 'cluster') | map(attribute='quorate') | first | default(0) | int) == 1 }}"
+    pve_node_rebuild_nodes_online: >-
+      {{ _cluster_rows | selectattr('type', 'equalto', 'node') | selectattr('online', 'equalto', 1) | map(attribute='name') | list }}
+    pve_node_rebuild_node_online: "{{ (_node_row | map(attribute='online') | first | default(0) | int) == 1 }}"
+    pve_node_rebuild_ha_sids: "{{ (pve_node_rebuild_ha_resources.stdout | from_json) | map(attribute='sid') | list }}"
+    pve_node_rebuild_ha_on_node: "{{ _ha_services | selectattr('node', 'equalto', rebuild_node) | map(attribute='sid') | list }}"
+    pve_node_rebuild_ha_services: "{{ _ha_services }}"
+    pve_node_rebuild_ha_rules_preferring_node: "{{ _preferring_json | trim | from_json }}"
+
+- name: Read the node's guests (a node that is offline cannot answer)
+  when: pve_node_rebuild_node_online | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, "/nodes/{{ rebuild_node }}/qemu", --output-format, json]
+  register: pve_node_rebuild_qemu
+  changed_when: false
+
+- name: Read the node's storages
+  when: pve_node_rebuild_node_online | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, "/nodes/{{ rebuild_node }}/storage", --output-format, json]
+  register: pve_node_rebuild_storage
+  changed_when: false
+
+- name: Read what the node's local storage holds
+  when: pve_node_rebuild_node_online | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, "/nodes/{{ rebuild_node }}/storage/local/content", --output-format, json]
+  register: pve_node_rebuild_local_content_result
+  changed_when: false
+
+- name: Set guest facts
+  vars:
+    _guests: >-
+      {{ (pve_node_rebuild_qemu.stdout | from_json) if (pve_node_rebuild_node_online | bool) else [] }}
+  ansible.builtin.set_fact:
+    pve_node_rebuild_guests: "{{ _guests | sort(attribute='vmid') | list }}"
+    pve_node_rebuild_guest_vmids: "{{ _guests | map(attribute='vmid') | sort | list }}"
+    pve_node_rebuild_guests_non_ha: >-
+      {{ _guests | rejectattr('vmid', 'in', (pve_node_rebuild_ha_sids | map('regex_replace', '^vm:', '') | map('int') | list))
+                 | sort(attribute='vmid') | list }}
+    pve_node_rebuild_shared_storages: >-
+      {{ ((pve_node_rebuild_storage.stdout | from_json) if (pve_node_rebuild_node_online | bool) else [])
+         | selectattr('shared', 'equalto', 1) | map(attribute='storage') | list }}
+    pve_node_rebuild_storages: >-
+      {{ (pve_node_rebuild_storage.stdout | from_json) if (pve_node_rebuild_node_online | bool) else [] }}
+    pve_node_rebuild_local_content: >-
+      {{ ((pve_node_rebuild_local_content_result.stdout | from_json) if (pve_node_rebuild_node_online | bool) else [])
+         | map(attribute='volid') | list }}
+
+- name: Read each guest's config
+  when: pve_node_rebuild_node_online | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_pvesh_command }}", get, "/nodes/{{ rebuild_node }}/qemu/{{ item }}/config", --output-format, json]
+  loop: "{{ pve_node_rebuild_guest_vmids }}"
+  register: pve_node_rebuild_guest_configs
+  changed_when: false
+
+# A disk on a storage the node does not share dies with the boot drive, and neither
+# `qm migrate` nor HA moves it without --with-local-disks. Disk keys are
+# (ide|sata|scsi|virtio)N, efidisk0, tpmstate0, unusedN; `none,media=cdrom` is an
+# empty drive, not a volume.
+- name: Set guest disk facts
+  vars:
+    _local_json: >-
+      {% set out = [] %}
+      {% for r in (pve_node_rebuild_guest_configs.results | default([])) if r.stdout is defined %}
+        {% set storages = (r.stdout | from_json) | dict2items
+             | selectattr('key', 'match', '^((ide|sata|scsi|virtio)[0-9]+|efidisk0|tpmstate0|unused[0-9]+)$')
+             | rejectattr('value', 'match', '^none,')
+             | map(attribute='value') | map('split', ':') | map('first')
+             | reject('in', pve_node_rebuild_shared_storages) | unique | list %}
+        {% if storages | length > 0 %}{% set _ = out.append({'vmid': r.item, 'storages': storages}) %}{% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  ansible.builtin.set_fact:
+    pve_node_rebuild_guest_local_disks: "{{ _local_json | trim | from_json }}"

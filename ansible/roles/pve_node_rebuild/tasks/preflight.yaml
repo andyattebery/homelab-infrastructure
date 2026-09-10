@@ -1,0 +1,178 @@
+---
+# Decides whether the cluster can lose rebuild_node and records how. Runs on the
+# survivor after state.yaml; every refusal names what it found. Fixture-tested.
+- name: The inputs name a cluster member and a mode
+  ansible.builtin.assert:
+    that:
+      - rebuild_node in groups[pve_node_rebuild_cluster_group]
+      - inventory_hostname != rebuild_node
+      - rebuild_osd in ['preserve', 'replace']
+    fail_msg: >-
+      rebuild_node must be one of {{ groups[pve_node_rebuild_cluster_group] }} (got
+      '{{ rebuild_node }}', running on {{ inventory_hostname }}) and rebuild_osd must be
+      preserve or replace (got '{{ rebuild_osd }}').
+    quiet: true
+
+- name: The cluster is quorate
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_quorate | bool
+    fail_msg: "The cluster is not quorate (online: {{ pve_node_rebuild_nodes_online }}). Nothing is torn down from a cluster that cannot agree."
+    quiet: true
+
+# A node that answers is torn down cleanly from itself. A node that does not is
+# handled from here — but only when you say so: a wrong --dead against a node
+# that is merely slow would remove a live monitor and delete a live node.
+- name: The node is online, or its death is acknowledged
+  ansible.builtin.assert:
+    that:
+      - (pve_node_rebuild_node_online | bool) or (rebuild_node_dead | bool)
+      - not ((pve_node_rebuild_node_online | bool) and (rebuild_node_dead | bool))
+    fail_msg: >-
+      {% if pve_node_rebuild_node_online | bool %}{{ rebuild_node }} is online in the cluster
+      (`pvesh get /cluster/status`), so -e rebuild_node_dead=true is wrong; drop it and the
+      node is torn down cleanly from itself.{% else %}{{ rebuild_node }} is offline in the
+      cluster (online: {{ pve_node_rebuild_nodes_online }}). If it is really gone, pass
+      -e rebuild_node_dead=true and the teardown removes its daemons from here; if it is
+      merely down, bring it up first.{% endif %}
+    quiet: true
+
+# `rebuild_resume` widens each clause by exactly the damage this node's own teardown
+# does, and by nothing else: its OSDs marked out or stopped, and the remapping that
+# follows an `osd out`. A degraded PG, a PG that is not active, or an OSD missing that
+# does not belong to this node stays fatal under resume too — this teardown did not
+# cause those. Without it a teardown that stopped half way (2026-09-08: ok-to-stop
+# refused while PGs were still peering) can never be re-run, because preflight sees the
+# degradation it created itself and refuses.
+- name: Ceph is healthy enough to lose a node
+  vars:
+    _resume: "{{ rebuild_resume | bool }}"
+    _osds_out_here: "{{ pve_node_rebuild_node_osds_out | length }}"
+    _osds_down_here: "{{ pve_node_rebuild_node_osds_down | length }}"
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_health == 'HEALTH_OK'
+        or (pve_node_rebuild_health == 'HEALTH_WARN'
+            and (pve_node_rebuild_health_checks | difference(pve_node_rebuild_allowed_health_checks) | length == 0))
+      - pve_node_rebuild_pgs_clean | bool
+        or (_resume and pve_node_rebuild_pgs_clean_or_remapped | bool)
+      # The clause above is what refuses a degraded cluster under resume: a degraded
+      # object always puts its PG into a degraded state, and no degraded state is in
+      # the allowed list. A separate degraded_ratio check here would be unreachable —
+      # it was written, found untestable because the state list always fires first,
+      # and removed rather than left in as decoration.
+      - not (pve_node_rebuild_recovering | bool) or _resume
+      - (pve_node_rebuild_num_up_osds | int) == (pve_node_rebuild_num_osds | int)
+        or (_resume and (pve_node_rebuild_num_osds | int) - (pve_node_rebuild_num_up_osds | int)
+                        == (_osds_down_here | int))
+      - (pve_node_rebuild_num_in_osds | int) == (pve_node_rebuild_num_osds | int)
+        or (_resume and (pve_node_rebuild_num_osds | int) - (pve_node_rebuild_num_in_osds | int)
+                        == (_osds_out_here | int))
+    fail_msg: >-
+      Ceph is {{ pve_node_rebuild_health }} (checks: {{ pve_node_rebuild_health_checks }},
+      allowed: {{ pve_node_rebuild_allowed_health_checks }}), PGs clean: {{ pve_node_rebuild_pgs_clean }},
+      recovering: {{ pve_node_rebuild_recovering }}, OSDs up/in/total:
+      {{ pve_node_rebuild_num_up_osds }}/{{ pve_node_rebuild_num_in_osds }}/{{ pve_node_rebuild_num_osds }}.
+      Taking a node out of a cluster that is already degraded is how one failure becomes two.
+      {{ '' if _resume else
+         'If this node\'s own teardown already ran part way and caused exactly this
+          (its OSD out, PGs remapped), re-run with -e rebuild_resume=true, which tolerates
+          that and nothing else. Do not pass it to get past degradation you cannot account for.' }}
+    quiet: true
+
+# Only when there is a monitor here to remove. If the node has none — a fresh node, or
+# a resumed teardown that already destroyed it — the teardown removes no monitor and
+# quorum is not at stake. Unconditional, not gated on rebuild_resume: the reasoning
+# holds on a first run too.
+- name: Quorum survives one monitor fewer
+  when: pve_node_rebuild_node_mon | bool
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_mon_names | length >= 3
+    fail_msg: >-
+      Only {{ pve_node_rebuild_mon_names | length }} monitor(s) ({{ pve_node_rebuild_mon_names }});
+      removing one leaves no majority.
+    quiet: true
+
+- name: The node holds at most one OSD
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_node_osd_ids | length <= 1
+    fail_msg: >-
+      {{ rebuild_node }}'s CRUSH bucket holds {{ pve_node_rebuild_node_osd_ids }}; this
+      playbook is written for one OSD per node.
+    quiet: true
+
+- name: Every guest HA does not manage has somewhere to go
+  ansible.builtin.assert:
+    that:
+      - (pve_node_rebuild_guests_non_ha | length == 0)
+        or (rebuild_evacuate_to is defined
+            and rebuild_evacuate_to in groups[pve_node_rebuild_cluster_group]
+            and rebuild_evacuate_to != rebuild_node
+            and rebuild_evacuate_to in pve_node_rebuild_nodes_online)
+    fail_msg: >-
+      {{ rebuild_node }} carries guests HA will not move:
+      {{ pve_node_rebuild_guests_non_ha | map(attribute='vmid') | zip(pve_node_rebuild_guests_non_ha | map(attribute='name')) | map('join', ' ') | join(', ') }}.
+      Pass -e rebuild_evacuate_to=<an online cluster node other than {{ rebuild_node }}>
+      (got '{{ rebuild_evacuate_to | default('') }}'; online: {{ pve_node_rebuild_nodes_online }}).
+    quiet: true
+
+- name: No guest on the node keeps a disk on a storage it does not share
+  ansible.builtin.assert:
+    that:
+      - pve_node_rebuild_guest_local_disks | length == 0
+    fail_msg: >-
+      These guests have disks on storages that are not shared, which die with the boot
+      drive and which neither `qm migrate` nor HA moves:
+      {{ pve_node_rebuild_guest_local_disks | map(attribute='vmid') | zip(pve_node_rebuild_guest_local_disks | map(attribute='storages')) | map('join', ' on ') | join('; ') }}.
+      Move those disks to a shared storage first.
+    quiet: true
+
+- name: The node's local storage is empty, or its loss is acknowledged
+  ansible.builtin.assert:
+    that:
+      - (pve_node_rebuild_local_content | length == 0) or (rebuild_local_content == 'discard')
+    fail_msg: >-
+      {{ rebuild_node }}'s `local` storage holds {{ pve_node_rebuild_local_content }}. The
+      pre-wipe backup does not copy /var/lib/vz, so these die with the boot drive. Copy what
+      matters elsewhere, or pass -e rebuild_local_content=discard.
+    quiet: true
+
+- name: What the teardown will do
+  ansible.builtin.debug:
+    msg:
+      - "node: {{ rebuild_node }} (online: {{ pve_node_rebuild_node_online }}, dead acknowledged: {{ rebuild_node_dead }}); survivor running this: {{ inventory_hostname }}"
+      - "ceph on it — osd: {{ pve_node_rebuild_node_osd_ids }} ({{ rebuild_osd }}), mon: {{ pve_node_rebuild_node_mon }}, mgr: {{ pve_node_rebuild_node_mgr }}, mds: {{ pve_node_rebuild_node_mds_state or 'none' }}; monitors: {{ pve_node_rebuild_mon_names }}"
+      - "HA resources on it (node-maintenance moves these): {{ pve_node_rebuild_ha_on_node }}; rules preferring it (HA brings these back): {{ pve_node_rebuild_ha_rules_preferring_node }}"
+      - "guests HA does not manage (qm migrate to {{ rebuild_evacuate_to | default('-') }}): {{ pve_node_rebuild_guests_non_ha | map(attribute='vmid') | zip(pve_node_rebuild_guests_non_ha | map(attribute='status')) | map('join', ':') | join(', ') or 'none' }}"
+      - "local storage content lost with the boot drive: {{ pve_node_rebuild_local_content or 'nothing' }}"
+
+# The plan is what the later phases act on — the node-side play, the finish's guest
+# return — and it is written to the control node so `--tags finish` in a later
+# invocation still knows which guests left.
+- name: Record the plan on the control node
+  ansible.builtin.set_fact:
+    rebuild_plan:
+      node: "{{ rebuild_node }}"
+      osd: "{{ rebuild_osd }}"
+      node_online: "{{ pve_node_rebuild_node_online | bool }}"
+      osd_ids: "{{ pve_node_rebuild_node_osd_ids }}"
+      mon: "{{ pve_node_rebuild_node_mon | bool }}"
+      mgr: "{{ pve_node_rebuild_node_mgr | bool }}"
+      mds_state: "{{ pve_node_rebuild_node_mds_state }}"
+      ha_on_node: "{{ pve_node_rebuild_ha_on_node }}"
+      rules_preferring_node: "{{ pve_node_rebuild_ha_rules_preferring_node }}"
+      guests_non_ha: "{{ pve_node_rebuild_guests_non_ha }}"
+      evacuate_to: "{{ rebuild_evacuate_to | default('') }}"
+      local_content: "{{ pve_node_rebuild_local_content }}"
+  delegate_to: localhost
+  delegate_facts: true
+
+- name: Write the plan next to the task files (gitignored working notes)
+  ansible.builtin.copy:
+    dest: "{{ pve_node_rebuild_plan_path }}"
+    content: "{{ hostvars['localhost'].rebuild_plan | to_nice_json }}\n"
+    mode: "0644"
+  delegate_to: localhost
+  become: false

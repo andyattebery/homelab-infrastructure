@@ -1,0 +1,14 @@
+---
+# preserve: the OSD comes back as it is, so nothing should be marked out or moved while
+# the node is away. replace: neither flag helps — noout protects an OSD that is being
+# destroyed anyway, and norebalance would block the backfill onto the new one.
+- name: Set noout and norebalance for the node's absence (preserve)
+  when:
+    - rebuild_osd == 'preserve'
+    - item not in pve_node_rebuild_osd_flags
+  ansible.builtin.command:
+    argv: ["{{ pve_node_rebuild_ceph_command }}", osd, set, "{{ item }}"]
+  loop:
+    - noout
+    - norebalance
+  changed_when: true

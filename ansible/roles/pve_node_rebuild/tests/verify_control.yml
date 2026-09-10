@@ -1,0 +1,43 @@
+---
+# One verification control: mutate a fixture file, run state + load_plan + verify, expect
+# the named check to be the one that fails, restore the file.
+- name: "{{ item.check }} control — mutate {{ item.file }}"
+  ansible.builtin.copy:
+    dest: "{{ _d }}/{{ item.file }}"
+    content: "{{ item.body }}"
+    mode: "0644"
+
+- name: "{{ item.check }} control — verify"
+  block:
+    - name: "{{ item.check }} should fail"
+      vars:
+        install_realtek_r8125: true
+        kernel_parameters_new_parameters: { intel_iommu: "on" }
+        pve_pin_network_interface_pins: "{{ _pins }}"
+        rebuild_return_guests: true
+      ansible.builtin.include_role:
+        name: pve_node_rebuild
+        tasks_from: "{{ _step }}"
+      loop:
+        - state
+        - load_plan
+        - verify
+      loop_control:
+        loop_var: _step
+    - name: "{{ item.check }} — failure should have happened"
+      ansible.builtin.fail:
+        msg: "verify passed with {{ item.file }} mutated"
+  rescue:
+    - name: "{{ item.check }} failed, and nothing else"
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_task.name is search(item.check ~ ' ')
+          - ansible_failed_result.msg is search(item.expect)
+        fail_msg: "expected {{ item.check }} to fail on {{ item.expect }}; got task '{{ ansible_failed_task.name }}': {{ ansible_failed_result.msg | default('') }}"
+        success_msg: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg }}"
+
+- name: "{{ item.check }} control — restore {{ item.file }}"
+  ansible.builtin.copy:
+    dest: "{{ _d }}/{{ item.file }}"
+    content: "{{ item.restore }}"
+    mode: "0644"
