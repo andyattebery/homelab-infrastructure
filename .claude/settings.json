@@ -36,7 +36,15 @@
       "Bash(python3 -c ' *)",
       "Bash(curl -sL \"https://raw.githubusercontent.com/*)",
       "Bash(curl -sL \"https://api.github.com/search/code*)",
-      "Bash(docker run *)"
+      "Bash(docker run *)",
+      "Read(//Users/andy/Projects/dashboard-services-manager/**)",
+      "Bash(dotnet test *)",
+      "Bash(dotnet build *)",
+      "Read(//Users/andy/Projects/network-inventory-manager/**)",
+      "Bash(echo \"exit=$? \\(1 = clean\\)\")"
+    ],
+    "additionalDirectories": [
+      "/Users/andy/Projects/network-inventory-manager/network_inventory_manager"
     ]
   }
 }

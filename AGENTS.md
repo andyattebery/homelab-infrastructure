@@ -1,96 +1,3 @@
-## Task files
-
-Triggered by: any task that spans more than a couple of tool calls — research, a plan, edits
-across several files, a deploy. Not one-off questions.
-
-`tasks/` holds one Markdown file per task, `<kebab-case-summary>.md`. These are explicitly the
-agent's own working documents for a task — not a deliverable, not a report for the user. Write
-them for whoever picks the task up next, which is usually a future session with none of the
-current context: what is being done, where it got to, what was decided and why.
-
-Because it is a working doc, it gets written *during* the work, not reconstructed afterwards. It
-is the place to park a finding, a dead end, or a half-verified claim the moment it appears, rather
-than holding it in context and hoping it survives.
-
-### The four working-notes directories
-
-All four are gitignored (see `.gitignore`, "agent working notes"). Nothing in them is published,
-which is the point — they may contain real hostnames, IPs, WAN details and the domain, written
-plainly. Placeholders like `<domain_name>` are for committed files and are just noise here.
-
-Gitignored is not a licence to go and read credentials, though. "Never read a secret" is about
-rotation risk, not publication, and still applies: do not fetch a password, token or key in order
-to write it down.
-
-- `tasks/` — the agent's working doc for one task. Created when the task starts, updated as it
-  goes, kept afterwards as the record.
-- `plans/` — plan-mode documents, taken over at acceptance. See below.
-- `handoffs/` — briefings written by the agent for a future session or a different person to pick
-  up cold.
-- `status/` — being superseded by `tasks/`, which is scoped tighter. Reserve it for large efforts
-  that span several tasks, where a per-task file is the wrong grain.
-
-### An accepted plan moves to `plans/`
-
-Triggered by: the moment a plan is approved.
-
-Copy the working file from `~/.claude/plans/` to `plans/<kebab-case-summary>.md`, and from then on
-**edit the copy**. The `~/.claude/plans/` original is disposable — an accepted plan closes, and the
-next planning session overwrites that path.
-
-This matters because the plan is usually least accurate at the moment it is approved. Execution is
-what finds the failure modes, and those corrections belong in the plan someone will actually re-read
-— not in a file that is about to be destroyed. If a later planning session revisits the same work,
-it edits the `~/.claude/plans/` copy again by necessity; re-copy on the next acceptance.
-
-Required artifact: the file exists in `plans/` before the first step of the plan is executed.
-
-Honest labelling: "copy on acceptance" is **structural** — the file is either there or it is not.
-"Keep editing the copy" is **exhortation**, with no enforceable artifact. The only proxy is that a
-plan in `plans/` describing finished work should not still read as though nothing has been run.
-
-Required structure:
-
-    # <task>
-
-    ## Status: Not started | In progress | Blocked | Done | Abandoned
-    Started: 2026-08-09 16:15 CDT · Updated: 2026-08-09 19:59 CDT
-    <one line: what is true right now>
-
-    ## Goal
-    ## Decisions       — what was chosen and why. The why is the part with value later.
-    ## Progress        — timestamped, newest last. What was done and verified, not what was
-                         attempted.
-    ## Open / blocked  — what is unresolved, and what it is waiting on.
-
-Record the *why* behind each decision, especially when an approach was tried and abandoned — a
-rejected option with its evidence is worth more than the option that shipped, because it is what
-stops the next person retrying it.
-
-### Timestamps
-
-Every `## Progress` entry is stamped, and the header carries `Started:` and `Updated:`. Format
-`YYYY-MM-DD HH:MM TZ`. Without them the file says what happened but not in what order or how long
-ago, which is most of what you need when resuming.
-
-Take the value from the shell, never from memory:
-
-    date "+%Y-%m-%d %H:%M %Z"
-
-The model has no clock. An inferred timestamp is worse than no timestamp, because it reads as
-authoritative and is silently wrong. When a time is reconstructed after the fact — from a container
-`StartedAt`, a log line, a commit date — prefix it with `~` and it is honest; anything else is
-fabrication.
-
-Required artifact: the file exists in `tasks/` before the first edit of the task, and its
-`## Status:` line, `Updated:` stamp and `## Progress` section match reality before the task is
-declared done. No file = not done.
-
-Honest labelling: the file's *existence* and its *end state* are structural — both are checkable.
-"Keep it updated as you go" is exhortation; the only enforceable proxy is that the finished file
-must not read as though it were written in one pass at the end. `## Status: In progress` on
-finished work is a stale marker, not documentation — same as `## Status: WIP` on a deployed role.
-
 ## Reading files
 
 When told to read a file, read every line. Do not skim, summarize, or skip sections that look "standard." If the task depends on the contents of a file, produce an artifact (checklist, matrix, line-by-line accounting) that proves every item was seen. "I read it" is not evidence.
@@ -152,6 +59,63 @@ When researching changelogs, release notes, or API differences between specific 
 - ansible directory holds homelab provisioning playbooks/roles.
 - ansible runs from `ansible/.venv` (managed by mise).
 - `gh` and `yq` are in `$PATH`.
+
+## Nothing ad-hoc on a managed host
+
+Triggered by: needing to change anything on a managed host that `ansible-playbook` does not
+already do.
+
+Read-only diagnosis is exempt — `cat`, `lsblk`, `ceph -s`, reading a log. This rule is about
+**mutation**.
+
+Two acceptable outcomes, in order:
+
+1. **Fix the role.** If the playbook could do it, it should. A step that must be done by hand
+   *between* playbook runs is a role defect, not a procedure. "The role refuses to do X, so do X
+   manually first" is the defect stated out loud.
+2. **A committed script**, taking the host as an argument, safe to re-run, with destructive
+   steps gated behind an explicit flag and identifying hardware by **serial or MAC, never by
+   `sdX`/`nicN`** — those move, and a script that resolves them itself cannot be aimed at the
+   wrong device by a tired operator.
+
+Required artifact: the role change or the committed script, **before** the command touches a
+host. No artifact = do not run it.
+
+A sequence of ad-hoc ssh commands is not a procedure. It cannot be reviewed before it runs,
+repeated on the next node, or corrected once it is wrong — and when it fails it leaves nothing
+behind but scrollback. Every incident in this repo's task files that begins "I ran X by hand"
+ends with a console trip.
+
+Honest labelling: "fix the role first" is **exhortation**. The enforceable part is the artifact —
+a diff to a role, or a file in `scripts/`. If neither exists, the work did not happen the right
+way, whatever the outcome.
+
+## `ansible-lint` is not a verification step
+
+Do not run it. From its own documentation:
+
+> ansible-lint checks playbooks for practices and behavior that could potentially be improved. As a
+> community-backed project ansible-lint supports only the last two major versions of Ansible.
+
+"Could potentially be improved" is the tool describing itself as advisory. It reports `Passed` on
+deprecated `ansible_*` fact aliases, on a wrong variable name, on a string where an int is required,
+and on any expression that renders to the wrong thing. It is not part of this repo's workflow.
+
+Use the check that answers the actual question:
+
+| question | check |
+|---|---|
+| does this parse | `python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" <file>` |
+| does the play load | `ansible-playbook <play> --syntax-check` |
+| does this behave | a case in `tests/`, with a positive control — see below |
+| is this current for the version in use | look it up; see "Ansible semantics are looked up, not recalled" |
+| did the run complain | read the play output; a `[DEPRECATION WARNING]` is a finding, not noise |
+
+A test that has never been shown to fail is not evidence. Make the change that should break it,
+confirm that case goes red, and put it back.
+
+Required artifact: for any claim that something works, name which of the above produced it. "lint
+passed" is not an answer to any question worth asking.
 
 ## Git
 
