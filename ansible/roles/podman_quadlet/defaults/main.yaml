@@ -10,3 +10,11 @@ podman_quadlet_config_files: []
 # Override either to deploy a unit without starting it.
 podman_quadlet_service_state: started
 podman_quadlet_service_enabled: ~
+
+# Command prefix pqup re-execs itself under, inserted verbatim before the script's own path,
+# so the whole run (pulls, auto-update, prune) happens inside it. Empty means pqup runs as
+# is. Meant for a sleep hold on a host that autosuspends — on any systemd host
+# `systemd-inhibit --what=sleep --who=pqup --why=pqup` works; a host with its own hold CLI
+# passes that. The prefix must exist on the host: if it does not, pqup fails at the exec
+# before pulling anything.
+podman_quadlet_pqup_wrapper: ""

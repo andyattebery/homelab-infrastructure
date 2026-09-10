@@ -28,6 +28,10 @@ Optional:
   without running it.
 - `podman_quadlet_service_enabled` — default unset. Unset means "enable the types that have
   an `[Install]` section, leave the rest alone". An explicit `true`/`false` always wins.
+- `podman_quadlet_pqup_wrapper` — default `""`. Command prefix `pqup` re-execs itself under,
+  inserted verbatim before the script's own path, so pulls, auto-update and prune all run
+  inside it. For a sleep hold on a host that autosuspends; see the `pqup` section. It must
+  exist on the host: if it does not, `pqup` fails at the exec before pulling anything.
 
 ## Example
 
@@ -97,3 +101,53 @@ startup.
 The restart is skipped when the service was not already running — the deploy task has just
 started it with the new config, so restarting again would be redundant, and a
 deliberately-stopped unit must not be started as a side effect.
+
+## `pqup`
+
+Every call of this role installs `/usr/local/bin/pqup`, the operator's update command for
+all Quadlet units on the host. It pulls each unit's image, runs `podman auto-update`, then
+prunes what that left behind.
+
+The pull step exists because `podman auto-update` only considers *running* containers
+(Podman 5.8, `pkg/autoupdate/autoupdate.go`: "Only update running containers"), and a
+stopped Quadlet unit has no container at all — the generated service's `ExecStop` is
+`podman rm`. A unit an operator has stopped on purpose (the GPU-arbitration case above)
+would otherwise never update until it happened to be running during a pqup, and then it
+would be restarted mid-work. So pqup first pulls the `Image=` of every `*.container` under
+`/etc/containers/systemd/`, and the next start of a stopped unit runs the current image.
+Running units are still restarted by auto-update: it compares the running container's image
+against the registry digest, not the local tag, so the pre-pull does not hide the update
+from it.
+
+The order is load-bearing. Auto-update rolls back by re-tagging the previous image when the
+restarted unit fails; a pull *after* it would re-tag the broken image and undo that. Pull,
+then auto-update, then prune.
+
+Two traps:
+
+- **A stopped unit gets no rollback.** Auto-update only rolls back restarts it performed. An
+  image pulled for a stopped unit is first exercised at that unit's next start, so that is
+  when to check the service — not at pqup time.
+- **Never add `-a` to the prune.** `podman system df` reports every image not held by a
+  running container as reclaimable, which on a host whose GPU units are stopped reads as
+  "100% reclaimable" — and `prune -a` would delete exactly the images the pull step just
+  fetched. Without `-a` only untagged images go, i.e. the previous version of each tag.
+
+On a host that autosuspends, set `podman_quadlet_pqup_wrapper` and pqup re-execs itself
+under it, so one hold covers the whole run rather than one pull. `systemd-inhibit
+--what=sleep --who=pqup --why=pqup` works on any systemd host. The host here that
+autosuspends has its own hold CLI with a job form, which takes a deadline hold only when no
+longer hold is active and puts the previous one back afterwards:
+
+```yaml
+podman_quadlet_pqup_wrapper: "sleep-inhibit run 2h --"
+```
+
+The value is inserted unquoted, and pqup passes its own absolute path after it, so invoke
+pqup by name or absolute path rather than as `sh ./pqup`.
+
+A failed pull (registry unreachable, tag gone) aborts pqup before auto-update and prune, the
+same way an auto-update error already did; re-run it. The discovery is a `grep` of the unit
+files, so a unit whose `Image=` names a `.image` or `.build` unit rather than a registry
+reference would be handed to `podman pull` verbatim and abort the run. No unit here does
+that.

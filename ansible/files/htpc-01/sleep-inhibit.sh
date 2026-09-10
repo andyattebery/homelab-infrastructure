@@ -17,13 +17,16 @@ GRACE=300  # sleep-inhibitor.service GRACE_PERIOD
 
 usage() {
     cat <<'USAGE'
-Usage: sleep-inhibit <duration> | until <time> | status | off
+Usage: sleep-inhibit <duration> | until <time> | run <duration> -- <command...> | status | off
 
   sleep-inhibit 2h            hold for a duration (30s, 90m, 2h, 1d)
   sleep-inhibit until 09:00   hold until a wall-clock time
   sleep-inhibit indefinite    hold with no expiry, until released
   sleep-inhibit status        show the current hold, if any
   sleep-inhibit off           release now
+  sleep-inhibit run 2h -- <command...>
+                              hold for one command, then put back the hold that was there
+                              before it (what pqup uses)
 
 Prefer a duration. `indefinite` never lapses, so it outlives both the reason for it and
 your memory of setting it — only `off` or a reboot ends it. It exists because the
@@ -38,6 +41,9 @@ Both lag towards staying awake, never towards sleeping early.
 This is one voice among several. Other checks (ffmpeg, llama-swap, ...) hold the inhibitor
 on their own, so `off` does not guarantee the host may sleep — only that you are no longer
 the reason it cannot.
+
+`run` never shortens a hold you already have: a longer or indefinite one is left alone, and
+a shorter one is restored when the command finishes.
 USAGE
 }
 
@@ -90,6 +96,57 @@ set_until() {
         "$(date -d "@$until_epoch" '+%Y-%m-%d %H:%M:%S')" "$POLL"
 }
 
+# 45s|90m|2h|1d -> "45 seconds" and so on. Anything else is rejected rather than guessed: a
+# typo that silently became "now" would be a hold that never happened.
+duration_spec() {
+    local d="$1"
+    [[ "$d" =~ ^([0-9]+)([smhd])$ ]] \
+        || { echo "sleep-inhibit: bad duration '$d' (use 30s, 90m, 2h, 1d)" >&2; return 1; }
+    case "${BASH_REMATCH[2]}" in
+        s) echo "${BASH_REMATCH[1]} seconds" ;;
+        m) echo "${BASH_REMATCH[1]} minutes" ;;
+        h) echo "${BASH_REMATCH[1]} hours" ;;
+        d) echo "${BASH_REMATCH[1]} days" ;;
+    esac
+}
+
+# Run a command under a deadline hold without disturbing a hold an operator already has.
+#
+# The lock is one value, so a job that ran `sleep-inhibit 2h` would replace an indefinite or
+# longer operator hold, and `off` at the end would delete it. So: take the hold only when
+# the existing one is absent, expired, or ends before this one would; afterwards put back
+# what was there — the operator's deadline if it is still in the future, nothing otherwise.
+# Returns the command's exit status. A command that outlives its duration loses the hold, so
+# size the duration for the worst case; one killed mid-way leaves the deadline, which expires.
+run_under_hold() {
+    local spec="$1"; shift
+    local want prev="" took=0 rc=0
+    want=$(date -d "+$spec" +%s)
+    [[ -f "$LOCK" ]] && prev=$(head -n1 "$LOCK" 2>/dev/null || echo "")
+    if [[ "$prev" == "indefinite" ]] || { [[ "$prev" =~ ^[0-9]+$ ]] && (( prev >= want )); }; then
+        echo "sleep-inhibit: an existing hold already covers this run; leaving it as is"
+    else
+        printf '%s\n' "$want" > "$LOCK"
+        chmod 0644 "$LOCK"
+        took=1
+        printf 'sleep-inhibit: holding until %s (takes effect within %ss) for: %s\n' \
+            "$(date -d "@$want" '+%Y-%m-%d %H:%M:%S')" "$POLL" "$*"
+    fi
+    "$@" || rc=$?
+    if (( took )); then
+        if [[ "$prev" =~ ^[0-9]+$ ]] && (( prev > $(date +%s) )); then
+            printf '%s\n' "$prev" > "$LOCK"
+            printf 'sleep-inhibit: command finished (exit %s); earlier hold restored, until %s\n' \
+                "$rc" "$(date -d "@$prev" '+%Y-%m-%d %H:%M:%S')"
+        else
+            rm -f "$LOCK"
+            printf 'sleep-inhibit: command finished (exit %s); hold released (inhibitor drops within %ss if nothing else is busy)\n' \
+                "$rc" "$GRACE"
+        fi
+    fi
+    return "$rc"
+}
+
 case "${1-}" in
     ""|-h|--help|help)
         usage
@@ -123,15 +180,17 @@ case "${1-}" in
     # those — a typo that silently became "now" would be a hold that never happened.
     *[0-9]s|*[0-9]m|*[0-9]h|*[0-9]d)
         need_root "$@"
-        n="${1%?}"; unit="${1: -1}"
-        [[ "$n" =~ ^[0-9]+$ ]] || { echo "sleep-inhibit: bad duration '$1'" >&2; exit 1; }
-        case "$unit" in
-            s) spec="$n seconds" ;;
-            m) spec="$n minutes" ;;
-            h) spec="$n hours" ;;
-            d) spec="$n days" ;;
-        esac
+        spec=$(duration_spec "$1") || exit 1
         set_until "+$spec"
+        ;;
+    # Hold for the length of one command, then put back whatever hold was there before.
+    run)
+        need_root "$@"
+        [[ $# -ge 4 && "$3" == "--" ]] \
+            || { echo "sleep-inhibit: usage: sleep-inhibit run <duration> -- <command...>" >&2; exit 1; }
+        spec=$(duration_spec "$2") || exit 1
+        shift 3
+        run_under_hold "$spec" "$@"
         ;;
     *)
         echo "sleep-inhibit: unrecognised argument '$1'" >&2

@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+set -eu
+{% if podman_quadlet_pqup_wrapper | length > 0 %}
+
+# Re-exec under the host's wrapper (podman_quadlet_pqup_wrapper) so pulls, auto-update and
+# prune all run inside it — on a host that autosuspends, a sleep hold. PQUP_WRAPPED stops
+# the re-exec recursing. A wrapper that is not installed makes this exec fail, loudly and
+# before anything is pulled.
+if [ -z "${PQUP_WRAPPED:-}" ]; then
+  PQUP_WRAPPED=1
+  export PQUP_WRAPPED
+  exec {{ podman_quadlet_pqup_wrapper }} "$0" "$@"
+fi
+{% endif %}
+
+# `podman auto-update` only considers running containers (pkg/autoupdate/autoupdate.go,
+# "Only update running containers"), and a stopped Quadlet unit has no container at all:
+# its ExecStop is `podman rm`. So a unit an operator has stopped on purpose never updates
+# until it happens to be running here, and then it restarts mid-work. Pull every unit's image first;
+# the next start uses it. Running units are still restarted by auto-update below, which
+# compares the running container's image against the registry, not the local tag.
+#
+# Before auto-update, not after: its rollback re-tags the previous image, and a pull
+# afterwards would undo that.
+for image in $(grep -h '^Image=' /etc/containers/systemd/*.container | cut -d= -f2- | sort -u); do
+  podman pull "$image"
+done
+
+podman auto-update
+
+# Never `-a`: a stopped unit's image is held by no container, so "unused" here means
+# "belongs to a unit someone stopped on purpose", and -a would delete what the loop above just
+# pulled. Without -a only untagged images go, i.e. the previous version of each tag.
+podman system prune -f

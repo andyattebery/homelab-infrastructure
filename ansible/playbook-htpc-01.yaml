@@ -11,6 +11,13 @@
     # bind-mounted into the container and must hold nothing else.
     htpc_ffmpeg_dir: /opt/jellyfin-ffmpeg/bin
 
+    # pqup runs under a manual sleep hold, taken with the `run` form of the sleep-inhibit CLI
+    # installed further down (tags: sleep-inhibitor). Nothing in sleep-inhibitor.d sees a
+    # `podman pull`, and this host autosuspended mid-pqup on 2026-09-05. 2h bounds the worst
+    # case, a multi-GB image on a slow link; a 39 GB comfyui update took two minutes here. A
+    # longer or indefinite operator hold is left alone and a shorter one restored afterwards.
+    podman_quadlet_pqup_wrapper: "sleep-inhibit run 2h --"
+
     # llama-swap / llama.cpp. Sizes and checksums verified against the HuggingFace
     # repo listings, not estimated.
     #
@@ -631,8 +638,9 @@
 
     # Manual sleep hold. Writes a deadline to /run/sleep-inhibit-until, which the role's
     # manual.sh check reads on its next poll — so this goes through the same single inhibitor
-    # as every other check rather than taking one of its own. Tagged with the role so the CLI
-    # and the check it drives always deploy together.
+    # as every other check rather than taking one of its own. Its `run` form is what
+    # podman_quadlet_pqup_wrapper (play vars above) points pqup at. Tagged with the role so
+    # the CLI and the check it drives always deploy together.
     - name: Install sleep-inhibit CLI
       tags: sleep-inhibitor
       ansible.builtin.copy:

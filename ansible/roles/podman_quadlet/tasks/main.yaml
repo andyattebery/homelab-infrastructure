@@ -63,8 +63,8 @@
     - Reload systemd for podman quadlet
 
 - name: Install pqup script
-  ansible.builtin.copy:
-    src: pqup
+  ansible.builtin.template:
+    src: pqup.j2
     dest: /usr/local/bin/pqup
     mode: "0755"
 
