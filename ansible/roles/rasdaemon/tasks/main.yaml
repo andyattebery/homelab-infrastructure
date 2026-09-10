@@ -58,6 +58,45 @@
       MC_UE_TRIGGER=mc_ue_trigger
   notify: Restart rasdaemon
 
+# Stop rasdaemon writing an OEM record to the BMC's SEL for every corrected PCIe error.
+#
+# The mechanism is systemd sandboxing, deliberately NOT a PATH override. rasdaemon spawns the
+# UE trigger with a hand-built environment whose only inherited variable is PATH (see the
+# comment at the top of templates/mc_ue_trigger.j2), and that script needs logger, hostname,
+# uname and cat. Breaking PATH would silently disable the one alerting path that exists for a
+# real uncorrectable error. InaccessiblePaths blocks one binary for one service and leaves
+# PATH alone.
+- name: Create rasdaemon systemd drop-in directory
+  when: rasdaemon_block_ipmitool_sel
+  ansible.builtin.file:
+    path: "{{ rasdaemon_systemd_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Block rasdaemon's OEM SEL writes
+  when: rasdaemon_block_ipmitool_sel
+  ansible.builtin.copy:
+    dest: "{{ rasdaemon_systemd_dropin_dir }}/10-no-ipmitool-sel.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the rasdaemon Ansible role — see its README, "Blocking the OEM SEL writes".
+      # The leading `-` tolerates the binary being absent.
+      [Service]
+      InaccessiblePaths=-{{ rasdaemon_ipmitool_path }}
+  notify: Restart rasdaemon
+
+# Reversible: clearing the flag removes the drop-in rather than leaving it behind.
+- name: Remove rasdaemon's OEM SEL write block
+  when: not rasdaemon_block_ipmitool_sel
+  ansible.builtin.file:
+    path: "{{ rasdaemon_systemd_dropin_dir }}/10-no-ipmitool-sel.conf"
+    state: absent
+  notify: Restart rasdaemon
+
 - name: Enable and start rasdaemon
   ansible.builtin.systemd:
     name: rasdaemon

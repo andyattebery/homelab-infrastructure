@@ -7,3 +7,13 @@ rasdaemon_page_ce_threshold: 10
 rasdaemon_page_ce_refresh_cycle: "24h"
 
 rasdaemon_trigger_dir: /etc/ras/triggers
+
+# Debian builds rasdaemon with --enable-amp-ns-decode, so ras-aer-handler.c shells out
+# `ipmitool raw 0x0a 0x44 ...` on EVERY corrected PCIe AER event and writes an OEM record to
+# the BMC's SEL. There is no runtime switch for it — the --ipmitool flag gates the OpenBMC
+# code path, not this one. On a host whose PCIe links produce corrected errors steadily, that
+# fills the SEL, which then wraps and destroys the only crash evidence that survives a power
+# cut. Set true to block it. See the README for why this is not done with PATH.
+rasdaemon_block_ipmitool_sel: false
+rasdaemon_ipmitool_path: /usr/bin/ipmitool
+rasdaemon_systemd_dropin_dir: /etc/systemd/system/rasdaemon.service.d

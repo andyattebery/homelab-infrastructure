@@ -1,7 +1,10 @@
 ---
+# daemon_reload because this role writes a unit drop-in; systemd would otherwise restart
+# the service against the old unit.
 - name: Restart rasdaemon
   ansible.builtin.systemd:
     name: rasdaemon
+    daemon_reload: true
     state: restarted
 
 - name: Re-register DIMM labels
