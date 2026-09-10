@@ -1,0 +1,9 @@
+---
+# Cap on the ZFS ARC, in GiB. 0 means "no cap" — the role then REMOVES its block from
+# /etc/modprobe.d/zfs.conf rather than writing one, and ZFS falls back to its own default.
+#
+# That default is not 50% any more. Through OpenZFS 2.2 the man page read "Under Linux, half of
+# system memory will be used as the limit"; from 2.4 the Linux/FreeBSD split is gone and it is
+# "the larger of all_system_memory - 1 GiB and 5/8 x all_system_memory" — so on anything above
+# ~2.7 GiB of RAM, effectively RAM minus 1 GiB. Check which you are on before assuming.
+zfs_arc_max_gb: 0

@@ -1,11 +1,22 @@
+---
+# The module reads /etc/modprobe.d at load time, so this file only decides what the ARC cap is
+# after the next boot. The runtime write at the bottom is what makes a RAISED cap apply now.
 - name: Create modprobe.d directory
   ansible.builtin.file:
     path: /etc/modprobe.d
     state: directory
     mode: '0755'
+
+# state is driven by the cap: 0 means no cap, which is the ABSENCE of the option rather than
+# `zfs_arc_max=0`. Both would work at boot, but absence is what "the role does not manage this"
+# should look like, and it leaves nothing to explain later.
+#
+# Removing the block leaves the file behind, empty. That is deliberate: this role created it and
+# something else may yet own other options in it, so the block is removed, not the file.
 - name: Configure zfs.conf
   ansible.builtin.blockinfile:
     create: true
+    state: "{{ 'absent' if zfs_arc_max_gb | int == 0 else 'present' }}"
     block: |
       options zfs zfs_arc_max={{ zfs_arc_max_bytes }}
     path: /etc/modprobe.d/zfs.conf
@@ -13,7 +24,18 @@
     owner: root
     group: root
   notify: Regenerate initramfs
+
+# Only ever RAISES the live value, and only when a cap is set.
+#
+# Removing the cap cannot be done live. The OpenZFS man page (v2.4, zfs.4) is explicit:
+# zfs_arc_max "cannot be set back to 0 while running". So `zfs_arc_max_gb: 0` takes effect at the
+# next reboot and not before — the task is skipped rather than writing a 0 the kernel rejects,
+# which is what the old `failed_when: false` was quietly papering over.
+#
+# Lowering a cap is also weaker than it looks: "reducing it below the current ARC size will not
+# cause the ARC to shrink without memory pressure to induce shrinking."
 - name: Set current ARC max
+  when: zfs_arc_max_gb | int > 0
   ansible.builtin.shell: |
     echo {{ zfs_arc_max_bytes }} > /sys/module/zfs/parameters/zfs_arc_max
   register: arc_runtime_result

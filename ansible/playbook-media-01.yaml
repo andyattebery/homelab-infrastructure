@@ -83,9 +83,25 @@
 
   roles:
     - configure_server
+    # 8 GiB, and the number is headroom rather than measured need. During a transcoding settings
+    # sweep the ARC served 11.55 GiB of demand reads in 30s with ZERO disk reads and a single
+    # miss, at the old 2 GiB cap — the working set being re-read already fits. 8 GiB is 4x that,
+    # covering demand metadata (95.7% hit rate, the only figure with room) and a sweep that grows
+    # to several source files at once.
+    #
+    # NOT uncapped. On ZFS 2.4.1 `zfs_arc_max=0` is not 50% of RAM — that held through 2.2, and
+    # from 2.4 the Linux/FreeBSD split is gone and the default becomes "the larger of
+    # all_system_memory - 1 GiB and 5/8 x all_system_memory", i.e. effectively RAM minus 1 GiB.
+    # On this VM that would be an ARC larger than every container's peak combined, with no swap
+    # to absorb the collision.
+    #
+    # Sized against 48 GiB of RAM: container high-water marks sum to 26.4 GiB (cgroup v2
+    # memory.peak across 24 containers) plus ~1.5 GiB host overhead, leaving ~12 GiB free.
+    # See plans/media-01-ram-and-arc-sizing.md.
     - role: zfs_conf
+      tags: zfs
       vars:
-        zfs_arc_max_gb: 2
+        zfs_arc_max_gb: 8
     - geerlingguy.docker
     - role: mise
     # Adopted 2026-08-24: the playbook now owns the driver, at the package set the host was
