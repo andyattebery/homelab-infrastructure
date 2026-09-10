@@ -1,0 +1,30 @@
+---
+# One loss-guard case. `item` is {name, tokens, new, candidate, expect}, where expect is
+# "passed" or "failed". The guard is what stands between a merge bug and an unbootable
+# host, so it needs a case that proves it can fail, not only cases that pass.
+- name: "Guard: {{ item.name }}"
+  block:
+    - name: "Run guard: {{ item.name }}"
+      vars:
+        kernel_parameters_existing_tokens: "{{ item.tokens }}"
+        kernel_parameters_new_parameters: "{{ item.new }}"
+        kernel_parameters_candidate_string: "{{ item.candidate }}"
+      ansible.builtin.include_role:
+        name: kernel_parameters
+        tasks_from: assert_no_parameters_lost
+
+    - name: "Guard passed: {{ item.name }}"
+      ansible.builtin.set_fact:
+        _guard_result: passed
+
+  rescue:
+    - name: "Guard failed: {{ item.name }}"
+      ansible.builtin.set_fact:
+        _guard_result: failed
+
+- name: "Assert guard verdict: {{ item.name }}"
+  ansible.builtin.assert:
+    that:
+      - _guard_result == item.expect
+    fail_msg: "{{ item.name }}: guard {{ _guard_result }}, expected {{ item.expect }}"
+    success_msg: "{{ item.name }}: guard {{ _guard_result }} as expected"

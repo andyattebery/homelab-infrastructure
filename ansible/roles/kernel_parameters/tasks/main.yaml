@@ -13,7 +13,7 @@
           changed_when: false
         - name: Run proxmox-boot-tool status
           ansible.builtin.command:
-            cmd: proxmox-boot-tool status
+            cmd: "{{ kernel_parameters_proxmox_boot_tool_path }} status"
           register: proxmox_boot_tool_status_result
           changed_when: false
           failed_when: false
@@ -29,7 +29,7 @@
             __kernel_parameters_is_proxmox_systemd_boot: true
     - name: Check for rpm-ostree
       ansible.builtin.command:
-        cmd: which rpm-ostree
+        cmd: "which {{ kernel_parameters_rpm_ostree_path }}"
       register: __kernel_parameters_rpm_ostree_check
       changed_when: false
       failed_when: false

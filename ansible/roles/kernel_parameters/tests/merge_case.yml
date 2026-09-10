@@ -1,0 +1,32 @@
+---
+# One merge case. `item` is {name, existing, new, expected}.
+# Wrapped in block/rescue so one failure does not hide the rest; _failures is asserted
+# empty at the end of test.yml.
+- name: "Case: {{ item.name }}"
+  block:
+    - name: "Merge: {{ item.name }}"
+      vars:
+        __kernel_parameters_existing_parameters_string: "{{ item.existing }}"
+        kernel_parameters_new_parameters: "{{ item.new }}"
+      ansible.builtin.include_role:
+        name: kernel_parameters
+        tasks_from: set_kernel_parameters_updated_parameters_string
+
+    - name: "Assert: {{ item.name }}"
+      ansible.builtin.assert:
+        that:
+          # Non-emptiness first: an expression that renders to "" would otherwise pass
+          # any comparison against an expected value that is also empty.
+          - __kernel_parameters_updated_parameters_string | length > 0
+          - __kernel_parameters_updated_parameters_string == item.expected
+        success_msg: "{{ item.name }}  ->  {{ __kernel_parameters_updated_parameters_string }}"
+
+  rescue:
+    - name: "Record failure: {{ item.name }}"
+      ansible.builtin.set_fact:
+        _failures: >-
+          {{ _failures | default([]) + [{
+               'name': item.name,
+               'expected': item.expected,
+               'got': __kernel_parameters_updated_parameters_string | default('<unset>'),
+             }] }}

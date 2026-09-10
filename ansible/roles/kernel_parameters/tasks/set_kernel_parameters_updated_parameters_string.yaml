@@ -10,11 +10,16 @@
   changed_when: false
   register: __kernel_parameters_existing_parameters_lines_result
 - name: Set __kernel_parameters_updated_parameters_string
+  # The merge lives in the template rather than here because it has to preserve both the
+  # order and the multiplicity of the existing tokens, which `combine` cannot do: it
+  # takes a dict, so a key that appears twice on the command line survives only once.
   vars:
-    kernel_parameters_existing_parameters: "{{ __kernel_parameters_existing_parameters_lines_result.stdout_lines | map('community.general.jc', 'kv', 'raw=true') }}"
-    kernel_parameters_updated_parameters: "{{ kernel_parameters_existing_parameters | combine(kernel_parameters_new_parameters) }}"
+    kernel_parameters_existing_tokens: "{{ __kernel_parameters_existing_parameters_lines_result.stdout_lines }}"
   ansible.builtin.set_fact:
     __kernel_parameters_updated_parameters_string: "{{ lookup('ansible.builtin.template', 'kernel_parameters_string.j2') }}"
-# - name: debug
-#   ansible.builtin.debug:
-#     var: __kernel_parameters_updated_parameters_string
+- name: Assert no unmanaged kernel parameter was lost
+  vars:
+    kernel_parameters_existing_tokens: "{{ __kernel_parameters_existing_parameters_lines_result.stdout_lines }}"
+    kernel_parameters_candidate_string: "{{ __kernel_parameters_updated_parameters_string }}"
+  ansible.builtin.include_tasks:
+    file: assert_no_parameters_lost.yaml

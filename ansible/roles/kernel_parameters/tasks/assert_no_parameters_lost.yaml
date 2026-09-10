@@ -1,0 +1,38 @@
+---
+## Inputs:
+##   - kernel_parameters_existing_tokens   the command line as it is now, split
+##   - kernel_parameters_new_parameters    what the caller is setting
+##   - kernel_parameters_candidate_string  what is about to be written
+##
+## Refuses to let a caller write a command line that has dropped a parameter it does not
+## manage. The role writes /etc/kernel/cmdline and /etc/default/grub, so a merge bug is an
+## unbootable host -- on a Proxmox systemd-boot node it is copied to every ESP, with no
+## older copy left to boot from. Failing the play is always better than writing that.
+##
+## Set semantics: losing one of two *identical* tokens is not detected. That is harmless --
+## the same bare flag twice has the same effect as once -- and catching it would cost a
+## per-token count comparison for no gain.
+- name: Assert no unmanaged kernel parameter was lost
+  vars:
+    # An empty new-parameters dict yields ^(?:)(?:=|$), which matches no real token, so
+    # every existing token counts as unmanaged and must survive. That is the correct
+    # reading of "the caller manages nothing".
+    __kernel_parameters_managed_pattern: >-
+      ^(?:{{ kernel_parameters_new_parameters.keys() | map('regex_escape') | join('|') }})(?:=|$)
+    __kernel_parameters_unmanaged_existing: >-
+      {{ kernel_parameters_existing_tokens
+         | reject('match', __kernel_parameters_managed_pattern) | list }}
+    __kernel_parameters_lost: >-
+      {{ __kernel_parameters_unmanaged_existing
+         | difference(kernel_parameters_candidate_string.split(' ')) | list }}
+  ansible.builtin.assert:
+    that:
+      - kernel_parameters_candidate_string | length > 0
+      - __kernel_parameters_lost | length == 0
+    fail_msg: >-
+      Refusing to write the kernel command line: the merge dropped
+      {{ __kernel_parameters_lost | length }} parameter(s) the caller does not manage --
+      {{ __kernel_parameters_lost | join(', ') }}.
+      Candidate was: {{ kernel_parameters_candidate_string }}
+    success_msg: >-
+      {{ __kernel_parameters_unmanaged_existing | length }} unmanaged parameter(s) survived

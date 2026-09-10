@@ -1,0 +1,15 @@
+---
+# Paths and command names live here, not in vars/ or inline in the task files, so a
+# fixture test can point them at a tempdir and at stub scripts. See
+# ansible/tests/README.md, "Where a new test goes".
+kernel_parameters_grub_config_path: /etc/default/grub
+kernel_parameters_systemd_boot_cmdline_path: /etc/kernel/cmdline
+
+# Resolved from PATH by default. A test overrides these with a stub that records its argv.
+kernel_parameters_update_grub_path: update-grub
+kernel_parameters_proxmox_boot_tool_path: proxmox-boot-tool
+kernel_parameters_rpm_ostree_path: rpm-ostree
+
+# kernel_parameters_new_parameters is deliberately NOT defaulted here. Callers gate on
+# `when: kernel_parameters_new_parameters is defined`, and an imported role's defaults are
+# visible to a task-level when — a default would make that gate never skip.

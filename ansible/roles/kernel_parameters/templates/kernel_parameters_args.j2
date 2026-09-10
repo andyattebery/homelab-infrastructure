@@ -1,0 +1,15 @@
+{#- Renders kernel_parameters_new_parameters as a JSON array of command-line arguments,
+    one per value, so a list value yields one argument per entry. Used by the rpm-ostree
+    path, which appends arguments rather than rewriting a file.
+
+    Normalisation matches kernel_parameters_string.j2: a string value becomes a
+    one-element list, and an empty string means a bare flag with no `=value`.
+
+    A trailing newline here is harmless -- the result goes through from_json. -#}
+{%- set args = [] -%}
+{%- for key, value in kernel_parameters_new_parameters.items() -%}
+{%-   for entry in (value if (value is sequence and value is not string) else [value]) -%}
+{%-     set _ = args.append(key ~ (('=' ~ entry) if entry else '')) -%}
+{%-   endfor -%}
+{%- endfor -%}
+{{ args | to_json }}

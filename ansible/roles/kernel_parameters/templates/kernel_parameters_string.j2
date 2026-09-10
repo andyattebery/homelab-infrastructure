@@ -1,3 +1,44 @@
-{% for parameter in kernel_parameters_updated_parameters | dict2items -%}
-{{ parameter.key }}{% if parameter.value %}={{ parameter.value }}{% endif %}{% if not loop.last %} {% endif -%}
-{% endfor -%}
+{#- Merge kernel_parameters_new_parameters into the existing command-line tokens and
+    render the result.
+
+    Inputs:
+      kernel_parameters_existing_tokens  list of tokens, already split
+      kernel_parameters_new_parameters   dict; a value may be a string or a list of
+                                         strings, and an empty string means a bare flag
+
+    A key the caller manages is replaced in place by all of its values on first sight
+    and skipped on later sightings, so position is preserved and a repeated key does
+    not multiply. A key the caller never mentions keeps its own occurrences, repeats
+    included -- that is what stops one call collapsing another call's repeated key.
+    Keys the caller adds that were not present are appended in the caller's order.
+
+    This file must NOT end with a newline. Ansible's template lookup preserves the
+    source's trailing newline, /etc/kernel/cmdline carries none, and a stray one makes
+    the copy task report `changed` on every run and re-run proxmox-boot-tool. -#}
+{%- set managed = {} -%}
+{%- for key, value in kernel_parameters_new_parameters.items() -%}
+{%-   set _ = managed.update({key: (value if (value is sequence and value is not string) else [value])}) -%}
+{%- endfor -%}
+{%- set out = [] -%}
+{%- set seen = [] -%}
+{%- for token in kernel_parameters_existing_tokens -%}
+{%-   set key = token.split('=')[0] -%}
+{%-   if key in managed -%}
+{%-     if key not in seen -%}
+{%-       set _ = seen.append(key) -%}
+{%-       for value in managed[key] -%}
+{%-         set _ = out.append(key ~ (('=' ~ value) if value else '')) -%}
+{%-       endfor -%}
+{%-     endif -%}
+{%-   else -%}
+{%-     set _ = out.append(token) -%}
+{%-   endif -%}
+{%- endfor -%}
+{%- for key in managed -%}
+{%-   if key not in seen -%}
+{%-     for value in managed[key] -%}
+{%-       set _ = out.append(key ~ (('=' ~ value) if value else '')) -%}
+{%-     endfor -%}
+{%-   endif -%}
+{%- endfor -%}
+{{ out | join(' ') }}

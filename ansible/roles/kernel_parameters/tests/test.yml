@@ -1,0 +1,345 @@
+---
+# Exercises kernel_parameters against throwaway fixtures. Runs entirely on localhost;
+# touches no remote host and no real bootloader.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/kernel_parameters/tests/inventory \
+#     roles/kernel_parameters/tests/test.yml
+#
+# Scope: the merge, the loss guard, and the two file-writing paths. main.yaml's
+# dispatch between grub / systemd-boot / rpm-ostree is NOT covered here -- it is
+# unchanged by this work and all three branches were verified against the live hosts
+# on 2026-09-10 (see tasks/kernel-parameters-repeated-keys.md).
+#
+# The seeds are real command lines read off the hosts, not placeholders.
+- name: Test kernel_parameters
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # A ZFS-root Proxmox node -- the shape that takes the systemd-boot path.
+    _zfs_root_line: "root=ZFS=rpool/ROOT/pve-1 boot=zfs amd_pstate=active cpufreq.default_governor=powersave"
+    # What power_saving passes on an AMD host with kernel >= 6.3. This is the call that
+    # runs BEFORE the direct one, and the reason the parse has to preserve repeats.
+    _power_saving_amd:
+      amd_pstate: "active"
+      cpufreq.default_governor: "powersave"
+    _memmap_five:
+      - "32K$0x17fcb0000"
+      - "32K$0xa40fa8000"
+      - "32K$0xa6a890000"
+      - "4K$0x6ad451000"
+      - "4K$0x2961ceb000"
+    _memmap_five_rendered: >-
+      memmap=32K$0x17fcb0000 memmap=32K$0xa40fa8000 memmap=32K$0xa6a890000
+      memmap=4K$0x6ad451000 memmap=4K$0x2961ceb000
+
+    _merge_cases:
+      # ---------- no-op controls: the live line of each host, merged with the params
+      # that host actually passes, must come back byte-identical. If one of these
+      # fails, the harness is wrong, not the role.
+      - name: "a ZFS-root node's live line is unchanged by its own power_saving keys"
+        existing: "{{ _zfs_root_line }}"
+        new: "{{ _power_saving_amd }}"
+        expected: "{{ _zfs_root_line }}"
+      - name: "a GRUB node's live line is unchanged by intel_iommu"
+        existing: "quiet intel_pstate=active cpufreq.default_governor=powersave intel_iommu=on"
+        new: {intel_iommu: "on"}
+        expected: "quiet intel_pstate=active cpufreq.default_governor=powersave intel_iommu=on"
+      - name: "a second GRUB node's live line is unchanged by power_saving intel keys"
+        existing: "quiet intel_pstate=active cpufreq.default_governor=powersave"
+        new: {intel_pstate: "active", cpufreq.default_governor: "powersave"}
+        expected: "quiet intel_pstate=active cpufreq.default_governor=powersave"
+
+      # ---------- the feature ----------
+      - name: "a list value emits the key once per entry, appended in order"
+        existing: "{{ _zfs_root_line }}"
+        new: {memmap: "{{ _memmap_five }}"}
+        expected: "{{ _zfs_root_line }} {{ _memmap_five_rendered }}"
+
+      # ---------- the regression this change exists for ----------
+      # kernel_parameters runs twice per playbook run on a node like this: power_saving
+      # imports it with the governor keys, then the playbook imports it again with
+      # memmap. This is the FIRST of those two calls, and before the fix it collapsed
+      # five memmap entries to one. Constructed directly rather than by invoking the
+      # unfixed role, so it survives the fix.
+      - name: "five memmap entries survive a call that does not manage memmap"
+        existing: "{{ _zfs_root_line }} {{ _memmap_five_rendered }}"
+        new: "{{ _power_saving_amd }}"
+        expected: "{{ _zfs_root_line }} {{ _memmap_five_rendered }}"
+      - name: "an existing repeated console= survives a caller that does not manage it"
+        existing: "console=tty0 console=ttyS0,115200 root=/dev/x"
+        new: {root: "/dev/x"}
+        expected: "console=tty0 console=ttyS0,115200 root=/dev/x"
+
+      # ---------- placement and replacement ----------
+      - name: "a repeated key is replaced in place by a shorter list, keeping position"
+        existing: "root=/dev/x memmap=4K$0x1000 memmap=4K$0x2000 memmap=4K$0x3000 quiet"
+        new: {memmap: ["4K$0x9000", "4K$0xa000"]}
+        expected: "root=/dev/x memmap=4K$0x9000 memmap=4K$0xa000 quiet"
+      - name: "a repeated key collapses when the caller gives a single string"
+        existing: "console=tty0 console=ttyS0,115200 root=/dev/x"
+        new: {console: "tty1"}
+        expected: "console=tty1 root=/dev/x"
+
+      # ---------- token shapes that must not break the key split ----------
+      - name: "a value containing = splits on the first = only"
+        existing: "{{ _zfs_root_line }}"
+        new: {root: "ZFS=rpool/ROOT/pve-2"}
+        expected: "root=ZFS=rpool/ROOT/pve-2 boot=zfs amd_pstate=active cpufreq.default_governor=powersave"
+      - name: "an empty string value renders as a bare flag"
+        existing: "quiet root=/dev/x"
+        new: {pm_debug_messages: ""}
+        expected: "quiet root=/dev/x pm_debug_messages"
+      - name: "an empty new-parameters dict leaves the line untouched"
+        existing: "{{ _zfs_root_line }}"
+        new: {}
+        expected: "{{ _zfs_root_line }}"
+
+    # The guard refuses to write a command line that dropped something the caller does not
+    # manage. Cases construct a lossy candidate string directly rather than breaking the
+    # merge, so they keep working after the merge is fixed.
+    _guard_cases:
+      - name: "an intact candidate passes"
+        tokens: ["root=ZFS=rpool/ROOT/pve-1", "boot=zfs", "amd_pstate=active"]
+        new: {amd_pstate: "active"}
+        candidate: "root=ZFS=rpool/ROOT/pve-1 boot=zfs amd_pstate=active"
+        expect: passed
+      - name: "dropping an unmanaged root= is refused"
+        tokens: ["root=ZFS=rpool/ROOT/pve-1", "boot=zfs", "amd_pstate=active"]
+        new: {amd_pstate: "active"}
+        candidate: "boot=zfs amd_pstate=active"
+        expect: failed
+      - name: "dropping four of five unmanaged memmap entries is refused"
+        tokens: ["root=/dev/x", "memmap=4K$0x1000", "memmap=4K$0x2000", "memmap=4K$0x3000"]
+        new: {amd_pstate: "active"}
+        candidate: "root=/dev/x memmap=4K$0x3000 amd_pstate=active"
+        expect: failed
+      - name: "changing a value the caller DOES manage is allowed"
+        tokens: ["root=/dev/x", "amd_pstate=passive"]
+        new: {amd_pstate: "active"}
+        candidate: "root=/dev/x amd_pstate=active"
+        expect: passed
+      - name: "removing every occurrence of a key the caller manages is allowed"
+        tokens: ["root=/dev/x", "memmap=4K$0x1000", "memmap=4K$0x2000"]
+        new: {memmap: ["4K$0x9000"]}
+        candidate: "root=/dev/x memmap=4K$0x9000"
+        expect: passed
+      - name: "an empty candidate is refused"
+        tokens: ["root=/dev/x"]
+        new: {}
+        candidate: ""
+        expect: failed
+      - name: "an empty new-parameters dict still protects every token"
+        tokens: ["root=/dev/x", "quiet"]
+        new: {}
+        candidate: "root=/dev/x"
+        expect: failed
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: kernel-parameters-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        - name: Assert the case set is not empty
+          ansible.builtin.assert:
+            that:
+              - _merge_cases | length >= 11
+            success_msg: "{{ _merge_cases | length }} merge cases"
+
+        # ================= 1. the merge =================
+        - name: Merge cases
+          ansible.builtin.include_tasks: merge_case.yml
+          loop: "{{ _merge_cases }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: No merge case failed
+          ansible.builtin.assert:
+            that:
+              - _failures | default([]) | length == 0
+            fail_msg: |-
+              {{ _failures | default([]) | length }} of {{ _merge_cases | length }} merge cases failed:
+              {% for f in _failures | default([]) %}
+              - {{ f.name }}
+                  expected: {{ f.expected }}
+                  got:      {{ f.got }}
+              {% endfor %}
+            success_msg: "all {{ _merge_cases | length }} merge cases passed"
+
+        # ================= 2. the loss guard =================
+        - name: Assert the guard case set is not empty
+          ansible.builtin.assert:
+            that:
+              - _guard_cases | length >= 7
+              - _guard_cases | selectattr('expect', 'eq', 'failed') | list | length >= 4
+            success_msg: >-
+              {{ _guard_cases | length }} guard cases,
+              {{ _guard_cases | selectattr('expect', 'eq', 'failed') | list | length }} of them
+              expecting a refusal
+
+        - name: Guard cases
+          ansible.builtin.include_tasks: guard_case.yml
+          loop: "{{ _guard_cases }}"
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ================= 3. the file-writing paths =================
+        # Real files in a tempdir, and the bootloader commands replaced by a stub that
+        # records its argv. This is what proves the path variables are actually used --
+        # configure_grub.yaml used to read through a variable and write to a literal path.
+        - name: Install command stubs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              echo "{{ item.name }} $@" >> {{ _tmp.path }}/argv.log
+              {{ item.extra }}
+              exit 0
+          loop:
+            - {name: "proxmox-boot-tool", extra: ""}
+            - {name: "update-grub", extra: ""}
+            - {name: "rpm-ostree", extra: 'if [ "$1" = "status" ]; then echo "{\"deployments\":[{\"staged\":true}]}"; fi'}
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ---------- 3a. Proxmox systemd-boot ----------
+        - name: Seed the cmdline file with a real ZFS-root command line
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/cmdline"
+            mode: "0644"
+            content: "{{ _zfs_root_line }}"
+
+        - name: Add five memmap entries via the systemd-boot path
+          vars:
+            kernel_parameters_systemd_boot_cmdline_path: "{{ _tmp.path }}/cmdline"
+            kernel_parameters_proxmox_boot_tool_path: "{{ _tmp.path }}/proxmox-boot-tool"
+            kernel_parameters_new_parameters: {memmap: "{{ _memmap_five }}"}
+          ansible.builtin.include_role:
+            name: kernel_parameters
+            tasks_from: configure_proxmox_systemd_boot
+
+        - name: Read back the command line
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/cmdline"
+          register: _cmdline_after
+
+        - name: Read the stub log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/argv.log"
+          register: _argv_after
+
+        - name: systemd-boot wrote all five entries, kept root=, and refreshed exactly once
+          vars:
+            _written: "{{ _cmdline_after.content | b64decode }}"
+            _argv: "{{ _argv_after.content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _written | length > 0
+              - _written == _zfs_root_line ~ " " ~ _memmap_five_rendered
+              # byte-exact: a trailing newline here would make every future run report
+              # changed and re-run proxmox-boot-tool
+              - not _written.endswith("\n")
+              - _argv is search("proxmox-boot-tool refresh")
+              - _argv.splitlines() | select("search", "proxmox-boot-tool") | list | length == 1
+            success_msg: "wrote: {{ _written }}"
+
+        - name: Run the systemd-boot path a second time
+          vars:
+            kernel_parameters_systemd_boot_cmdline_path: "{{ _tmp.path }}/cmdline"
+            kernel_parameters_proxmox_boot_tool_path: "{{ _tmp.path }}/proxmox-boot-tool"
+            kernel_parameters_new_parameters: {memmap: "{{ _memmap_five }}"}
+          ansible.builtin.include_role:
+            name: kernel_parameters
+            tasks_from: configure_proxmox_systemd_boot
+
+        - name: Read the stub log again
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/argv.log"
+          register: _argv_second
+
+        - name: The second run changed nothing and did not refresh again
+          vars:
+            _argv: "{{ _argv_second.content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _argv.splitlines() | select("search", "proxmox-boot-tool") | list | length == 1
+            success_msg: "idempotent: proxmox-boot-tool still invoked once"
+
+        # ---------- 3b. GRUB ----------
+        - name: Seed the grub file with a real GRUB-node command line
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/grub"
+            mode: "0644"
+            content: |
+              GRUB_DEFAULT=0
+              GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_pstate=active cpufreq.default_governor=powersave intel_iommu=on"
+              GRUB_CMDLINE_LINUX=""
+
+        - name: Add two memmap entries via the grub path
+          vars:
+            kernel_parameters_grub_config_path: "{{ _tmp.path }}/grub"
+            kernel_parameters_update_grub_path: "{{ _tmp.path }}/update-grub"
+            kernel_parameters_new_parameters: {memmap: ["4K$0x1000", "4K$0x2000"]}
+          ansible.builtin.include_role:
+            name: kernel_parameters
+            tasks_from: configure_grub
+
+        - name: Read back the grub file
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/grub"
+          register: _grub_after
+
+        - name: grub wrote through the path variable, kept its other lines, and ran update-grub
+          vars:
+            _body: "{{ _grub_after.content | b64decode }}"
+            _argv: "{{ lookup('ansible.builtin.file', _tmp.path ~ '/argv.log') }}"
+          ansible.builtin.assert:
+            that:
+              - _body | length > 0
+              - >-
+                'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_pstate=active
+                cpufreq.default_governor=powersave intel_iommu=on
+                memmap=4K$0x1000 memmap=4K$0x2000"' | replace('\n', ' ') in _body
+              - "'GRUB_DEFAULT=0' in _body"
+              - "'GRUB_CMDLINE_LINUX=\"\"' in _body"
+              - _argv is search("update-grub")
+            success_msg: "grub file now:\n{{ _body }}"
+
+        # ---------- 3c. rpm-ostree ----------
+        - name: Apply a list value via the rpm-ostree path
+          vars:
+            kernel_parameters_rpm_ostree_path: "{{ _tmp.path }}/rpm-ostree"
+            kernel_parameters_new_parameters:
+              memmap: ["4K$0x1000", "4K$0x2000"]
+              pm_debug_messages: ""
+          ansible.builtin.include_role:
+            name: kernel_parameters
+            tasks_from: configure_rpm_ostree
+
+        - name: rpm-ostree appended one argument per value and set the reboot fact
+          vars:
+            _argv: "{{ lookup('ansible.builtin.file', _tmp.path ~ '/argv.log') }}"
+            _kargs: "{{ _argv.splitlines() | select('search', 'rpm-ostree kargs') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _kargs | length == 3
+              - _argv is search("--append-if-missing=memmap=4K\\$0x1000")
+              - _argv is search("--append-if-missing=memmap=4K\\$0x2000")
+              # empty string value stays a bare flag, with no trailing =
+              - _argv is search("--append-if-missing=pm_debug_messages$") or
+                _argv is search("--append-if-missing=pm_debug_messages\n")
+              - kernel_parameters_reboot_required | bool
+            success_msg: "kargs calls:\n{{ _kargs | join('\n') }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

@@ -1,7 +1,7 @@
 ---
 - name: Parse existing /etc/kernel/cmdline
   ansible.builtin.command:
-    cmd: cat /etc/kernel/cmdline
+    cmd: "cat {{ kernel_parameters_systemd_boot_cmdline_path }}"
   register: __kernel_parameters_systemd_boot_existing_parameters_result
   changed_when: false
 - name: Set __kernel_parameters_updated_parameters_string
@@ -10,13 +10,15 @@
   ansible.builtin.import_tasks:
     file: set_kernel_parameters_updated_parameters_string.yaml
 - name: Update /etc/kernel/cmdline
+  # No trailing newline: that is what the file carries, and adding one would make this
+  # task report changed on every run and re-run proxmox-boot-tool each time.
   ansible.builtin.copy:
-    dest: /etc/kernel/cmdline
+    dest: "{{ kernel_parameters_systemd_boot_cmdline_path }}"
     mode: "0644"
     content: "{{ __kernel_parameters_updated_parameters_string }}"
   register: update_kernel_cmdline_result
 - name: Run proxmox-boot-tool refresh  # noqa no-handler
   when: update_kernel_cmdline_result.changed
   ansible.builtin.command:
-    cmd: proxmox-boot-tool refresh
+    cmd: "{{ kernel_parameters_proxmox_boot_tool_path }} refresh"
   changed_when: true

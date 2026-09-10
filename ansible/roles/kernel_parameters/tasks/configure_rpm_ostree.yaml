@@ -1,14 +1,20 @@
 ---
 - name: Apply kernel parameters via rpm-ostree kargs
+  # One --append-if-missing per value, so a list value appends the key once per entry.
+  #
+  # A pre-existing limitation this does not change: --append-if-missing never updates.
+  # Editing a value leaves the old one on the command line beside the new one.
+  vars:
+    __kernel_parameters_rpm_ostree_args: "{{ lookup('ansible.builtin.template', 'kernel_parameters_args.j2') | from_json }}"
   ansible.builtin.command:
-    cmd: "rpm-ostree kargs --append-if-missing={{ item.key }}{% if item.value %}={{ item.value }}{% endif %}"
-  loop: "{{ kernel_parameters_new_parameters | dict2items }}"
+    cmd: "{{ kernel_parameters_rpm_ostree_path }} kargs --append-if-missing={{ item }}"
+  loop: "{{ __kernel_parameters_rpm_ostree_args }}"
   register: __kernel_parameters_rpm_ostree_result
   changed_when: false
 
 - name: Check if reboot needed
   ansible.builtin.command:
-    cmd: rpm-ostree status --json
+    cmd: "{{ kernel_parameters_rpm_ostree_path }} status --json"
   register: __kernel_parameters_rpm_ostree_status
   changed_when: false
 
