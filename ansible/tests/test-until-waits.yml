@@ -1,0 +1,70 @@
+---
+# Every `until` wait in the repo must be able to fail. Contacts nothing, needs no secret:
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i localhost, tests/test-until-waits.yml
+#
+# Both parts of that invocation are load-bearing, for the reasons in tests/README.md:
+# `-i localhost,` keeps inventory.ini and every host_vars/*/vault.yaml out of scope, so no
+# encrypted file is opened; ANSIBLE_VAULT_PASSWORD_FILE overrides ansible.cfg's
+# vault_password_file, which ansible-core reads at CLI init on every invocation and which
+# prompts 1Password. This play reads no vaulted variable at all, so the stub's
+# deliberately-wrong password is never exercised.
+#
+# The check itself is tests/check-until-waits.py. It is Python and not a Jinja expression in
+# this file on purpose: block/rescue/always nesting is arbitrary-depth, and a Jinja flatten
+# would have to hard-code how deep to look -- which is the same vacuous pass the guard exists
+# to catch. See that script's docstring for the incident behind it.
+#
+# "Run it twice" (tests/README.md) does not apply: this writes no state and touches no host.
+- name: Every `until` wait states its own failure condition
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # Run under the interpreter running ansible, not whatever `python3` resolves to: the script
+    # imports PyYAML, which the venv is guaranteed to have because ansible-core depends on it.
+    - name: Run the until-wait guard
+      # `failed_when: false` here is deliberate, and is NOT the defect this test exists to catch.
+      # The guard only inspects tasks that carry `until:`; a bare `command` has none, so it
+      # cannot flag itself. Letting the command return is what lets G1 below print the guard's
+      # stdout, which names the offending file and task -- an rc alone would not.
+      ansible.builtin.command:
+        cmd: "{{ ansible_playbook_python }} {{ playbook_dir }}/check-until-waits.py"
+      register: _guard
+      changed_when: false
+      failed_when: false
+
+    # The case set, asserted before anything is concluded from it. `rc == 0` alone passes just
+    # as well when the globs match nothing and the guard cheerfully reports zero waits -- the
+    # vacuous pass tests/README.md warns about. Both counts must be non-zero.
+    - name: G0 - the guard ran and found a non-empty case set
+      ansible.builtin.assert:
+        that:
+          - _guard.rc is defined
+          - _guard.stdout | length > 0
+          - _guard.stdout is search('checked [1-9][0-9]* files')
+          - _guard.stdout is search('found [1-9][0-9]* tasks using')
+        fail_msg: >-
+          check-until-waits.py did not report a case set. rc={{ _guard.rc | default("<none>") }},
+          stdout={{ _guard.stdout | default("") | truncate(400) }},
+          stderr={{ _guard.stderr | default("") | truncate(400) }}. Either the script failed to
+          run at all, or its `roles/**` and `playbook-*` globs matched nothing -- in which case a
+          green run says nothing about any wait.
+        quiet: true
+
+    - name: "G1 - no wait uses `failed_when: false`, and every file parsed"
+      ansible.builtin.assert:
+        that:
+          - _guard.rc == 0
+        fail_msg: |-
+          {{ _guard.stdout }}
+        quiet: true
+
+    # Printed rather than summarised: a vacuous pass should be visible rather than hidden behind
+    # "All assertions passed". The count of waits checked is the number that matters.
+    - name: G2 - report what was checked
+      ansible.builtin.debug:
+        msg: "{{ _guard.stdout_lines }}"
