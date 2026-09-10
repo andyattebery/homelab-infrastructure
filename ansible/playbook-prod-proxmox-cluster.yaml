@@ -77,12 +77,22 @@
 
     - name: Configure kernel parameters
       when: kernel_parameters_new_parameters is defined
+      tags: kernel_parameters
       ansible.builtin.import_role:
         name: kernel_parameters
 
     - name: Configure rasdaemon
+      tags: rasdaemon
       ansible.builtin.import_role:
         name: rasdaemon
+
+    # `is defined` would not skip here — an imported role's defaults are visible to the
+    # task-level when — so gate on length.
+    - name: Configure journald
+      when: journald_config_settings | default({}) | length > 0
+      tags: journald
+      ansible.builtin.import_role:
+        name: journald_config
 
     - name: Configure NUT (UPS) client
       vars:
@@ -195,6 +205,28 @@
     - name: Configure node ACME
       ansible.builtin.import_role:
         name: pve_node_acme
+
+    # PCI passthrough: cluster-level resource mappings, then the VM lines that reference them,
+    # then the metric that says whether PVE still accepts them. Mappings live in pmxcfs, hence
+    # after the join. `is defined` would not skip on the other nodes — an imported role's
+    # defaults are visible to the task-level when — so these gate on length.
+    - name: Configure PCI resource mappings for this node
+      when: pve_pci_mapping_mappings | default([]) | length > 0
+      tags: pci_passthrough
+      ansible.builtin.import_role:
+        name: pve_pci_mapping
+
+    - name: Configure VM hostpci lines
+      when: pve_vm_hostpci_vms | default([]) | length > 0
+      tags: pci_passthrough
+      ansible.builtin.import_role:
+        name: pve_vm_hostpci
+
+    - name: Export PCI mapping check state for Prometheus
+      when: pve_pci_mapping_mappings | default([]) | length > 0
+      tags: pci_passthrough
+      ansible.builtin.import_role:
+        name: textfile_collector_pve_pci_mapping
 
     - name: Configure PVE backup job script
       ansible.builtin.import_role:
