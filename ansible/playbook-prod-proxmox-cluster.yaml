@@ -4,6 +4,29 @@
   become: true
 
   tasks:
+    # ---------- Names first ----------
+    # pve_pin_network_interface guarantees every listed MAC is pinned to its
+    # name, but a live name only changes at boot. So it runs before anything
+    # that resolves a name — realtek_dkms' own reboot, the NIC drop-ins,
+    # e1000e_disable_offloads, Ceph — and the play reboots straight away if it
+    # changed anything. On a provisioned node, or a fresh one whose names were
+    # set in the installer's Options dialog, both tasks are no-ops.
+    - name: Pin network interface names
+      tags:
+        - network
+        - pin_nics
+      ansible.builtin.import_role:
+        name: pve_pin_network_interface
+
+    - name: Reboot to apply pinned interface names
+      tags:
+        - network
+        - pin_nics
+      when: pve_pin_network_interface_reboot_required | default(false)
+      ansible.builtin.reboot:
+        msg: "Applying pinned NIC names (pve-network-interface-pinning staged interfaces.new)"
+        reboot_timeout: 600
+
     # ---------- Local-only / pre-cluster ----------
     - name: Configure PVE apt sources
       ansible.builtin.import_role:
@@ -120,16 +143,6 @@
       ansible.builtin.import_role:
         name: e1000e_disable_offloads
 
-    # Pin interface names to MACs so a card moving PCIe slots can't rename a
-    # NIC out from under vmbr0's bridge-ports. Staged only — the rename
-    # happens at boot, and the drop-ins above are regenerated on the next run.
-    - name: Pin network interface names
-      tags:
-        - network
-        - pin_nics
-      ansible.builtin.import_role:
-        name: pve_pin_network_interface
-
     # ---------- (a) Bootstrap (fresh-cluster only) ----------
     # pve_cluster_create now self-detects: stats /etc/pve/corosync.conf
     # on every inventory peer and skips `pvecm create` if any peer has
@@ -170,6 +183,14 @@
           ansible.builtin.import_role:
             name: pve_storage_add_backup_01_pbs
 
+        # HA resources and node-affinity rules. Tagged so it can be converged on
+        # its own — `--tags ha --limit <designated runner>` — without a full
+        # cluster run. import_role inherits the tag statically, so no `apply:`.
+        - name: Configure cluster HA resources and rules
+          tags: ha
+          ansible.builtin.import_role:
+            name: pve_cluster_ha
+
     # ---------- (d) Per-node cluster-dependent config ----------
     - name: Configure node ACME
       ansible.builtin.import_role:
@@ -187,6 +208,7 @@
     # it, others skip via the when-gate) before any host moves on to
     # `pveceph mon create`.
     - name: Configure per-node Ceph (install, init on designated runner, services)
+      tags: ceph_node
       ansible.builtin.import_role:
         name: pve_node_ceph
 
