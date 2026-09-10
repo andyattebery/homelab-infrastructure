@@ -1,0 +1,42 @@
+---
+# One node at a time (the play is serial: 1). Skips a node with no monitor in
+# the monmap. Waits until this monitor is back in a full quorum.
+- name: Read the monitor map
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - mon
+      - dump
+      - -f
+      - json
+  register: pve_ceph_upgrade_mon_dump
+  changed_when: false
+
+- name: Restart and re-join
+  vars:
+    _mons: "{{ (pve_ceph_upgrade_mon_dump.stdout | from_json).mons | map(attribute='name') | list }}"
+  when: ansible_facts['hostname'] in _mons
+  block:
+    - name: Restart ceph-mon.target
+      ansible.builtin.systemd_service:
+        name: ceph-mon.target
+        state: restarted
+
+    - name: Wait for mon.{{ ansible_facts['hostname'] }} to rejoin a full quorum
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_ceph_upgrade_ceph_command }}"
+          - quorum_status
+          - -f
+          - json
+      register: pve_ceph_upgrade_quorum
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_ceph_upgrade_quorum.rc == 0
+             and ansible_facts['hostname'] in (pve_ceph_upgrade_quorum.stdout | from_json).quorum_names
+             and ((pve_ceph_upgrade_quorum.stdout | from_json).quorum_names | length) == (_mons | length) }}
+      retries: "{{ pve_ceph_upgrade_wait_retries }}"
+      delay: "{{ pve_ceph_upgrade_wait_delay }}"

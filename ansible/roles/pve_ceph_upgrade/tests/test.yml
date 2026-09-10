@@ -1,0 +1,527 @@
+---
+# Exercises pve_ceph_upgrade's decisions against stub `ceph` / `pveversion` /
+# `pvecm` commands answering with output captured from the real cluster on
+# 2026-09-08. Runs entirely on localhost; touches no remote host. The restart
+# and wait loops are NOT here — they are verified live, by the operator
+# watching `ceph -s` while the playbook runs.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_ceph_upgrade/tests/inventory \
+#     roles/pve_ceph_upgrade/tests/test.yml
+- name: Test pve_ceph_upgrade
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    _v_squid: "ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)"
+    _v_tentacle: "ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable)"
+    _pveversion_ok: |
+      proxmox-ve: 9.2.0 (running kernel: 7.0.14-14-pve)
+      pve-manager: 9.2.11 (running version: 9.2.11/f6997e698c7933ea)
+      ceph: 20.2.2-pve1
+    _pveversion_old: |
+      pve-manager: 9.0.3 (running version: 9.0.3/deadbeef00000000)
+    _pvecm_quorate: |
+      Quorum information
+      ------------------
+      Quorum provider:  corosync_votequorum
+      Nodes:            3
+      Quorate:          Yes
+    # ceph health -f json / detail, as observed with osd.0 slow ops.
+    _health_warn: '{"status":"HEALTH_WARN","checks":{"BLUESTORE_SLOW_OP_ALERT":{"severity":"HEALTH_WARN","summary":{"message":"1 OSD(s) experiencing slow operations in BlueStore","count":1},"muted":false}},"mutes":[]}'
+    _health_detail: |
+      HEALTH_WARN 1 OSD(s) experiencing slow operations in BlueStore
+      [WRN] BLUESTORE_SLOW_OP_ALERT: 1 OSD(s) experiencing slow operations in BlueStore
+           osd.0 observed slow operation indications in BlueStore
+    _health_noout: '{"status":"HEALTH_WARN","checks":{"OSDMAP_FLAGS":{"severity":"HEALTH_WARN","summary":{"message":"noout flag(s) set","count":1},"muted":false}},"mutes":[]}'
+    _health_ok: '{"status":"HEALTH_OK","checks":{},"mutes":[]}'
+    # ceph versions -f json — the mixed cluster, verbatim.
+    _versions_mixed: '{"mon":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2},"mgr":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":1},"osd":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":1},"mds":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":1},"overall":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":8,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3}}'
+    _versions_done: '{"mon":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"osd":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mds":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"overall":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":12}}'
+    _versions_no_mds: '{"mon":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"overall":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3}}'
+    _mon_dump_squid: '{"epoch":19,"fsid":"5208baee-5395-42e6-a44e-fc625acb61d7","min_mon_release":19,"min_mon_release_name":"squid","mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}'
+    _mon_dump_tentacle: '{"epoch":21,"fsid":"5208baee-5395-42e6-a44e-fc625acb61d7","min_mon_release":20,"min_mon_release_name":"tentacle","mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}'
+    _mon_dump_reef: '{"epoch":9,"fsid":"5208baee-5395-42e6-a44e-fc625acb61d7","min_mon_release":18,"min_mon_release_name":"reef","mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}'
+    _fs_ls: '[{"name":"cephfs","metadata_pool":"cephfs_metadata","metadata_pool_id":3,"data_pool_ids":[2],"data_pools":["cephfs_data"]}]'
+    _fs_get: '{"mdsmap":{"max_mds":1,"flags_state":{"joinable":true,"allow_snaps":true,"allow_multimds_snaps":true,"allow_standby_replay":false,"refuse_client_session":false,"refuse_standby_for_another_fs":false,"balance_automate":false},"in":[0],"up":{"mds_0":79794107},"info":{"gid_79794107":{"name":"vm-host-01","state":"up:active","rank":0}}},"id":1}'
+    _fs_status: '{"clients":[{"clients":3,"fs":"cephfs"}],"mds_version":[],"mdsmap":[{"caps":18,"dirs":17,"dns":18,"inos":18,"name":"vm-host-01","rank":0,"rate":0,"state":"active"},{"name":"nas-host-01","state":"standby"},{"name":"vm-host-02","state":"standby"}],"pools":[]}'
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-ceph-upgrade-tests
+      register: _tmp
+
+    - name: Run the suite
+      vars:
+        _cmds:
+          pve_ceph_upgrade_ceph_command: "{{ _tmp.path }}/ceph"
+          pve_ceph_upgrade_pveversion_command: "{{ _tmp.path }}/pveversion"
+          pve_ceph_upgrade_pvecm_command: "{{ _tmp.path }}/pvecm"
+      block:
+        - name: Install the stubs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            mode: "0755"
+            content: "{{ item.body }}"
+          loop:
+            - name: ceph
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "ceph $*" >> "$d/calls.log"
+                case "$*" in
+                  -v) cat "$d/ceph-v.txt" ;;
+                  "health -f json") cat "$d/health.json" ;;
+                  "health detail") cat "$d/health-detail.txt" ;;
+                  "versions -f json") cat "$d/versions.json" ;;
+                  "mon dump -f json") cat "$d/mon-dump.json"; echo "dumped monmap epoch 19" >&2 ;;
+                  "fs ls -f json") cat "$d/fs-ls.json" ;;
+                  "fs get cephfs -f json") cat "$d/fs-get.json" ;;
+                  "fs status -f json") cat "$d/fs-status.json" ;;
+                  versions) echo "(plain versions output)" ;;
+                  "osd require-osd-release "*) ;;
+                  "osd unset noout"|"osd set noout") ;;
+                  fs\ set\ *) ;;
+                  *) echo "stub: unexpected args: $*" >&2; exit 2 ;;
+                esac
+            - name: pveversion
+              body: |
+                #!/bin/sh
+                cat "$(dirname "$0")/pveversion.txt"
+            - name: pvecm
+              body: |
+                #!/bin/sh
+                cat "$(dirname "$0")/pvecm.txt"
+
+        - name: Seed today's cluster
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_tentacle }}\n" }
+            - { name: pveversion.txt, body: "{{ _pveversion_ok }}" }
+            - { name: pvecm.txt, body: "{{ _pvecm_quorate }}" }
+            - { name: health.json, body: "{{ _health_warn }}\n" }
+            - { name: health-detail.txt, body: "{{ _health_detail }}" }
+            - { name: versions.json, body: "{{ _versions_mixed }}\n" }
+            - { name: mon-dump.json, body: "\n{{ _mon_dump_squid }}\n" }
+            - { name: fs-ls.json, body: "{{ _fs_ls }}\n" }
+            - { name: fs-get.json, body: "{{ _fs_get }}\n" }
+            - { name: fs-status.json, body: "{{ _fs_status }}\n" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ---------- 1. per-node preflight on vm-host-02 as it is ----------
+        - name: Node preflight passes on a node already on the target
+          vars:
+            pve_ceph_upgrade_from: squid
+            pve_ceph_release: tentacle
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_pveversion_command: "{{ _cmds.pve_ceph_upgrade_pveversion_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: preflight_node
+
+        - name: The node's release was parsed from the real string
+          ansible.builtin.assert:
+            that:
+              - pve_ceph_upgrade_node_release == 'tentacle'
+            success_msg: "node release={{ pve_ceph_upgrade_node_release }}"
+
+        # ---------- 2. an old pve-manager is refused ----------
+        - name: Seed an old pve-manager
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pveversion.txt"
+            content: "{{ _pveversion_old }}"
+            mode: "0644"
+
+        - name: pve-manager below the wiki's minimum
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_upgrade_from: squid
+                pve_ceph_release: tentacle
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+                pve_ceph_upgrade_pveversion_command: "{{ _cmds.pve_ceph_upgrade_pveversion_command }}"
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: preflight_node
+            - name: Old pve-manager should not have passed
+              ansible.builtin.fail:
+                msg: "preflight accepted pve-manager 9.0.3"
+          rescue:
+            - name: Refused naming the minimum
+              ansible.builtin.assert:
+                that:
+                  - "'needs >= 9.1.4' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore pveversion
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pveversion.txt"
+            content: "{{ _pveversion_ok }}"
+            mode: "0644"
+
+        # ---------- 3. from == target is refused ----------
+        - name: Source equal to target
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_upgrade_from: tentacle
+                pve_ceph_release: tentacle
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+                pve_ceph_upgrade_pveversion_command: "{{ _cmds.pve_ceph_upgrade_pveversion_command }}"
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: preflight_node
+            - name: Same release should not have passed
+              ansible.builtin.fail:
+                msg: "preflight accepted from == target"
+          rescue:
+            - name: Refused asking for the source
+              ansible.builtin.assert:
+                that:
+                  - "'pve_ceph_upgrade_from' in ansible_failed_result.msg"
+                success_msg: "refused: from == target"
+
+        # ---------- 4. health gate ----------
+        - name: Today's health with the default allow-list
+          block:
+            - name: Should be refused (BLUESTORE_SLOW_OP_ALERT is not allowed)
+              vars:
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: assert_health
+            - name: Slow-ops warning should not have passed
+              ansible.builtin.fail:
+                msg: "health gate accepted BLUESTORE_SLOW_OP_ALERT"
+          rescue:
+            - name: Refused naming the check, with the detail
+              ansible.builtin.assert:
+                that:
+                  - "'BLUESTORE_SLOW_OP_ALERT' in ansible_failed_result.msg"
+                  - "'osd.0 observed slow operation' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: The same health with the warning allowed on purpose
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_allowed_health_checks: [OSDMAP_FLAGS, BLUESTORE_SLOW_OP_ALERT]
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_health
+
+        - name: Seed noout-only and HEALTH_OK in turn
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/health.json"
+            content: "{{ item }}\n"
+            mode: "0644"
+          loop:
+            - "{{ _health_noout }}"
+          loop_control:
+            label: noout
+
+        - name: noout alone passes the default allow-list
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_health
+
+        - name: Seed HEALTH_OK
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/health.json"
+            content: "{{ _health_ok }}\n"
+            mode: "0644"
+
+        - name: HEALTH_OK passes with no allowance at all
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_allowed_health_checks: []
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_health
+
+        # ---------- 5. version gate ----------
+        - name: The mixed cluster is acceptable during the upgrade
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_versions_types: [mon, mgr, osd, mds]
+            pve_ceph_upgrade_versions_allowed: [squid, tentacle]
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_versions
+
+        - name: The mixed cluster is not finished
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+                pve_ceph_upgrade_versions_types: [mon, mgr, osd, mds]
+                pve_ceph_upgrade_versions_allowed: [tentacle]
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: assert_versions
+            - name: Stragglers should not have passed
+              ansible.builtin.fail:
+                msg: "version gate accepted squid daemons as tentacle"
+          rescue:
+            - name: Refused naming every squid daemon with its count
+              ansible.builtin.assert:
+                that:
+                  - "\"'type': 'mon', 'release': 'squid', 'count': 2\" in ansible_failed_result.msg"
+                  - "\"'type': 'osd', 'release': 'squid', 'count': 2\" in ansible_failed_result.msg"
+                  - >-
+                    "'release': 'tentacle'" not in (ansible_failed_result.msg.split('Full picture')[0])
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Seed a finished cluster
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/versions.json"
+            content: "{{ _versions_done }}\n"
+            mode: "0644"
+
+        - name: A finished cluster passes the single-release gate
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_versions_types: [mon, mgr, osd, mds]
+            pve_ceph_upgrade_versions_allowed: [tentacle]
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_versions
+
+        - name: Seed a cluster reporting no MDS at all
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/versions.json"
+            content: "{{ _versions_no_mds }}\n"
+            mode: "0644"
+
+        - name: A daemon type with nothing reporting
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+                pve_ceph_upgrade_versions_types: [mon, mds]
+                pve_ceph_upgrade_versions_allowed: [tentacle]
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: assert_versions
+            - name: Vacuous pass should not have happened
+              ansible.builtin.fail:
+                msg: "version gate passed with no mds reporting"
+          rescue:
+            - name: Refused naming the silent type
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    "Types with no daemon reporting: ['mds']" in ansible_failed_result.msg
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore the mixed cluster
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/versions.json"
+            content: "{{ _versions_mixed }}\n"
+            mode: "0644"
+
+        # ---------- 6. cluster preflight ----------
+        - name: Cluster preflight passes on today's cluster with slow ops allowed
+          vars:
+            pve_ceph_upgrade_from: squid
+            pve_ceph_release: tentacle
+            pve_ceph_upgrade_allowed_health_checks: [OSDMAP_FLAGS, BLUESTORE_SLOW_OP_ALERT]
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_pvecm_command: "{{ _cmds.pve_ceph_upgrade_pvecm_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: preflight_cluster
+
+        - name: Seed monitors already on tentacle (a re-run after the monitor phase)
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "\n{{ _mon_dump_tentacle }}\n"
+            mode: "0644"
+
+        - name: Cluster preflight accepts monitors already on the target
+          vars:
+            pve_ceph_upgrade_from: squid
+            pve_ceph_release: tentacle
+            pve_ceph_upgrade_allowed_health_checks: [OSDMAP_FLAGS, BLUESTORE_SLOW_OP_ALERT]
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+            pve_ceph_upgrade_pvecm_command: "{{ _cmds.pve_ceph_upgrade_pvecm_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: preflight_cluster
+
+        - name: Seed monitors on a third release
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "\n{{ _mon_dump_reef }}\n"
+            mode: "0644"
+
+        - name: A cluster on neither the source nor the target
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_upgrade_from: squid
+                pve_ceph_release: tentacle
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+                pve_ceph_upgrade_pvecm_command: "{{ _cmds.pve_ceph_upgrade_pvecm_command }}"
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: preflight_cluster
+            - name: A third release should not have passed
+              ansible.builtin.fail:
+                msg: "cluster preflight accepted min_mon_release reef"
+          rescue:
+            - name: Refused naming min_mon_release
+              ansible.builtin.assert:
+                that:
+                  - "'min_mon_release is 18 (reef), expected squid or tentacle' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore the squid monmap
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "\n{{ _mon_dump_squid }}\n"
+            mode: "0644"
+
+        # ---------- 7. the MDS plan from the real fs status ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Prepare the metadata servers
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: mds_prepare
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls7
+
+        - name: Settings recorded, active/standby found, the wiki's two fs set calls made
+          vars:
+            _lines: "{{ (_calls7.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - pve_ceph_upgrade_fs_names == ['cephfs']
+              - "pve_ceph_upgrade_fs_settings == {'cephfs': {'max_mds': 1, 'allow_standby_replay': false}}"
+              - pve_ceph_upgrade_mds_active == ['vm-host-01']
+              - pve_ceph_upgrade_mds_standby == ['nas-host-01', 'vm-host-02']
+              - "'ceph fs set cephfs allow_standby_replay false' in _lines"
+              - "'ceph fs set cephfs max_mds 1' in _lines"
+            success_msg: "active={{ pve_ceph_upgrade_mds_active }} standby={{ pve_ceph_upgrade_mds_standby }} settings={{ pve_ceph_upgrade_fs_settings }}"
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Restore the metadata server settings
+          vars:
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: mds_restore
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls7b
+
+        - name: Restored exactly what was recorded
+          vars:
+            _lines: "{{ (_calls7b.content | b64decode) | trim | split('\n') | sort }}"
+          ansible.builtin.assert:
+            that:
+              - _lines == ['ceph fs set cephfs allow_standby_replay false', 'ceph fs set cephfs max_mds 1']
+            success_msg: "{{ _lines }}"
+
+        # ---------- 8. finalize: every command, and the noout allowance dropped ----------
+        # The first live run died here on a template loop after every action had
+        # completed; this case runs the real task file end to end.
+        - name: Seed a finished cluster that is HEALTH_OK
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: versions.json, body: "{{ _versions_done }}" }
+            - { name: health.json, body: "{{ _health_ok }}" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Finalize a finished cluster
+          vars:
+            pve_ceph_release: tentacle
+            pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: finalize
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls8
+
+        - name: require-osd-release then unset noout, and the allowance without OSDMAP_FLAGS
+          vars:
+            _lines: "{{ (_calls8.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - "'ceph osd require-osd-release tentacle' in _lines"
+              - "'ceph osd unset noout' in _lines"
+              - _lines.index('ceph osd require-osd-release tentacle') < _lines.index('ceph osd unset noout')
+              - pve_ceph_upgrade_final_allowed_health_checks == []
+            success_msg: "{{ _lines }}"
+
+        # Positive control: with noout still reported after the unset, the final
+        # health check must refuse — OSDMAP_FLAGS is no longer allowed.
+        - name: Seed a cluster that still reports noout
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/health.json"
+            content: "{{ _health_noout }}\n"
+            mode: "0644"
+
+        - name: Finalize with noout still set
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: tentacle
+                pve_ceph_upgrade_ceph_command: "{{ _cmds.pve_ceph_upgrade_ceph_command }}"
+              ansible.builtin.include_role:
+                name: pve_ceph_upgrade
+                tasks_from: finalize
+            - name: noout after finalize should not have passed
+              ansible.builtin.fail:
+                msg: "finalize accepted OSDMAP_FLAGS after unsetting noout"
+          rescue:
+            - name: Refused naming OSDMAP_FLAGS as not allowed
+              ansible.builtin.assert:
+                that:
+                  - "'not allowed: [''OSDMAP_FLAGS'']' in ansible_failed_result.msg or \"not allowed: ['OSDMAP_FLAGS']\" in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

@@ -1,0 +1,23 @@
+---
+# Wait until this node's MDS is listed in `fs status` with the wanted state.
+# Input: pve_ceph_upgrade_mds_wanted_state (active|standby).
+- name: Wait for mds.{{ ansible_facts['hostname'] }} to be {{ pve_ceph_upgrade_mds_wanted_state }}
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - status
+      - -f
+      - json
+  register: pve_ceph_upgrade_fs_status_node
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_ceph_upgrade_fs_status_node.rc == 0
+         and ((pve_ceph_upgrade_fs_status_node.stdout | from_json).mdsmap
+              | selectattr('name', 'eq', ansible_facts['hostname'])
+              | selectattr('state', 'eq', pve_ceph_upgrade_mds_wanted_state) | list | length) == 1 }}
+  retries: "{{ pve_ceph_upgrade_wait_retries }}"
+  delay: "{{ pve_ceph_upgrade_wait_delay }}"

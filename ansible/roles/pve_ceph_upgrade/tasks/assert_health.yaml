@@ -1,0 +1,41 @@
+---
+# Cluster health gate. HEALTH_OK, or HEALTH_WARN whose checks are all in
+# pve_ceph_upgrade_allowed_health_checks; anything else stops the playbook
+# with `ceph health detail` in the message. Runs wherever it is included —
+# the playbook includes it on the designated runner.
+- name: Read cluster health
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - health
+      - -f
+      - json
+  register: pve_ceph_upgrade_health
+  changed_when: false
+
+- name: Read cluster health detail
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - health
+      - detail
+  register: pve_ceph_upgrade_health_detail
+  changed_when: false
+
+- name: Assert the cluster is healthy enough to continue
+  vars:
+    _health: "{{ pve_ceph_upgrade_health.stdout | from_json }}"
+    _checks: "{{ _health.checks | default({}) | list }}"
+    _unexpected: "{{ _checks | difference(pve_ceph_upgrade_allowed_health_checks) }}"
+  ansible.builtin.assert:
+    that:
+      - _health.status in ['HEALTH_OK', 'HEALTH_WARN']
+      - _unexpected | length == 0
+    fail_msg: >-
+      Cluster is {{ _health.status }} with checks {{ _checks }}; not allowed:
+      {{ _unexpected }}. The upgrade needs a healthy cluster (wiki: "The cluster
+      must be healthy and working!"). Fix it, or if a warning is known-benign
+      add it with -e pve_ceph_upgrade_allowed_health_checks=... — that is a
+      decision, so make it on purpose. ceph health detail:
+      {{ pve_ceph_upgrade_health_detail.stdout | replace('\n', ' / ') }}
+    success_msg: "{{ _health.status }} {{ _checks }}"

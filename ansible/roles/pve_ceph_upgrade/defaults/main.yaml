@@ -1,0 +1,27 @@
+---
+# Required, passed on the command line — the playbook refuses to guess where
+# the cluster is coming from:
+#   pve_ceph_upgrade_from — the release every node runs today (e.g. squid).
+# The target is pve_ceph_release from group_vars.
+
+# Health checks that may be present without blocking a step. OSDMAP_FLAGS is
+# the `noout` warning the upgrade itself sets. Extend with -e for a warning
+# already judged benign (e.g. BLUESTORE_SLOW_OP_ALERT on a known-slow OSD).
+pve_ceph_upgrade_allowed_health_checks:
+  - OSDMAP_FLAGS
+
+# Squid → Tentacle prerequisite from the Proxmox wiki (pve-manager >= 9.1.4).
+# Edit for the next major.
+pve_ceph_upgrade_min_pve_manager: "9.1.4"
+
+# Wait budgets: (retries × delay) seconds.
+pve_ceph_upgrade_wait_retries: 60
+pve_ceph_upgrade_wait_delay: 5
+# OSDs re-peer after a restart; PGs must be active+clean again before the next node.
+pve_ceph_upgrade_osd_wait_retries: 120
+pve_ceph_upgrade_osd_wait_delay: 10
+
+# Commands, overridable for the stubs in tests/test.yml.
+pve_ceph_upgrade_ceph_command: /usr/bin/ceph
+pve_ceph_upgrade_pveversion_command: /usr/bin/pveversion
+pve_ceph_upgrade_pvecm_command: /usr/bin/pvecm

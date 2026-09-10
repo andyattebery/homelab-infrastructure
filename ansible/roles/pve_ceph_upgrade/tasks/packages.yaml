@@ -1,0 +1,52 @@
+---
+# Switch the apt source to the target release — through pve_node_ceph's own
+# repo task, so the upgrade and a later rebuild write the same file — and
+# upgrade the packages. Old binaries keep running until each daemon is
+# restarted (wiki: "After the update, your setup will still be running the
+# old Squid binaries"), which is why every node can do this at once.
+- name: Point the Ceph apt source at {{ pve_ceph_release }}
+  ansible.builtin.include_role:
+    name: pve_node_ceph
+    tasks_from: repo
+
+- name: Upgrade packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: full
+
+- name: Read the installed Ceph release
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - -v
+  register: pve_ceph_upgrade_ceph_v_after
+  changed_when: false
+
+- name: Assert the packages are now the target release
+  vars:
+    _words: "{{ pve_ceph_upgrade_ceph_v_after.stdout.split() }}"
+    _release: "{{ _words[4] if _words | length >= 5 else '' }}"
+  ansible.builtin.assert:
+    that:
+      - _release == pve_ceph_release
+    fail_msg: >-
+      After apt full-upgrade {{ inventory_hostname }} still reports
+      '{{ pve_ceph_upgrade_ceph_v_after.stdout }}'; expected
+      {{ pve_ceph_release }}. Check /etc/apt/sources.list.d/ceph.sources and
+      `apt policy ceph`.
+    quiet: true
+
+# A kernel that full-upgrade pulled in is not rebooted into here; the main
+# playbook's realtek_dkms preflight does that on its next run.
+- name: Check whether a reboot is pending for other reasons
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: pve_ceph_upgrade_reboot_required
+
+- name: Report a pending reboot
+  when: pve_ceph_upgrade_reboot_required.stat.exists
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: /var/run/reboot-required exists after
+      full-upgrade (kernel or similar). This playbook does not reboot; the main
+      playbook does, one node at a time, on its next run.

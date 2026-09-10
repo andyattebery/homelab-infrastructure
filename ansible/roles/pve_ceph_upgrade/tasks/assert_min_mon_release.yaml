@@ -1,0 +1,25 @@
+---
+# Input: pve_ceph_upgrade_expected_min_mon_releases (list). `mon dump -f json` →
+# min_mon_release_name (the wiki's `ceph mon dump | grep min_mon_release`).
+- name: Read the monitor map
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - mon
+      - dump
+      - -f
+      - json
+  register: pve_ceph_upgrade_mon_dump
+  changed_when: false
+
+- name: Assert min_mon_release is {{ pve_ceph_upgrade_expected_min_mon_releases | join(' or ') }}
+  vars:
+    _map: "{{ pve_ceph_upgrade_mon_dump.stdout | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - _map.min_mon_release_name in pve_ceph_upgrade_expected_min_mon_releases
+    fail_msg: >-
+      min_mon_release is {{ _map.min_mon_release }} ({{ _map.min_mon_release_name }}),
+      expected {{ pve_ceph_upgrade_expected_min_mon_releases | join(' or ') }}. Monitors in
+      the map: {{ _map.mons | map(attribute='name') | list }}, quorum ranks {{ _map.quorum }}.
+    success_msg: "min_mon_release {{ _map.min_mon_release }} ({{ _map.min_mon_release_name }})"

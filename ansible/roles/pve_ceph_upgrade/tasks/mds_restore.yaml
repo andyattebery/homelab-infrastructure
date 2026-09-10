@@ -1,0 +1,16 @@
+---
+# From the designated runner: put each filesystem's max_mds and
+# allow_standby_replay back to what mds_prepare.yaml recorded.
+- name: Restore each filesystem's settings
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - set
+      - "{{ item.0 }}"
+      - "{{ item.1 }}"
+      - "{{ pve_ceph_upgrade_fs_settings[item.0][item.1] | string | lower }}"
+  loop: "{{ pve_ceph_upgrade_fs_names | product(['max_mds', 'allow_standby_replay']) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1 }}={{ pve_ceph_upgrade_fs_settings[item.0][item.1] }}"
+  changed_when: true

@@ -1,0 +1,38 @@
+---
+# Daemon-release gate over `ceph versions -f json`. Inputs, set by the caller:
+#   pve_ceph_upgrade_versions_types   — daemon types to check (mon, mgr, osd, mds)
+#   pve_ceph_upgrade_versions_allowed — releases each of those may run
+# Every listed type must have at least one daemon reporting, and every version
+# string must name an allowed release. Keys look like
+# "ceph version 20.2.2 (<sha>) tentacle (stable - None)": codename is word 5.
+- name: Read daemon versions
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - versions
+      - -f
+      - json
+  register: pve_ceph_upgrade_versions
+  changed_when: false
+
+- name: Assert every {{ pve_ceph_upgrade_versions_types | join('/') }} daemon runs {{ pve_ceph_upgrade_versions_allowed | join(' or ') }}
+  vars:
+    _v: "{{ pve_ceph_upgrade_versions.stdout | from_json }}"
+    _report: >-
+      {%- set out = [] -%}
+      {%- for t in pve_ceph_upgrade_versions_types -%}
+        {%- for k, n in (_v[t] | default({})).items() -%}
+          {%- set _ = out.append({'type': t, 'release': k.split()[4], 'count': n}) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ out }}
+    _missing: "{{ pve_ceph_upgrade_versions_types | reject('in', _report | map(attribute='type') | list) | list }}"
+    _stray: "{{ _report | rejectattr('release', 'in', pve_ceph_upgrade_versions_allowed) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+      - _stray | length == 0
+    fail_msg: >-
+      Daemons not on {{ pve_ceph_upgrade_versions_allowed }}: {{ _stray }}.
+      Types with no daemon reporting: {{ _missing }}. Full picture: {{ _report }}.
+    success_msg: "{{ _report | to_json }}"

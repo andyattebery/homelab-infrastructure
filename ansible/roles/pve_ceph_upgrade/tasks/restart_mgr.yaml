@@ -1,0 +1,29 @@
+---
+# One node at a time. Waits until a manager is available and this one is
+# listed (active or standby).
+- name: Restart ceph-mgr.target
+  ansible.builtin.systemd_service:
+    name: ceph-mgr.target
+    state: restarted
+
+- name: Wait for mgr.{{ ansible_facts['hostname'] }} to be listed again
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - mgr
+      - dump
+      - -f
+      - json
+  register: pve_ceph_upgrade_mgr_dump
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_ceph_upgrade_mgr_dump.rc == 0
+         and (pve_ceph_upgrade_mgr_dump.stdout | from_json).available | default(false)
+         and ansible_facts['hostname'] in
+             ([(pve_ceph_upgrade_mgr_dump.stdout | from_json).active_name | default('')]
+              + ((pve_ceph_upgrade_mgr_dump.stdout | from_json).standbys | default([]) | map(attribute='name') | list)) }}
+  retries: "{{ pve_ceph_upgrade_wait_retries }}"
+  delay: "{{ pve_ceph_upgrade_wait_delay }}"

@@ -1,0 +1,68 @@
+---
+# Per-node prerequisites. Runs on every node before anything changes.
+- name: Assert the source and target releases are declared and differ
+  ansible.builtin.assert:
+    that:
+      - pve_ceph_upgrade_from is defined
+      - pve_ceph_upgrade_from is match('^[a-z]+$')
+      - pve_ceph_release is defined
+      - pve_ceph_release is match('^[a-z]+$')
+      - pve_ceph_upgrade_from != pve_ceph_release
+    fail_msg: >-
+      Pass -e pve_ceph_upgrade_from=<release the cluster runs today>, and set
+      pve_ceph_release (group_vars) to the target. Got from='{{
+      pve_ceph_upgrade_from | default('<undefined>') }}' target='{{
+      pve_ceph_release | default('<undefined>') }}'.
+    quiet: true
+
+- name: Read pveversion
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_pveversion_command }}"
+      - -v
+  register: pve_ceph_upgrade_pveversion
+  changed_when: false
+
+# `pve-manager: 9.2.11 (running version: 9.2.11/f6997e698c7933ea)`
+- name: Assert pve-manager meets the wiki's minimum
+  vars:
+    _pve_manager: >-
+      {{ pve_ceph_upgrade_pveversion.stdout
+         | regex_search('(?m)^pve-manager: ([0-9][0-9.]*)', '\1') | default([''], true) | first }}
+  ansible.builtin.assert:
+    that:
+      - _pve_manager | length > 0
+      - _pve_manager is version(pve_ceph_upgrade_min_pve_manager, '>=')
+    fail_msg: >-
+      pve-manager is '{{ _pve_manager }}' on {{ inventory_hostname }}; the
+      {{ pve_ceph_upgrade_from }} → {{ pve_ceph_release }} upgrade needs
+      >= {{ pve_ceph_upgrade_min_pve_manager }}. Upgrade PVE first.
+    quiet: true
+
+- name: Read the installed Ceph release
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - -v
+  register: pve_ceph_upgrade_ceph_v
+  changed_when: false
+
+# "ceph version 19.2.5 (<sha>) squid (stable)" — the codename is the fifth word.
+- name: Set this node's installed release
+  vars:
+    _words: "{{ pve_ceph_upgrade_ceph_v.stdout.split() }}"
+  ansible.builtin.set_fact:
+    pve_ceph_upgrade_node_release: >-
+      {{ _words[4] if (_words | length >= 5 and _words[0:2] == ['ceph', 'version']) else '' }}
+
+# A node may already be on the target (vm-host-02 was, 2026-09-08); anything
+# else is a third release and this playbook does not know what to do with it.
+- name: Assert the installed release is the source or the target
+  ansible.builtin.assert:
+    that:
+      - pve_ceph_upgrade_node_release in [pve_ceph_upgrade_from, pve_ceph_release]
+    fail_msg: >-
+      {{ inventory_hostname }} runs '{{ pve_ceph_upgrade_node_release }}'
+      ({{ pve_ceph_upgrade_ceph_v.stdout }}); expected {{ pve_ceph_upgrade_from }}
+      or {{ pve_ceph_release }}.
+    quiet: true

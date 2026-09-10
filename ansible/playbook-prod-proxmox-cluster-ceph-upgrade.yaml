@@ -1,0 +1,227 @@
+---
+# Rolling Ceph major upgrade for the prod cluster: the Proxmox procedure
+# (https://pve.proxmox.com/wiki/Ceph_Squid_to_Tentacle, read 2026-09-08) with
+# Ceph's own JSON as the gate between steps, instead of a human reading
+# `ceph -s`. Target release: pve_ceph_release (group_vars). Source: passed in.
+#
+#   cd ansible
+#   .venv/bin/ansible-playbook playbook-prod-proxmox-cluster-ceph-upgrade.yaml \
+#     -e pve_ceph_upgrade_from=squid
+#
+# Keep `watch ceph -s` open on a node while it runs. A failure leaves `noout`
+# set on purpose: fix the cause and re-run with the same arguments — preflight
+# accepts a cluster already past the monitor phase, every later play is an
+# idempotent restart or a final command, and the last one clears the flag.
+# A monitor that is missing from the monmap (mon.vm-host-02 on 2026-09-08) is
+# NOT recreated here; run the main playbook against that node afterwards and
+# pve_node_ceph does it.
+- name: Preflight
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: Check this node
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: preflight_node
+
+    - name: Check the cluster (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: preflight_cluster
+
+    - name: Set noout for the duration (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_ceph_upgrade_osd_flag_state: set
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: osd_flag
+
+# All nodes at once: the old binaries keep running until each daemon is
+# restarted below.
+- name: Upgrade packages on every node
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: Switch the Ceph apt source and upgrade
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: packages
+
+- name: Restart monitors, one node at a time
+  hosts: prod_proxmox_cluster
+  serial: 1
+  become: true
+  tasks:
+    - name: Restart this node's monitor and wait for quorum
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: restart_mon
+
+- name: Verify the monitors
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: min_mon_release is the target, every mon on it (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      block:
+        - name: Assert min_mon_release
+          vars:
+            pve_ceph_upgrade_expected_min_mon_releases:
+              - "{{ pve_ceph_release }}"
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_min_mon_release
+        - name: Assert monitor versions
+          vars:
+            pve_ceph_upgrade_versions_types: [mon]
+            pve_ceph_upgrade_versions_allowed: ["{{ pve_ceph_release }}"]
+          ansible.builtin.include_role:
+            name: pve_ceph_upgrade
+            tasks_from: assert_versions
+
+# Wiki: "In some rare cases, managers may become unresponsive after restarting
+# the first monitor. If that happens, proceed with restarting the monitors,
+# and then restart the managers." — which is this order.
+- name: Restart managers, one node at a time
+  hosts: prod_proxmox_cluster
+  serial: 1
+  become: true
+  tasks:
+    - name: Restart this node's manager and wait for it to be listed
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: restart_mgr
+
+- name: Verify the managers
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: Every mgr on the target (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_ceph_upgrade_versions_types: [mgr]
+        pve_ceph_upgrade_versions_allowed: ["{{ pve_ceph_release }}"]
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: assert_versions
+
+- name: Restart OSDs, one node at a time
+  hosts: prod_proxmox_cluster
+  serial: 1
+  become: true
+  tasks:
+    - name: Restart this node's OSDs and wait for active+clean
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: restart_osd
+
+- name: Verify the OSDs
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: Every OSD on the target (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_ceph_upgrade_versions_types: [osd]
+        pve_ceph_upgrade_versions_allowed: ["{{ pve_ceph_release }}"]
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: assert_versions
+
+# The wiki's MDS sequence: one rank, no standby-replay, stop the standbys,
+# restart the active, start the standbys, restore. Linear strategy runs each
+# task on every host before the next, which is the ordering this needs; the
+# runner's facts are read through hostvars.
+- name: Upgrade the metadata servers
+  hosts: prod_proxmox_cluster
+  become: true
+  vars:
+    _runner: "{{ hostvars[pve_cluster_designated_runner] }}"
+  tasks:
+    - name: Record settings, reduce to one rank, find the active MDS (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: mds_prepare
+
+    - name: Stop the standby metadata servers
+      when: ansible_facts['hostname'] in _runner.pve_ceph_upgrade_mds_standby
+      ansible.builtin.systemd_service:
+        name: ceph-mds.target
+        state: stopped
+
+    - name: Confirm only the active MDS is online (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_ceph_upgrade_ceph_command | default('/usr/bin/ceph') }}"
+          - fs
+          - status
+          - -f
+          - json
+      register: pve_ceph_upgrade_fs_status_standbys_down
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_ceph_upgrade_fs_status_standbys_down.rc == 0
+             and ((pve_ceph_upgrade_fs_status_standbys_down.stdout | from_json).mdsmap | length)
+                 == (_runner.pve_ceph_upgrade_fs_names | length) }}
+      retries: 12
+      delay: 5
+
+    - name: Restart the active metadata server
+      when: ansible_facts['hostname'] in _runner.pve_ceph_upgrade_mds_active
+      ansible.builtin.systemd_service:
+        name: ceph-mds.target
+        state: restarted
+
+    - name: Wait for the active metadata server to be active again
+      when: ansible_facts['hostname'] in _runner.pve_ceph_upgrade_mds_active
+      vars:
+        pve_ceph_upgrade_mds_wanted_state: active
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: mds_wait_state
+
+    - name: Start the standby metadata servers
+      when: ansible_facts['hostname'] in _runner.pve_ceph_upgrade_mds_standby
+      ansible.builtin.systemd_service:
+        name: ceph-mds.target
+        state: started
+
+    - name: Wait for the standbys to be standby again
+      when: ansible_facts['hostname'] in _runner.pve_ceph_upgrade_mds_standby
+      vars:
+        pve_ceph_upgrade_mds_wanted_state: standby
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: mds_wait_state
+
+    - name: Restore max_mds and allow_standby_replay (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: mds_restore
+
+    - name: Every MDS on the target (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_ceph_upgrade_versions_types: [mds]
+        pve_ceph_upgrade_versions_allowed: ["{{ pve_ceph_release }}"]
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: assert_versions
+
+- name: Finalize
+  hosts: prod_proxmox_cluster
+  become: true
+  tasks:
+    - name: require-osd-release, unset noout, final health (designated runner)
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_ceph_upgrade
+        tasks_from: finalize

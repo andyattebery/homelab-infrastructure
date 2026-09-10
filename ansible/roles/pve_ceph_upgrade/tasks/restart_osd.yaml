@@ -1,0 +1,77 @@
+---
+# One node at a time — "only restart OSDs on one node at a time to avoid loss
+# of data redundancy" (wiki). Waits until every OSD is up and every PG is
+# active+clean again before the next node starts.
+- name: Find this node's OSDs
+  ansible.builtin.find:
+    paths: /var/lib/ceph/osd
+    file_type: directory
+    patterns: 'ceph-*'
+  register: pve_ceph_upgrade_local_osds
+
+- name: Restart and re-peer
+  when: pve_ceph_upgrade_local_osds.matched > 0
+  block:
+    # A ceph-osd@ unit allows 3 starts per 30 min (StartLimitBurst), and a
+    # recent boot can have spent them — activation tries the unit more than
+    # once. The restart then dies with `start-limit-hit` and the OSD stays
+    # down (nas-host-01, 2026-09-08 09:02). `reset-failed` also resets that
+    # counter, so it runs first, on every OSD unit this node has.
+    - name: Reset the start-limit counter of this node's OSD units
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - reset-failed
+          - "ceph-osd@{{ item.path | basename | regex_replace('^ceph-', '') }}.service"
+      loop: "{{ pve_ceph_upgrade_local_osds.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Restart ceph-osd.target
+      ansible.builtin.systemd_service:
+        name: ceph-osd.target
+        state: restarted
+
+    - name: Wait for every OSD to be up
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_ceph_upgrade_ceph_command }}"
+          - osd
+          - stat
+          - -f
+          - json
+      register: pve_ceph_upgrade_osd_stat
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_ceph_upgrade_osd_stat.rc == 0
+             and ((pve_ceph_upgrade_osd_stat.stdout | from_json).num_up_osds | default(0))
+                 == ((pve_ceph_upgrade_osd_stat.stdout | from_json).num_osds | default(-1)) }}
+      retries: "{{ pve_ceph_upgrade_osd_wait_retries }}"
+      delay: "{{ pve_ceph_upgrade_osd_wait_delay }}"
+
+    # `pg stat -f json` → pg_summary.num_pg_by_state[{name, num}], num_pgs.
+    - name: Wait for every PG to be active+clean
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_ceph_upgrade_ceph_command }}"
+          - pg
+          - stat
+          - -f
+          - json
+      register: pve_ceph_upgrade_pg_stat
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_ceph_upgrade_pg_stat.rc == 0
+             and ((pve_ceph_upgrade_pg_stat.stdout | from_json).pg_summary.num_pgs | default(0)) > 0
+             and (((pve_ceph_upgrade_pg_stat.stdout | from_json).pg_summary.num_pg_by_state | default([]))
+                  | map(attribute='name') | list) == ['active+clean'] }}
+      retries: "{{ pve_ceph_upgrade_osd_wait_retries }}"
+      delay: "{{ pve_ceph_upgrade_osd_wait_delay }}"

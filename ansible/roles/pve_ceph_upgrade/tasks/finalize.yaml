@@ -1,0 +1,52 @@
+---
+# From the designated runner, after every daemon type has been restarted.
+- name: Assert every daemon runs the target release
+  vars:
+    pve_ceph_upgrade_versions_types: [mon, mgr, osd, mds]
+    pve_ceph_upgrade_versions_allowed: ["{{ pve_ceph_release }}"]
+  ansible.builtin.include_tasks:
+    file: assert_versions.yaml
+
+# Clears "all OSDs are running <target> or later but require_osd_release <
+# <target>" and enables the release's OSD features.
+- name: Raise require_osd_release to {{ pve_ceph_release }}
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - osd
+      - require-osd-release
+      - "{{ pve_ceph_release }}"
+  changed_when: true
+
+- name: Unset noout
+  vars:
+    pve_ceph_upgrade_osd_flag_state: unset
+  ansible.builtin.include_tasks:
+    file: osd_flag.yaml
+
+# Derived into its own fact first: defining the allow-list variable in terms of
+# itself in the include's vars is a template loop ("Recursive loop detected"),
+# which is how the first live run failed on this task — after every action had
+# already completed (2026-09-08).
+- name: Drop the noout allowance now that the flag is unset
+  ansible.builtin.set_fact:
+    pve_ceph_upgrade_final_allowed_health_checks: >-
+      {{ pve_ceph_upgrade_allowed_health_checks | default([]) | reject('eq', 'OSDMAP_FLAGS') | list }}
+
+- name: Assert cluster health without the noout allowance
+  vars:
+    pve_ceph_upgrade_allowed_health_checks: "{{ pve_ceph_upgrade_final_allowed_health_checks }}"
+  ansible.builtin.include_tasks:
+    file: assert_health.yaml
+
+- name: Read daemon versions
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - versions
+  register: pve_ceph_upgrade_versions_final
+  changed_when: false
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "{{ pve_ceph_upgrade_versions_final.stdout_lines }}"

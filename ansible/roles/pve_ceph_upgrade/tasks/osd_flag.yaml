@@ -1,0 +1,14 @@
+---
+# `ceph osd set|unset <flag>`. Input: pve_ceph_upgrade_osd_flag_state (set|unset),
+# pve_ceph_upgrade_osd_flag (default noout).
+- name: "{{ pve_ceph_upgrade_osd_flag_state }} the {{ pve_ceph_upgrade_osd_flag | default('noout') }} flag"
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - osd
+      - "{{ pve_ceph_upgrade_osd_flag_state }}"
+      - "{{ pve_ceph_upgrade_osd_flag | default('noout') }}"
+  register: pve_ceph_upgrade_osd_flag_result
+  # `ceph osd set noout` prints "noout is set" whether or not it was already;
+  # the flag list in `ceph osd dump` is the state, so report changed on rc.
+  changed_when: pve_ceph_upgrade_osd_flag_result.rc == 0

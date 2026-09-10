@@ -1,0 +1,93 @@
+---
+# From the designated runner. Records each filesystem's max_mds and
+# allow_standby_replay, sets the wiki's single-rank/no-standby-replay state,
+# and works out which node holds the active MDS. Facts set here are read by
+# the other nodes as hostvars[pve_cluster_designated_runner].
+- name: List filesystems
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - ls
+      - -f
+      - json
+  register: pve_ceph_upgrade_fs_ls
+  changed_when: false
+
+- name: Set the filesystem names
+  ansible.builtin.set_fact:
+    pve_ceph_upgrade_fs_names: "{{ (pve_ceph_upgrade_fs_ls.stdout | from_json) | map(attribute='name') | list }}"
+
+- name: Read each filesystem's mdsmap
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - get
+      - "{{ item }}"
+      - -f
+      - json
+  loop: "{{ pve_ceph_upgrade_fs_names }}"
+  register: pve_ceph_upgrade_fs_get
+  changed_when: false
+
+# `fs get` → mdsmap.max_mds and mdsmap.flags_state.allow_standby_replay
+# (Ceph 19.2.5 / 20.2.2 field names, read 2026-09-08).
+- name: Remember each filesystem's settings
+  ansible.builtin.set_fact:
+    pve_ceph_upgrade_fs_settings: >-
+      {{ pve_ceph_upgrade_fs_settings | default({})
+         | combine({item.item: {
+             'max_mds': (item.stdout | from_json).mdsmap.max_mds,
+             'allow_standby_replay': (item.stdout | from_json).mdsmap.flags_state.allow_standby_replay | bool}}) }}
+  loop: "{{ pve_ceph_upgrade_fs_get.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Disable standby-replay and reduce to one rank
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - set
+      - "{{ item.0 }}"
+      - "{{ item.1.key }}"
+      - "{{ item.1.value }}"
+  loop: "{{ pve_ceph_upgrade_fs_names | product([{'key': 'allow_standby_replay', 'value': 'false'}, {'key': 'max_mds', 'value': '1'}]) | list }}"
+  loop_control:
+    label: "{{ item.0 }} {{ item.1.key }}={{ item.1.value }}"
+  changed_when: true
+
+# `fs status -f json` → mdsmap[]: {name, rank, state} — "active" / "standby".
+- name: Wait until exactly one MDS is active per filesystem
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_ceph_upgrade_ceph_command }}"
+      - fs
+      - status
+      - -f
+      - json
+  register: pve_ceph_upgrade_fs_status
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_ceph_upgrade_fs_status.rc == 0
+         and ((pve_ceph_upgrade_fs_status.stdout | from_json).mdsmap
+              | selectattr('state', 'eq', 'active') | list | length) == (pve_ceph_upgrade_fs_names | length) }}
+  retries: "{{ pve_ceph_upgrade_wait_retries }}"
+  delay: "{{ pve_ceph_upgrade_wait_delay }}"
+
+- name: Set the active and standby MDS nodes
+  vars:
+    _map: "{{ (pve_ceph_upgrade_fs_status.stdout | from_json).mdsmap }}"
+  ansible.builtin.set_fact:
+    pve_ceph_upgrade_mds_active: "{{ _map | selectattr('state', 'eq', 'active') | map(attribute='name') | list }}"
+    pve_ceph_upgrade_mds_standby: "{{ _map | selectattr('state', 'eq', 'standby') | map(attribute='name') | list }}"
+
+- name: Report the MDS plan
+  ansible.builtin.debug:
+    msg: >-
+      filesystems={{ pve_ceph_upgrade_fs_names }} settings={{ pve_ceph_upgrade_fs_settings }}
+      active={{ pve_ceph_upgrade_mds_active }} standby={{ pve_ceph_upgrade_mds_standby }}
