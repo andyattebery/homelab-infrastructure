@@ -62,11 +62,14 @@
     validate_certs: false
     return_content: true
   register: pbs_node_certs_info_after_order
-  until: >-
-    (pbs_node_certs_info_after_order.content | from_json).data
-    | selectattr('issuer', 'defined')
-    | selectattr('issuer', 'search', "Let's Encrypt")
-    | list | length > 0
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ (pbs_node_certs_info_after_order.content | from_json).data
+         | selectattr('issuer', 'defined')
+         | selectattr('issuer', 'search', "Let's Encrypt")
+         | list | length > 0 }}
   retries: 30
   delay: 5
   changed_when: false

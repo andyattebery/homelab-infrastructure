@@ -38,6 +38,9 @@
     cmd: pvesh get /nodes/{{ ansible_facts['hostname'] }}/certificates/info --output-format json
   register: pvesh_get_node_certificates_info_after_order
   changed_when: false
-  until: '"pveproxy-ssl.pem" in pvesh_get_node_certificates_info_after_order.stdout'
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: '{{ "pveproxy-ssl.pem" in pvesh_get_node_certificates_info_after_order.stdout }}'
   retries: 30
   delay: 5
