@@ -92,3 +92,82 @@ groups:
             the certificate on disk:
               openssl s_client -connect {{ $labels.host }}:443 -servername {{ $labels.host }} \
                 </dev/null | openssl x509 -noout -dates -serial
+
+      # Added 2026-09-09 after nas-host-01 powered itself off for the third time (06-29, 08-28,
+      # 09-09) with a CPU_THERMTRIP asserted at 34 C and every voltage rail flat.
+      #
+      # Two rules because neither alone is reliable. The sensor rule catches the assertion only
+      # if the BMC is still answering when it happens — on 09-09 the BMC went unreachable for the
+      # whole hour the host was off, so it would have missed it. The power-state rule catches the
+      # consequence instead, which is what actually persisted.
+      - uid: ipmi-cpu-thermtrip
+        title: CPU thermal trip asserted
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: ipmi_sensor_state{name=~"CPU_THERMTRIP|PROCHOT.*"} > 0
+              instant: true
+              refId: A
+        for: 0s
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: ipmi
+        annotations:
+          summary: 'Thermal trip or throttle asserted on {{ $labels.instance }}: {{ $labels.name }}'
+          description: |
+            The CPU asserted THERMTRIP or PROCHOT. THERMTRIP cuts the power rails immediately: the
+            host will be off, the front-panel power button will do nothing, and only an AC cycle
+            recovers it.
+
+            Do not assume heat. On nas-host-01 this has fired with the CPU at 34 C, the board at
+            35 C and all fans steady, which points at the THERMTRIP signal path rather than
+            temperature — socket contact, the VRM, or the BMC. Check `ipmitool sel elist` on the
+            host for the assertion and what preceded it, and the Prometheus voltage series for a
+            rail moving before the trip.
+      - uid: ipmi-host-unexpectedly-powered-off
+        title: Host unexpectedly powered off
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: ipmi_chassis_power_state == 0
+              instant: true
+              refId: A
+        # 5m so an ordinary reboot does not page: a reboot brings the chassis back well inside
+        # that, and a deliberate shutdown is rare and human-initiated.
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: ipmi
+        annotations:
+          summary: 'Chassis power is off on {{ $labels.instance }}'
+          description: |
+            The BMC reports the chassis powered down and it has stayed down for five minutes. If
+            nobody shut it down, this is the signature of a thermal trip or a power fault rather
+            than an OS shutdown.
+
+            First stop is `ipmitool sel elist` — the BMC event log is the only record that
+            survives a power cut, and it holds about 3,600 entries. Save it before anything else
+            if it is near full.
+

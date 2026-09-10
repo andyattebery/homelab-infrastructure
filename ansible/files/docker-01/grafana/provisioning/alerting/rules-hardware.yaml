@@ -42,3 +42,54 @@ groups:
             node_edac_uncorrectable_errors_total on {{ $labels.instance }} (controller {{ $labels.controller }}) is non-zero.
             ECC could not correct a memory error — the affected page may be unrecoverable.
             Run `journalctl -t rasdaemon-ue -n 20` on the host for the address, DIMM label, and syndrome.
+      # Added 2026-09-09. Corrected errors are normal here and alerting per error would be pure
+      # noise — nas-host-01 logs a few hundred a day from a handful of stuck cells that have not
+      # spread since May. What is worth knowing is a change in that behaviour.
+      #
+      # Threshold grounded in the measured distribution over 27,166 records back to 2026-05-11:
+      # the median hour has 4 errors, the 90th percentile 13, and a typical day 200. Days over
+      # 1000 have happened four times in four months (07-01, 08-21, 08-22, 08-23) and each was a
+      # genuine excursion. So this fires a few times a year, not daily.
+      #
+      # increase() over a counter that resets at reboot is correct — it accounts for resets.
+      # Note the logged count is a floor: firmware reports only every tenth corrected error
+      # (`mce: HEST corrected error threshold limit: 10`), so the true rate is roughly ten times
+      # this. That is fine for a trend alert, which is all this is.
+      - uid: edac-correctable-rate-elevated
+        title: EDAC corrected memory error rate elevated
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 86400
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: increase(node_edac_correctable_errors_total[24h]) > 1000
+              instant: true
+              refId: A
+        for: 30m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: memory
+        annotations:
+          summary: 'Corrected memory error rate elevated on {{ $labels.instance }}'
+          description: |
+            More than 1000 corrected memory errors in 24 hours on {{ $labels.instance }}
+            (controller {{ $labels.controller }}), against a normal day of a few hundred.
+
+            Corrected means ECC fixed it, so nothing is lost and nothing crashes — this is a
+            trend signal, not an incident. Check whether the affected pages have spread beyond
+            the usual few:
+              sudo ras-mc-ctl --summary
+              sudo ras-mc-ctl --errors | tail -40
+            A rising count of *distinct* pages or a new DIMM label is the thing to act on; more
+            errors on the same handful of pages is the existing stuck cells being exercised
+            harder.
+
