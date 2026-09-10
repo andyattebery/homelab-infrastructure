@@ -1,0 +1,74 @@
+---
+# Refresh the HA guests on one node by draining it and letting HA bring them home.
+# Included per node from refresh_clients.yaml; the node is pve_cephx_migration_ha_node.
+#
+# Why draining rather than migrating each guest: these resources have failback: true
+# and a node-affinity rule, so `qm migrate` is refused with "Cannot migrate VM, because
+# HA resource vm:NNN is not allowed on the selected target node". The documented route
+# is node-maintenance — see group_vars/prod_proxmox_cluster/vars.yaml and
+# pve_cluster_ha/README.md. The same pattern as pve_node_rebuild's evacuate/finish.
+#
+# Each guest gets two live migrations out of this (away, then home). Either one alone
+# is a full refresh; the second is the cost of putting the cluster back as it was.
+- name: Put {{ pve_cephx_migration_ha_node }} into HA maintenance
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ha_manager_command }}"
+      - crm-command
+      - node-maintenance
+      - enable
+      - "{{ pve_cephx_migration_ha_node }}"
+  changed_when: true
+
+- name: Wait for HA to move every managed resource off {{ pve_cephx_migration_ha_node }}
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_cephx_migration_ha_drain
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ (pve_cephx_migration_ha_drain.stdout | from_json)
+         | selectattr('type', 'eq', 'service')
+         | selectattr('node', 'eq', pve_cephx_migration_ha_node)
+         | list | length == 0 }}
+  retries: "{{ pve_cephx_migration_migrate_retries }}"
+  delay: "{{ pve_cephx_migration_migrate_delay }}"
+
+- name: Take {{ pve_cephx_migration_ha_node }} out of HA maintenance
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ha_manager_command }}"
+      - crm-command
+      - node-maintenance
+      - disable
+      - "{{ pve_cephx_migration_ha_node }}"
+  changed_when: true
+
+# Only the resources whose rule prefers this node come back, and only because
+# failback is set on them. A resource that legitimately stays elsewhere must not make
+# this wait time out, so the gate is "every service that started here is back", not
+# "the node has services again".
+- name: Wait for HA to bring back the resources that started on {{ pve_cephx_migration_ha_node }}
+  vars:
+    _expected: >-
+      {{ pve_cephx_migration_refresh_rows | selectattr('ha')
+         | selectattr('node', 'eq', pve_cephx_migration_ha_node)
+         | map(attribute='vmid') | map('string') | list }}
+    _home: >-
+      {{ (pve_cephx_migration_ha_home.stdout | default('[]') | from_json)
+         | selectattr('type', 'eq', 'service')
+         | selectattr('node', 'eq', pve_cephx_migration_ha_node)
+         | map(attribute='sid')
+         | select('match', '^(?:vm|ct):[0-9]+$')
+         | map('regex_replace', '^(?:vm|ct):([0-9]+)$', '\1') | list }}
+    _ok: "{{ _expected | difference(_home) | length == 0 }}"
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_cephx_migration_ha_home
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  retries: "{{ pve_cephx_migration_migrate_retries }}"
+  delay: "{{ pve_cephx_migration_migrate_delay }}"

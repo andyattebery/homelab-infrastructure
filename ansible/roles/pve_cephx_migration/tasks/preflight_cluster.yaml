@@ -1,0 +1,27 @@
+---
+# Cluster-wide prerequisites, from the designated runner. Read-only.
+- name: Assert every Ceph daemon runs the cluster's declared release
+  vars:
+    pve_cephx_migration_versions_types: [mon, mgr, osd, mds]
+    pve_cephx_migration_versions_allowed: ["{{ pve_ceph_release }}"]
+  ansible.builtin.include_tasks:
+    file: assert_versions.yaml
+
+- name: Read PVE cluster status
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_pvecm_command }}"
+      - status
+  register: pve_cephx_migration_pvecm
+  changed_when: false
+
+- name: Assert the PVE cluster is quorate
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_pvecm.stdout is search('(?m)^Quorate:\s+Yes')
+    fail_msg: "pvecm status does not report Quorate: Yes — {{ pve_cephx_migration_pvecm.stdout | replace('\n', ' / ') }}"
+    quiet: true
+
+- name: Assert cluster health
+  ansible.builtin.include_tasks:
+    file: assert_health.yaml

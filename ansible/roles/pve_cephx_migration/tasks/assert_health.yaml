@@ -1,0 +1,53 @@
+---
+# Cluster health gate. Adapted from pve_ceph_upgrade's, with one difference that
+# matters: this migration *starts* from HEALTH_ERR, so an ERR status cannot simply be
+# refused. It is accepted only when every ERR-severity check is one of the two this
+# migration is here to clear — a third ERR check means something is actually wrong.
+#
+# Inputs (both defaulted in defaults/main.yaml, narrowed by the caller per phase):
+#   pve_cephx_migration_allowed_health_checks — every check that may be present
+#   pve_cephx_migration_allowed_error_checks  — those that may be ERR severity
+- name: Read cluster health
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ceph_command }}"
+      - health
+      - -f
+      - json
+  register: pve_cephx_migration_health
+  changed_when: false
+
+- name: Read cluster health detail
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ceph_command }}"
+      - health
+      - detail
+  register: pve_cephx_migration_health_detail
+  changed_when: false
+
+- name: Assert the cluster is healthy enough to continue
+  vars:
+    _health: "{{ pve_cephx_migration_health.stdout | from_json }}"
+    _checks: "{{ _health.checks | default({}) }}"
+    _names: "{{ _checks | list }}"
+    _unexpected: "{{ _names | difference(pve_cephx_migration_allowed_health_checks) }}"
+    _errors: >-
+      {{ _checks | dict2items
+         | selectattr('value.severity', 'defined')
+         | selectattr('value.severity', 'eq', 'HEALTH_ERR')
+         | map(attribute='key') | list }}
+    _unexpected_errors: "{{ _errors | difference(pve_cephx_migration_allowed_error_checks) }}"
+  ansible.builtin.assert:
+    that:
+      - _health.status in ['HEALTH_OK', 'HEALTH_WARN', 'HEALTH_ERR']
+      - _unexpected | length == 0
+      - _unexpected_errors | length == 0
+    fail_msg: >-
+      Cluster is {{ _health.status }} with checks {{ _names }}.
+      Not in the allow-list: {{ _unexpected }}.
+      Unexpected ERR-severity checks: {{ _unexpected_errors }}.
+      Fix those first — the cephx migration only accepts the AUTH_* checks it exists to
+      clear. ceph health detail:
+      {{ pve_cephx_migration_health_detail.stdout | replace('\n', ' / ') }}
+    success_msg: "{{ _health.status }} {{ _names }} (ERR: {{ _errors }})"

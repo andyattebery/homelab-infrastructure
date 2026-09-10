@@ -1,0 +1,209 @@
+---
+# Refresh every consumer that still holds the old client.admin key, after stage 2 has
+# staged the new one. Runs on the designated runner; the one command that must run on
+# the guest's own node (qm migrate) is delegated there.
+#
+# What counts as a refresh, from the Proxmox docs: "Live-migrate affected virtual
+# machines in the web interface, or stop and start them. A guest reboot is not enough."
+# An RBD disk is opened by the qemu process at start; a live migration builds a new
+# qemu process on the target, which reads the current keyring. So a migration is a
+# refresh, and a reboot inside the guest is not.
+#
+# Nothing here decides anything from a hand-written list of VM ids. Three live sources:
+#   pvesh /storage              — which storages are Ceph, and which RBD pools
+#   rbd ls                      — which guests have an image in those pools
+#   pvesh .../qemu/<id>/migrate — whether PVE will actually migrate that guest
+# The last one is the reason this does not grep `qm config` for `hostpci`: PVE's own
+# answer covers passthrough, local disks and everything else it checks, and its output
+# carries no guest credentials.
+
+- name: Read the storage configuration
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /storage, --output-format, json]
+  register: pve_cephx_migration_storage
+  changed_when: false
+
+- name: Find the Ceph RBD pools this cluster serves guests from
+  vars:
+    _storages: "{{ pve_cephx_migration_storage.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    # Storages of an *external* cluster are excluded: the helper never rotates their
+    # keys, so their consumers need nothing from us. PVE marks those with `monhost`.
+    pve_cephx_migration_rbd_pools: >-
+      {{ _storages | selectattr('type', 'eq', 'rbd')
+                   | rejectattr('monhost', 'defined')
+                   | map(attribute='pool') | unique | list }}
+
+- name: Assert at least one local Ceph RBD pool was found
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_rbd_pools | length > 0
+    fail_msg: >-
+      No local Ceph RBD storage found in `pvesh get /storage`. Either this cluster has
+      none — in which case the refresh has nothing to do and this phase should not be
+      run — or the storage list was read from the wrong cluster.
+    quiet: true
+
+- name: List the images in each pool
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_rbd_command }}", -p, "{{ item }}", ls, --format, json]
+  register: pve_cephx_migration_rbd_ls
+  changed_when: false
+  loop: "{{ pve_cephx_migration_rbd_pools }}"
+
+# PVE names guest volumes `vm-<vmid>-<something>` and `base-<vmid>-<something>`
+# (qm.conf.5 / PVE::Storage). Anything else in the pool is not a guest disk.
+- name: Derive the guest ids that have an image in a Ceph pool
+  vars:
+    _images: "{{ pve_cephx_migration_rbd_ls.results | map(attribute='stdout') | map('from_json') | flatten }}"
+  ansible.builtin.set_fact:
+    # select() before map() on purpose: regex_replace leaves a non-matching string
+    # untouched, so mapping it over the whole list would turn `rbd_header.x` into
+    # itself and then `| int` would quietly make it 0.
+    pve_cephx_migration_ceph_vmids: >-
+      {{ _images | select('match', '^(?:vm|base)-[0-9]+-')
+                 | map('regex_replace', '^(?:vm|base)-([0-9]+)-.*$', '\1')
+                 | map('int') | unique | sort | list }}
+
+- name: Read every guest in the cluster
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /cluster/resources, --type, vm, --output-format, json]
+  register: pve_cephx_migration_resources
+  changed_when: false
+
+- name: Read the HA status
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /cluster/ha/status/current, --output-format, json]
+  register: pve_cephx_migration_ha_status
+  changed_when: false
+
+# Only *running* guests hold a key. A stopped guest reads the current keyring the next
+# time it starts, so it needs nothing — and a template is never running.
+- name: Select the running guests that hold a Ceph key
+  vars:
+    _guests: "{{ pve_cephx_migration_resources.stdout | from_json }}"
+    # `template` is ALWAYS present in /cluster/resources — 0 for an ordinary guest, 1
+    # for a template. rejectattr('template', 'defined') therefore rejects everything
+    # and yields an empty plan silently; verified against the live cluster 2026-09-10.
+    _running: >-
+      {{ _guests | selectattr('status', 'eq', 'running')
+                 | rejectattr('template', 'eq', 1)
+                 | selectattr('vmid', 'in', pve_cephx_migration_ceph_vmids)
+                 | list }}
+  ansible.builtin.set_fact:
+    # `--type vm` returns containers as well as VMs, and the migrate-feasibility query
+    # below is `/nodes/<node>/qemu/<vmid>/migrate` — it 404s for an lxc and would fail
+    # the whole phase. There are no containers on this cluster today, so rather than
+    # write an untestable second code path for migrating one, they are separated out
+    # here and reported. A running container on RBD is a *kernel* client anyway, and
+    # PVE cannot live-migrate one: its refresh is a stop and start either way.
+    pve_cephx_migration_running_on_ceph: "{{ _running | selectattr('type', 'eq', 'qemu') | list }}"
+    pve_cephx_migration_non_qemu_on_ceph: "{{ _running | rejectattr('type', 'eq', 'qemu') | list }}"
+
+- name: Ask PVE whether each of those guests can be migrated
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_pvesh_command }}"
+      - get
+      - "/nodes/{{ item.node }}/qemu/{{ item.vmid }}/migrate"
+      - --output-format
+      - json
+  register: pve_cephx_migration_migratable
+  changed_when: false
+  loop: "{{ pve_cephx_migration_running_on_ceph }}"
+  loop_control:
+    label: "{{ item.vmid }} {{ item.name | default('') }} on {{ item.node }}"
+
+- name: Build the refresh plan
+  vars:
+    _ha_services: >-
+      {{ (pve_cephx_migration_ha_status.stdout | from_json)
+         | selectattr('type', 'eq', 'service') | list }}
+    _ha_vmids: >-
+      {{ _ha_services | map(attribute='sid')
+         | select('match', '^(?:vm|ct):[0-9]+$')
+         | map('regex_replace', '^(?:vm|ct):([0-9]+)$', '\1')
+         | map('int') | list }}
+    _rows: >-
+      {%- set out = [] -%}
+      {%- for r in pve_cephx_migration_migratable.results -%}
+        {%- set info = r.stdout | from_json -%}
+        {%- set allowed = info.allowed_nodes | default([]) -%}
+        {%- set _ = out.append({
+              'vmid': r.item.vmid,
+              'name': r.item.name | default(''),
+              'node': r.item.node,
+              'ha': r.item.vmid in _ha_vmids,
+              'targets': allowed,
+              'blockers': info.local_resources | default([]),
+            }) -%}
+      {%- endfor -%}
+      {{ out }}
+  ansible.builtin.set_fact:
+    # HA guests move with node-maintenance, which drains the whole node at once, so
+    # these are grouped by node rather than acted on one at a time. failback: true plus
+    # the node-affinity rule is what brings them home when maintenance is lifted —
+    # see group_vars/prod_proxmox_cluster/vars.yaml and pve_cluster_ha/README.md.
+    pve_cephx_migration_refresh_ha_nodes: "{{ _rows | selectattr('ha') | map(attribute='node') | unique | sort | list }}"
+    pve_cephx_migration_refresh_migrate: "{{ _rows | rejectattr('ha') | selectattr('targets') | list }}"
+    # Running, on Ceph, not HA-managed, and PVE will not migrate it. Reported, never
+    # acted on: the refresh for these is a stop and start, which is downtime somebody
+    # has to schedule.
+    pve_cephx_migration_refresh_blocked: "{{ _rows | rejectattr('ha') | rejectattr('targets') | list }}"
+    pve_cephx_migration_refresh_rows: "{{ _rows }}"
+
+- name: Show the refresh plan
+  ansible.builtin.debug:
+    msg:
+      - "Ceph pools: {{ pve_cephx_migration_rbd_pools | join(', ') }}; guest ids with an image: {{ pve_cephx_migration_ceph_vmids | join(', ') }}"
+      - "Running and holding a key: {{ pve_cephx_migration_refresh_rows | map(attribute='vmid') | join(', ') or 'none' }}"
+      - "HA — refreshed by draining these nodes: {{ pve_cephx_migration_refresh_ha_nodes | join(', ') or 'none' }}"
+      - "Not HA — migrated away and back: {{ pve_cephx_migration_refresh_migrate | map(attribute='vmid') | join(', ') or 'none' }}"
+      - "NEEDS A STOP/START BY HAND (PVE will not migrate): {{ pve_cephx_migration_refresh_blocked | map(attribute='vmid') | join(', ') or 'none' }}"
+      - "NEEDS A STOP/START BY HAND (not a VM, so not live-migratable): {{ pve_cephx_migration_non_qemu_on_ceph | map(attribute='vmid') | join(', ') or 'none' }}"
+      - "CephFS mounts are not listed: the helper refreshes idle ones itself and leaves busy ones alone."
+
+- name: Report that nothing was refreshed
+  when: not (pve_cephx_migration_apply | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Dry run only. Re-run with -e pve_cephx_migration_apply=true to carry out the plan
+      above.
+
+- name: Refresh the guests
+  when: pve_cephx_migration_apply | bool
+  block:
+    - name: Drain each node that holds HA guests, then let HA bring them home
+      ansible.builtin.include_tasks:
+        file: refresh_ha_node.yaml
+      loop: "{{ pve_cephx_migration_refresh_ha_nodes }}"
+      loop_control:
+        loop_var: pve_cephx_migration_ha_node
+
+    - name: Migrate each non-HA guest away and back
+      ansible.builtin.include_tasks:
+        file: refresh_migrate_guest.yaml
+      loop: "{{ pve_cephx_migration_refresh_migrate }}"
+      loop_control:
+        loop_var: pve_cephx_migration_guest
+        label: "{{ pve_cephx_migration_guest.vmid }} {{ pve_cephx_migration_guest.name }}"
+
+- name: Warn about containers that still hold the old key
+  when: pve_cephx_migration_non_qemu_on_ceph | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      {{ pve_cephx_migration_non_qemu_on_ceph | map(attribute='vmid') | join(', ') }}
+      are running on Ceph and are not VMs, so PVE cannot live-migrate them and this role
+      does not touch them. Stop and start each one before the confirm step. A container
+      on RBD is a kernel client: check its node is running kernel
+      >= {{ pve_cephx_migration_min_kernel }} too.
+
+- name: Warn about guests that still hold the old key
+  when: pve_cephx_migration_refresh_blocked | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      {{ pve_cephx_migration_refresh_blocked | map(attribute='vmid') | join(', ') }}
+      are running on Ceph, are not HA-managed, and PVE refuses to migrate them
+      ({{ pve_cephx_migration_refresh_blocked | map(attribute='blockers') | flatten | unique | join(', ') or 'no target node' }}).
+      Stop and start each one before the confirm step, or that step will refuse — which
+      is it working correctly, not a fault.

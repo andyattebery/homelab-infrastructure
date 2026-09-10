@@ -1,0 +1,718 @@
+---
+# Exercises pve_cephx_migration's decisions against stub `ceph` / `pveversion` /
+# `pvecm` / `pvesh` / `rbd` / helper commands answering with output captured from the
+# real cluster on 2026-09-10. Runs entirely on localhost; touches no remote host.
+#
+# NOT covered, on purpose: what the helper itself does, and the live migrations in
+# refresh_ha_node.yaml / refresh_migrate_guest.yaml. Those are verified against the
+# real cluster with `ceph -s` open — the role README says so.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_cephx_migration/tests/inventory \
+#     roles/pve_cephx_migration/tests/test.yml
+- name: Test pve_cephx_migration
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    _v_tentacle: "ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable)"
+    _pveversion_ok: |
+      proxmox-ve: 9.2.0 (running kernel: 7.0.14-15-pve)
+      pve-manager: 9.2.18 (running version: 9.2.18/614bede5d65599c6)
+      ceph: 20.2.4-pve4
+      ceph-fuse: 20.2.4-pve4
+    _pveversion_old_pve: |
+      pve-manager: 9.2.11 (running version: 9.2.11/f6997e698c7933ea)
+      ceph: 20.2.4-pve4
+    _pveversion_old_ceph: |
+      pve-manager: 9.2.18 (running version: 9.2.18/614bede5d65599c6)
+      ceph: 20.2.4-pve2
+    _pvecm_quorate: |
+      Quorum information
+      ------------------
+      Nodes:            3
+      Quorate:          Yes
+    # `ceph health -f json`, the cluster as found on 2026-09-10.
+    _health_err: '{"status":"HEALTH_ERR","checks":{"AUTH_INSECURE_CLIENT_KEY_TYPE":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_KEYS_ALLOWED":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_KEYS_CREATABLE":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_SERVICE_KEY_TYPE":{"severity":"HEALTH_ERR"},"AUTH_INSECURE_SERVICE_TICKETS":{"severity":"HEALTH_ERR"}},"mutes":[]}'
+    # After stage 1: the two ERR checks gone, four warnings left.
+    _health_after_stage1: '{"status":"HEALTH_WARN","checks":{"AUTH_INSECURE_CLIENT_KEY_TYPE":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_KEYS_ALLOWED":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_KEYS_CREATABLE":{"severity":"HEALTH_WARN"},"AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE":{"severity":"HEALTH_WARN"}},"mutes":[]}'
+    # A third ERR check: something is actually wrong and the migration must wait.
+    _health_err_extra: '{"status":"HEALTH_ERR","checks":{"AUTH_INSECURE_SERVICE_KEY_TYPE":{"severity":"HEALTH_ERR"},"AUTH_INSECURE_SERVICE_TICKETS":{"severity":"HEALTH_ERR"},"PG_DEGRADED":{"severity":"HEALTH_ERR"}},"mutes":[]}'
+    _health_detail: "HEALTH_ERR 8 auth service entities with insecure key types"
+    # `ceph versions -f json` — 12 daemons, all 20.2.4, as read on 2026-09-10.
+    _versions_done: '{"mon":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"osd":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"mds":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3}}'
+    _versions_mixed: '{"mon":{"ceph version 19.2.5 (x) squid (stable)":1,"ceph version 20.2.4 (x) tentacle (stable - None)":2},"mgr":{"ceph version 20.2.4 (x) tentacle (stable - None)":3},"osd":{"ceph version 20.2.4 (x) tentacle (stable - None)":3},"mds":{"ceph version 20.2.4 (x) tentacle (stable - None)":3}}'
+    _versions_no_mds: '{"mon":{"ceph version 20.2.4 (x) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.4 (x) tentacle (stable - None)":3},"osd":{"ceph version 20.2.4 (x) tentacle (stable - None)":3}}'
+    # pvesh fixtures, verbatim shapes from the live cluster.
+    _storage: '[{"storage":"pve_pool","type":"rbd","pool":"pve_pool","content":"images,rootdir"},{"storage":"pve_cephfs","type":"cephfs","fs-name":"cephfs","content":"iso,backup"},{"storage":"local","type":"dir","content":"iso"},{"storage":"ext","type":"rbd","pool":"other","monhost":"10.9.9.9"}]'
+    _rbd_ls: '["base-1000-disk-0","base-1001-disk-0","vm-1000-cloudinit","vm-102-cloudinit","vm-102-disk-0","vm-103-disk-1","vm-110-disk-1","vm-120-disk-1","vm-203-disk-0","vm-150-disk-0","rbd_header.junk"]'
+    # Guest names are generic on purpose: a role must not carry this homelab's
+    # inventory (AGENTS.md, "Roles must not bake in host config"). The vmids, nodes,
+    # statuses and template flags are the real shapes the derivation reads.
+    _resources: '[{"vmid":1000,"name":"tpl","node":"nas-host-01","status":"stopped","template":1,"type":"qemu"},{"vmid":102,"name":"guest-a","node":"vm-host-01","status":"running","template":0,"type":"qemu"},{"vmid":103,"name":"guest-b","node":"vm-host-01","status":"running","template":0,"type":"qemu"},{"vmid":110,"name":"guest-c","node":"vm-host-01","status":"running","template":0,"type":"qemu"},{"vmid":120,"name":"guest-d","node":"vm-host-02","status":"stopped","template":0,"type":"qemu"},{"vmid":200,"name":"guest-e","node":"nas-host-01","status":"running","template":0,"type":"qemu"},{"vmid":203,"name":"guest-f","node":"nas-host-01","status":"running","template":0,"type":"qemu"},{"vmid":150,"name":"guest-g","node":"vm-host-02","status":"running","template":0,"type":"lxc"}]'
+    _ha_status: '[{"id":"quorum","type":"quorum","node":"nas-host-01"},{"id":"service:vm:102","type":"service","sid":"vm:102","node":"vm-host-01"},{"id":"service:vm:103","type":"service","sid":"vm:103","node":"vm-host-01"},{"id":"service:vm:110","type":"service","sid":"vm:110","node":"vm-host-01"}]'
+    _migrate_ok: '{"allowed_nodes":["vm-host-01","vm-host-02"],"local_disks":[],"local_resources":[],"not_allowed_nodes":{},"running":1}'
+    _migrate_blocked: '{"allowed_nodes":[],"local_disks":[],"local_resources":["hostpci0","hostpci1"],"not_allowed_nodes":{},"running":1}'
+    _helper_ready: |
+      Cephx key migration: every open rotation is ready.
+      Run the following to finish:
+        pve-cephx-rotate-service-keys --apply --confirm-all-clients-refreshed --restrict-ciphers
+    _helper_not_ready: |
+      Cephx key migration: client.admin is staged; 1 session still uses the previous key.
+      Refresh the remaining consumers, then run this command again.
+
+    # Every stub path, once. Play vars template lazily, so referring to _tmp here is
+    # fine even though it is registered by the first task. Each case below overrides
+    # only the variable it is actually testing.
+    pve_cephx_migration_ceph_command: "{{ _tmp.path }}/ceph"
+    pve_cephx_migration_pveversion_command: "{{ _tmp.path }}/pveversion"
+    pve_cephx_migration_pvecm_command: "{{ _tmp.path }}/pvecm"
+    pve_cephx_migration_pvesh_command: "{{ _tmp.path }}/pvesh"
+    pve_cephx_migration_rbd_command: "{{ _tmp.path }}/rbd"
+    pve_cephx_migration_helper_command: "{{ _tmp.path }}/helper"
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-cephx-migration-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        - name: Install the stubs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            mode: "0755"
+            content: "{{ item.body }}"
+          loop:
+            - name: ceph
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "ceph $*" >> "$d/calls.log"
+                case "$*" in
+                  -v) cat "$d/ceph-v.txt" ;;
+                  "health -f json") cat "$d/health.json" ;;
+                  "health detail") cat "$d/health-detail.txt" ;;
+                  "versions -f json") cat "$d/versions.json" ;;
+                  *) echo "stub: unexpected ceph args: $*" >&2; exit 2 ;;
+                esac
+            - name: pveversion
+              body: |
+                #!/bin/sh
+                cat "$(dirname "$0")/pveversion.txt"
+            - name: pvecm
+              body: |
+                #!/bin/sh
+                cat "$(dirname "$0")/pvecm.txt"
+            - name: rbd
+              body: |
+                #!/bin/sh
+                cat "$(dirname "$0")/rbd-ls.json"
+            - name: pvesh
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "pvesh $*" >> "$d/calls.log"
+                case "$*" in
+                  *"/storage"*) cat "$d/storage.json" ;;
+                  *"/cluster/resources"*) cat "$d/resources.json" ;;
+                  *"/cluster/ha/status/current"*) cat "$d/ha.json" ;;
+                  *"/qemu/200/migrate"*) cat "$d/migrate-blocked.json" ;;
+                  *"/migrate"*) cat "$d/migrate-ok.json" ;;
+                  *) echo "stub: unexpected pvesh args: $*" >&2; exit 2 ;;
+                esac
+            - name: helper
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "helper $*" >> "$d/calls.log"
+                # The real helper refuses to evaluate the confirm flags without --apply.
+                # Message copied from the live stage-3 failure, 2026-09-10. Without this
+                # the stub was more permissive than the thing it stands in for, and the
+                # suite passed while the role could not run its own last phase.
+                case " $* " in
+                  *" --confirm-all-clients-refreshed "*|*" --confirm-clients-refreshed "*|*" --abort-staged-key "*|*" --confirm-abort-clients-refreshed "*)
+                    case " $* " in
+                      *" --apply "*) ;;
+                      *) echo "FAIL: '--confirm-all-clients-refreshed' changes what the next run may do, so it needs '--apply'"; exit 1 ;;
+                    esac ;;
+                esac
+                cat "$d/helper-out.txt"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Seed the cluster as found on 2026-09-10
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_tentacle }}\n" }
+            - { name: pveversion.txt, body: "{{ _pveversion_ok }}" }
+            - { name: pvecm.txt, body: "{{ _pvecm_quorate }}" }
+            - { name: health.json, body: "{{ _health_err }}\n" }
+            - { name: health-detail.txt, body: "{{ _health_detail }}\n" }
+            - { name: versions.json, body: "{{ _versions_done }}\n" }
+            - { name: storage.json, body: "{{ _storage }}\n" }
+            - { name: rbd-ls.json, body: "{{ _rbd_ls }}\n" }
+            - { name: resources.json, body: "{{ _resources }}\n" }
+            - { name: ha.json, body: "{{ _ha_status }}\n" }
+            - { name: migrate-ok.json, body: "{{ _migrate_ok }}\n" }
+            - { name: migrate-blocked.json, body: "{{ _migrate_blocked }}\n" }
+            - { name: helper-out.txt, body: "{{ _helper_ready }}" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ---------- 1. node preflight on the cluster as it is ----------
+        - name: Node preflight passes on today's versions
+          vars:
+            pve_ceph_release: "tentacle"
+            pve_cephx_migration_kernel: "7.0.14-15-pve"
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: preflight_node
+
+        # ---------- 2. an old pve-manager is refused ----------
+        - name: Seed pve-manager 9.2.11, the version before the helper shipped
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/pveversion.txt", content: "{{ _pveversion_old_pve }}", mode: "0644" }
+
+        - name: pve-manager below the documented minimum
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: "tentacle"
+                pve_cephx_migration_kernel: "7.0.14-15-pve"
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: preflight_node
+            - name: Old pve-manager should not have passed
+              ansible.builtin.fail: { msg: "preflight accepted pve-manager 9.2.11" }
+          rescue:
+            - name: Refused naming the minimum
+              ansible.builtin.assert:
+                that: ["'needs >= 9.2.17' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 3. a ceph package too old to stage a client key is refused ----------
+        - name: Seed ceph 20.2.4-pve2, one build below the staging minimum
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/pveversion.txt", content: "{{ _pveversion_old_ceph }}", mode: "0644" }
+
+        - name: Ceph package below the staging minimum
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: "tentacle"
+                pve_cephx_migration_kernel: "7.0.14-15-pve"
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: preflight_node
+            - name: 20.2.4-pve2 should not have passed
+              ansible.builtin.fail: { msg: "preflight accepted ceph 20.2.4-pve2" }
+          rescue:
+            - name: Refused naming the package minimum
+              ansible.builtin.assert:
+                that: ["'needs >= 20.2.4-pve3' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore pveversion
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/pveversion.txt", content: "{{ _pveversion_ok }}", mode: "0644" }
+
+        # ---------- 4. a pre-7.0 kernel is refused ----------
+        - name: Kernel below 7.0
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: "tentacle"
+                pve_cephx_migration_kernel: "6.14.11-4-pve"
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: preflight_node
+            - name: A 6.x kernel should not have passed
+              ansible.builtin.fail: { msg: "preflight accepted kernel 6.14.11-4-pve" }
+          rescue:
+            - name: Refused naming the kernel minimum
+              ansible.builtin.assert:
+                that: ["'need >= 7.0' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 5. a missing helper is refused ----------
+        - name: Missing helper
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: "tentacle"
+                pve_cephx_migration_kernel: "7.0.14-15-pve"
+                pve_cephx_migration_helper_command: "{{ _tmp.path }}/not-here"
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: preflight_node
+            - name: A missing helper should not have passed
+              ansible.builtin.fail: { msg: "preflight accepted a missing helper" }
+          rescue:
+            - name: Refused naming the path
+              ansible.builtin.assert:
+                that: ["'is missing or not executable' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 6. a non-executable helper is refused ----------
+        - name: Seed a non-executable helper
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/helper-noexec", content: "#!/bin/sh\n", mode: "0644" }
+
+        - name: Non-executable helper
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: "tentacle"
+                pve_cephx_migration_kernel: "7.0.14-15-pve"
+                pve_cephx_migration_helper_command: "{{ _tmp.path }}/helper-noexec"
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: preflight_node
+            - name: A non-executable helper should not have passed
+              ansible.builtin.fail: { msg: "preflight accepted a non-executable helper" }
+          rescue:
+            - name: Refused on the mode
+              ansible.builtin.assert:
+                that: ["'is missing or not executable' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 7. the health gate accepts today's HEALTH_ERR ----------
+        - name: HEALTH_ERR with exactly the six AUTH_* checks passes
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: assert_health
+
+        # ---------- 8. a third ERR check is refused ----------
+        - name: Seed a HEALTH_ERR carrying PG_DEGRADED
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/health.json", content: "{{ _health_err_extra }}\n", mode: "0644" }
+
+        - name: An ERR check outside the AUTH_* set
+          block:
+            - name: Should be refused
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: assert_health
+            - name: PG_DEGRADED should not have passed
+              ansible.builtin.fail: { msg: "health gate accepted PG_DEGRADED" }
+          rescue:
+            - name: Refused naming the check
+              ansible.builtin.assert:
+                that: ["'PG_DEGRADED' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 9. the post-stage-1 state passes ----------
+        - name: Seed the health left after stage 1
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/health.json", content: "{{ _health_after_stage1 }}\n", mode: "0644" }
+
+        - name: HEALTH_WARN with the four remaining AUTH_* checks passes
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: assert_health
+
+        # ---------- 10. assert_checks_cleared ----------
+        - name: The two ERR checks are seen as cleared after stage 1
+          vars:
+            pve_cephx_migration_cleared_checks: ["AUTH_INSECURE_SERVICE_KEY_TYPE", "AUTH_INSECURE_SERVICE_TICKETS"]
+            pve_cephx_migration_apply: true
+            pve_cephx_migration_wait_retries: 1
+            pve_cephx_migration_wait_delay: 0
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: assert_checks_cleared
+
+        - name: A check that is still present
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_cleared_checks: ["AUTH_INSECURE_KEYS_ALLOWED"]
+                pve_cephx_migration_apply: true
+                pve_cephx_migration_wait_retries: 1
+                pve_cephx_migration_wait_delay: 0
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: assert_checks_cleared
+            - name: A present check should not have passed
+              ansible.builtin.fail: { msg: "assert_checks_cleared passed with the check still present" }
+          rescue:
+            # The discriminator is that the *guard* failed, not the sentinel below it.
+            # `ansible_failed_result is defined` alone would pass either way, which
+            # would make this case decorative.
+            - name: Refused while the check is present
+              vars:
+                _sentinel: "assert_checks_cleared passed with the check still present"
+                _msg: "{{ ansible_failed_result.msg | default('') }}"
+              ansible.builtin.assert:
+                that:
+                  - _sentinel not in _msg
+                fail_msg: "the wait accepted a check that is still present"
+                success_msg: "still-present check correctly refused"
+
+        # The apply gate: with nothing applied there is nothing to verify, so a check
+        # that is still present must not fail the run. This gate lives in the role
+        # because a dynamic include_role does not put role defaults in scope for a
+        # playbook-level `when:` — putting it there failed the first live stage-1 dry
+        # run with "'pve_cephx_migration_apply' is undefined" (2026-09-10).
+        - name: A dry run does not wait for anything to clear
+          vars:
+            pve_cephx_migration_cleared_checks: ["AUTH_INSECURE_KEYS_ALLOWED"]
+            pve_cephx_migration_apply: false
+            pve_cephx_migration_wait_retries: 1
+            pve_cephx_migration_wait_delay: 0
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: assert_checks_cleared
+
+        # ---------- 11. version gate ----------
+        - name: Every daemon on one release passes
+          vars:
+            pve_cephx_migration_versions_types: ["mon", "mgr", "osd", "mds"]
+            pve_cephx_migration_versions_allowed: ["tentacle"]
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: assert_versions
+
+        - name: Seed a cluster mid-rolling-restart
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/versions.json", content: "{{ _versions_mixed }}\n", mode: "0644" }
+
+        - name: A daemon still on the old release
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_versions_types: ["mon", "mgr", "osd", "mds"]
+                pve_cephx_migration_versions_allowed: ["tentacle"]
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: assert_versions
+            - name: A squid mon should not have passed
+              ansible.builtin.fail: { msg: "version gate accepted a squid mon" }
+          rescue:
+            - name: Refused naming the straggler
+              ansible.builtin.assert:
+                that: ["'squid' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Seed a cluster whose MDS type reports nothing
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/versions.json", content: "{{ _versions_no_mds }}\n", mode: "0644" }
+
+        - name: A daemon type that has gone silent
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_versions_types: ["mon", "mgr", "osd", "mds"]
+                pve_cephx_migration_versions_allowed: ["tentacle"]
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: assert_versions
+            - name: A silent MDS should not have passed vacuously
+              ansible.builtin.fail: { msg: "version gate passed with no mds reporting" }
+          rescue:
+            - name: Refused naming the missing type
+              ansible.builtin.assert:
+                that: ["'mds' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Restore the finished version picture
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/versions.json", content: "{{ _versions_done }}\n", mode: "0644" }
+
+        # ---------- 12. run_helper never applies unless told to ----------
+        - name: Reset the call log
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/calls.log", content: "", mode: "0644" }
+
+        - name: A dry run does not apply
+          vars:
+            pve_cephx_migration_args: ["--rotate-cluster-keys"]
+            pve_cephx_migration_apply: false
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: run_helper
+
+        - name: Read the call log after the dry run
+          ansible.builtin.slurp: { src: "{{ _tmp.path }}/calls.log" }
+          register: _log_dry
+
+        - name: The helper was called once, without --apply
+          vars:
+            _lines: "{{ (_log_dry.content | b64decode).splitlines() | select('search', '^helper ') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 1
+              - "'--apply' not in _lines[0]"
+              - "'--rotate-cluster-keys' in _lines[0]"
+            fail_msg: "dry run called the helper as: {{ _lines }}"
+            success_msg: "{{ _lines }}"
+
+        # ---------- 13. an apply always carries --assume-yes ----------
+        - name: Reset the call log
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/calls.log", content: "", mode: "0644" }
+
+        - name: An apply run
+          vars:
+            pve_cephx_migration_args: ["--rotate-cluster-keys"]
+            pve_cephx_migration_apply: true
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: run_helper
+
+        - name: Read the call log after the apply
+          ansible.builtin.slurp: { src: "{{ _tmp.path }}/calls.log" }
+          register: _log_apply
+
+        - name: The apply paired --apply with --assume-yes, and never passed --force
+          vars:
+            _lines: "{{ (_log_apply.content | b64decode).splitlines() | select('search', '^helper ') | list }}"
+            _applied: "{{ _lines | select('search', '--apply') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 2
+              - _applied | length == 1
+              - "'--assume-yes' in _applied[0]"
+              - _lines | select('search', '--force') | list | length == 0
+            fail_msg: >-
+              An --apply without --assume-yes hangs with no TTY. Calls were: {{ _lines }}
+            success_msg: "{{ _lines }}"
+
+        # ---------- 13b. the blocker check works when calibrated ----------
+        # The default is [], so this path is dormant in production. A dormant mechanism
+        # that has never been shown to fire is a comment, not a safeguard — this case
+        # gives it one real pattern and checks it stops the run.
+        - name: A calibrated blocker pattern
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_args: ["--rotate-cluster-keys"]
+                pve_cephx_migration_apply: true
+                pve_cephx_migration_blocker_patterns: ["every open rotation is ready"]
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: run_helper
+            - name: A matched blocker should not have passed
+              ansible.builtin.fail: { msg: "run_helper applied despite a matching blocker pattern" }
+          rescue:
+            - name: Refused naming the matched pattern
+              ansible.builtin.assert:
+                that:
+                  - "'reports a blocker' in ansible_failed_result.msg"
+                  - "'every open rotation is ready' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: The blocker check is skipped when no pattern is configured
+          vars:
+            pve_cephx_migration_args: ["--rotate-cluster-keys"]
+            pve_cephx_migration_apply: false
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: run_helper
+
+        # ---------- 14. --force cannot be smuggled in ----------
+        - name: --force in the caller's arguments
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_args: ["--restrict-ciphers", "--force"]
+                pve_cephx_migration_apply: true
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: run_helper
+            - name: --force should not have passed
+              ansible.builtin.fail: { msg: "run_helper accepted --force" }
+          rescue:
+            - name: Refused naming what --force would do
+              ansible.builtin.assert:
+                that: ["'not available through this role' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 15. an empty selection is refused ----------
+        - name: No selection at all
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_args: []
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: run_helper
+            - name: An empty selection should not have passed
+              ansible.builtin.fail: { msg: "run_helper ran the helper with no options" }
+          rescue:
+            - name: Refused, pointing at status.yaml
+              ansible.builtin.assert:
+                that: ["'status.yaml' in ansible_failed_result.msg"]
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 16. the refresh plan is derived, not guessed ----------
+        - name: Reset the call log
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/calls.log", content: "", mode: "0644" }
+
+        - name: Derive the refresh plan without acting
+          vars:
+            pve_cephx_migration_apply: false
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: refresh_clients
+
+        - name: The plan classifies every guest the way the live cluster does
+          ansible.builtin.assert:
+            that:
+              # The external-cluster rbd storage is excluded on its monhost key.
+              - pve_cephx_migration_rbd_pools == ['pve_pool']
+              # rbd_header.junk is not a guest disk; base-/vm- prefixes both count.
+              - pve_cephx_migration_ceph_vmids == [102, 103, 110, 120, 150, 203, 1000, 1001]
+              # A running container on RBD: separated out rather than sent to the
+              # /qemu/<id>/migrate query, which would 404 and fail the whole phase.
+              - pve_cephx_migration_non_qemu_on_ceph | map(attribute='vmid') | list == [150]
+              # Stopped guests and templates hold no key. 200 is running but has no
+              # image in the pool, so it is not here at all.
+              - pve_cephx_migration_refresh_rows | map(attribute='vmid') | sort == [102, 103, 110, 203]
+              - pve_cephx_migration_refresh_ha_nodes == ['vm-host-01']
+              - pve_cephx_migration_refresh_migrate | map(attribute='vmid') | list == [203]
+              - pve_cephx_migration_refresh_blocked | length == 0
+            fail_msg: >-
+              rows={{ pve_cephx_migration_refresh_rows }}
+              ha_nodes={{ pve_cephx_migration_refresh_ha_nodes }}
+              migrate={{ pve_cephx_migration_refresh_migrate }}
+              blocked={{ pve_cephx_migration_refresh_blocked }}
+            success_msg: "ha={{ pve_cephx_migration_refresh_ha_nodes }} migrate={{ pve_cephx_migration_refresh_migrate | map(attribute='vmid') | list }}"
+
+        - name: Read the call log after the refresh dry run
+          ansible.builtin.slurp: { src: "{{ _tmp.path }}/calls.log" }
+          register: _log_refresh
+
+        # Every call a dry run makes must be a read. Asserting on the *shape* of the
+        # log rather than on the absence of the word "migrate": the feasibility query
+        # is `pvesh get /nodes/<n>/qemu/<id>/migrate`, so a naive substring check for
+        # "migrate" flags the read-only call that decides whether a guest can move.
+        - name: Every call the dry run made was a read
+          vars:
+            _lines: "{{ (_log_refresh.content | b64decode).splitlines() | select | list }}"
+            _writes: "{{ _lines | reject('search', '^pvesh get ') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length > 0
+              - _writes | length == 0
+            fail_msg: "a dry run issued something other than `pvesh get`: {{ _writes }}"
+            success_msg: "{{ _lines | length }} calls, all `pvesh get`"
+
+        # ---------- 17. a guest PVE will not migrate is reported, not attempted ----------
+        - name: Seed a cluster where the non-HA guest cannot be migrated
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/migrate-ok.json", content: "{{ _migrate_blocked }}\n", mode: "0644" }
+
+        - name: Derive the plan again
+          vars:
+            pve_cephx_migration_apply: false
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: refresh_clients
+
+        - name: The unmigratable guest is listed as needing a hand stop/start
+          ansible.builtin.assert:
+            that:
+              - pve_cephx_migration_refresh_blocked | map(attribute='vmid') | list == [203]
+              - pve_cephx_migration_refresh_migrate | length == 0
+            fail_msg: "blocked={{ pve_cephx_migration_refresh_blocked }} migrate={{ pve_cephx_migration_refresh_migrate }}"
+            success_msg: "203 correctly reported as needing a stop/start"
+
+        - name: Restore the migratable answer
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/migrate-ok.json", content: "{{ _migrate_ok }}\n", mode: "0644" }
+
+        # ---------- 18. the final step refuses until the helper offers it ----------
+        - name: Seed a helper that is not ready to restrict
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/helper-out.txt", content: "{{ _helper_not_ready }}", mode: "0644" }
+
+        - name: A cluster that is not ready
+          block:
+            - name: Should be refused
+              vars:
+                pve_cephx_migration_apply: true
+              ansible.builtin.include_role:
+                name: pve_cephx_migration
+                tasks_from: confirm_and_restrict
+            - name: An unready cluster should not have been restricted
+              ansible.builtin.fail: { msg: "confirm_and_restrict proceeded while the helper said no" }
+          rescue:
+            - name: Refused, and said not to use --force
+              ansible.builtin.assert:
+                that:
+                  - "'--restrict-ciphers' in ansible_failed_result.msg"
+                  - "'Do NOT pass --force' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: Seed a helper that is offering the confirmation
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/helper-out.txt", content: "{{ _helper_ready }}", mode: "0644" }
+
+        - name: Reset the call log
+          ansible.builtin.copy: { dest: "{{ _tmp.path }}/calls.log", content: "", mode: "0644" }
+
+        - name: A ready cluster is confirmed and restricted
+          vars:
+            pve_cephx_migration_apply: true
+          ansible.builtin.include_role:
+            name: pve_cephx_migration
+            tasks_from: confirm_and_restrict
+
+        - name: Read the call log after the confirm
+          ansible.builtin.slurp: { src: "{{ _tmp.path }}/calls.log" }
+          register: _log_confirm
+
+        - name: The exact documented command was run, with --assume-yes and no --force
+          vars:
+            _applied: "{{ (_log_confirm.content | b64decode).splitlines() | select('search', '^helper .*--apply') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _applied | length == 1
+              - "'--confirm-all-clients-refreshed' in _applied[0]"
+              - "'--restrict-ciphers' in _applied[0]"
+              - "'--assume-yes' in _applied[0]"
+              - "'--force' not in _applied[0]"
+            fail_msg: "confirm ran: {{ _applied }}"
+            success_msg: "{{ _applied }}"
+
+        - name: The confirm made exactly one helper call, with no dry run of the confirm flags
+          vars:
+            _calls: "{{ (_log_confirm.content | b64decode).splitlines() | select('search', '^helper ') | list }}"
+            _dry: "{{ _calls | select('search', 'confirm-all-clients-refreshed') | reject('search', '--apply') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _dry | length == 0
+            fail_msg: >-
+              The confirm flags were passed without --apply. The helper refuses that
+              ("changes what the next run may do, so it needs '--apply'"), so this is a
+              guaranteed failure, not a safe rehearsal. Calls: {{ _calls }}
+            success_msg: "no dry run of the confirm flags; calls were {{ _calls }}"
+
+        # ---------- 19. the playbook's one-phase guard ----------
+        # CAVEAT, stated because it matters: this is a COPY of the expression in
+        # playbook-prod-proxmox-cluster-cephx-migration.yaml, not a call into it — the
+        # guard is a playbook task and there is no way to exercise it from here without
+        # the vaulted group_vars. It pins the logic, and it can drift from the playbook.
+        # If you change the guard, change it in both places.
+        # `ansible_run_tags` values were measured against ansible-core 2.21.3: a bare
+        # run gives ['all'], `--tags stage1` gives ['stage1'].
+        - name: The one-phase guard admits exactly one phase
+          vars:
+            _phases: [stage1, stage2, refresh, stage3, status]
+            _t: "{{ item.tags }}"
+            _pass: >-
+              {{ ('all' not in _t)
+                 and (_t | difference(_phases) | length == 0)
+                 and (_t | intersect(_phases) | length == 1) }}
+            _verdict: "{{ 'allow' if (_pass | bool) else 'refuse' }}"
+          ansible.builtin.assert:
+            that: ["_verdict == item.expect"]
+            fail_msg: "{{ item.name }}: guard said {{ _verdict }}, expected {{ item.expect }}"
+            success_msg: "{{ item.name }} -> {{ _verdict }}"
+          loop:
+            - {name: "a bare run, which Ansible reports as ['all']", tags: ["all"], expect: refuse}
+            - {name: "--tags stage1", tags: ["stage1"], expect: allow}
+            - {name: "--tags stage3", tags: ["stage3"], expect: allow}
+            - {name: "--tags status", tags: ["status"], expect: allow}
+            - {name: "--tags stage1,stage3", tags: ["stage1", "stage3"], expect: refuse}
+            - {name: "a mistyped phase", tags: ["stgae1"], expect: refuse}
+          loop_control:
+            label: "{{ item.name }} -> expect {{ item.expect }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file: { path: "{{ _tmp.path }}", state: absent }

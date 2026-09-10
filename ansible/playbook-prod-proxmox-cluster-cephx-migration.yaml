@@ -1,0 +1,191 @@
+---
+# Migrate the prod cluster's cephx keys from the `aes` cipher to `aes256k`, following
+# the Proxmox procedure at pveceph_cephx_migration (read 2026-09-10) — the helper
+# `pve-cephx-rotate-service-keys` does the work; this playbook supplies the gates.
+#
+# ONE PHASE PER RUN. There is deliberately no tag that runs the whole migration: the
+# last phase is irreversible, and the phases in between need a human to read a plan and
+# refresh clients. A run with no --tags is refused.
+#
+#   cd ansible
+#   # each phase: read the plan first, then carry it out
+#   .venv/bin/ansible-playbook playbook-prod-proxmox-cluster-cephx-migration.yaml --tags stage1
+#   .venv/bin/ansible-playbook playbook-prod-proxmox-cluster-cephx-migration.yaml --tags stage1 \
+#     -e pve_cephx_migration_apply=true
+#
+# Phases, in order: stage1 → stage2 → refresh → stage3. `status` reports where the
+# migration is and changes nothing. Keep `watch ceph -s` open on a node throughout.
+#
+# See roles/pve_cephx_migration/README.md for what each phase does and how to recover.
+- name: Migrate cephx keys to aes256k
+  hosts: prod_proxmox_cluster
+  become: true
+
+  tasks:
+    # ---------- Guard ----------
+    # `always` so it runs whichever phase was asked for. Without this, a bare
+    # ansible-playbook with no --tags would run every phase including the
+    # irreversible one.
+    - name: Refuse a run that did not name exactly one phase
+      tags: always
+      run_once: true
+      vars:
+        _phases: [stage1, stage2, refresh, stage3, status]
+      ansible.builtin.assert:
+        that:
+          - "'all' not in ansible_run_tags"
+          - ansible_run_tags | difference(_phases) | length == 0
+          - ansible_run_tags | intersect(_phases) | length == 1
+        fail_msg: >-
+          Run one phase at a time: --tags {{ _phases | join(' | ') }}.
+          Got {{ ansible_run_tags }}. The phases are not a pipeline you can run in one
+          go — stage2 stages a key that every client must be refreshed onto before
+          stage3 retires the old one, and stage3 cannot be undone.
+        quiet: true
+
+    # ---------- Preflight, every phase, every node ----------
+    # `always` + `apply:` — verified 2026-09-10 that a dynamic include's untagged
+    # children are filtered out unless `apply:` restates the tag, so without it these
+    # tasks would silently not run while the include still appeared in the output.
+    - name: Check this node
+      tags: always
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: preflight_node
+        apply:
+          tags: always
+
+    - name: Check the cluster (designated runner)
+      tags: always
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: preflight_cluster
+        apply:
+          tags: always
+
+    # ---------- status ----------
+    - name: Report where the migration is (designated runner)
+      tags: status
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: status
+        apply:
+          tags: status
+
+    # ---------- stage 1: the cluster-owned keys ----------
+    # Rotates mgr, mds and OSD keys plus the cluster-owned monitor, bootstrap, crash
+    # and encrypted-OSD-lockbox keys. Monitors restart one at a time. Storage-user keys
+    # and client.admin are untouched, existing tickets stay valid, the old cipher stays
+    # enabled — so nothing has to be refreshed for this phase.
+    #
+    # If the dry run's plan does not name all six client.bootstrap-* keys and
+    # client.crash, add --rotate-client-keys:
+    #   -e '{"pve_cephx_migration_stage1_args": ["--rotate-cluster-keys", "--rotate-client-keys"]}'
+    # The docs say --rotate-cluster-keys covers them; `--help` describes a separate
+    # option for the same set. The dry run settles it — see the role README.
+    - name: Rotate the cluster-owned keys (designated runner)
+      tags: stage1
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_cephx_migration_args: "{{ pve_cephx_migration_stage1_args | default(['--rotate-cluster-keys']) }}"
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: run_helper
+        apply:
+          tags: stage1
+
+    # Both error-severity checks. This is the phase that takes the cluster out of
+    # HEALTH_ERR; AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE is NOT waited for here, since
+    # the docs say those keys expire on their own over the following hours.
+    - name: Wait for the error-severity checks to clear (designated runner)
+      tags: stage1
+      # The apply gate is inside assert_checks_cleared.yaml, not here: a dynamic
+      # include_role does not put role defaults in scope for a playbook-level `when:`.
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        # No `| default(...)` needed: an include's `vars:` are templated lazily, inside
+        # the include, where the role's defaults ARE in scope. Only `when:` is evaluated
+        # in playbook scope. Verified by running this phase 2026-09-10.
+        pve_cephx_migration_cleared_checks: "{{ pve_cephx_migration_allowed_error_checks }}"
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: assert_checks_cleared
+        apply:
+          tags: stage1
+
+    # ---------- stage 2: stage the client keys ----------
+    # --rotate-all-storage-keys covers dedicated users of managed local RBD and CephFS
+    # storages; on this cluster both storages authenticate as client.admin and have no
+    # dedicated user, so it is expected to be a no-op — passing it anyway is what
+    # proves that rather than assuming it. --rotate-admin-key stages client.admin and
+    # rewrites the managed copies under /etc/pve/priv.
+    #
+    # Both keys stay valid after this. AUTH_INSECURE_CLIENT_KEY_TYPE deliberately stays
+    # until stage3 confirms — that is the staging working, not a failure.
+    - name: Stage the storage and admin keys (designated runner)
+      tags: stage2
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_cephx_migration_args:
+          - --rotate-all-storage-keys
+          - --rotate-admin-key
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: run_helper
+        apply:
+          tags: stage2
+
+    # ---------- refresh: move every client onto the staged key ----------
+    # Runs from the runner; `qm migrate` is delegated to the node holding each guest.
+    # The helper handles idle CephFS mounts itself, so they are not listed here.
+    - name: Refresh the clients holding the old key (designated runner)
+      tags: refresh
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: refresh_clients
+        apply:
+          tags: refresh
+
+    - name: Report what the helper still sees (designated runner)
+      tags: refresh
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: status
+        apply:
+          tags: refresh
+
+    # ---------- stage 3: confirm and restrict ----------
+    # IRREVERSIBLE. Retires every staged key and stops the monitors accepting `aes`.
+    # A client still holding an old key or needing the old cipher cannot authenticate
+    # afterwards; existing IO can appear to work until it reconnects, then fail.
+    - name: Confirm the staged keys and restrict to aes256k (designated runner)
+      tags: stage3
+      when: inventory_hostname == pve_cluster_designated_runner
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: confirm_and_restrict
+        apply:
+          tags: stage3
+
+    # The three checks this phase owns. AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE is
+    # excluded on purpose: the docs state it does not prevent cipher restriction, and
+    # it expires hours after stage 1 — so demanding HEALTH_OK here would fail a run
+    # that had in fact succeeded.
+    - name: Wait for the remaining insecure-key checks to clear (designated runner)
+      tags: stage3
+      # As above: the apply gate lives in the role, not in this `when:`.
+      when: inventory_hostname == pve_cluster_designated_runner
+      vars:
+        pve_cephx_migration_cleared_checks:
+          - AUTH_INSECURE_CLIENT_KEY_TYPE
+          - AUTH_INSECURE_KEYS_ALLOWED
+          - AUTH_INSECURE_KEYS_CREATABLE
+      ansible.builtin.include_role:
+        name: pve_cephx_migration
+        tasks_from: assert_checks_cleared
+        apply:
+          tags: stage3

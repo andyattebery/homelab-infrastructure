@@ -1,0 +1,46 @@
+---
+# Refresh one guest HA does not manage, by live-migrating it away and back. Included
+# per guest from refresh_clients.yaml; the guest is pve_cephx_migration_guest, whose
+# `targets` came from PVE's own /nodes/<node>/qemu/<vmid>/migrate answer.
+#
+# `qm migrate` runs on the source node, so each call is delegated to the node that
+# holds the guest at that moment — which is the original node for the first call and
+# the target for the second.
+- name: Migrate {{ pve_cephx_migration_guest.vmid }} ({{ pve_cephx_migration_guest.name }}) to {{ pve_cephx_migration_guest.targets | first }}
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_qm_command }}"
+      - migrate
+      - "{{ pve_cephx_migration_guest.vmid }}"
+      - "{{ pve_cephx_migration_guest.targets | first }}"
+      - --online
+  delegate_to: "{{ pve_cephx_migration_guest.node }}"
+  changed_when: true
+
+- name: Migrate {{ pve_cephx_migration_guest.vmid }} back to {{ pve_cephx_migration_guest.node }}
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_qm_command }}"
+      - migrate
+      - "{{ pve_cephx_migration_guest.vmid }}"
+      - "{{ pve_cephx_migration_guest.node }}"
+      - --online
+  delegate_to: "{{ pve_cephx_migration_guest.targets | first }}"
+  changed_when: true
+
+- name: Confirm {{ pve_cephx_migration_guest.vmid }} is running on {{ pve_cephx_migration_guest.node }} again
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_pvesh_command }}", get, /cluster/resources, --type, vm, --output-format, json]
+  register: pve_cephx_migration_guest_home
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _row: >-
+      {{ (pve_cephx_migration_guest_home.stdout | from_json)
+         | selectattr('vmid', 'eq', pve_cephx_migration_guest.vmid) | first | default({}) }}
+    _ok: >-
+      {{ _row.node | default('') == pve_cephx_migration_guest.node
+         and _row.status | default('') == 'running' }}
+  retries: "{{ pve_cephx_migration_migrate_retries }}"
+  delay: "{{ pve_cephx_migration_migrate_delay }}"

@@ -1,0 +1,41 @@
+---
+# Wait for a named set of health checks to be gone. This is the role's real
+# post-condition: the helper reports what it did, but only Ceph's own health output
+# says whether it worked.
+#
+# Input: pve_cephx_migration_cleared_checks — the check names that must be absent.
+# Health takes a mgr tick to settle, and stage 1 restarts the mgr, so this retries.
+#
+# Skipped entirely unless pve_cephx_migration_apply is true: this verifies the effect of
+# a change, so with nothing applied there is nothing to verify and the checks are of
+# course still present. The gate lives HERE rather than on the playbook's include
+# because a dynamic `include_role` does not put the role's defaults in scope for a
+# playbook-level `when:` — only `import_role` does. Putting it there failed the stage-1
+# dry run on 2026-09-10 with "'pve_cephx_migration_apply' is undefined".
+- name: Assert the caller named the checks to wait for
+  when: pve_cephx_migration_apply | bool
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_cleared_checks is defined
+      - pve_cephx_migration_cleared_checks | length > 0
+    fail_msg: "assert_checks_cleared.yaml needs pve_cephx_migration_cleared_checks."
+    quiet: true
+
+- name: Wait for {{ pve_cephx_migration_cleared_checks | join(', ') }} to clear
+  when: pve_cephx_migration_apply | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ceph_command }}"
+      - health
+      - -f
+      - json
+  register: pve_cephx_migration_cleared_probe
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _present: "{{ (pve_cephx_migration_cleared_probe.stdout | from_json).checks | default({}) | list }}"
+    _still: "{{ pve_cephx_migration_cleared_checks | select('in', _present) | list }}"
+    _ok: "{{ _still | length == 0 }}"
+  retries: "{{ pve_cephx_migration_wait_retries }}"
+  delay: "{{ pve_cephx_migration_wait_delay }}"

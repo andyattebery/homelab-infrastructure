@@ -1,0 +1,97 @@
+---
+# Per-node prerequisites, from the Proxmox docs' "Before You Begin". Runs on every
+# node in every phase, before anything is asked of the helper. Read-only.
+- name: Read pveversion
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_pveversion_command }}"
+      - -v
+  register: pve_cephx_migration_pveversion
+  changed_when: false
+
+# `pve-manager: 9.2.18 (running version: 9.2.18/614bede5d65599c6)`
+- name: Assert pve-manager ships the migration helper
+  vars:
+    _pve_manager: >-
+      {{ pve_cephx_migration_pveversion.stdout
+         | regex_search('(?m)^pve-manager: ([0-9][0-9.]*)', '\1') | default([''], true) | first }}
+  ansible.builtin.assert:
+    that:
+      - _pve_manager | length > 0
+      - _pve_manager is version(pve_cephx_migration_min_pve_manager, '>=')
+    fail_msg: >-
+      pve-manager is '{{ _pve_manager }}' on {{ inventory_hostname }}; the cephx key
+      migration needs >= {{ pve_cephx_migration_min_pve_manager }}. Upgrade PVE on
+      every node first, then complete the rolling restart of all Ceph services.
+    quiet: true
+
+# `ceph: 20.2.4-pve4`. The package build, not the codename — the -pveN suffix is what
+# carries staged client-key rotation, so the codename alone cannot answer this.
+- name: Assert the Ceph package supports staged client-key rotation
+  vars:
+    _ceph_pkg: >-
+      {{ pve_cephx_migration_pveversion.stdout
+         | regex_search('(?m)^ceph: ([0-9][0-9a-zA-Z.\-+~]*)', '\1') | default([''], true) | first }}
+  ansible.builtin.assert:
+    that:
+      - _ceph_pkg | length > 0
+      - _ceph_pkg is version(pve_cephx_migration_min_ceph_package, '>=')
+    fail_msg: >-
+      ceph package is '{{ _ceph_pkg }}' on {{ inventory_hostname }}; staging a client
+      key with both credentials valid needs >= {{ pve_cephx_migration_min_ceph_package }}
+      on every monitor, followed by a restart of every monitor.
+    quiet: true
+
+- name: Read the installed Ceph release
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_cephx_migration_ceph_command }}"
+      - -v
+  register: pve_cephx_migration_ceph_v
+  changed_when: false
+
+# "ceph version 20.2.4 (<sha>) tentacle (stable)" — the codename is the fifth word.
+# Guards against running this against a cluster the repo does not think it manages.
+- name: Assert the installed release is the cluster's declared release
+  vars:
+    _words: "{{ pve_cephx_migration_ceph_v.stdout.split() }}"
+    _release: "{{ _words[4] if (_words | length >= 5 and _words[0:2] == ['ceph', 'version']) else '' }}"
+  ansible.builtin.assert:
+    that:
+      - pve_ceph_release is defined
+      - _release == pve_ceph_release
+    fail_msg: >-
+      {{ inventory_hostname }} runs '{{ _release }}' ({{ pve_cephx_migration_ceph_v.stdout }});
+      pve_ceph_release (group_vars) says '{{ pve_ceph_release | default('<undefined>') }}'.
+    quiet: true
+
+# Kernel CephFS and krbd clients need >= 7.0 for aes256k. This is the *running*
+# kernel, not the installed one: a node with a newer kernel on disk and an old one
+# booted still has old kernel clients holding keys.
+- name: Assert the running kernel supports aes256k for kernel clients
+  vars:
+    _kernel: "{{ pve_cephx_migration_kernel }}"
+  ansible.builtin.assert:
+    that:
+      - _kernel is version(pve_cephx_migration_min_kernel, '>=')
+    fail_msg: >-
+      {{ inventory_hostname }} is running kernel '{{ _kernel }}'; kernel CephFS and rbd
+      clients need >= {{ pve_cephx_migration_min_kernel }} to use aes256k. Reboot into a
+      newer kernel before staging any client key.
+    quiet: true
+
+- name: Stat the migration helper
+  ansible.builtin.stat:
+    path: "{{ pve_cephx_migration_helper_command }}"
+  register: pve_cephx_migration_helper_stat
+
+- name: Assert the migration helper is present and executable
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_helper_stat.stat.exists
+      - pve_cephx_migration_helper_stat.stat.executable | default(false)
+    fail_msg: >-
+      {{ pve_cephx_migration_helper_command }} is missing or not executable on
+      {{ inventory_hostname }}. It ships with pve-manager
+      >= {{ pve_cephx_migration_min_pve_manager }}.
+    quiet: true

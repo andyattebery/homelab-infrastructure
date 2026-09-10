@@ -1,0 +1,88 @@
+---
+# The single point at which pve-cephx-rotate-service-keys is invoked. Every phase goes
+# through here so the dry-run-then-apply discipline cannot be skipped by one caller.
+#
+# Inputs:
+#   pve_cephx_migration_args   — required, the phase's options (e.g. ['--rotate-cluster-keys'])
+#   pve_cephx_migration_apply  — false: dry run only. true: dry run, then the same
+#                                selection with --apply --assume-yes
+#   pve_cephx_migration_dry_run_first — false skips the dry run, for a selection the
+#                                helper refuses to evaluate without --apply
+#
+# Two things this encodes that are easy to get wrong by hand:
+#   * --apply is ALWAYS paired with --assume-yes. The helper's own --help: "'--apply'
+#     needs this when standard input is not a terminal." Ansible has no TTY.
+#   * --force is never constructed here and has no variable. It is the documented way
+#     to override the blocker that stops --restrict-ciphers cutting off a live client.
+- name: Assert the caller named a selection
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_args is defined
+      - pve_cephx_migration_args | length > 0
+    fail_msg: >-
+      run_helper.yaml needs pve_cephx_migration_args. With no options the helper prints
+      the migration's current state — that is status.yaml, not a phase.
+    quiet: true
+
+- name: Assert no caller smuggled in --force
+  ansible.builtin.assert:
+    that:
+      - pve_cephx_migration_args | select('search', '^--force') | list | length == 0
+    fail_msg: >-
+      --force overrides the blockers that stop this migration cutting off a live client
+      or locking administration out. It is not available through this role. If a blocker
+      is genuinely wrong, fix the cause; the helper's dry run names it.
+    quiet: true
+
+- name: "Dry run: {{ pve_cephx_migration_args | join(' ') }}"
+  when: pve_cephx_migration_dry_run_first | bool
+  ansible.builtin.command:
+    argv: "{{ [pve_cephx_migration_helper_command] + pve_cephx_migration_args }}"
+  register: pve_cephx_migration_dry_run
+  changed_when: false
+  timeout: "{{ pve_cephx_migration_command_timeout }}"
+
+- name: Show the plan
+  when: pve_cephx_migration_dry_run_first | bool
+  ansible.builtin.debug:
+    msg: "{{ pve_cephx_migration_dry_run.stdout_lines }}"
+
+# Skipped while pve_cephx_migration_blocker_patterns is empty, which is its default.
+# The helper's own refusals are the real gate; this exists only so a pattern learned
+# from a real dry run has somewhere to live. See the comment on that variable.
+- name: Assert the plan reports no blocker
+  when:
+    - pve_cephx_migration_dry_run_first | bool
+    - pve_cephx_migration_blocker_patterns | length > 0
+  vars:
+    _out: "{{ (pve_cephx_migration_dry_run.stdout ~ '\n' ~ pve_cephx_migration_dry_run.stderr) | lower }}"
+    _hits: "{{ pve_cephx_migration_blocker_patterns | select('in', _out) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _hits | length == 0
+    fail_msg: >-
+      The dry run for '{{ pve_cephx_migration_args | join(' ') }}' reports a blocker
+      (matched {{ _hits }}). Read the plan above, fix the cause, and re-run. Do not pass
+      --force. Full output:
+      {{ pve_cephx_migration_dry_run.stdout | replace('\n', ' / ') }}
+    quiet: true
+
+- name: "Apply: {{ pve_cephx_migration_args | join(' ') }}"
+  when: pve_cephx_migration_apply | bool
+  ansible.builtin.command:
+    argv: "{{ [pve_cephx_migration_helper_command] + pve_cephx_migration_args + ['--apply', '--assume-yes'] }}"
+  register: pve_cephx_migration_applied
+  changed_when: true
+  timeout: "{{ pve_cephx_migration_command_timeout }}"
+
+- name: Show what was applied
+  when: pve_cephx_migration_apply | bool
+  ansible.builtin.debug:
+    msg: "{{ pve_cephx_migration_applied.stdout_lines }}"
+
+- name: Report that nothing was applied
+  when: not (pve_cephx_migration_apply | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Dry run only. Re-run with -e pve_cephx_migration_apply=true to carry out the plan
+      above.

@@ -1,0 +1,57 @@
+---
+# The final, irreversible step. The docs are explicit that the operator runs "the exact
+# command the dry run prints" — so this compares rather than trusting that somebody
+# compared, and refuses if the helper is asking for something other than what this role
+# is about to run.
+#
+# WARNING carried from the docs: clients that still need an old key or cipher cannot
+# authenticate after this. Existing IO can appear to work until a reconnect, then fail.
+- name: Read the final dry run
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_helper_command }}"]
+  register: pve_cephx_migration_final_dry_run
+  changed_when: false
+  failed_when: false
+  timeout: "{{ pve_cephx_migration_command_timeout }}"
+
+- name: Show the final dry run
+  ansible.builtin.debug:
+    msg: "{{ pve_cephx_migration_final_dry_run.stdout_lines }}"
+
+# The helper offers the confirmation command only when its own observed checks pass.
+# If that command is not in the output, it is not ready — and the reason is in the
+# text above, which the previous task printed.
+- name: Assert the helper is offering the confirmation this role would run
+  vars:
+    _out: "{{ pve_cephx_migration_final_dry_run.stdout }}"
+    _wanted: "{{ pve_cephx_migration_confirm_flags }}"
+    _missing: "{{ _wanted | reject('in', _out) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+    fail_msg: >-
+      The final dry run is not offering {{ _missing }}, so the cluster is not ready to
+      restrict ciphers. Read the plan above: it names what is still outstanding —
+      usually a client that has not been refreshed, or a key still on the old cipher.
+      Fix that and re-run the refresh phase. Do NOT pass --force: it would cut those
+      clients off.
+    quiet: true
+
+- name: Confirm every staged key and restrict the cluster to aes256k
+  when: pve_cephx_migration_apply | bool
+  vars:
+    pve_cephx_migration_args: "{{ pve_cephx_migration_confirm_flags }}"
+    # The no-options dry run above is the docs' final dry run and has already been read
+    # and asserted on. The helper refuses to evaluate these flags without --apply, so a
+    # second dry run here is not caution, it is a guaranteed failure.
+    pve_cephx_migration_dry_run_first: false
+  ansible.builtin.include_tasks:
+    file: run_helper.yaml
+
+- name: Report that nothing was confirmed
+  when: not (pve_cephx_migration_apply | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Dry run only. The cluster is still accepting the old cipher. Re-run with
+      -e pve_cephx_migration_apply=true to confirm every staged key and restrict —
+      which is irreversible.

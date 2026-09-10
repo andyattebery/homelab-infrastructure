@@ -1,0 +1,24 @@
+---
+# "Where is this migration right now." The helper with no options checks the current
+# state and prints the next steps; the docs say to run exactly this after every run
+# and after any interruption. Read-only — no --apply, so nothing here can change
+# anything, which is why it is safe to run at any point.
+- name: Read the migration state
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_helper_command }}"]
+  register: pve_cephx_migration_status
+  changed_when: false
+  # The helper exits non-zero when the migration is incomplete, which is the normal
+  # state between phases. This task reports; assert_checks_cleared.yaml judges.
+  failed_when: false
+  timeout: "{{ pve_cephx_migration_command_timeout }}"
+
+- name: Read cluster health detail
+  ansible.builtin.command:
+    argv: ["{{ pve_cephx_migration_ceph_command }}", health, detail]
+  register: pve_cephx_migration_status_health
+  changed_when: false
+
+- name: Report
+  ansible.builtin.debug:
+    msg: "{{ pve_cephx_migration_status.stdout_lines + [''] + pve_cephx_migration_status_health.stdout_lines }}"

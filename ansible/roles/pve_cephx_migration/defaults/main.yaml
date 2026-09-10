@@ -1,0 +1,114 @@
+---
+# Nothing here is a decision about *this* cluster — those live in the playbook and
+# group_vars. These are facts about the Proxmox procedure, the same way
+# pve_ceph_upgrade_min_pve_manager sits in that role's defaults.
+
+# The safety catch. Every task file that mutates anything is gated on this, and the
+# playbook never sets it: pass -e pve_cephx_migration_apply=true on the run that is
+# meant to act. False means "dry run and print", which is also what the helper does
+# without --apply, so a false run is read-only twice over.
+pve_cephx_migration_apply: false
+
+# Prerequisites from the Proxmox docs (pveceph_cephx_migration, read 2026-09-10).
+#   pve-manager >= 9.2.17          — the release that ships the helper used here
+#   ceph >= 20.2.4-pve3            — staged client-key rotation, both keys valid at once
+#   kernel >= 7.0                  — aes256k support in the kernel CephFS/RBD clients
+# -pve4 is not required but is what this cluster runs; it adds per-session key
+# fingerprints, which is what makes --confirm-abort-clients-refreshed safe for a
+# shared user like client.admin without disconnecting every client first.
+pve_cephx_migration_min_pve_manager: "9.2.17"
+pve_cephx_migration_min_ceph_package: "20.2.4-pve3"
+pve_cephx_migration_min_kernel: "7.0"
+
+# Health gate. HEALTH_OK, or a cluster whose every check is in this list, passes.
+# The six AUTH_* checks are the ones this migration exists to clear, so they are
+# allowed by default — otherwise the role could not start from the cluster's actual
+# state. Anything else stops the run with `ceph health detail` in the message.
+pve_cephx_migration_allowed_health_checks:
+  - AUTH_INSECURE_SERVICE_KEY_TYPE
+  - AUTH_INSECURE_SERVICE_TICKETS
+  - AUTH_INSECURE_CLIENT_KEY_TYPE
+  - AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE
+  - AUTH_INSECURE_KEYS_ALLOWED
+  - AUTH_INSECURE_KEYS_CREATABLE
+
+# HEALTH_ERR is accepted only when the ERR-severity checks are exactly these two.
+# A third ERR check means something is actually wrong and the migration waits.
+pve_cephx_migration_allowed_error_checks:
+  - AUTH_INSECURE_SERVICE_KEY_TYPE
+  - AUTH_INSECURE_SERVICE_TICKETS
+
+# Set by the caller for each phase; deliberately undefaulted, so a phase that forgets
+# to set one fails loudly rather than doing something plausible:
+#   pve_cephx_migration_args            — the helper options for this phase. With none,
+#                                         the helper prints the migration's state; that
+#                                         is status.yaml, not a phase.
+#   pve_cephx_migration_cleared_checks  — the health checks assert_checks_cleared.yaml
+#                                         must see disappear.
+#   pve_cephx_migration_stage1_args     — optional override for stage 1's selection;
+#                                         the playbook defaults it inline to
+#                                         ['--rotate-cluster-keys']. See the README's
+#                                         "The one thing the docs do not settle".
+
+# Whether run_helper.yaml runs the selection once without --apply before applying it.
+# True for every phase that rotates keys — that dry run IS the plan you read.
+#
+# False for the final confirm, and not as a shortcut: the helper REFUSES to evaluate
+# '--confirm-all-clients-refreshed' without '--apply' ("changes what the next run may
+# do, so it needs '--apply'"), so a dry run of it is not a safer version of the
+# command, it is an error. The docs' final dry run is the NO-OPTIONS run, which
+# confirm_and_restrict.yaml does and asserts on before it gets here. Found live on
+# 2026-09-10, when stage 3 failed on exactly this.
+pve_cephx_migration_dry_run_first: true
+
+# Substrings that mean "this plan cannot proceed", matched case-insensitively against
+# the dry run's stdout+stderr. EMPTY ON PURPOSE, and the check is skipped while it is.
+#
+# The helper's real output has not been read yet, and a pattern list invented from its
+# --help is theater: "blocker" matches "No blockers found", "refus" matches "refused to
+# stage" and "nothing refused". A matcher guessed against a format nobody has seen turns
+# a passing run red and, worse, can turn a blocked one green.
+#
+# What actually gates a blocked plan is the helper itself: it refuses --restrict-ciphers
+# while any key or live consumer depends on the old cipher, and refuses the batch confirm
+# unless every record is ready. Those refusals are its job, not this role's. This role
+# adds the post-conditions instead — see assert_checks_cleared.yaml.
+#
+# Calibrate this after the first real dry run, from output that was actually read.
+pve_cephx_migration_blocker_patterns: []
+
+# Wait budgets: (retries x delay) seconds. Health checks settle within a mgr tick,
+# but the mgr itself restarts during stage 1, so allow for it.
+pve_cephx_migration_wait_retries: 60
+pve_cephx_migration_wait_delay: 5
+# A guest migration copies the guest's memory over the network, so this budget scales
+# with the largest guest on Ceph rather than with anything Ceph does.
+pve_cephx_migration_migrate_retries: 120
+pve_cephx_migration_migrate_delay: 10
+
+# How long the helper may take before Ansible gives up. The helper's own --timeout
+# (default 600 s) covers a single daemon coming back; this covers the whole run,
+# which restarts every monitor one at a time in stage 1.
+pve_cephx_migration_command_timeout: 3600
+
+# Commands, overridable for the stubs in tests/test.yml.
+pve_cephx_migration_helper_command: /usr/share/pve-manager/migrations/pve-cephx-rotate-service-keys
+pve_cephx_migration_ceph_command: /usr/bin/ceph
+pve_cephx_migration_pveversion_command: /usr/bin/pveversion
+pve_cephx_migration_pvecm_command: /usr/bin/pvecm
+pve_cephx_migration_pvesh_command: /usr/bin/pvesh
+pve_cephx_migration_ha_manager_command: /usr/sbin/ha-manager
+pve_cephx_migration_qm_command: /usr/sbin/qm
+pve_cephx_migration_rbd_command: /usr/bin/rbd
+
+# The running kernel, as preflight reads it. A variable rather than a direct fact
+# reference so the fixture suite can feed it a 6.x kernel and watch that case go red —
+# the control node's own kernel is not the thing under test.
+pve_cephx_migration_kernel: "{{ ansible_facts['kernel'] }}"
+
+# The final step's flags, as the docs give them. Kept as a variable so the assertion in
+# confirm_and_restrict.yaml and the command it actually runs cannot drift apart — the
+# same list is both compared against the helper's offered command and passed to it.
+pve_cephx_migration_confirm_flags:
+  - --confirm-all-clients-refreshed
+  - --restrict-ciphers
