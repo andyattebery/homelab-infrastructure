@@ -23,8 +23,28 @@ pve_pin_network_interface_pins:
 extra_packages:
   - amd64-microcode
 
-# kernel_parameters intentionally unset — matches the original playbook,
-# which didn't include the kernel_parameters role for nas-host-01.
+# Reserve the DRAM pages that generate essentially every corrected ECC error on this
+# host, so the kernel never allocates them. Three 32 KiB aligned blocks plus two single
+# pages — 104 KiB of 188 GiB. The blocks are contiguous runs, which is a DRAM row or
+# column structure rather than independent stuck cells, so reserving whole blocks also
+# covers the pages inside them that have not failed yet.
+#
+# Curated from the rasdaemon database; the working list and the per-page error counts
+# are in tasks/nas-host-01-bad-pages.txt. Takes effect at the next boot.
+#
+# Soft-offline was tried first and rejected: the kernel refused with "thp split failed"
+# on pages inside guest memory held by passthrough, and with "unhandlable page" on one
+# that had nothing to do with a guest. memmap= reserves before allocation, so page type
+# cannot make it fail.
+#
+# Note this role also runs here via power_saving, which sets the CPU governor keys.
+kernel_parameters_new_parameters:
+  memmap:
+    - "32K$0x17fcb0000"   # DDR4_A1, 8 pages, 12,127 errors — 80% of the total
+    - "32K$0xa40fa8000"   # DDR4_A1, 8 pages, 233 errors
+    - "32K$0xa6a890000"   # DDR4_B1, 8 pages, 2,453 errors
+    - "4K$0x6ad451000"    # DDR4_A1, 198 errors
+    - "4K$0x2961ceb000"   # DDR4_F1, 33 errors
 
 # power_saving — narrow PCIe runtime PM scope: only the AMD FCH SATA
 # controller. Keeps NICs (Mellanox, Intel onboard) untouched.
@@ -37,3 +57,60 @@ pve_backup_job_script_healthchecks_io_uuid: f3d49b86-6d6b-410a-a252-299d84f43fd3
 
 nut_client_username: "nas-host-01"
 nut_client_password: "{{ vault_nut_client_password }}"
+
+# PCI passthrough. pve_pci_mapping resolves each topology to the device's current address
+# and IOMMU group on every run, so after the X550 enumeration flip
+# (hardware/nas-host-01.md, "Resource mappings") one playbook run corrects the mappings
+# instead of three hand-typed pvesh calls. The guests still fail autostart on that boot —
+# the role never starts a VM. Topology = root bus + dev.fn chain from
+# `readlink -f /sys/bus/pci/devices/<addr>` with the bus numbers dropped.
+pve_pci_mapping_mappings:
+  - { id: nvidia_rtx_a4000,     topology: "0000:00/01.1/00.0",           pci_id: "10de:24b0", subsystem_id: "1028:14ad" }
+  - { id: intel_arc_b580,       topology: "0000:c0/01.1/00.0/01.0/00.0", pci_id: "8086:e20b", subsystem_id: "1849:6021" }
+  - { id: intel_arc_b580_audio, topology: "0000:c0/01.1/00.0/02.0/00.0", pci_id: "8086:e2f7", subsystem_id: "1849:6021" }
+  - { id: broadcom_9305_24i,    topology: "0000:80/03.1/00.0",           pci_id: "1000:00c4", subsystem_id: "1000:31a0" }
+  # Misnamed original (the card is a 24i), deleted 2026-09-09 once VM 200 referenced the new
+  # name. Kept declared absent so a stray recreation is removed rather than failing the run as
+  # unlisted; drop the line once the old name is gone from every backup and snapshot.
+  - { id: broadcom_9305_24e,    topology: "0000:80/03.1/00.0",           pci_id: "1000:00c4", subsystem_id: "1000:31a0", state: absent }
+  - { id: skhynix_pe6011,       topology: "0000:80/01.4/00.0",           pci_id: "1c5c:2429", subsystem_id: "1590:02d0" }
+  - { id: solidigm_p44_pro_1,   topology: "0000:c0/03.1/00.0",           pci_id: "025e:f1ac", subsystem_id: "025e:f1ac" }
+  - { id: solidigm_p44_pro_2,   topology: "0000:c0/03.2/00.0",           pci_id: "025e:f1ac", subsystem_id: "025e:f1ac" }
+  - { id: samsung_980_pro_1,    topology: "0000:c0/03.3/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
+  - { id: samsung_980_pro_2,    topology: "0000:c0/03.4/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
+  - { id: intel_p1600x_1,       topology: "0000:40/03.3/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+  - { id: intel_p1600x_2,       topology: "0000:40/03.4/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+
+# The hostpci lines are exactly these keys; an option on the VM that is not declared here is
+# removed. A change on a running VM lands at the next stop/start (pve_vm_hostpci reports it).
+pve_vm_hostpci_vms:
+  - vmid: 200   # nas-01
+    hostpci:
+      - { index: 0, mapping: broadcom_9305_24i, rombar: 0 }
+      - { index: 1, mapping: solidigm_p44_pro_1 }
+      - { index: 2, mapping: solidigm_p44_pro_2 }
+      - { index: 3, mapping: samsung_980_pro_1 }
+      - { index: 4, mapping: samsung_980_pro_2 }
+      - { index: 5, mapping: skhynix_pe6011 }
+      - { index: 6, mapping: intel_p1600x_1 }
+      - { index: 7, mapping: intel_p1600x_2 }
+  - vmid: 201   # media-01
+    hostpci:
+      - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
+      - { index: 1, mapping: intel_arc_b580, pcie: 1 }
+      - { index: 2, mapping: intel_arc_b580_audio, pcie: 1 }
+
+# Block rasdaemon's per-AER-event OEM writes to the BMC event log. This host's two noisy PCIe
+# links generated about 185 of them a day, and together with the BIOS's own PCI PERR entry for
+# the same events they were filling a ~3,600-entry log in a week. That log is the only record
+# that survives a power cut, and it is what a crash investigation needs. Off on the other two
+# cluster nodes, which have no such traffic. See ansible/roles/rasdaemon/README.md.
+rasdaemon_block_ipmitool_sel: true
+
+# This host cuts its own power without warning (spurious CPU_THERMTRIP, three times between
+# 2026-06 and 2026-09), and journald's default 5-minute sync means a power cut takes the last
+# few minutes of kernel log with it. On 09-09 the journal's final entry was three minutes before
+# the trip. 30s bounds that loss. Only this host needs it; the other two cluster nodes shut down
+# cleanly.
+journald_config_settings:
+  SyncIntervalSec: "30s"
