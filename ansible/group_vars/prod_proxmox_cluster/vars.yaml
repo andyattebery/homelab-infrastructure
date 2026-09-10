@@ -5,6 +5,15 @@
 # pve_cluster_ceph
 pve_ceph_network: 10.1.40.0/24
 
+# pve_node_ceph, pve_ceph_upgrade — the Ceph release this cluster runs. Read by
+# `pveceph install --version` on a rebuild, by the release guard that refuses
+# a node whose installed or cluster release differs, and by the upgrade
+# playbook as its target. No role default on purpose: without it a rebuilt
+# node gets whatever PVE ships that day (vm-host-02 got tentacle against a
+# squid cluster, 2026-09-07). Change it only together with running
+# playbook-prod-proxmox-cluster-ceph-upgrade.yaml.
+pve_ceph_release: tentacle
+
 # pve_node_ceph — mon binds to the same address as this host's Ceph cluster
 # NIC. Derived from ceph_cluster_nic_address_cidr (set per-host) so the two
 # can never drift apart.
@@ -21,3 +30,25 @@ pve_cluster_name: homelab
 pve_cluster_designated_runner: "{{ groups['prod_proxmox_cluster'] | sort | first }}"
 
 security_ssh_permit_root_login: "prohibit-password"
+
+# pve_cluster_ha — the cluster's HA resources and node-affinity rules, captured
+# from the live cluster 2026-09-08. The role refuses anything on the cluster that
+# is not listed here and never deletes, so adding an HA resource in the web UI
+# fails the next cluster run until it is declared here too.
+#
+# `failback: true` plus vm-host-01 holding the top priority is why these three
+# cannot be hand-migrated off it — see roles/pve_cluster_ha/README.md. Evacuate
+# with `ha-manager crm-command node-maintenance enable <node>` instead.
+pve_cluster_ha_resources:
+  - {sid: "vm:102", state: started, failback: true, max_relocate: 3, max_restart: 2}
+  - {sid: "vm:103", state: started, failback: true, max_relocate: 3, max_restart: 2}
+  - {sid: "vm:110", state: started, failback: true, max_relocate: 3, max_restart: 2}
+
+pve_cluster_ha_rules:
+  - rule: ha-group-main
+    type: node-affinity
+    nodes: "nas-host-01:1,vm-host-01:3,vm-host-02:2"
+    resources: "vm:102,vm:103,vm:110"
+    strict: false
+    affinity: positive
+    comment: "Generated from HA group 'main'."
