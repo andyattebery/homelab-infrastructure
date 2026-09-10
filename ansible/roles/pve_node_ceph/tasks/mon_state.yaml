@@ -1,0 +1,54 @@
+---
+# Facts about this node's monitor, from the monmap and the cluster config, so
+# the create/forget decisions rest on Ceph's own view rather than on a regex
+# over `pveceph status` text. Needs `ceph_conf` (the ceph.conf content) set by
+# the caller. Fixture-tested in tests/test.yml.
+- name: Read the cluster's monitor map
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - mon
+      - dump
+      - -f
+      - json
+  register: pve_node_ceph_mon_dump
+  changed_when: false
+  failed_when: false
+
+- name: Stat this node's monitor store
+  ansible.builtin.stat:
+    path: "{{ pve_node_ceph_mon_data_root }}/ceph-{{ pve_node_ceph_service_id }}"
+  register: pve_node_ceph_mon_dir
+
+# mon_host on this cluster is plain addresses: `mon_host = 10.1.40.13
+# 10.1.40.11 10.1.40.12`. Addresses are extracted as whole dotted quads so
+# 10.1.40.1 never matches inside 10.1.40.12.
+- name: Set monitor state facts
+  vars:
+    _mon_host_line: >-
+      {{ (ceph_conf | regex_search('(?m)^\s*mon_host\s*=\s*(.*)$', '\1') or ['']) | first }}
+    _mon_host_ips: >-
+      {{ _mon_host_line | regex_findall('(?<![0-9.])[0-9]{1,3}(?:\.[0-9]{1,3}){3}(?![0-9.])') }}
+  ansible.builtin.set_fact:
+    pve_node_ceph_cluster_reachable: "{{ pve_node_ceph_mon_dump.rc == 0 }}"
+    pve_node_ceph_monmap_names: >-
+      {{ ((pve_node_ceph_mon_dump.stdout | from_json).mons | map(attribute='name') | list)
+         if pve_node_ceph_mon_dump.rc == 0 else [] }}
+    pve_node_ceph_mon_section_present: >-
+      {{ ceph_conf is search('(?m)^\[mon\.' ~ (pve_node_ceph_service_id | regex_escape) ~ '\]\s*$') }}
+    pve_node_ceph_mon_dir_present: "{{ pve_node_ceph_mon_dir.stat.exists }}"
+    pve_node_ceph_mon_ip_in_mon_host: "{{ ceph_mon_address in _mon_host_ips }}"
+    pve_node_ceph_mon_host_ips: "{{ _mon_host_ips }}"
+
+# Stale: the cluster is reachable, this monitor is not in its map, and yet
+# something of it is left behind — the ceph.conf section, its address in
+# mon_host, or the store. `pveceph mon create` refuses each of those.
+- name: Set monitor decision facts
+  ansible.builtin.set_fact:
+    pve_node_ceph_mon_in_monmap: "{{ pve_node_ceph_service_id in pve_node_ceph_monmap_names }}"
+    pve_node_ceph_mon_stale: >-
+      {{ (pve_node_ceph_cluster_reachable | bool)
+         and (pve_node_ceph_service_id not in pve_node_ceph_monmap_names)
+         and ((pve_node_ceph_mon_section_present | bool)
+              or (pve_node_ceph_mon_dir_present | bool)
+              or (pve_node_ceph_mon_ip_in_mon_host | bool)) }}

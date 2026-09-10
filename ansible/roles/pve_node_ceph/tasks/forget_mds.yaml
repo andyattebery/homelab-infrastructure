@@ -1,0 +1,28 @@
+---
+# A [mds.<id>] section left in ceph.conf by a reinstall or a dead node's raw
+# cleanup makes `pveceph mds create` abort (MDS.pm 187). Forget it the way
+# destroymds does first (MDS.pm 256-261): drop the section under PVE's cluster
+# lock, through PVE's own parser and writer. ceph.conf is pmxcfs, so the edit
+# reaches every node. The unit, if one exists, is stopped so it cannot race
+# the create that follows.
+- name: Forget the stale metadata server section in ceph.conf
+  ansible.builtin.script:
+    cmd: "ceph_conf_forget_mds.pl {{ pve_node_ceph_service_id | quote }}"
+  register: pve_node_ceph_forget_mds_conf
+  changed_when: "'changed' in pve_node_ceph_forget_mds_conf.stdout"
+
+- name: Stop and disable the stale metadata server unit
+  ansible.builtin.systemd_service:
+    name: "ceph-mds@{{ pve_node_ceph_service_id }}.service"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Clear the stale metadata server unit's failed state
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - "ceph-mds@{{ pve_node_ceph_service_id }}.service"
+  changed_when: false
+  failed_when: false

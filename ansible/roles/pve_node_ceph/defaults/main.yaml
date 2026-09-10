@@ -8,3 +8,51 @@
 #                       /var/lib/ceph/osd/ceph-N directories — no per-host
 #                       config required.
 pve_node_ceph_osd_mode: create
+
+# Zap pve_ceph_osd_device before creating the OSD on it, when ceph-volume's
+# inventory says the device is in use (a filesystem, LVM, an old OSD). Off by
+# default: `ceph-volume lvm zap --destroy` is destructive, so a disk that is
+# not empty is refused unless this is set — and it is set for the one run that
+# replaces the disk, then removed (tests/test-ceph-osd-config.yml fails while
+# it is set). Only read in `create` mode.
+pve_node_ceph_osd_zap: false
+
+# Set false to leave this node's monitor entirely alone — no forget, no create,
+# no start, no quorum wait. For the case where a monitor is known bad and is
+# being quarantined while the node's other daemons are still wanted: on
+# 2026-09-09 a freshly created 20.2.4 mon syncing against 20.2.2 peers drove
+# hundreds of MB/s of memory growth on the other two monitors, and the node's
+# OSD was still needed. mgr, mds and OSD are unaffected by this flag.
+pve_node_ceph_manage_mon: true
+
+# Repository component, for `pveceph install --repository` and for the
+# ceph.sources this role writes. `enterprise` needs a subscription.
+pve_node_ceph_repository: no-subscription
+
+# The id PVE gives this node's monitor, manager and metadata server: the node
+# name (pveceph's own default). The override exists for the fixture test.
+pve_node_ceph_service_id: "{{ ansible_facts['hostname'] }}"
+
+# Debian suite for ceph.sources; pveceph.pm hardcodes `trixie` on PVE 9.
+pve_node_ceph_suite: "{{ ansible_facts['distribution_release'] }}"
+
+# Paths and commands, overridable so the decision tasks (check_release.yaml,
+# mon_state.yaml, mds_state.yaml, osd_state.yaml, osd_prepare_device.yaml)
+# can run against stubs and a tempdir in tests/test.yml.
+pve_node_ceph_conf_path: /etc/ceph/ceph.conf
+pve_node_ceph_mon_data_root: /var/lib/ceph/mon
+pve_node_ceph_mds_data_root: /var/lib/ceph/mds
+pve_node_ceph_osd_data_root: /var/lib/ceph/osd
+pve_node_ceph_ceph_command: /usr/bin/ceph
+pve_node_ceph_pveceph_command: /usr/bin/pveceph
+pve_node_ceph_ceph_volume_command: ceph-volume
+# Used by the OSD zap. Bare names: the play runs with become, whose PATH has
+# /usr/sbin, and all three live there or in /usr/bin.
+pve_node_ceph_lsblk_command: lsblk
+pve_node_ceph_wipefs_command: wipefs
+pve_node_ceph_udevadm_command: udevadm
+
+# pve_ceph_release has NO default on purpose. It names the Ceph release this
+# cluster runs (squid, tentacle, ...) and belongs in the cluster's group_vars;
+# a role default is exactly the "install whatever PVE ships today" behaviour
+# that split the cluster across two majors on 2026-09-07.

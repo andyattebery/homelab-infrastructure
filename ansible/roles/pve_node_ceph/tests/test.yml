@@ -1,0 +1,1116 @@
+---
+# Exercises pve_node_ceph's decision logic against stub `ceph` and `ceph-volume`
+# CLIs answering with output captured from the cluster, and throwaway fixtures.
+# Runs entirely on localhost; touches no remote host. The parts that need a
+# real cluster (pveceph create/init, the join waits, forget_mon.yaml's and
+# forget_mds.yaml's actions, OSD activation and the up/in wait) are
+# deliberately not here — they are verified live, by the waits themselves
+# failing when a daemon does not join.
+#
+#   cd ansible
+#   .venv/bin/ansible-playbook -i roles/pve_node_ceph/tests/inventory \
+#     roles/pve_node_ceph/tests/test.yml
+- name: Test pve_node_ceph
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # Real strings, from the cluster on 2026-09-08.
+    _v_squid: "ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)"
+    _v_tentacle: "ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable)"
+    _mon_dump_squid_without_us: >-
+      {"epoch":19,"min_mon_release":19,"min_mon_release_name":"squid",
+       "mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}
+    _mon_dump_squid_with_us: >-
+      {"epoch":20,"min_mon_release":19,"min_mon_release_name":"squid",
+       "mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"},{"rank":2,"name":"vm-host-02"}],"quorum":[0,1,2]}
+    _mon_dump_tentacle: >-
+      {"epoch":25,"min_mon_release":20,"min_mon_release_name":"tentacle",
+       "mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}
+    # ceph.conf as PVE writes it (tab-indented keys), with the leftovers a raw
+    # `ceph mon remove` leaves behind for vm-host-02.
+    _conf_stale: |
+      [global]
+      	auth_client_required = cephx
+      	cluster_network = 10.1.40.0/24
+      	fsid = 5208baee-5395-42e6-a44e-fc625acb61d7
+      	mon_host = 10.1.40.13 10.1.40.11 10.1.40.12
+      	public_network = 10.1.40.0/24
+
+      [mon.nas-host-01]
+      	public_addr = 10.1.40.13
+
+      [mon.vm-host-01]
+      	public_addr = 10.1.40.11
+
+      [mon.vm-host-02]
+      	public_addr = 10.1.40.12
+    _conf_clean: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.11
+
+      [mon.nas-host-01]
+      	public_addr = 10.1.40.13
+
+      [mon.vm-host-01]
+      	public_addr = 10.1.40.11
+    _conf_boundary: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.11 10.1.40.120
+
+      [mon.vm-host-020]
+      	public_addr = 10.1.40.120
+
+    # ---------- OSD fixtures ----------
+    # ceph osd tree -f json, verbatim from the cluster on 2026-09-08: every node
+    # holds its OSD; vm-host-02's bucket is id -6 holding osd.1.
+    _osd_tree_today: >-
+      {"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{"id":-10,"name":"nas-host-01","type":"host","type_id":1,"pool_weights":{},"children":[2]},{"id":2,"device_class":"nvme","name":"osd.2","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-6,"name":"vm-host-02","type":"host","type_id":1,"pool_weights":{},"children":[1]},{"id":1,"device_class":"ssd","name":"osd.1","type":"osd","type_id":0,"crush_weight":1.4554901123046875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1}],"stray":[]}
+    # The same tree after `pveceph osd destroy 1`: the bucket survives, empty —
+    # the state that made the old substring gate skip the create on 2026-09-07.
+    _osd_tree_empty_bucket: >-
+      {"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{"id":-10,"name":"nas-host-01","type":"host","type_id":1,"pool_weights":{},"children":[2]},{"id":2,"device_class":"nvme","name":"osd.2","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-6,"name":"vm-host-02","type":"host","type_id":1,"pool_weights":{},"children":[]}],"stray":[]}
+    # After `ceph osd crush rm vm-host-02` as well, or on a node that never had
+    # an OSD: no bucket at all.
+    _osd_tree_no_bucket: >-
+      {"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-3,-10]},{"id":-10,"name":"nas-host-01","type":"host","type_id":1,"pool_weights":{},"children":[2]},{"id":2,"device_class":"nvme","name":"osd.2","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1}],"stray":[]}
+    # What a preserve teardown leaves while the node is down: osd.1 marked out
+    # (reweight 0) and down.
+    _osd_tree_preserve: >-
+      {"nodes":[{"id":-1,"name":"default","type":"root","type_id":11,"children":[-6,-3,-10]},{"id":-10,"name":"nas-host-01","type":"host","type_id":1,"pool_weights":{},"children":[2]},{"id":2,"device_class":"nvme","name":"osd.2","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-3,"name":"vm-host-01","type":"host","type_id":1,"pool_weights":{},"children":[0]},{"id":0,"device_class":"nvme","name":"osd.0","type":"osd","type_id":0,"crush_weight":0.465789794921875,"depth":2,"pool_weights":{},"exists":1,"status":"up","reweight":1,"primary_affinity":1},{"id":-6,"name":"vm-host-02","type":"host","type_id":1,"pool_weights":{},"children":[1]},{"id":1,"device_class":"ssd","name":"osd.1","type":"osd","type_id":0,"crush_weight":1.4554901123046875,"depth":2,"pool_weights":{},"exists":1,"status":"down","reweight":0,"primary_affinity":1}],"stray":[]}
+    # ceph osd dump -f json from the same day, trimmed to the fields read
+    # (osds[].osd / up / in); the real dump also carries pools, blocklist, ...
+    _osd_dump_today: >-
+      {"epoch":9170,"flags":"sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]},{"osd":1,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]},{"osd":2,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]}]}
+    _osd_dump_preserve: >-
+      {"epoch":9171,"flags":"noout,norebalance,sortbitwise,recovery_deletes,purged_snapdirs,pglog_hardlimit","require_osd_release":"tentacle","osds":[{"osd":0,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]},{"osd":1,"up":0,"in":0,"weight":0,"primary_affinity":1,"state":["exists"]},{"osd":2,"up":1,"in":1,"weight":1,"primary_affinity":1,"state":["exists","up"]}]}
+    # ceph-volume inventory <by-id> --format json on vm-host-02's S3610 while it
+    # carries osd.1 — real (2026-09-08), trimmed to the keys the role reads.
+    _inventory_in_use: >-
+      {"available":false,"rejected_reasons":["Has a FileSystem","Insufficient space (<10 extents) on vgs","LVM detected"],"path":"/dev/sda","device_id":"INTEL_SSDSC2BX016T4_BTHC6306000V1P6PGN","lvs":[{"osd_id":"1","type":"block","name":"osd-block-867da828-4f4d-4f6b-9910-5da0d8601cec"}],"sys_api":{"model":"INTEL SSDSC2BX01","size":1600321314816.0,"human_readable_size":"1.46 TB","rotational":"0","ro":"0","locked":null}}
+    # The same shape for an empty disk. Constructed: no empty disk exists on
+    # the cluster to capture; the keys are the real ones, the serial is
+    # vm-host-01's replacement S3610.
+    _inventory_available: >-
+      {"available":true,"rejected_reasons":[],"path":"/dev/sdb","device_id":"INTEL_SSDSC2BX016T4_BTHC637404T21P6PGN","lvs":[],"sys_api":{"model":"INTEL SSDSC2BX01","size":1600321314816.0,"human_readable_size":"1.46 TB","rotational":"0","ro":"0","locked":null}}
+    _dev: /dev/disk/by-id/ata-INTEL_SSDSC2BX016T4_BTHC637404T21P6PGN
+    # ---------- MDS fixtures ----------
+    # ceph mds metadata -f json, trimmed to name — the only key the role reads.
+    _mds_metadata_without_us: '[{"name":"nas-host-01"},{"name":"vm-host-01"}]'
+    _mds_metadata_with_us: '[{"name":"nas-host-01"},{"name":"vm-host-01"},{"name":"vm-host-02"}]'
+    # ceph.conf MDS sections as PVE writes them (the two older nodes still carry
+    # the obsolete mds_standby_for_name; PVE 9's createmds writes host only).
+    _conf_mds: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.11 10.1.40.12
+
+      [mds]
+      	keyring = /var/lib/ceph/mds/ceph-$id/keyring
+
+      [mds.nas-host-01]
+      	host = nas-host-01
+      	mds_standby_for_name = pve
+
+      [mds.vm-host-01]
+      	host = vm-host-01
+      	mds_standby_for_name = pve
+
+      [mds.vm-host-02]
+      	host = vm-host-02
+    _conf_mds_clean: |
+      [global]
+      	mon_host = 10.1.40.13 10.1.40.11
+
+      [mds]
+      	keyring = /var/lib/ceph/mds/ceph-$id/keyring
+
+      [mds.nas-host-01]
+      	host = nas-host-01
+
+      [mds.vm-host-020]
+      	host = vm-host-020
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-node-ceph-tests
+      register: _tmp
+
+    - name: Run the suite
+      vars:
+        _stub: "{{ _tmp.path }}/ceph"
+        _common:
+          pve_node_ceph_ceph_command: "{{ _tmp.path }}/ceph"
+          pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+          pve_node_ceph_service_id: vm-host-02
+          ceph_mon_address: 10.1.40.12
+      block:
+        # The stub answers `ceph -v` and `ceph mon dump -f json` from files the
+        # cases write; a missing mon-dump.json is "no cluster".
+        - name: Install a stub ceph CLI
+          ansible.builtin.copy:
+            dest: "{{ _stub }}"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              d="$(dirname "$0")"
+              case "$*" in
+                -v) cat "$d/ceph-v.txt" ;;
+                "mon dump -f json")
+                  if [ -f "$d/mon-dump.json" ]; then cat "$d/mon-dump.json"; echo "dumped monmap" >&2
+                  else echo "Error initializing cluster client" >&2; exit 1; fi ;;
+                "osd tree -f json") cat "$d/osd-tree.json" ;;
+                "osd dump -f json") cat "$d/osd-dump.json" ;;
+                "mds metadata -f json")
+                  if [ -f "$d/mds-metadata.json" ]; then cat "$d/mds-metadata.json"
+                  else echo "Error initializing cluster client" >&2; exit 1; fi ;;
+                *) echo "stub: unexpected args: $*" >&2; exit 2 ;;
+              esac
+
+        # The ceph-volume stub answers `inventory` from inventory.json — or from
+        # inventory-after-zap.json once a zap was logged — and destroys nothing:
+        # `lvm zap --destroy` only leaves a marker. Every call is appended to
+        # calls.log so a case can assert the exact argv, in order.
+        - name: Install a stub ceph-volume CLI
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/ceph-volume"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              d="$(dirname "$0")"
+              echo "ceph-volume $*" >> "$d/calls.log"
+              case "$*" in
+                "inventory "*" --format json")
+                  if [ -f "$d/zapped" ] && [ -f "$d/inventory-after-zap.json" ]; then cat "$d/inventory-after-zap.json"
+                  else cat "$d/inventory.json"; fi ;;
+                "lvm zap --destroy "*)
+                  if [ -f "$d/zap-refuses" ]; then
+                    echo "-->  RuntimeError: Device $2 has partitions." >&2; exit 1
+                  fi
+                  touch "$d/zapped" ;;
+                *) echo "stub: unexpected args: $*" >&2; exit 2 ;;
+              esac
+
+        # lsblk answers from lsblk.txt when a case seeds one, so a case controls
+        # which partitions the disk appears to have; wipefs and udevadm only log.
+        - name: Install stub lsblk, wipefs and udevadm CLIs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            mode: "0755"
+            content: "{{ item.body }}"
+          loop:
+            - name: lsblk
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "lsblk $*" >> "$d/calls.log"
+                for a in "$@"; do last="$a"; done
+                if [ -f "$d/lsblk.txt" ]; then cat "$d/lsblk.txt"; else echo "$last"; fi
+            - name: wipefs
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "wipefs $*" >> "$d/calls.log"
+                # wipefs is what actually clears the disk, so it sets the marker the
+                # inventory stub reads — the same marker `lvm zap` sets. A case that
+                # wants "the zap changed nothing" removes inventory-after-zap.json.
+                touch "$d/zapped"
+            - name: udevadm
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                echo "udevadm $*" >> "$d/calls.log"
+          loop_control:
+            label: "{{ item.name }}"
+
+        # ---------- 1. release guard: everything agrees ----------
+        - name: Seed squid everywhere
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_squid }}" }
+            - { name: mon-dump.json, body: "{{ _mon_dump_squid_without_us }}" }
+
+        - name: Guard passes when installed, cluster and group_vars agree
+          vars:
+            pve_ceph_release: squid
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: check_release
+
+        - name: Parsed the installed release from the real string
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_installed_release == 'squid'
+            success_msg: "installed={{ pve_node_ceph_installed_release }}"
+
+        # ---------- 2. the 2026-09-07 case: node installed one major ahead ----------
+        - name: Seed a tentacle install against a squid cluster
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/ceph-v.txt"
+            content: "{{ _v_tentacle }}\n"
+            mode: "0644"
+
+        - name: A newer installed release than group_vars declares
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: squid
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: Mismatch should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted tentacle installed against pve_ceph_release squid"
+          rescue:
+            - name: Refused, naming the upgrade playbook
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    "Installed Ceph is 'tentacle'" in ansible_failed_result.msg
+                  - "'playbook-prod-proxmox-cluster-ceph-upgrade.yaml' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 3. group_vars behind the cluster ----------
+        - name: Seed a tentacle cluster with squid declared
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_squid }}" }
+            - { name: mon-dump.json, body: "{{ _mon_dump_tentacle }}" }
+
+        - name: A cluster on a different release than group_vars declares
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: squid
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: Mismatch should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted a tentacle cluster with pve_ceph_release squid"
+          rescue:
+            - name: Refused, naming min_mon_release
+              ansible.builtin.assert:
+                that:
+                  - >-
+                    "min_mon_release is 'tentacle'" in ansible_failed_result.msg
+                  - "'Refusing to create daemons' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 4. no cluster yet: only the installed check applies ----------
+        - name: Remove the monmap (fresh cluster, before pveceph init)
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mon-dump.json"
+            state: absent
+
+        - name: Guard passes on the installed release alone
+          vars:
+            pve_ceph_release: squid
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: check_release
+
+        - name: The cluster check was skipped, not passed vacuously
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_release_mon_dump.rc != 0
+            success_msg: "mon dump rc={{ pve_node_ceph_release_mon_dump.rc }}"
+
+        # ---------- 5. mon_state: today's vm-host-02 ----------
+        - name: Seed the stale state — out of the monmap, section + mon_host + store left
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "{{ _mon_dump_squid_without_us }}\n"
+            mode: "0644"
+        - name: Leave a monitor store behind
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mon/ceph-vm-host-02"
+            state: directory
+            mode: "0755"
+
+        - name: Read monitor state (stale)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_mon_address: 10.1.40.12
+            ceph_conf: "{{ _conf_stale }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mon_state
+
+        - name: Stale monitor is detected from all three leftovers
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_cluster_reachable | bool
+              - not (pve_node_ceph_mon_in_monmap | bool)
+              - pve_node_ceph_mon_section_present | bool
+              - pve_node_ceph_mon_dir_present | bool
+              - pve_node_ceph_mon_ip_in_mon_host | bool
+              - pve_node_ceph_mon_stale | bool
+              - pve_node_ceph_monmap_names == ['nas-host-01', 'vm-host-01']
+              - pve_node_ceph_mon_host_ips == ['10.1.40.13', '10.1.40.11', '10.1.40.12']
+            success_msg: "stale={{ pve_node_ceph_mon_stale }} monmap={{ pve_node_ceph_monmap_names }} mon_host={{ pve_node_ceph_mon_host_ips }}"
+
+        # ---------- 6. mon_state: a healthy member is never stale ----------
+        - name: Seed a monmap that includes this node
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "{{ _mon_dump_squid_with_us }}\n"
+            mode: "0644"
+
+        - name: Read monitor state (member)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_mon_address: 10.1.40.12
+            ceph_conf: "{{ _conf_stale }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mon_state
+
+        - name: A monitor in the monmap is not stale, whatever else exists
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_mon_in_monmap | bool
+              - not (pve_node_ceph_mon_stale | bool)
+            success_msg: "member, not stale"
+
+        # ---------- 7. mon_state: unreachable cluster decides nothing ----------
+        - name: Remove the monmap
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mon-dump.json"
+            state: absent
+
+        - name: Read monitor state (unreachable)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_mon_address: 10.1.40.12
+            ceph_conf: "{{ _conf_stale }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mon_state
+
+        - name: Nothing is forgotten when the cluster cannot be asked
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_cluster_reachable | bool)
+              - not (pve_node_ceph_mon_stale | bool)
+              - not (pve_node_ceph_mon_in_monmap | bool)
+            success_msg: "unreachable → not stale"
+
+        # ---------- 8. mon_state: clean node, plain create ----------
+        - name: Seed a monmap without this node and no leftovers
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mon-dump.json"
+            content: "{{ _mon_dump_squid_without_us }}\n"
+            mode: "0644"
+        - name: Remove the monitor store
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mon/ceph-vm-host-02"
+            state: absent
+
+        - name: Read monitor state (clean)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_mon_address: 10.1.40.12
+            ceph_conf: "{{ _conf_clean }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mon_state
+
+        - name: A clean node is simply created
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_mon_in_monmap | bool)
+              - not (pve_node_ceph_mon_stale | bool)
+              - not (pve_node_ceph_mon_section_present | bool)
+              - not (pve_node_ceph_mon_dir_present | bool)
+              - not (pve_node_ceph_mon_ip_in_mon_host | bool)
+            success_msg: "clean → create"
+
+        # ---------- 9. mon_state: address and section boundaries ----------
+        - name: Read monitor state (10.1.40.120 and [mon.vm-host-020] are not ours)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mon_data_root: "{{ _tmp.path }}/mon"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_mon_address: 10.1.40.12
+            ceph_conf: "{{ _conf_boundary }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mon_state
+
+        - name: A longer address or section name never matches ours
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_mon_ip_in_mon_host | bool)
+              - not (pve_node_ceph_mon_section_present | bool)
+              - not (pve_node_ceph_mon_stale | bool)
+              - pve_node_ceph_mon_host_ips == ['10.1.40.13', '10.1.40.11', '10.1.40.120']
+            success_msg: "mon_host={{ pve_node_ceph_mon_host_ips }}"
+
+        # ---------- 9b. the mon gate: it covers the monitor and nothing else ----------
+        # 2026-09-09: a freshly created 20.2.4 monitor syncing against 20.2.2 peers drove
+        # hundreds of MB/s of memory growth on the other two monitors, while this node's OSD
+        # was still wanted. pve_node_ceph_manage_mon: false is the switch that keeps the node's
+        # mgr, mds and OSD converging while leaving its monitor alone — so the gate covering
+        # one task too few, or one too many, is the whole failure mode.
+        #
+        # Structural, like the pveceph install case at the end, and for the same kind of
+        # reason: create_ceph_services.yaml cannot be driven from here. Three of its tasks are
+        # ansible.builtin.systemd_service, two more shell out to a bare `systemctl` that is not
+        # behind a command variable, and one reads /proc/self/mountinfo — none of which exist
+        # on the darwin control node, so no stub can ever observe them in calls.log. Asserting
+        # which tasks carry the gate is the strongest check available here; the behavioural
+        # proof is the live run.
+        - name: pve_node_ceph_manage_mon gates the four monitor tasks, and only those
+          vars:
+            _ccs: "{{ lookup('file', playbook_dir ~ '/../tasks/create_ceph_services.yaml') | from_yaml }}"
+            _clause: "pve_node_ceph_manage_mon | bool"
+            # A loop and bracket indexing, not selectattr: `when` is a list, so selectattr's
+            # `search` test would be applied to the list itself and match nothing — the same
+            # vacuous pass the install case below avoids for dotted module keys.
+            _gated_raw: >-
+              {% set out = [] %}
+              {% for t in _ccs %}
+              {% if _clause in (t.get('when', []) | to_json) %}
+              {% set _ = out.append(t.get('name', '<unnamed>') | replace('\n', ' ')) %}
+              {% endif %}
+              {% endfor %}
+              {{ out | to_json }}
+            _gated: "{{ _gated_raw | trim | from_json }}"
+            _defaults: "{{ lookup('file', playbook_dir ~ '/../defaults/main.yaml') | from_yaml }}"
+          ansible.builtin.assert:
+            that:
+              # Non-emptiness first. An empty parse, or a rename that matches nothing, would
+              # satisfy every "is not gated" check below while proving nothing at all.
+              - _ccs | length > 0
+              - _gated | length == 4
+              # Which four, one match each — so a rename reads as a miss rather than as some
+              # other task quietly taking the slot.
+              - _gated | select('search', 'Forget a stale monitor') | list | length == 1
+              - _gated | select('search', 'Create ceph monitor') | list | length == 1
+              - _gated | select('search', 'Enable and start the monitor') | list | length == 1
+              - _gated | select('search', 'to join quorum') | list | length == 1
+              # The point of the flag: the node's other daemons are untouched by it.
+              - _gated | select('search', 'manager') | list | length == 0
+              - _gated | select('search', 'etadata') | list | length == 0
+              - _gated | select('search', 'OSD') | list | length == 0
+              # Depth-independent. The four above are top-level, so a gate added to a task
+              # nested inside a block would not appear in _gated at all; counting the clause
+              # across the whole parsed file catches that without hard-coding how deep to look.
+              - (_ccs | to_json).count(_clause) == 4
+              # Opt-out, not opt-in: a default of false would silently stop every node in the
+              # cluster from managing its own monitor.
+              - _defaults.pve_node_ceph_manage_mon is true
+            fail_msg: >-
+              pve_node_ceph_manage_mon gates {{ _gated | length }} task(s): {{ _gated }}.
+              It must gate exactly the four monitor tasks — forget, create, enable/start and
+              the quorum wait — and no mgr, mds or OSD task, and it must default to true.
+            success_msg: >-
+              gates {{ _gated | length }}: {{ _gated | map('truncate', 44) | list | join(' | ') }}
+              — default {{ _defaults.pve_node_ceph_manage_mon }}
+
+        # ---------- 10. the ceph.conf helper's pure function ----------
+        # forget_mon() edits the parsed config the way PVE's own parser hands it
+        # over; the PVE modules are only loaded when the script is run, so it can
+        # be required here. Covers: section + address removed, other sections and
+        # the longer address kept, second call is a no-op, vector form refused.
+        - name: Exercise ceph_conf_forget_mon.pl's forget_mon()
+          ansible.builtin.command:
+            argv:
+              - perl
+              - -e
+              - |
+                require $ARGV[0];
+                my $cfg = {
+                    global => { mon_host => '10.1.40.13 10.1.40.11 10.1.40.12 10.1.40.120' },
+                    'mon.nas-host-01' => { public_addr => '10.1.40.13' },
+                    'mon.vm-host-02'  => { public_addr => '10.1.40.12' },
+                    'mon.vm-host-020' => { public_addr => '10.1.40.120' },
+                };
+                forget_mon($cfg, 'vm-host-02', '10.1.40.12') or die "reported unchanged\n";
+                die "section kept\n" if exists $cfg->{'mon.vm-host-02'};
+                die "other sections lost\n" if !exists $cfg->{'mon.nas-host-01'} || !exists $cfg->{'mon.vm-host-020'};
+                die "mon_host wrong: $cfg->{global}{mon_host}\n"
+                    if $cfg->{global}{mon_host} ne '10.1.40.13 10.1.40.11 10.1.40.120';
+                die "second run changed\n" if forget_mon($cfg, 'vm-host-02', '10.1.40.12');
+                my $v = { global => { mon_host => '[v2:10.1.40.12:3300/0,v1:10.1.40.12:6789/0]' } };
+                eval { forget_mon($v, 'x', '10.1.40.12') };
+                die "vector form not refused\n" if $@ !~ /vector form/;
+                print "ok: mon_host='$cfg->{global}{mon_host}'\n";
+              - "{{ playbook_dir }}/../files/ceph_conf_forget_mon.pl"
+          register: _perl
+          changed_when: false
+
+        - name: forget_mon() behaves
+          ansible.builtin.assert:
+            that:
+              - _perl.stdout is search('^ok:')
+            success_msg: "{{ _perl.stdout }}"
+
+        # ---------- 11. ceph.sources is byte-identical to what pveceph writes ----------
+        - name: Render the Ceph apt source template
+          vars:
+            pve_ceph_release: tentacle
+            pve_node_ceph_repository: no-subscription
+            pve_node_ceph_suite: trixie
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/ceph.sources"
+            mode: "0644"
+            content: "{{ lookup('template', playbook_dir ~ '/../templates/ceph.sources.j2') }}"
+
+        - name: Read the rendered source
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/ceph.sources"
+          register: _sources
+
+        # Captured from vm-host-02 on 2026-09-08 — the file `pveceph install
+        # --version tentacle --repository no-subscription` had written.
+        - name: Rendered source matches the file pveceph writes
+          vars:
+            _expected: |
+              Types: deb
+              URIs: http://download.proxmox.com/debian/ceph-tentacle
+              Suites: trixie
+              Components: no-subscription
+              Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+          ansible.builtin.assert:
+            that:
+              - (_sources.content | b64decode) == _expected
+            success_msg: "{{ (_sources.content | b64decode) | replace('\n', ' | ') }}"
+
+        # ---------- 12. osd_state: today's cluster — every node holds its OSD ----------
+        - name: Seed today's CRUSH tree and osdmap
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: osd-tree.json, body: "{{ _osd_tree_today }}" }
+            - { name: osd-dump.json, body: "{{ _osd_dump_today }}" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Read OSD state (vm-host-02 holds osd.1, create mode)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_service_id: vm-host-02
+            pve_node_ceph_osd_mode: create
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_state
+
+        - name: A node whose bucket holds an OSD never creates a second one
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_host_bucket_present | bool
+              - pve_node_ceph_host_osd_ids == [1]
+              - pve_node_ceph_host_osds_down == []
+              - pve_node_ceph_host_osds_out == []
+              - not (pve_node_ceph_osd_create_wanted | bool)
+            success_msg: "ids={{ pve_node_ceph_host_osd_ids }} create_wanted={{ pve_node_ceph_osd_create_wanted }}"
+
+        # ---------- 13. osd_state: the empty bucket `pveceph osd destroy` leaves ----------
+        - name: Seed a tree where vm-host-02's bucket is empty
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/osd-tree.json"
+            content: "{{ _osd_tree_empty_bucket }}\n"
+            mode: "0644"
+
+        - name: Read OSD state (empty bucket, create mode)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_service_id: vm-host-02
+            pve_node_ceph_osd_mode: create
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_state
+
+        - name: An empty bucket no longer blocks the create (2026-09-07's silent skip)
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_host_bucket_present | bool
+              - pve_node_ceph_host_osd_ids == []
+              - pve_node_ceph_osd_create_wanted | bool
+            success_msg: "bucket present and empty → create"
+
+        - name: Read OSD state (empty bucket, activate_existing)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_service_id: vm-host-02
+            pve_node_ceph_osd_mode: activate_existing
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_state
+
+        - name: activate_existing never creates
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_osd_create_wanted | bool)
+            success_msg: "activate_existing → no create"
+
+        # ---------- 14. osd_state: no bucket at all (fresh node, or after crush rm) ----------
+        - name: Seed a tree without a vm-host-02 bucket
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/osd-tree.json"
+            content: "{{ _osd_tree_no_bucket }}\n"
+            mode: "0644"
+
+        - name: Read OSD state (no bucket, create mode)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_service_id: vm-host-02
+            pve_node_ceph_osd_mode: create
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_state
+
+        - name: A node with no bucket is created
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_host_bucket_present | bool)
+              - pve_node_ceph_host_osd_ids == []
+              - pve_node_ceph_osd_create_wanted | bool
+            success_msg: "no bucket → create"
+
+        # ---------- 15. osd_state: what a preserve teardown leaves — osd.1 out and down ----------
+        - name: Seed osd.1 down and out
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: osd-tree.json, body: "{{ _osd_tree_preserve }}" }
+            - { name: osd-dump.json, body: "{{ _osd_dump_preserve }}" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Read OSD state (preserved OSD, activate_existing)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_service_id: vm-host-02
+            pve_node_ceph_osd_mode: activate_existing
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_state
+
+        - name: The outed OSD is the one to mark in again
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_host_osd_ids == [1]
+              - pve_node_ceph_host_osds_down == [1]
+              - pve_node_ceph_host_osds_out == [1]
+              - not (pve_node_ceph_osd_create_wanted | bool)
+            success_msg: "down={{ pve_node_ceph_host_osds_down }} out={{ pve_node_ceph_host_osds_out }}"
+
+        # ---------- 16. osd_prepare_device: an empty disk is used as it is ----------
+        - name: Seed an available device and an empty call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: inventory.json, body: "{{ _inventory_available }}\n" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+        - name: Forget any zap marker
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/zapped"
+            state: absent
+
+        - name: Prepare an available device
+          vars:
+            pve_node_ceph_ceph_volume_command: "{{ _tmp.path }}/ceph-volume"
+            pve_ceph_osd_device: "{{ _dev }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_prepare_device
+
+        - name: Inventoried once, zapped nothing
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_osd_device_available | bool
+              - lookup('file', _tmp.path ~ '/calls.log') | split('\n') == ['ceph-volume inventory ' ~ _dev ~ ' --format json']
+            success_msg: "{{ lookup('file', _tmp.path ~ '/calls.log') }}"
+
+        # ---------- 16b. osd_prepare_device: the flag alone zaps nothing on an empty disk ----------
+        - name: Empty the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Prepare an available device with pve_node_ceph_osd_zap left set
+          vars:
+            pve_node_ceph_ceph_volume_command: "{{ _tmp.path }}/ceph-volume"
+            pve_ceph_osd_device: "{{ _dev }}"
+            pve_node_ceph_osd_zap: true
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_prepare_device
+
+        - name: The flag is not a zap on its own — an available disk is left alone
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_osd_device_available | bool
+              - lookup('file', _tmp.path ~ '/calls.log') | split('\n') == ['ceph-volume inventory ' ~ _dev ~ ' --format json']
+            success_msg: "{{ lookup('file', _tmp.path ~ '/calls.log') }}"
+
+        # ---------- 17. osd_prepare_device: a disk in use is refused without the flag ----------
+        - name: Seed the drive as it is in use (vm-host-02's S3610, real inventory)
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: inventory.json, body: "{{ _inventory_in_use }}\n" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: A disk in use without pve_node_ceph_osd_zap
+          block:
+            - name: Should be refused
+              vars:
+                pve_node_ceph_ceph_volume_command: "{{ _tmp.path }}/ceph-volume"
+                pve_ceph_osd_device: "{{ _dev }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: osd_prepare_device
+            - name: Refusal should have happened
+              ansible.builtin.fail:
+                msg: "prepare accepted a device ceph-volume rejects"
+          rescue:
+            - name: Refused, naming the reasons, the OSD on it and the flag — and zapped nothing
+              ansible.builtin.assert:
+                that:
+                  - "'LVM detected' in ansible_failed_result.msg"
+                  - "'osd-block-867da828' in ansible_failed_result.msg"
+                  - "'pve_node_ceph_osd_zap' in ansible_failed_result.msg"
+                  - lookup('file', _tmp.path ~ '/calls.log') is not search('zap')
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 18. osd_prepare_device: the flag zaps exactly this device, once, and re-checks ----------
+        - name: Seed the post-zap answer and an empty call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: inventory-after-zap.json, body: "{{ _inventory_available }}\n" }
+            - { name: calls.log, body: "" }
+            - { name: lsblk.txt, body: "/dev/sda\n/dev/sda1\n/dev/sda9\n" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Prepare the disk in use with pve_node_ceph_osd_zap
+          vars: &zap_cmds
+            pve_node_ceph_ceph_volume_command: "{{ _tmp.path }}/ceph-volume"
+            pve_node_ceph_lsblk_command: "{{ _tmp.path }}/lsblk"
+            pve_node_ceph_wipefs_command: "{{ _tmp.path }}/wipefs"
+            pve_node_ceph_udevadm_command: "{{ _tmp.path }}/udevadm"
+            pve_ceph_osd_device: "{{ _dev }}"
+            pve_node_ceph_osd_zap: true
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_prepare_device
+
+        # The order is the whole point: LVM teardown first (a former OSD's VG would
+        # be orphaned if a signature wipe went first), then partitions before the
+        # whole device (the ZFS labels live inside the partitions), then settle.
+        - name: Zap runs LVM-first, partitions before the device, then settles
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_osd_zap_result is changed
+              - >-
+                lookup('file', _tmp.path ~ '/calls.log') | split('\n') == [
+                  'ceph-volume inventory ' ~ _dev ~ ' --format json',
+                  'ceph-volume lvm zap --destroy ' ~ _dev,
+                  'lsblk -nrpo NAME ' ~ _dev,
+                  'wipefs -a /dev/sda1',
+                  'wipefs -a /dev/sda9',
+                  'wipefs -a /dev/sda',
+                  'udevadm settle',
+                  'ceph-volume inventory ' ~ _dev ~ ' --format json']
+            success_msg: "{{ lookup('file', _tmp.path ~ '/calls.log') | replace('\n', ' | ') }}"
+
+        # ---------- 18b. ceph-volume refusing the zap must not stop the wipe ----------
+        # `zapped` has to go too: the stub answers the *first* inventory from
+        # inventory-after-zap.json while that marker exists, so the device would
+        # look available and the whole zap block would be skipped.
+        - name: Clear the zapped marker from the previous case
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/zapped"
+            state: absent
+
+        - name: Make ceph-volume refuse the zap, as it does on a partitioned disk
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}"
+            mode: "0644"
+          loop:
+            - { name: zap-refuses, body: "" }
+            - { name: calls.log, body: "" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Prepare with a ceph-volume that exits non-zero
+          vars: *zap_cmds
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: osd_prepare_device
+
+        - name: The wipe still ran after ceph-volume declined
+          ansible.builtin.assert:
+            that:
+              - >-
+                lookup('file', _tmp.path ~ '/calls.log') | split('\n') == [
+                  'ceph-volume inventory ' ~ _dev ~ ' --format json',
+                  'ceph-volume lvm zap --destroy ' ~ _dev,
+                  'lsblk -nrpo NAME ' ~ _dev,
+                  'wipefs -a /dev/sda1',
+                  'wipefs -a /dev/sda9',
+                  'wipefs -a /dev/sda',
+                  'udevadm settle',
+                  'ceph-volume inventory ' ~ _dev ~ ' --format json']
+            fail_msg: "got {{ lookup('file', _tmp.path ~ '/calls.log') | replace('\n', ' | ') }}"
+            success_msg: "ceph-volume refused; wipefs and settle ran anyway"
+
+        - name: Let ceph-volume accept the zap again
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/zap-refuses"
+            state: absent
+
+        # ---------- 19. osd_prepare_device: a zap that changes nothing fails, not a green run ----------
+        - name: Remove the post-zap answer and the marker
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/{{ item }}"
+            state: absent
+          loop:
+            - inventory-after-zap.json
+            - zapped
+
+        - name: A zap after which the device is still in use
+          block:
+            - name: Should fail on the re-check
+              vars: *zap_cmds
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: osd_prepare_device
+            - name: Failure should have happened
+              ansible.builtin.fail:
+                msg: "prepare went on with a device still in use after the zap"
+          rescue:
+            - name: Failed on the re-check, naming the reasons
+              ansible.builtin.assert:
+                that:
+                  - "'still not available' in ansible_failed_result.msg"
+                  - "'LVM detected' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 20. mds_state: the section a reinstall leaves behind ----------
+        - name: Seed the MDS list without this node
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mds-metadata.json"
+            content: "{{ _mds_metadata_without_us }}\n"
+            mode: "0644"
+
+        - name: Read MDS state (section left, no data dir, not listed)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mds_data_root: "{{ _tmp.path }}/mds"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_conf: "{{ _conf_mds }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mds_state
+
+        - name: A leftover section is stale, forgotten before the create
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_mds_section_present | bool
+              - not (pve_node_ceph_mds_data_dir_present | bool)
+              - not (pve_node_ceph_mds_in_map | bool)
+              - pve_node_ceph_mds_stale | bool
+              - pve_node_ceph_mds_create_wanted | bool
+              - pve_node_ceph_mds_names == ['nas-host-01', 'vm-host-01']
+            success_msg: "stale={{ pve_node_ceph_mds_stale }} names={{ pve_node_ceph_mds_names }}"
+
+        # ---------- 21. mds_state: a healthy member ----------
+        - name: Give this node an MDS data dir
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mds/ceph-vm-host-02"
+            state: directory
+            mode: "0755"
+        - name: List this node's MDS
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mds-metadata.json"
+            content: "{{ _mds_metadata_with_us }}\n"
+            mode: "0644"
+
+        - name: Read MDS state (member)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mds_data_root: "{{ _tmp.path }}/mds"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_conf: "{{ _conf_mds }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mds_state
+
+        - name: A running metadata server is neither stale nor recreated
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_mds_in_map | bool
+              - not (pve_node_ceph_mds_stale | bool)
+              - not (pve_node_ceph_mds_create_wanted | bool)
+            success_msg: "member → nothing to do"
+
+        # ---------- 22. mds_state: clean node, and the [mds.vm-host-020] boundary ----------
+        - name: Remove the MDS data dir
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/mds/ceph-vm-host-02"
+            state: absent
+        - name: List the MDS daemons without this node
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mds-metadata.json"
+            content: "{{ _mds_metadata_without_us }}\n"
+            mode: "0644"
+
+        - name: Read MDS state (clean; only [mds.vm-host-020] in ceph.conf)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mds_data_root: "{{ _tmp.path }}/mds"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_conf: "{{ _conf_mds_clean }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mds_state
+
+        - name: A clean node is simply created; a longer section name is not ours
+          ansible.builtin.assert:
+            that:
+              - not (pve_node_ceph_mds_section_present | bool)
+              - not (pve_node_ceph_mds_stale | bool)
+              - pve_node_ceph_mds_create_wanted | bool
+            success_msg: "clean → create"
+
+        # ---------- 23. mds_state: a daemon Ceph still lists is never forgotten ----------
+        - name: List this node's MDS while its data dir is absent
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mds-metadata.json"
+            content: "{{ _mds_metadata_with_us }}\n"
+            mode: "0644"
+
+        - name: Read MDS state (section present, listed, no data dir)
+          vars:
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+            pve_node_ceph_mds_data_root: "{{ _tmp.path }}/mds"
+            pve_node_ceph_service_id: vm-host-02
+            ceph_conf: "{{ _conf_mds }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: mds_state
+
+        - name: Something Ceph still lists is not stale, whatever is missing locally
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_mds_section_present | bool
+              - pve_node_ceph_mds_in_map | bool
+              - not (pve_node_ceph_mds_stale | bool)
+            success_msg: "listed → not stale"
+
+        # ---------- 24. the MDS ceph.conf helper's pure function ----------
+        - name: Exercise ceph_conf_forget_mds.pl's forget_mds()
+          ansible.builtin.command:
+            argv:
+              - perl
+              - -e
+              - |
+                require $ARGV[0];
+                my $cfg = {
+                    global => { mon_host => '10.1.40.13 10.1.40.11 10.1.40.12' },
+                    mds => { keyring => '/var/lib/ceph/mds/ceph-$id/keyring' },
+                    'mds.nas-host-01' => { host => 'nas-host-01' },
+                    'mds.vm-host-02'  => { host => 'vm-host-02' },
+                    'mds.vm-host-020' => { host => 'vm-host-020' },
+                };
+                forget_mds($cfg, 'vm-host-02') or die "reported unchanged\n";
+                die "section kept\n" if exists $cfg->{'mds.vm-host-02'};
+                die "other sections lost\n"
+                    if !exists $cfg->{'mds.nas-host-01'} || !exists $cfg->{'mds.vm-host-020'} || !exists $cfg->{mds};
+                die "second run changed\n" if forget_mds($cfg, 'vm-host-02');
+                print "ok: " . join(' ', sort keys %$cfg) . "\n";
+              - "{{ playbook_dir }}/../files/ceph_conf_forget_mds.pl"
+          register: _perl_mds
+          changed_when: false
+
+        - name: forget_mds() behaves
+          ansible.builtin.assert:
+            that:
+              - _perl_mds.stdout is search('^ok:')
+            success_msg: "{{ _perl_mds.stdout }}"
+
+        # ---------- pveceph install must never be able to block on a prompt ----------
+        # 2026-09-09: a live rebuild hung for 1h36m here. `pveceph install` shells out to
+        # apt-get with no `-y`, and offers no flag to add one; ansible allocates a pty, so
+        # apt printed "Do you want to continue? [Y/n]" and sat in read(0) holding the dpkg
+        # locks. Nothing in the output said so — the play simply stopped producing lines.
+        #
+        # Structural, and unavoidably so: install_ceph.yaml opens with package_facts, which
+        # cannot run on the darwin control node ("Could not detect a supported package
+        # manager"), so the suite cannot drive the task and watch a stub receive the "y".
+        # Asserting the two guards are present on the task is the strongest check available
+        # here; the behavioural proof is the live run.
+        - name: The ceph install task answers apt and silences debconf
+          vars:
+            _install_tasks: "{{ lookup('file', playbook_dir ~ '/../tasks/install_ceph.yaml') | from_yaml }}"
+            # Bracket indexing, not selectattr: a dotted key like
+            # `ansible.builtin.command` is split into nested attribute lookups by
+            # selectattr, so it finds nothing and the case passes vacuously.
+            _found: >-
+              {% set out = [] %}
+              {% for t in _install_tasks %}
+              {% set m = t.get('ansible.builtin.command', {}) %}
+              {% if m and 'install' in (m.get('argv', []) | map('string') | list) %}
+              {% set _ = out.append({'stdin': m.get('stdin', '') | string | trim,
+                                     'env': t.get('environment', {})}) %}
+              {% endif %}
+              {% endfor %}
+              {{ out | to_json }}
+            _pveceph: "{{ _found | trim | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - _pveceph | length == 1
+              - _pveceph[0].stdin == 'y'
+              - _pveceph[0].env.DEBIAN_FRONTEND | default('') == 'noninteractive'
+            fail_msg: >-
+              The pveceph install task must feed stdin and set DEBIAN_FRONTEND, or apt-get's
+              "Do you want to continue? [Y/n]" blocks the play for ever behind a pty.
+              Found: {{ _pveceph }}
+            success_msg: "pveceph install: stdin=y, DEBIAN_FRONTEND=noninteractive"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

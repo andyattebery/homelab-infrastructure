@@ -1,0 +1,56 @@
+---
+# Facts about this node's OSDs, from the CRUSH tree and the osdmap, so the
+# create / activate / mark-in decisions rest on Ceph's own view rather than on
+# a substring match over the decompiled CRUSH map. The host bucket is named
+# after the node (pveceph creates it that way); an empty bucket — what
+# `pveceph osd destroy` leaves behind — has no children and therefore no OSD.
+# Fixture-tested in tests/test.yml.
+- name: Read the CRUSH tree
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - osd
+      - tree
+      - -f
+      - json
+  register: pve_node_ceph_osd_tree
+  changed_when: false
+
+- name: Read the osdmap
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - osd
+      - dump
+      - -f
+      - json
+  register: pve_node_ceph_osd_dump
+  changed_when: false
+
+- name: Set OSD state facts
+  vars:
+    _nodes: "{{ (pve_node_ceph_osd_tree.stdout | from_json).nodes | default([]) }}"
+    _host_buckets: >-
+      {{ _nodes | selectattr('type', 'equalto', 'host')
+                | selectattr('name', 'equalto', pve_node_ceph_service_id) | list }}
+    _host_osd_ids: >-
+      {{ (_host_buckets | map(attribute='children', default=[]) | first | default([]))
+         | map('int') | list }}
+    _host_osd_nodes: >-
+      {{ _nodes | selectattr('type', 'equalto', 'osd')
+                | selectattr('id', 'in', _host_osd_ids) | list }}
+    _host_osds: >-
+      {{ ((pve_node_ceph_osd_dump.stdout | from_json).osds | default([]))
+         | selectattr('osd', 'in', _host_osd_ids) | list }}
+  ansible.builtin.set_fact:
+    pve_node_ceph_host_bucket_present: "{{ _host_buckets | length > 0 }}"
+    pve_node_ceph_host_osd_ids: "{{ _host_osd_ids }}"
+    pve_node_ceph_host_osds_down: >-
+      {{ _host_osd_nodes | rejectattr('status', 'equalto', 'up') | map(attribute='id') | list }}
+    pve_node_ceph_host_osds_out: >-
+      {{ _host_osds | selectattr('in', 'equalto', 0) | map(attribute='osd') | list }}
+    # create only when this node has no OSD at all — a bucket with an OSD in
+    # it never gets a second one, and an empty or missing bucket no longer
+    # blocks the first.
+    pve_node_ceph_osd_create_wanted: >-
+      {{ pve_node_ceph_osd_mode == 'create' and (_host_osd_ids | length == 0) }}

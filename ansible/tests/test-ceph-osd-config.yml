@@ -1,0 +1,159 @@
+---
+# Invariants for the Ceph OSD wiring in each Proxmox cluster node's host_vars.
+# Contacts nothing, needs no secret:
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i localhost, tests/test-ceph-osd-config.yml
+#
+# Both parts of that invocation are load-bearing, for the reasons in tests/README.md:
+# `-i localhost,` keeps inventory.ini and every host_vars/*/vault.yaml out of scope, so no
+# encrypted file is opened; ANSIBLE_VAULT_PASSWORD_FILE overrides ansible.cfg's
+# vault_password_file, which ansible-core reads at CLI init on every invocation and which
+# prompts 1Password. Neither pve_ceph_osd_device nor pve_node_ceph_osd_mode is vaulted, so the
+# stub's deliberately-wrong password is never exercised.
+#
+# Each node's vars.yaml is loaded namespaced. Unnamespaced they would collide outright — every
+# node defines the same two variable names, and the last one loaded would win.
+#
+# "Run it twice" (tests/README.md) does not apply: this writes no state and touches no host.
+- name: Ceph OSD config invariants
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # A kernel device name is not an identity, so the only accepted form is by-id.
+    by_id_re: '^/dev/disk/by-id/[A-Za-z0-9._+-]+$'
+
+    valid_modes:
+      - create
+      - activate_existing
+
+    # The nodes this test checks. Asserted against inventory.ini's group below, so adding a
+    # node to the cluster without adding it here fails loudly instead of silently skipping it.
+    checked_nodes:
+      - vm-host-01
+      - vm-host-02
+      - nas-host-01
+
+  tasks:
+    # `-i localhost,` means the real host_vars are never loaded automatically. Pull in exactly
+    # the files under test, one namespace per node.
+    - name: Load each cluster node's host_vars
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../host_vars/{{ item }}/vars.yaml"
+        name: "hv_{{ item | replace('-', '_') }}"
+      loop: "{{ checked_nodes }}"
+
+    # The group is the case set. If it grows and checked_nodes does not, every assertion below
+    # still passes while saying nothing about the new node — the exact vacuous pass
+    # tests/README.md warns about.
+    - name: C0 - checked_nodes matches the prod_proxmox_cluster group in inventory.ini
+      vars:
+        _section: "{{ lookup('file', playbook_dir + '/../inventory.ini').split('[prod_proxmox_cluster]')[1].split('[')[0] }}"
+        _members: "{{ _section.split('\n') | map('trim') | select() | reject('match', '^#') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _members | length > 0
+          - _members | sort == checked_nodes | sort
+        fail_msg: >-
+          inventory.ini's [prod_proxmox_cluster] is {{ _members }}, but this test checks
+          {{ checked_nodes }}. A node in the group and not in this file is a node whose OSD
+          config nothing verifies. Add it to checked_nodes.
+        quiet: true
+
+    - name: C1 - every node declares an OSD device, as a stable by-id path
+      vars:
+        _hv: "{{ lookup('vars', 'hv_' + (item | replace('-', '_'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _hv.pve_ceph_osd_device is defined
+          - _hv.pve_ceph_osd_device | length > 0
+          - _hv.pve_ceph_osd_device is match(by_id_re)
+        fail_msg: >-
+          {{ item }}: pve_ceph_osd_device is
+          '{{ _hv.pve_ceph_osd_device | default("<undefined>") }}'. It must be a
+          /dev/disk/by-id/ path — /dev/sdX and /dev/nvmeXn1 are not stable across boots, and
+          `pveceph osd create` against a renamed device destroys whatever is actually there.
+        quiet: true
+      loop: "{{ checked_nodes }}"
+
+    - name: C2 - every node's OSD mode is one the role implements
+      vars:
+        _hv: "{{ lookup('vars', 'hv_' + (item | replace('-', '_'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _hv.pve_node_ceph_osd_mode is defined
+          - _hv.pve_node_ceph_osd_mode in valid_modes
+        fail_msg: >-
+          {{ item }}: pve_node_ceph_osd_mode is
+          '{{ _hv.pve_node_ceph_osd_mode | default("<undefined>") }}'. pve_node_ceph only
+          branches on {{ valid_modes | join(" and ") }}; any other value silently does
+          neither, leaving the node with no OSD.
+        quiet: true
+      loop: "{{ checked_nodes }}"
+
+    # `create` is correct only while a disk is actually being replaced. Left behind afterwards
+    # it is a landmine: on the next OS reinstall the surviving OSD is still in the node's CRUSH
+    # bucket, so the role creates nothing and activates nothing, and the play only stops at the
+    # role's up/in wait — a minute later, with a message about the OSD rather than the cause.
+    - name: C3 - steady state is activate_existing, not create
+      vars:
+        _hv: "{{ lookup('vars', 'hv_' + (item | replace('-', '_'))) }}"
+      ansible.builtin.assert:
+        that:
+          - _hv.pve_node_ceph_osd_mode == 'activate_existing'
+        fail_msg: >-
+          {{ item }}: pve_node_ceph_osd_mode is still 'create'. That is only correct mid-swap
+          while a new OSD disk is being provisioned. Flip it back to 'activate_existing' once
+          the OSD exists and the cluster is HEALTH_OK — see
+          ansible/roles/pve_node_ceph/README.md.
+        quiet: true
+      loop: "{{ checked_nodes }}"
+
+    # The zap is `ceph-volume lvm zap --destroy` on pve_ceph_osd_device. It is asked for on the
+    # one run that provisions a disk that is not empty, and removed once the OSD exists; left
+    # behind, the next `create` run wipes whatever the by-id path resolves to without asking.
+    - name: C3b - no node asks for a zap in steady state
+      vars:
+        _hv: "{{ lookup('vars', 'hv_' + (item | replace('-', '_'))) }}"
+      ansible.builtin.assert:
+        that:
+          - not (_hv.pve_node_ceph_osd_zap | default(false) | bool)
+        fail_msg: >-
+          {{ item }}: pve_node_ceph_osd_zap is set. It is the one-run switch for replacing the
+          OSD disk and only means anything next to pve_node_ceph_osd_mode: create. Remove it
+          once the OSD exists — see ansible/roles/pve_node_ceph/README.md.
+        quiet: true
+      loop: "{{ checked_nodes }}"
+
+    - name: Collect the declared OSD devices
+      ansible.builtin.set_fact:
+        _devices: >-
+          {{ _devices | default([])
+             + [lookup('vars', 'hv_' + (item | replace('-', '_'))).pve_ceph_osd_device | default('')] }}
+      loop: "{{ checked_nodes }}"
+
+    # The length check is not decoration: `_devices | length == _devices | unique | length`
+    # passes on an empty list, so a collection that silently produced nothing would report
+    # itself as a perfect result.
+    - name: C4 - OSD devices are unique across the cluster
+      ansible.builtin.assert:
+        that:
+          - _devices | length == checked_nodes | length
+          - _devices | select() | length == checked_nodes | length
+          - _devices | length == _devices | unique | length
+        fail_msg: >-
+          Declared OSD devices are {{ _devices }}. Each node's OSD is a different physical
+          disk; a shared or empty value means one host_vars file was copied without updating
+          the serial.
+        quiet: true
+
+    # Printed rather than summarised: a vacuous pass should be visible rather than hidden
+    # behind "All assertions passed".
+    - name: C5 - report what was checked
+      ansible.builtin.debug:
+        msg: >-
+          {{ checked_nodes | length }} nodes:
+          {{ checked_nodes | zip(_devices) | map('join', '=') | join('  ') }}

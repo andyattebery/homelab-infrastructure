@@ -1,0 +1,46 @@
+---
+# Facts about this node's metadata server, from the daemons Ceph lists, the
+# cluster ceph.conf and the local data dir. Needs `ceph_conf` (the ceph.conf
+# content) set by the caller. Fixture-tested in tests/test.yml.
+- name: Read the metadata servers Ceph knows
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - mds
+      - metadata
+      - -f
+      - json
+  register: pve_node_ceph_mds_metadata_now
+  changed_when: false
+  failed_when: false
+
+- name: Stat this node's MDS data directory
+  ansible.builtin.stat:
+    path: "{{ pve_node_ceph_mds_data_root }}/ceph-{{ pve_node_ceph_service_id }}"
+  register: pve_node_ceph_mds_data_dir_stat
+
+- name: Set MDS state facts
+  ansible.builtin.set_fact:
+    pve_node_ceph_mds_names: >-
+      {{ ((pve_node_ceph_mds_metadata_now.stdout | from_json) | map(attribute='name', default='') | list)
+         if pve_node_ceph_mds_metadata_now.rc == 0 else [] }}
+    pve_node_ceph_mds_section_present: >-
+      {{ ceph_conf is search('(?m)^\[mds\.' ~ (pve_node_ceph_service_id | regex_escape) ~ '\]\s*$') }}
+    pve_node_ceph_mds_data_dir_present: "{{ pve_node_ceph_mds_data_dir_stat.stat.exists }}"
+
+# Stale: the [mds.<id>] section survived — a reinstall, or a dead node's raw
+# cleanup — while the daemon itself is gone: no data dir, and Ceph does not
+# list it. `pveceph mds create` dies on the section ("MDS '<id>' already
+# referenced in ceph config, abort!", MDS.pm 187, pve-manager 9.2.11), so it
+# has to be forgotten first. A section whose daemon Ceph still lists is never
+# touched, whatever else is missing.
+- name: Set MDS decision facts
+  ansible.builtin.set_fact:
+    pve_node_ceph_mds_in_map: "{{ pve_node_ceph_service_id in pve_node_ceph_mds_names }}"
+    pve_node_ceph_mds_stale: >-
+      {{ (pve_node_ceph_mds_metadata_now.rc == 0)
+         and (pve_node_ceph_mds_section_present | bool)
+         and not (pve_node_ceph_mds_data_dir_present | bool)
+         and (pve_node_ceph_service_id not in pve_node_ceph_mds_names) }}
+    pve_node_ceph_mds_create_wanted: >-
+      {{ not ((pve_node_ceph_mds_section_present | bool) and (pve_node_ceph_mds_data_dir_present | bool)) }}

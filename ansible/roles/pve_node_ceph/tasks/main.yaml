@@ -1,14 +1,39 @@
 ---
+- name: Assert pve_ceph_release is declared
+  ansible.builtin.assert:
+    that:
+      - pve_ceph_release is defined
+      - pve_ceph_release is match('^[a-z]+$')
+    fail_msg: >-
+      pve_ceph_release must name the Ceph release this cluster runs (e.g.
+      `squid`, `tentacle` — the list PVE accepts is in
+      /usr/share/perl5/PVE/Ceph/Releases.pm). It has no default on purpose:
+      without it `pveceph install` picks whatever PVE ships today, which is
+      how a rebuilt node ended up one major ahead of its cluster.
+    quiet: true
+# Order matters: a fresh node is installed first (pveceph writes the apt source
+# itself, for the declared release), then the guard runs, and only a node that
+# passes it has its apt source converged — so a node whose release disagrees
+# with group_vars is never pointed at a different repo by this role. The
+# upgrade playbook includes repo.yaml directly; switching releases is its job.
 - name: Install ceph
   ansible.builtin.include_tasks:
     file: install_ceph.yaml
+- name: Refuse a release mismatch before creating any daemon
+  ansible.builtin.include_tasks:
+    file: check_release.yaml
+- name: Own the Ceph apt repository
+  ansible.builtin.include_tasks:
+    file: repo.yaml
 # Initialize the cluster's ceph config if it hasn't been done yet. Only the
 # initial node runs this; other nodes inherit /etc/pve/ceph.conf via pmxcfs
 # after they've joined the PVE cluster. The status-rc check makes this
 # idempotent across re-runs.
 - name: Get ceph status
   ansible.builtin.command:
-    cmd: pveceph status
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - status
   register: pve_node_ceph_status_result
   changed_when: false
   failed_when: false
@@ -17,7 +42,11 @@
     - inventory_hostname == pve_cluster_designated_runner
     - pve_node_ceph_status_result.rc != 0
   ansible.builtin.command:
-    cmd: pveceph init --network {{ pve_ceph_network }}
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - init
+      - --network
+      - "{{ pve_ceph_network }}"
   register: pve_node_ceph_init_result
   changed_when: pve_node_ceph_init_result.rc == 0
 - name: Create ceph services (manager, monitor, metadata server)

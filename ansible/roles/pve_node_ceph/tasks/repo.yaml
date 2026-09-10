@@ -1,0 +1,19 @@
+---
+# The same file `pveceph install` writes (pveceph.pm, pve-manager 9.2.11 —
+# it hardcodes the suite as `trixie`), templated from pve_ceph_release so the
+# repo can never point at a different release than the one declared. The
+# upgrade playbook includes this file to switch releases; the main playbook
+# includes it to converge drift.
+- name: Write the Ceph apt source
+  ansible.builtin.template:
+    src: ceph.sources.j2
+    dest: /etc/apt/sources.list.d/ceph.sources
+    owner: root
+    group: root
+    mode: "0644"
+  register: pve_node_ceph_sources
+
+- name: Update the apt cache for the new Ceph source
+  when: pve_node_ceph_sources is changed
+  ansible.builtin.apt:
+    update_cache: true

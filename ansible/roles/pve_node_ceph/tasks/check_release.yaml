@@ -1,0 +1,64 @@
+---
+# The release guard. On 2026-09-07 a rebuilt node was installed with whatever
+# `pveceph install` defaulted to (tentacle) against a squid cluster. Its
+# monitor could never join — a newer major cannot enter an older quorum — and
+# the election churn OOM-killed another node's monitor until the cluster lost
+# quorum. Both assertions below run before any daemon is created.
+- name: Read the installed Ceph release
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - -v
+  register: pve_node_ceph_installed_version
+  changed_when: false
+
+# `ceph -v` → "ceph version 19.2.5 (<sha>) squid (stable)": the codename is
+# the fifth word.
+- name: Set the installed release name
+  vars:
+    _words: "{{ pve_node_ceph_installed_version.stdout.split() }}"
+  ansible.builtin.set_fact:
+    pve_node_ceph_installed_release: >-
+      {{ _words[4] if (_words | length >= 5 and _words[0:2] == ['ceph', 'version']) else '' }}
+
+- name: Assert the installed release is the one group_vars declares
+  ansible.builtin.assert:
+    that:
+      - pve_node_ceph_installed_release == pve_ceph_release
+    fail_msg: >-
+      Installed Ceph is '{{ pve_node_ceph_installed_release }}'
+      ({{ pve_node_ceph_installed_version.stdout }}) but pve_ceph_release is
+      '{{ pve_ceph_release }}'. If the cluster is being upgraded, run
+      playbook-prod-proxmox-cluster-ceph-upgrade.yaml first. If this node was
+      just installed, pveceph installed a different release than group_vars
+      declares — its enum and default live in
+      /usr/share/perl5/PVE/Ceph/Releases.pm.
+    quiet: true
+
+- name: Read the cluster's monitor map
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - mon
+      - dump
+      - -f
+      - json
+  register: pve_node_ceph_release_mon_dump
+  changed_when: false
+  failed_when: false
+
+# No monmap means no cluster yet (the designated runner before `pveceph init`)
+# or an unreachable one; create_ceph_services.yaml diagnoses the second.
+- name: Assert the cluster runs the release group_vars declares
+  when: pve_node_ceph_release_mon_dump.rc == 0
+  vars:
+    _cluster_release: "{{ (pve_node_ceph_release_mon_dump.stdout | from_json).min_mon_release_name }}"
+  ansible.builtin.assert:
+    that:
+      - _cluster_release == pve_ceph_release
+    fail_msg: >-
+      The cluster's min_mon_release is '{{ _cluster_release }}' but
+      pve_ceph_release is '{{ pve_ceph_release }}'. Refusing to create daemons
+      that cannot join. Either the variable is wrong, or the cluster has to be
+      upgraded first — playbook-prod-proxmox-cluster-ceph-upgrade.yaml.
+    quiet: true

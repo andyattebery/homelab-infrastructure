@@ -1,0 +1,52 @@
+---
+# A monitor that is in ceph.conf and/or on disk but not in the monmap is a
+# leftover. A raw `ceph mon remove` — the only option from a survivor when the
+# node is down, and what the 2026-09-08 quorum recovery used — keeps the
+# [mon.<id>] section, the mon_host entry and the store, and `pveceph mon
+# create` refuses each: "monitor '<id>' already exists", "monitor address ...
+# already in use", "monitor filesystem ... already exist" (MON.pm, pve-manager
+# 9.2.11). `pveceph mon destroy` cannot clean it either: it takes the address
+# to drop from mon_host from the monmap, where the mon no longer is. So the
+# role forgets the monitor the way destroymon does when it can — ceph.conf
+# under PVE's cluster lock and through PVE's own parser, then the store, then
+# the unit.
+- name: Forget the stale monitor in ceph.conf (section and mon_host entry)
+  ansible.builtin.script:
+    cmd: "ceph_conf_forget_mon.pl {{ pve_node_ceph_service_id | quote }} {{ ceph_mon_address | quote }}"
+  register: pve_node_ceph_forget_mon_conf
+  changed_when: "'changed' in pve_node_ceph_forget_mon_conf.stdout"
+
+- name: Remove the stale monitor store
+  ansible.builtin.file:
+    path: "{{ pve_node_ceph_mon_data_root }}/ceph-{{ pve_node_ceph_service_id }}"
+    state: absent
+
+- name: Stop and disable the stale monitor unit
+  ansible.builtin.systemd_service:
+    name: "ceph-mon@{{ pve_node_ceph_service_id }}.service"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Clear the stale monitor unit's failed state
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - "ceph-mon@{{ pve_node_ceph_service_id }}.service"
+  changed_when: false
+  failed_when: false
+
+# pvestatd broadcasts each node's local Ceph services into the cluster KV
+# every few seconds, and `pveceph mon create` consults that list too
+# (get_services_info → get_cluster_service). Refresh it now, as destroymon
+# does at its end (MON.pm 686), so the create that follows cannot see a
+# monitor that no longer exists. Not fixture-testable; verified live.
+- name: Broadcast this node's Ceph services
+  ansible.builtin.command:
+    argv:
+      - perl
+      - -MPVE::Ceph::Services
+      - -e
+      - PVE::Ceph::Services::broadcast_ceph_services()
+  changed_when: true

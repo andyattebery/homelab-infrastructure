@@ -1,15 +1,14 @@
 ---
 - name: Get ceph.conf stat
   ansible.builtin.stat:
-    path: /etc/ceph/ceph.conf
-  register:
-    ceph_conf_stat_result
+    path: "{{ pve_node_ceph_conf_path }}"
+  register: ceph_conf_stat_result
 - name: Set ceph_conf fact
   when: ceph_conf_stat_result.stat.exists is true
   block:
     - name: Get ceph.conf base64 encoded contents
       ansible.builtin.slurp:
-        src: /etc/ceph/ceph.conf
+        src: "{{ pve_node_ceph_conf_path }}"
       register: ceph_conf_slurp_result
     - name: Set ceph_conf fact
       ansible.builtin.set_fact:
@@ -20,7 +19,9 @@
     ceph_conf: ""
 - name: Get ceph status
   ansible.builtin.command:
-    cmd: pveceph status
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - status
   register: pveceph_status_result
   changed_when: false
   failed_when: false
@@ -37,76 +38,279 @@
     - pveceph_status_result.rc != 0
   ansible.builtin.fail:
     msg: >-
-      /etc/ceph/ceph.conf exists but `pveceph status` failed (rc={{
+      {{ pve_node_ceph_conf_path }} exists but `pveceph status` failed (rc={{
       pveceph_status_result.rc }}). The cluster is configured but mons
       are not reachable from this host. Check the cluster network: link
       state on the cluster NIC, ARP/ping to the other mons, and
       `ceph_mon_address` ({{ ceph_mon_address | default('<unset>') }})
       reachability. Stderr was: {{ pveceph_status_result.stderr | default('') }}
 
-- name: Set ceph_monitors, ceph_managers
-  when: pveceph_status_result.rc == 0
-  vars:
-    mon_regex: '^\s*(mon:.*$)'
-    mgr_regex: '^\s*(mgr:.*$)'
-  ansible.builtin.set_fact:
-    ceph_monitors: "{{ pveceph_status_result.stdout | regex_search(mon_regex, multiline=True) }}"
-    ceph_managers: "{{ pveceph_status_result.stdout | regex_search(mgr_regex, multiline=True) }}"
-- name: Set empty ceph_monitors, ceph_managers
-  when: pveceph_status_result.rc != 0
-  ansible.builtin.set_fact:
-    ceph_monitors: []
-    ceph_managers: []
-- name: Create ceph monitor
-  # vars:
-  #   monitor_name: "mon.{{ ansible_facts['hostname'] }}"
-  when: "ansible_facts['hostname'] not in ceph_monitors"
-  ansible.builtin.command:
-    cmd: "pveceph mon create --mon-address {{ ceph_mon_address }}"
-  register: pveceph_mon_create_result
-  changed_when: true
-  # changed_when: pveceph_mon_create_result.rc == 0
-  # failed_when: pveceph_mon_create_result.rc != 0 and pveceph_mon_create_result.rc != 255
-- name: Create ceph manager
-  when: "ansible_facts['hostname'] not in ceph_managers"
-  ansible.builtin.command:
-    cmd: pveceph mgr create
-  register: pveceph_mgr_create_result
-  changed_when: true
-  # changed_when: pveceph_mgr_create_result.rc == 0
-  # failed_when: pveceph_mgr_create_result.rc != 0 and pveceph_mgr_create_result.rc != 255
-- name: Stat MDS data directory
-  ansible.builtin.stat:
-    path: "/var/lib/ceph/mds/ceph-{{ ansible_facts['hostname'] }}"
-  register: pve_node_ceph_mds_data_dir_stat
-- name: Create ceph Metadata Server
-  vars:
-    mds_name: "mds.{{ ansible_facts['hostname'] }}"
-  # Recreate the MDS daemon if either the cluster ceph.conf doesn't reference
-  # it, or the local data dir is missing (e.g. after a host reinstall where
-  # the conf section persists in the cluster-shared /etc/pve/priv/ceph.conf
-  # but /var/lib/ceph/mds/ceph-<host> is gone).
-  when: mds_name not in ceph_conf or not pve_node_ceph_mds_data_dir_stat.stat.exists
-  ansible.builtin.command:
-    cmd: pveceph mds create
-  register: pveceph_mds_create_result
-  changed_when: true
-  # changed_when: pveceph_mds_create_result == 0
-  # failed_when: pveceph_mds_create_result.rc != 0 and pveceph_mds_create_result.rc != 255
-- name: Get CRUSH map # noqa risky-shell-pipe
-  ansible.builtin.shell:
-    cmd: ceph osd getcrushmap | crushtool -d -
-  register: ceph_crush_map_result
-  changed_when: false
-- name: Create ceph OSD
+# ---------- monitor ----------
+- name: Read monitor state
+  ansible.builtin.include_tasks:
+    file: mon_state.yaml
+
+- name: Forget a stale monitor before recreating it
   when:
-    - pve_node_ceph_osd_mode == 'create'
-    - ansible_facts['hostname'] not in ceph_crush_map_result.stdout
+    - pve_node_ceph_manage_mon | bool
+    - pve_node_ceph_mon_stale | bool
+  ansible.builtin.include_tasks:
+    file: forget_mon.yaml
+
+- name: Create ceph monitor
+  when:
+    - pve_node_ceph_manage_mon | bool
+    - not (pve_node_ceph_mon_in_monmap | bool)
   ansible.builtin.command:
-    cmd: pveceph osd create {{ pve_ceph_osd_device }}
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - mon
+      - create
+      - --mon-address
+      - "{{ ceph_mon_address }}"
+  register: pveceph_mon_create_result
+  changed_when: pveceph_mon_create_result.rc == 0
+
+# ---------- manager ----------
+- name: Read the manager map
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - mgr
+      - dump
+      - -f
+      - json
+  register: pve_node_ceph_mgr_dump
+  changed_when: false
+  failed_when: false
+
+- name: Set manager names fact
+  vars:
+    _mgr: "{{ (pve_node_ceph_mgr_dump.stdout | from_json) if pve_node_ceph_mgr_dump.rc == 0 else {} }}"
+  ansible.builtin.set_fact:
+    pve_node_ceph_mgr_names: >-
+      {{ ([_mgr.active_name] if (_mgr.active_name | default('')) else [])
+         + (_mgr.standbys | default([]) | map(attribute='name') | list) }}
+
+- name: Create ceph manager
+  when: pve_node_ceph_service_id not in pve_node_ceph_mgr_names
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - mgr
+      - create
+  register: pveceph_mgr_create_result
+  changed_when: pveceph_mgr_create_result.rc == 0
+
+# ---------- metadata server ----------
+- name: Read metadata server state
+  ansible.builtin.include_tasks:
+    file: mds_state.yaml
+
+# After a host reinstall the [mds.<id>] section persists in the cluster-shared
+# ceph.conf while /var/lib/ceph/mds/ceph-<id> is gone, and `pveceph mds create`
+# aborts on the section — so it is forgotten first, then created.
+- name: Forget a stale metadata server section before recreating it
+  when: pve_node_ceph_mds_stale | bool
+  ansible.builtin.include_tasks:
+    file: forget_mds.yaml
+
+- name: Create ceph Metadata Server
+  when: pve_node_ceph_mds_create_wanted | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - mds
+      - create
+  register: pveceph_mds_create_result
+  changed_when: pveceph_mds_create_result.rc == 0
+
+# ---------- keep mon/mgr/mds running, and verify with Ceph's own view ----------
+# After a boot where the cluster NIC came up without its address (a rename, a
+# drop-in regenerated a few seconds too late), ceph-mon and ceph-mgr fail
+# until systemd's start limiter gives up and stay `failed` after the address
+# returns; an MDS starts anyway, bound to nothing, and reports `active` while
+# registering nothing. Converge all three to running here so no hand
+# `reset-failed`/`start`/`restart` is ever needed between playbook runs, then
+# check with Ceph — `systemctl is-active` is not evidence for any of them.
+# Created is not joined either: a monitor one release ahead of
+# min_mon_release sits probing forever while its unit reports active (that is
+# what let 2026-09-07 run unnoticed), so the waits gate on quorum, not on rc.
+- name: Check failed state of mon/mgr/mds units
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - is-failed
+      - "ceph-{{ item }}@{{ pve_node_ceph_service_id }}.service"
+  loop:
+    - mon
+    - mgr
+    - mds
+  register: pve_node_ceph_unit_failed_states
+  changed_when: false
+  failed_when: false  # rc=0 means the unit IS failed
+
+- name: Reset failed state on mon/mgr/mds units (clears the start limiter)
+  when: item.rc == 0
+  ansible.builtin.command:
+    argv:
+      - systemctl
+      - reset-failed
+      - "ceph-{{ item.item }}@{{ pve_node_ceph_service_id }}.service"
+  loop: "{{ pve_node_ceph_unit_failed_states.results }}"
+  loop_control:
+    label: "ceph-{{ item.item }}@{{ pve_node_ceph_service_id }}"
+  changed_when: true
+
+- name: Enable and start the monitor
+  when:
+    - pve_node_ceph_manage_mon | bool
+    - (pve_node_ceph_mon_in_monmap | bool) or (pveceph_mon_create_result is changed)
+  ansible.builtin.systemd_service:
+    name: "ceph-mon@{{ pve_node_ceph_service_id }}.service"
+    enabled: true
+    state: started
+
+- name: >-
+    Wait for mon.{{ pve_node_ceph_service_id }} to join quorum (if this fails:
+    compare `ceph -v` with `ceph mon dump | grep min_mon_release`, then
+    journalctl -u ceph-mon@{{ pve_node_ceph_service_id }})
+  when:
+    - pve_node_ceph_manage_mon | bool
+    - (pve_node_ceph_mon_in_monmap | bool) or (pveceph_mon_create_result is changed)
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - quorum_status
+      - -f
+      - json
+  register: pve_node_ceph_quorum_status
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_node_ceph_service_id in
+         (((pve_node_ceph_quorum_status.stdout if pve_node_ceph_quorum_status.rc == 0 else '{}')
+           | from_json).quorum_names | default([])) }}
+  retries: 12
+  delay: 5
+
+- name: Enable and start the manager
+  ansible.builtin.systemd_service:
+    name: "ceph-mgr@{{ pve_node_ceph_service_id }}.service"
+    enabled: true
+    state: started
+
+- name: >-
+    Wait for mgr.{{ pve_node_ceph_service_id }} to register (if this fails:
+    journalctl -u ceph-mgr@{{ pve_node_ceph_service_id }})
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - mgr
+      - dump
+      - -f
+      - json
+  register: pve_node_ceph_mgr_dump_after
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_node_ceph_service_id in
+         ((([(pve_node_ceph_mgr_dump_after.stdout | from_json).active_name | default('')]
+            + ((pve_node_ceph_mgr_dump_after.stdout | from_json).standbys | default([]) | map(attribute='name') | list))
+           | select() | list)
+          if pve_node_ceph_mgr_dump_after.rc == 0 else []) }}
+  retries: 12
+  delay: 5
+
+- name: Enable and start the metadata server
+  when: pve_node_ceph_mds_data_dir_stat.stat.exists or (pveceph_mds_create_result is changed)
+  ansible.builtin.systemd_service:
+    name: "ceph-mds@{{ pve_node_ceph_service_id }}.service"
+    enabled: true
+    state: started
+
+- name: Make sure the metadata server registers
+  when: pve_node_ceph_mds_data_dir_stat.stat.exists or (pveceph_mds_create_result is changed)
+  block:
+    - name: Wait for mds.{{ pve_node_ceph_service_id }} to register
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_node_ceph_ceph_command }}"
+          - mds
+          - metadata
+          - -f
+          - json
+      register: pve_node_ceph_mds_metadata
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_node_ceph_service_id in
+             (((pve_node_ceph_mds_metadata.stdout | from_json) | map(attribute='name', default='') | list)
+              if pve_node_ceph_mds_metadata.rc == 0 else []) }}
+      retries: 6
+      delay: 5
+  rescue:
+    # An MDS that started with no address on the cluster network is "active"
+    # to systemd and unknown to Ceph; only a restart re-binds it.
+    - name: Restart an MDS that started without registering
+      ansible.builtin.systemd_service:
+        name: "ceph-mds@{{ pve_node_ceph_service_id }}.service"
+        state: restarted
+
+    - name: >-
+        Wait for mds.{{ pve_node_ceph_service_id }} to register after the restart
+        (if this fails: journalctl -u ceph-mds@{{ pve_node_ceph_service_id }}, and
+        check the cluster NIC has its address)
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_node_ceph_ceph_command }}"
+          - mds
+          - metadata
+          - -f
+          - json
+      register: pve_node_ceph_mds_metadata_after
+      changed_when: false
+      failed_when: not (_ok | bool)
+      until: _ok | bool
+      vars:
+        _ok: >-
+          {{ pve_node_ceph_service_id in
+             (((pve_node_ceph_mds_metadata_after.stdout | from_json) | map(attribute='name', default='') | list)
+              if pve_node_ceph_mds_metadata_after.rc == 0 else []) }}
+      retries: 12
+      delay: 5
+
+# ---------- OSD ----------
+- name: Read OSD state
+  ansible.builtin.include_tasks:
+    file: osd_state.yaml
+
+# create is gated on this node's CRUSH host bucket having no OSD in it: a
+# node that has one never gets a second, and the empty bucket `pveceph osd
+# destroy` leaves behind no longer makes the create skip (pveceph reuses the
+# bucket). The device is inventoried first; a disk in use is refused unless
+# pve_node_ceph_osd_zap asks for the zap.
+- name: Prepare the OSD device (inventory; zap only with pve_node_ceph_osd_zap)
+  when: pve_node_ceph_osd_create_wanted | bool
+  ansible.builtin.include_tasks:
+    file: osd_prepare_device.yaml
+
+- name: Create ceph OSD
+  when: pve_node_ceph_osd_create_wanted | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_pveceph_command }}"
+      - osd
+      - create
+      - "{{ pve_ceph_osd_device }}"
   register: pveceph_osd_create_result
-  changed_when: pveceph_osd_create_result == 0
-  failed_when: pveceph_osd_create_result.rc != 0 # and pveceph_osd_create_result.rc != 25
+  changed_when: pveceph_osd_create_result.rc == 0
 - name: Activate existing ceph OSD
   # No CRUSH-map gate here on purpose: on a reinstalled host the OSD's
   # CRUSH entry persists in the cluster (the OSD was never removed,
@@ -122,7 +326,7 @@
     # command when nothing needs doing.
     - name: Probe for existing local OSD directories
       ansible.builtin.find:
-        paths: /var/lib/ceph/osd
+        paths: "{{ pve_node_ceph_osd_data_root }}"
         file_type: directory
         patterns: 'ceph-*'
       register: pve_node_ceph_local_osd_dirs_probe
@@ -137,10 +341,25 @@
     # variable would otherwise become a "skipped" stub with no .files.
     - name: Discover local OSD directories
       ansible.builtin.find:
-        paths: /var/lib/ceph/osd
+        paths: "{{ pve_node_ceph_osd_data_root }}"
         file_type: directory
         patterns: 'ceph-*'
       register: pve_node_ceph_local_osd_dirs
+
+    # Silence here used to mean "no OSD, play green" — the landmine
+    # tests/test-ceph-osd-config.yml describes. This node's OSD is the
+    # contract; nothing to activate is a failure that names the alternative.
+    - name: An OSD to activate must exist
+      ansible.builtin.assert:
+        that:
+          - pve_node_ceph_local_osd_dirs.matched > 0
+        fail_msg: >-
+          pve_node_ceph_osd_mode is activate_existing but nothing exists under
+          {{ pve_node_ceph_osd_data_root }} after `ceph-volume lvm activate --all`. Either the
+          OSD disk is missing, or this node's OSD was destroyed and a new one has to be
+          created: set pve_node_ceph_osd_mode: create (with pve_ceph_osd_device, and
+          pve_node_ceph_osd_zap if the disk is not empty) for one run.
+        quiet: true
 
     # `ceph-volume lvm activate` enables units with --runtime (transient) and
     # tries to start them. If earlier prestart attempts hit the systemd
@@ -170,6 +389,62 @@
         enabled: true
         state: started
       loop: "{{ pve_node_ceph_local_osd_dirs.files }}"
+
+    # A rebuild's teardown marks the OSD out before the node goes down. "Up
+    # and in" is the contract, so mark it in again; osd_state.yaml lists the
+    # host's OSDs the osdmap says are out, which is empty on a healthy node.
+    - name: Mark this node's OSDs in again
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_node_ceph_ceph_command }}"
+          - osd
+          - in
+          - "{{ item }}"
+      loop: "{{ pve_node_ceph_host_osds_out }}"
+      register: pve_node_ceph_osd_in_result
+      changed_when: true
+
+# Created or activated is not up. Both modes end by waiting for Ceph to show
+# every OSD in this node's bucket up and in (reweight > 0); the wait also
+# catches a node left on `create` whose OSD nothing activated.
+- name: >-
+    Wait for this node's OSDs to be up and in (if this fails: ceph osd tree,
+    then journalctl -u ceph-osd@<id>)
+  when: pve_node_ceph_osd_mode in ['create', 'activate_existing']
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - osd
+      - tree
+      - -f
+      - json
+  register: pve_node_ceph_osd_tree_after
+  changed_when: false
+  failed_when: not (_ok | bool)
+  until: _ok | bool
+  vars:
+    _ok: >-
+      {{ pve_node_ceph_osd_tree_after.rc == 0
+         and (pve_node_ceph_osd_tree_after.stdout | from_json).nodes
+             | selectattr('type', 'equalto', 'host')
+             | selectattr('name', 'equalto', pve_node_ceph_service_id)
+             | map(attribute='children', default=[]) | first | default([]) | length > 0
+         and (pve_node_ceph_osd_tree_after.stdout | from_json).nodes
+             | selectattr('type', 'equalto', 'osd')
+             | selectattr('id', 'in', (pve_node_ceph_osd_tree_after.stdout | from_json).nodes
+                                      | selectattr('type', 'equalto', 'host')
+                                      | selectattr('name', 'equalto', pve_node_ceph_service_id)
+                                      | map(attribute='children', default=[]) | first | default([]))
+             | rejectattr('status', 'equalto', 'up') | list | length == 0
+         and (pve_node_ceph_osd_tree_after.stdout | from_json).nodes
+             | selectattr('type', 'equalto', 'osd')
+             | selectattr('id', 'in', (pve_node_ceph_osd_tree_after.stdout | from_json).nodes
+                                      | selectattr('type', 'equalto', 'host')
+                                      | selectattr('name', 'equalto', pve_node_ceph_service_id)
+                                      | map(attribute='children', default=[]) | first | default([]))
+             | selectattr('reweight', 'equalto', 0) | list | length == 0 }}
+  retries: 24
+  delay: 5
 
 # Defensive cleanup: cephfs storage mounts can go zombie when the cluster
 # network flaps mid-mount — `ls /mnt/pve/<storage>` then shows

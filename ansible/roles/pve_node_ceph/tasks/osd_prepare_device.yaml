@@ -1,0 +1,142 @@
+---
+# Runs only when an OSD is about to be created on pve_ceph_osd_device. A disk
+# that carries anything — a partition table, LVM, a filesystem, an old OSD —
+# is refused by `pveceph osd create`; ceph-volume's inventory says whether the
+# device is usable and why not. Zapping is destructive and never implied: it
+# happens only with pve_node_ceph_osd_zap set, on this by-id device, and only
+# when the inventory says the device is not available. Fixture-tested in
+# tests/test.yml with a stub ceph-volume that logs its calls.
+- name: Inventory the OSD device
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_volume_command }}"
+      - inventory
+      - "{{ pve_ceph_osd_device }}"
+      - --format
+      - json
+  register: pve_node_ceph_osd_inventory
+  changed_when: false
+
+- name: Set OSD device facts
+  vars:
+    _inv: "{{ pve_node_ceph_osd_inventory.stdout | from_json }}"
+  ansible.builtin.set_fact:
+    pve_node_ceph_osd_device_available: "{{ _inv.available | default(false) | bool }}"
+    pve_node_ceph_osd_device_rejected_reasons: "{{ _inv.rejected_reasons | default([]) }}"
+    pve_node_ceph_osd_device_path: "{{ _inv.path | default('') }}"
+    pve_node_ceph_osd_device_lvs: "{{ _inv.lvs | default([]) }}"
+
+- name: Refuse a device that is in use unless zapping was asked for
+  when:
+    - not (pve_node_ceph_osd_device_available | bool)
+    - not (pve_node_ceph_osd_zap | bool)
+  ansible.builtin.fail:
+    msg: >-
+      {{ pve_ceph_osd_device }} ({{ pve_node_ceph_osd_device_path }}) is not available for a
+      new OSD: {{ pve_node_ceph_osd_device_rejected_reasons | join('; ') }}
+      {%- if pve_node_ceph_osd_device_lvs | length > 0 %} — it carries
+      {{ pve_node_ceph_osd_device_lvs | map(attribute='name') | join(', ') }}
+      {%- endif %}. If this disk is being repurposed, set pve_node_ceph_osd_zap: true in its
+      host_vars for this one run (`ceph-volume lvm zap --destroy` on exactly this device) and
+      remove it afterwards; tests/test-ceph-osd-config.yml fails while it is set.
+      The zap is `ceph-volume lvm zap --destroy` for any LVM, then `wipefs -a` on
+      each partition and on the device, then `udevadm settle` — it destroys
+      everything on exactly this device.
+
+# Zapping is three steps run unconditionally in this order, not a decision tree.
+# `ceph-volume lvm zap` is an LVM teardown tool: it is the right thing for a
+# repurposed former OSD, whose LVM sits on the bare device, and it must run before
+# anything erases that LVM label or the volume group is orphaned. Pointed at a disk
+# that still has a partition table it simply refuses — "RuntimeError: Device … has
+# partitions." — which is what stopped the vm-host-01 rebuild on 2026-09-09. So it
+# is best-effort, and `wipefs` after it is what actually clears the disk.
+#
+# No branching on the inventory's rejected_reasons: the re-inventory below already
+# asserts the device came out available, and that assert is what reacts if this
+# sequence was not enough for some future disk.
+- name: Zap any LVM the OSD device carries (best-effort; refuses a partitioned disk)
+  when:
+    - not (pve_node_ceph_osd_device_available | bool)
+    - pve_node_ceph_osd_zap | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_volume_command }}"
+      - lvm
+      - zap
+      - --destroy
+      - "{{ pve_ceph_osd_device }}"
+  changed_when: true
+  # Not an `until` wait — nothing to retry and nothing to report when it declines.
+  # The device's usability is decided by the re-inventory assert further down.
+  failed_when: false
+
+- name: List the OSD device and its partitions
+  when:
+    - not (pve_node_ceph_osd_device_available | bool)
+    - pve_node_ceph_osd_zap | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_lsblk_command }}"
+      - -nrpo
+      - NAME
+      - "{{ pve_ceph_osd_device }}"
+  register: pve_node_ceph_osd_device_parts
+  changed_when: false
+
+# Partitions first, then the whole device. The ZFS labels live *inside* the
+# partitions (four of them on a ZFS member, two at the start and two at the end),
+# so clearing only the partition table would leave them on disk at absolute
+# offsets. The device itself carries the GPT and the protective MBR.
+- name: Wipe every filesystem and partition-table signature
+  when:
+    - not (pve_node_ceph_osd_device_available | bool)
+    - pve_node_ceph_osd_zap | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_wipefs_command }}"
+      - -a
+      - "{{ item }}"
+  # `loop` is templated before `when` is evaluated, so this has to stay defined
+  # even when the lsblk task above was skipped — hence the single guarded _parts.
+  vars:
+    _parts: "{{ pve_node_ceph_osd_device_parts.stdout_lines | default([]) }}"
+  loop: "{{ _parts[1:] + _parts[:1] }}"
+  changed_when: true
+
+- name: Let udev drop the stale partition devices before re-reading the disk
+  when:
+    - not (pve_node_ceph_osd_device_available | bool)
+    - pve_node_ceph_osd_zap | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_udevadm_command }}"
+      - settle
+  register: pve_node_ceph_osd_zap_result
+  changed_when: true
+
+- name: Inventory the OSD device again after the zap
+  when: pve_node_ceph_osd_zap_result is changed
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_volume_command }}"
+      - inventory
+      - "{{ pve_ceph_osd_device }}"
+      - --format
+      - json
+  register: pve_node_ceph_osd_inventory_after
+  changed_when: false
+
+- name: The zapped device must now be available
+  when: pve_node_ceph_osd_zap_result is changed
+  vars:
+    _after: "{{ pve_node_ceph_osd_inventory_after.stdout | from_json }}"
+  ansible.builtin.assert:
+    that:
+      - _after.available | default(false) | bool
+    fail_msg: >-
+      {{ pve_ceph_osd_device }} is still not available after the zap
+      (`ceph-volume lvm zap --destroy`, then `wipefs -a` on each partition and on the
+      device, then `udevadm settle`):
+      {{ _after.rejected_reasons | default([]) | join('; ') }}. Look at the disk before
+      running again.
+    quiet: true
