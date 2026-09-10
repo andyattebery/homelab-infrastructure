@@ -1,0 +1,94 @@
+---
+# One VM. `_vm` is { vmid, hostpci: [...] }.
+- name: "VM {{ _vm.vmid }}: read the config (pending changes applied)"
+  ansible.builtin.command:
+    argv: ["{{ pve_vm_hostpci_qm_command }}", config, "{{ _vm.vmid }}"]
+  register: _pve_vm_hostpci_config
+  changed_when: false
+
+# hostpciN lines -> {N: {key: value}}. A value part without '=' is the default key `host`,
+# i.e. a raw PCI address; those lines are not mapping-based and not this role's to rewrite.
+- name: "VM {{ _vm.vmid }}: parse hostpci lines"
+  ansible.builtin.set_fact:
+    _pve_vm_hostpci_current: >-
+      {%- set lines = {} -%}
+      {%- set bare = [] -%}
+      {%- for line in _pve_vm_hostpci_config.stdout_lines if line is match('^hostpci[0-9]+:') -%}
+        {%- set key, val = line.split(':', 1) -%}
+        {%- set n = key[7:] -%}
+        {%- set d = {} -%}
+        {%- for part in val.strip().split(',') -%}
+          {%- if '=' in part -%}
+            {%- set _ = d.update({part.split('=', 1)[0]: part.split('=', 1)[1]}) -%}
+          {%- else -%}
+            {%- set _ = bare.append(line) -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- set _ = lines.update({n: d}) -%}
+      {%- endfor -%}
+      {{ {'lines': lines, 'bare': bare} }}
+
+- name: "VM {{ _vm.vmid }}: fail on a raw-address hostpci line"
+  ansible.builtin.assert:
+    that:
+      - _pve_vm_hostpci_current.bare | length == 0
+    fail_msg: >-
+      VM {{ _vm.vmid }} has hostpci lines that name a PCI address rather than a mapping:
+      {{ _pve_vm_hostpci_current.bare }}. This role manages mapping-based lines only; convert
+      the line to a mapping by hand first. Nothing was written.
+
+- name: "VM {{ _vm.vmid }}: fail on a hostpci line the declaration does not mention"
+  vars:
+    _declared: "{{ _vm.hostpci | map(attribute='index') | map('string') | list }}"
+    _unlisted: "{{ _pve_vm_hostpci_current.lines.keys() | difference(_declared) }}"
+  ansible.builtin.assert:
+    that:
+      - _unlisted | length == 0
+    fail_msg: >-
+      VM {{ _vm.vmid }} has hostpci{{ _unlisted | join(', hostpci') }} which the declaration
+      does not mention. This role owns every hostpci line on a declared VM; declare it, with
+      state: absent if it should go. Nothing was written.
+
+- name: "VM {{ _vm.vmid }}: set lines that are missing or differ"
+  vars:
+    _desired: >-
+      {{ {'mapping': item.mapping}
+         | combine({'pcie': item.pcie | string} if item.pcie is defined else {})
+         | combine({'rombar': item.rombar | string} if item.rombar is defined else {}) }}
+    _value: >-
+      mapping={{ item.mapping }}{% if item.pcie is defined %},pcie={{ item.pcie }}{% endif %}{% if item.rombar is defined %},rombar={{ item.rombar }}{% endif %}
+    _n: "{{ item.index | string }}"
+  when:
+    - item.state | default('present') == 'present'
+    - _pve_vm_hostpci_current.lines[_n] | default({}) != _desired
+  ansible.builtin.command:
+    argv: ["{{ pve_vm_hostpci_qm_command }}", set, "{{ _vm.vmid }}", "--hostpci{{ _n }}", "{{ _value | trim }}"]
+  changed_when: true
+  loop: "{{ _vm.hostpci }}"
+  loop_control:
+    label: "hostpci{{ item.index }}"
+
+- name: "VM {{ _vm.vmid }}: delete lines declared absent"
+  vars:
+    _n: "{{ item.index | string }}"
+  when:
+    - item.state | default('present') == 'absent'
+    - _n in _pve_vm_hostpci_current.lines
+  ansible.builtin.command:
+    argv: ["{{ pve_vm_hostpci_qm_command }}", set, "{{ _vm.vmid }}", --delete, "hostpci{{ _n }}"]
+  changed_when: true
+  loop: "{{ _vm.hostpci }}"
+  loop_control:
+    label: "hostpci{{ item.index }}"
+
+# On a running VM `qm set` queues the change; qm pending shows it as `new`/`del`.
+- name: "VM {{ _vm.vmid }}: read pending changes"
+  ansible.builtin.command:
+    argv: ["{{ pve_vm_hostpci_qm_command }}", pending, "{{ _vm.vmid }}"]
+  register: _pve_vm_hostpci_pending
+  changed_when: false
+
+- name: "VM {{ _vm.vmid }}: record whether a hostpci change is pending"
+  when: _pve_vm_hostpci_pending.stdout_lines | select('match', '^(new|del) hostpci[0-9]+:') | list | length > 0
+  ansible.builtin.set_fact:
+    pve_vm_hostpci_restart_required: "{{ pve_vm_hostpci_restart_required + [_vm.vmid] }}"

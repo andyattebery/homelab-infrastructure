@@ -1,0 +1,14 @@
+---
+# pve-configid: /usr/share/perl5/PVE/JSONSchema.pm, $CONFIGID_RE = qr/[a-z][a-z0-9_-]+/i
+_pve_pci_mapping_id_re: '^[a-zA-Z][a-zA-Z0-9_-]+$'
+_pve_pci_mapping_topology_re: '^[0-9a-f]{4}:[0-9a-f]{2}(/[0-9a-f]{2}\.[0-7])+$'
+_pve_pci_mapping_pci_id_re: '^[0-9a-f]{4}:[0-9a-f]{4}$'
+
+# Ids declared absent, and the rest. `state` may be undefined, so it is tested for definedness
+# first rather than normalised.
+_pve_pci_mapping_absent_ids: >-
+  {{ pve_pci_mapping_mappings | selectattr('state', 'defined')
+     | selectattr('state', 'eq', 'absent') | map(attribute='id') | list }}
+_pve_pci_mapping_present: >-
+  {{ pve_pci_mapping_mappings | rejectattr('id', 'in', _pve_pci_mapping_absent_ids) | list }}
+_pve_pci_mapping_declared_ids: "{{ pve_pci_mapping_mappings | map(attribute='id') | list }}"

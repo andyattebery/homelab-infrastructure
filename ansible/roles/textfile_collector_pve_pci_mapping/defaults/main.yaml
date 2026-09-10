@@ -1,0 +1,4 @@
+---
+textfile_collector_pve_pci_mapping_interval_seconds: 300
+textfile_collector_pve_pci_mapping_node: "{{ ansible_facts['hostname'] }}"
+textfile_collector_pve_pci_mapping_script_path: /usr/local/sbin/pve-pci-mapping-metrics

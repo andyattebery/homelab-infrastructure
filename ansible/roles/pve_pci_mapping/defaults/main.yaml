@@ -1,0 +1,24 @@
+---
+# Required, deliberately NOT defaulted here:
+#   pve_pci_mapping_mappings — list of { id, topology, pci_id, subsystem_id, state }.
+#       id            PVE mapping id, ^[a-zA-Z][a-zA-Z0-9_-]+$ (pve-configid).
+#       topology      "<domain>:<rootbus>/<dev.fn>/<dev.fn>…" — the device's position in the
+#                     PCIe tree with bus numbers left out. See README "Why topology".
+#       pci_id        vendor:device the device at that topology must report ("8086:2525").
+#       subsystem_id  subsystem vendor:device it must report ("8086:380a").
+#       state         present (default) | absent. absent deletes, guarded — see README.
+# Why no default: an imported role's defaults are visible to the task-level `when`, so a
+# playbook gate of `when: pve_pci_mapping_mappings is defined` would never skip. The
+# playbook gates on `| default([]) | length > 0`; the role asserts the list is non-empty.
+
+# The node whose entries this role owns. Every map element of a managed mapping must name it.
+pve_pci_mapping_node: "{{ ansible_facts['hostname'] }}"
+
+# Overridable so the fixture test can substitute a stub and a fake tree.
+pve_pci_mapping_pvesh_command: /usr/bin/pvesh
+pve_pci_mapping_sysfs_root: /sys
+pve_pci_mapping_resolver_path: /usr/local/sbin/resolve-pci-topology
+
+# The delete guard searches every *.conf below here for a hostpciN line that references the
+# mapping — all nodes, all sections (main, [PENDING], snapshots).
+pve_pci_mapping_vm_config_root: /etc/pve/nodes

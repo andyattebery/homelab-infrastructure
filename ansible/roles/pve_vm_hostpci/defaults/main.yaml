@@ -1,0 +1,13 @@
+---
+# Required, deliberately NOT defaulted here (see pve_pci_mapping/README.md, same reason):
+#   pve_vm_hostpci_vms — list of { vmid, hostpci: [ { index, mapping, pcie, rombar, state } ] }.
+#       index    0–15, the N in hostpciN.
+#       mapping  id of a PCI resource mapping that exists for this node and passes PVE's check.
+#       pcie     0|1, optional. rombar 0|1, optional.
+#       state    present (default) | absent — absent removes the hostpciN line.
+#   The desired line is exactly the keys given: an option on the VM that is not declared is a
+#   difference and is removed. PVE's defaults are pcie=0, rombar=1.
+
+pve_vm_hostpci_node: "{{ ansible_facts['hostname'] }}"
+pve_vm_hostpci_qm_command: /usr/sbin/qm
+pve_vm_hostpci_pvesh_command: /usr/bin/pvesh

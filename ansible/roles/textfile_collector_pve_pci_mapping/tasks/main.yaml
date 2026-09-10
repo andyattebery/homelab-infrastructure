@@ -1,0 +1,17 @@
+---
+- name: Deploy the metrics script
+  ansible.builtin.copy:
+    src: pve_pci_mapping_metrics.py
+    dest: "{{ textfile_collector_pve_pci_mapping_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure pve-pci-mapping textfile collector
+  ansible.builtin.include_role:
+    name: textfile_collector
+  vars:
+    textfile_collector_name: pve-pci-mapping
+    textfile_collector_interval_seconds: "{{ textfile_collector_pve_pci_mapping_interval_seconds }}"
+    textfile_collector_source_cmd: >-
+      {{ textfile_collector_pve_pci_mapping_script_path }} --node {{ textfile_collector_pve_pci_mapping_node }}

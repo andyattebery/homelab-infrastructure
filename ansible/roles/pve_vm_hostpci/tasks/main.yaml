@@ -1,0 +1,90 @@
+---
+- name: Require a non-empty VM declaration
+  ansible.builtin.assert:
+    that:
+      - pve_vm_hostpci_vms is defined
+      - pve_vm_hostpci_vms | length > 0
+    fail_msg: pve_vm_hostpci_vms is undefined or empty; call this role only from a host that declares VMs.
+
+- name: Validate pve_vm_hostpci_vms entries
+  vars:
+    _indexes: "{{ item.hostpci | default([]) | map(attribute='index') | list }}"
+  ansible.builtin.assert:
+    that:
+      - item.vmid is defined
+      - item.hostpci | default([]) | length > 0
+      - _indexes | unique | length == _indexes | length
+      - item.hostpci | rejectattr('index', 'defined') | list | length == 0
+      - item.hostpci | map(attribute='index') | map('int') | min >= 0
+      - item.hostpci | map(attribute='index') | map('int') | max <= 15
+      - item.hostpci | map(attribute='mapping') | map('regex_search', _pve_vm_hostpci_mapping_re) | select('none') | list | length == 0
+      - item.hostpci | selectattr('pcie', 'defined') | map(attribute='pcie') | map('string') | reject('in', ['0', '1']) | list | length == 0
+      - item.hostpci | selectattr('rombar', 'defined') | map(attribute='rombar') | map('string') | reject('in', ['0', '1']) | list | length == 0
+      - item.hostpci | selectattr('state', 'defined') | map(attribute='state') | reject('in', ['present', 'absent']) | list | length == 0
+    fail_msg: >-
+      Bad pve_vm_hostpci_vms entry for vmid {{ item.vmid | default('<none>') }}: {{ item }}.
+      Each hostpci entry needs a unique index 0–15, a mapping id ({{ _pve_vm_hostpci_mapping_re }}),
+      optional pcie/rombar as 0|1, optional state present|absent.
+  loop: "{{ pve_vm_hostpci_vms }}"
+  loop_control:
+    label: "{{ item.vmid | default('<none>') }}"
+
+# Every mapping a present line refers to must exist, name this node, and pass PVE's own check.
+# The mapping role runs first for exactly this reason.
+- name: Run PVE's mapping check for this node
+  ansible.builtin.command:
+    argv: ["{{ pve_vm_hostpci_pvesh_command }}", get, /cluster/mapping/pci, --check-node, "{{ pve_vm_hostpci_node }}", --output-format, json]
+  register: _pve_vm_hostpci_check
+  changed_when: false
+
+- name: Index the usable mappings
+  ansible.builtin.set_fact:
+    _pve_vm_hostpci_usable: >-
+      {%- set ok = [] -%}
+      {%- set why = {} -%}
+      {%- for e in (_pve_vm_hostpci_check.stdout | from_json) -%}
+        {%- set on_node = e.map | default([]) | select('search', '(^|,)node=' ~ pve_vm_hostpci_node ~ '(,|$)') | list -%}
+        {%- if on_node | length == 0 -%}
+          {%- set _ = why.update({e.id: 'has no entry for node ' ~ pve_vm_hostpci_node}) -%}
+        {%- elif e.checks | default([]) | length > 0 -%}
+          {%- set _ = why.update({e.id: 'is rejected by PVE: ' ~ (e.checks | map(attribute='message') | list | join(' ') | trim)}) -%}
+        {%- else -%}
+          {%- set _ = ok.append(e.id) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ {'ok': ok, 'why': why} }}
+
+- name: Fail if a declared line references a mapping that is missing, foreign, or rejected
+  vars:
+    _wanted: >-
+      {{ pve_vm_hostpci_vms | map(attribute='hostpci') | flatten
+         | rejectattr('state', 'defined') | map(attribute='mapping') | list
+         + (pve_vm_hostpci_vms | map(attribute='hostpci') | flatten
+            | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | map(attribute='mapping') | list) }}
+    _bad: "{{ _wanted | unique | difference(_pve_vm_hostpci_usable.ok) }}"
+  ansible.builtin.assert:
+    that:
+      - _bad | length == 0
+    fail_msg: >-
+      These mappings cannot be used on {{ pve_vm_hostpci_node }}:
+      {% for id in _bad %}{{ id }} {{ _pve_vm_hostpci_usable.why[id] | default('does not exist') }}; {% endfor %}
+      Fix the mapping (pve_pci_mapping) first. Nothing was written.
+
+- name: Start with no VM needing a restart
+  ansible.builtin.set_fact:
+    pve_vm_hostpci_restart_required: []
+
+- name: Reconcile each VM
+  ansible.builtin.include_tasks:
+    file: vm.yaml
+  loop: "{{ pve_vm_hostpci_vms }}"
+  loop_control:
+    loop_var: _vm
+    label: "{{ _vm.vmid }}"
+
+- name: Report VMs whose hostpci change lands at the next stop/start
+  when: pve_vm_hostpci_restart_required | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      hostpci changes are pending on VM(s) {{ pve_vm_hostpci_restart_required }}. They apply at
+      the next stop/start; this role never restarts a VM.

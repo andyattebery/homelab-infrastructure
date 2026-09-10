@@ -1,0 +1,232 @@
+---
+- name: Require a non-empty mapping declaration
+  ansible.builtin.assert:
+    that:
+      - pve_pci_mapping_mappings is defined
+      - pve_pci_mapping_mappings | length > 0
+    fail_msg: >-
+      pve_pci_mapping_mappings is undefined or empty. This role owns every PCI mapping for
+      {{ pve_pci_mapping_node }}; call it only from a host that declares them.
+
+- name: Validate pve_pci_mapping_mappings entries
+  ansible.builtin.assert:
+    that:
+      - item.id | default('') is match(_pve_pci_mapping_id_re)
+      - item.topology | default('') is match(_pve_pci_mapping_topology_re)
+      - item.pci_id | default('') is match(_pve_pci_mapping_pci_id_re)
+      - item.subsystem_id | default('') is match(_pve_pci_mapping_pci_id_re)
+      - item.state | default('present') in ['present', 'absent']
+    fail_msg: >-
+      Bad pve_pci_mapping_mappings entry {{ item }}. Needs id (pve-configid,
+      {{ _pve_pci_mapping_id_re }}), topology ({{ _pve_pci_mapping_topology_re }}, e.g.
+      0000:40/03.3/00.0), pci_id and subsystem_id as vendor:device hex, and state
+      present|absent.
+  loop: "{{ pve_pci_mapping_mappings }}"
+  loop_control:
+    label: "{{ item.id | default('<no id>') }}"
+
+- name: Fail on a duplicate id
+  ansible.builtin.assert:
+    that:
+      - _pve_pci_mapping_declared_ids | unique | length == _pve_pci_mapping_declared_ids | length
+    fail_msg: >-
+      Duplicate ids in pve_pci_mapping_mappings: {{ _pve_pci_mapping_declared_ids }}.
+
+- name: Deploy the topology resolver
+  ansible.builtin.copy:
+    src: resolve_pci_topology.py
+    dest: "{{ pve_pci_mapping_resolver_path }}"
+    mode: "0755"
+
+# One invocation for every present topology. Absent entries are never resolved: the device
+# may legitimately be gone.
+- name: Resolve declared topologies against sysfs
+  ansible.builtin.command:
+    argv: >-
+      {{ [pve_pci_mapping_resolver_path, '--sysfs-root', pve_pci_mapping_sysfs_root]
+         + (_pve_pci_mapping_present | map(attribute='topology') | unique | list) }}
+  register: _pve_pci_mapping_resolver
+  changed_when: false
+  failed_when: false
+  when: _pve_pci_mapping_present | length > 0
+
+- name: Fail if a topology did not resolve to exactly one device
+  when: _pve_pci_mapping_present | length > 0
+  ansible.builtin.assert:
+    that:
+      - _pve_pci_mapping_resolver.rc == 0
+    fail_msg: >-
+      The resolver could not place every declared topology on this host:
+      {{ (_pve_pci_mapping_resolver.stdout | default('[]') | from_json)
+         | selectattr('error', 'defined') | map(attribute='error') | list }}
+      {{ _pve_pci_mapping_resolver.stderr | default('') }}
+
+- name: Index resolved devices by topology
+  ansible.builtin.set_fact:
+    _pve_pci_mapping_resolved: >-
+      {{ dict((_pve_pci_mapping_resolver.stdout | default('[]') | from_json)
+              | map(attribute='topology')
+              | zip(_pve_pci_mapping_resolver.stdout | default('[]') | from_json)) }}
+
+# PVE's start-time identity check, applied before anything is written. A topology that has
+# come to hold a different device (the 08-28 case: the BMC's VGA where an Optane was) stops
+# the run here rather than being written into a mapping.
+- name: Fail if a topology holds a different device than declared
+  vars:
+    _r: "{{ _pve_pci_mapping_resolved[item.topology] }}"
+  ansible.builtin.assert:
+    that:
+      - _r.id == item.pci_id
+      - _r.subsystem_id == item.subsystem_id
+    fail_msg: >-
+      Mapping {{ item.id }}: topology {{ item.topology }} currently holds {{ _r.path }} with
+      id {{ _r.id }} / subsystem {{ _r.subsystem_id }}, but the declaration says
+      {{ item.pci_id }} / {{ item.subsystem_id }}. Either the card moved or the declaration
+      is wrong; nothing was written.
+  loop: "{{ _pve_pci_mapping_present }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Read the cluster's PCI mappings
+  ansible.builtin.command:
+    argv: ["{{ pve_pci_mapping_pvesh_command }}", get, /cluster/mapping/pci, --output-format, json]
+  register: _pve_pci_mapping_get
+  changed_when: false
+
+# id -> {maps: [parsed map dicts]} for every mapping that has a map element naming this node.
+# A map element is "k=v,k=v,…"; PVE's keys are node, path, id, subsystem-id, iommugroup.
+- name: Index this node's existing mappings
+  ansible.builtin.set_fact:
+    _pve_pci_mapping_existing: >-
+      {%- set out = {} -%}
+      {%- for e in (_pve_pci_mapping_get.stdout | from_json) -%}
+        {%- set maps = [] -%}
+        {%- for m in e.map | default([]) -%}
+          {%- set _ = maps.append(dict(m.split(',') | map('split', '=', 1))) -%}
+        {%- endfor -%}
+        {%- if maps | selectattr('node', 'defined') | selectattr('node', 'eq', pve_pci_mapping_node) | list | length > 0 -%}
+          {%- set _ = out.update({e.id: {'maps': maps}}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Fail on a mapping that names this node more than once or names another node too
+  vars:
+    _bad: >-
+      {%- set out = [] -%}
+      {%- for id, v in _pve_pci_mapping_existing.items() if v.maps | length != 1 -%}
+        {%- set _ = out.append(id) -%}
+      {%- endfor -%}
+      {{ out }}
+  ansible.builtin.assert:
+    that:
+      - _bad | length == 0
+    fail_msg: >-
+      Mappings {{ _bad }} carry more than one map element. This role manages single-node
+      mappings only; a mapping shared across nodes is out of scope and is left untouched
+      by failing here. Nothing was written.
+
+- name: Fail on a mapping present on this node that the declaration does not mention
+  vars:
+    _unlisted: "{{ _pve_pci_mapping_existing.keys() | difference(_pve_pci_mapping_declared_ids) }}"
+  ansible.builtin.assert:
+    that:
+      - _unlisted | length == 0
+    fail_msg: >-
+      {{ pve_pci_mapping_node }} has PCI mappings the declaration does not mention:
+      {{ _unlisted }}. This role owns every mapping on the node. Declare them (with
+      state: absent if they should go), or remove them by hand first. Nothing was written.
+
+- name: Compute the desired map for every present mapping
+  ansible.builtin.set_fact:
+    _pve_pci_mapping_desired: >-
+      {%- set out = {} -%}
+      {%- for m in _pve_pci_mapping_present -%}
+        {%- set r = _pve_pci_mapping_resolved[m.topology] -%}
+        {%- set _ = out.update({m.id: {
+              'node': pve_pci_mapping_node, 'path': r.path, 'id': m.pci_id,
+              'subsystem-id': m.subsystem_id, 'iommugroup': r.iommugroup | string}}) -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Create missing mappings
+  vars:
+    _d: "{{ _pve_pci_mapping_desired[item.id] }}"
+    _map: "node={{ _d.node }},path={{ _d.path }},id={{ _d.id }},subsystem-id={{ _d['subsystem-id'] }},iommugroup={{ _d.iommugroup }}"
+  when: item.id not in _pve_pci_mapping_existing
+  ansible.builtin.command:
+    argv: ["{{ pve_pci_mapping_pvesh_command }}", create, /cluster/mapping/pci, --id, "{{ item.id }}", --map, "{{ _map }}"]
+  changed_when: true
+  loop: "{{ _pve_pci_mapping_present }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Update mappings whose map differs
+  vars:
+    _d: "{{ _pve_pci_mapping_desired[item.id] }}"
+    _map: "node={{ _d.node }},path={{ _d.path }},id={{ _d.id }},subsystem-id={{ _d['subsystem-id'] }},iommugroup={{ _d.iommugroup }}"
+  when:
+    - item.id in _pve_pci_mapping_existing
+    - _pve_pci_mapping_existing[item.id].maps[0] != _d
+  ansible.builtin.command:
+    argv: ["{{ pve_pci_mapping_pvesh_command }}", set, "/cluster/mapping/pci/{{ item.id }}", --map, "{{ _map }}"]
+  changed_when: true
+  loop: "{{ _pve_pci_mapping_present }}"
+  loop_control:
+    label: "{{ item.id }}"
+
+# Deletion. `find` reads every *.conf line by line, so a reference in the main section, in
+# [PENDING], or in any snapshot section counts — a snapshot rollback would otherwise resurrect
+# a reference to a mapping that no longer exists.
+- name: Find VM configs that still reference a mapping declared absent
+  when: item in _pve_pci_mapping_existing
+  ansible.builtin.find:
+    paths: "{{ pve_pci_mapping_vm_config_root }}"
+    recurse: true
+    patterns: '*.conf'
+    contains: '^hostpci[0-9]+:\s*(.*,)?mapping={{ item }}(,|\s*$)'
+  register: _pve_pci_mapping_refs
+  loop: "{{ _pve_pci_mapping_absent_ids }}"
+
+- name: Refuse to delete a mapping a VM config still references
+  vars:
+    _files: >-
+      {{ _pve_pci_mapping_refs.results | default([])
+         | selectattr('matched', 'defined') | selectattr('matched', 'gt', 0) | list }}
+  ansible.builtin.assert:
+    that:
+      - _files | length == 0
+    fail_msg: >-
+      Refusing to delete
+      {{ _files | map(attribute='item') | list }}: still referenced by
+      {{ _files | map(attribute='files') | flatten | map(attribute='path') | list }}
+      (a main section, [PENDING], or a snapshot). Re-point the VM first — on a stopped VM
+      the change is immediate, on a running one it lands at the next stop/start.
+
+- name: Delete mappings declared absent
+  when: item in _pve_pci_mapping_existing
+  ansible.builtin.command:
+    argv: ["{{ pve_pci_mapping_pvesh_command }}", delete, "/cluster/mapping/pci/{{ item }}"]
+  changed_when: true
+  loop: "{{ _pve_pci_mapping_absent_ids }}"
+
+# PVE's own validator, run last so a wrong write cannot pass silently.
+- name: Run PVE's mapping check for this node
+  ansible.builtin.command:
+    argv: ["{{ pve_pci_mapping_pvesh_command }}", get, /cluster/mapping/pci, --check-node, "{{ pve_pci_mapping_node }}", --output-format, json]
+  register: _pve_pci_mapping_check
+  changed_when: false
+
+- name: Fail if PVE reports a check on any of this node's mappings
+  vars:
+    _failing: >-
+      {{ (_pve_pci_mapping_check.stdout | from_json)
+         | selectattr('id', 'in', _pve_pci_mapping_declared_ids)
+         | selectattr('checks', 'defined') | rejectattr('checks', 'eq', []) | list }}
+  ansible.builtin.assert:
+    that:
+      - _failing | length == 0
+    fail_msg: >-
+      PVE rejects these mappings after reconciliation:
+      {{ _failing | map(attribute='id') | list }}
+      {{ _failing | map(attribute='checks') | flatten | map(attribute='message') | list }}

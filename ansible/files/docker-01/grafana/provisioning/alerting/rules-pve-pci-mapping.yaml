@@ -1,0 +1,112 @@
+# PCI resource mapping health on Proxmox nodes, from textfile_collector_pve_pci_mapping.
+#
+# Metric grounding:
+# - pve_pci_mapping_check_ok{mapping}: 1 when `pvesh get /cluster/mapping/pci --check-node`
+#   reports nothing for the mapping, 0 when PVE would refuse to start a VM using it (address,
+#   id or IOMMU group no longer match the device). One series per mapping on the node.
+# - pve_pci_mapping_bmc_kcs_ok: 1 when the kernel's first IPMI exchange this boot found the
+#   BMC. 0 marks a boot that started before the BMC was ready — the condition under which the
+#   BIOS did not apply "Onboard LAN Disabled" and the enumeration shifted.
+#
+# The first two rules are filtering comparisons: a healthy node returns no samples, so
+# noDataState is OK (see rules-ipmi.yaml for why). The third uses absent() to catch the
+# collector itself going missing, which the first two cannot express.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: pve-pci-mapping
+    folder: Hardware
+    interval: 1m
+    rules:
+      - uid: pve-pci-mapping-stale
+        title: PCI mapping would refuse VM start
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: pve_pci_mapping_check_ok == 0
+              instant: true
+              refId: A
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: critical
+          component: pve
+        annotations:
+          summary: 'PCI mapping {{ $labels.mapping }} stale on {{ $labels.instance }}'
+          description: |
+            PVE's mapping check rejects {{ $labels.mapping }} on {{ $labels.instance }}: the
+            device at its recorded address no longer matches (bus renumbering, card moved, or
+            IOMMU groups shifted). Any VM that passes it through will fail to start.
+            Fix: run the cluster playbook for the node with --tags pci_passthrough; the
+            pve_pci_mapping role re-resolves the mapping from PCI topology.
+      - uid: pve-pci-mapping-bmc-not-ready
+        title: Node booted before its BMC was ready
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: pve_pci_mapping_bmc_kcs_ok == 0
+              instant: true
+              refId: A
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: pve
+        annotations:
+          summary: 'BMC was not ready when {{ $labels.instance }} booted'
+          description: |
+            The kernel's first IPMI exchange on {{ $labels.instance }} failed this boot. On this
+            hardware that is the boot on which a cold power-on skips "Onboard LAN Disabled" and
+            the PCI enumeration shifts. Expect the stale-mapping alert alongside; check
+            `ipmitool sel elist` for the BMC restart or THERMTRIP that preceded it.
+      - uid: pve-pci-mapping-collector-missing
+        title: PCI mapping collector missing
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: fe8ew4zkvbf28a
+            model:
+              datasource:
+                type: prometheus
+                uid: fe8ew4zkvbf28a
+              expr: absent(pve_pci_mapping_check_ok)
+              instant: true
+              refId: A
+        for: 15m
+        noDataState: OK
+        execErrState: Alerting
+        isPaused: false
+        labels:
+          severity: warning
+          component: pve
+        annotations:
+          summary: 'No PCI mapping metrics from any node'
+          description: |
+            pve_pci_mapping_check_ok has not been scraped from any node for 15 minutes. Either
+            the textfile_collector_pve-pci-mapping timer is not running on the passthrough node,
+            or its pvesh call is failing (the script then writes nothing rather than a healthy
+            looking file). Check `systemctl status textfile_collector_pve-pci-mapping.timer`
+            and `journalctl -u textfile_collector_pve-pci-mapping.service` on the node.

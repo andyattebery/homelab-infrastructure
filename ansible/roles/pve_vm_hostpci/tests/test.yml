@@ -1,0 +1,385 @@
+---
+# Exercises pve_vm_hostpci against a stub qm and the sibling role's stub pvesh + fake sysfs
+# tree (roles/pve_pci_mapping/tests/). Runs entirely on localhost; nothing left behind.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_vm_hostpci/tests/inventory roles/pve_vm_hostpci/tests/test.yml
+#
+# Guest and node names are invented; the mapping ids and PCI ids are the real ones.
+- name: Test pve_vm_hostpci
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    _node: node-a
+    _sibling: "{{ playbook_dir }}/../../pve_pci_mapping/tests"
+    _role_vars: &role_vars
+      pve_vm_hostpci_node: "{{ _node }}"
+      pve_vm_hostpci_qm_command: "{{ _tmp.path }}/stub-qm"
+      pve_vm_hostpci_pvesh_command: "{{ _tmp.path }}/stub-pvesh"
+    # The mappings PVE knows, LAN-off layout, all valid against the tree.
+    _mappings_json: |
+      [
+        {"id": "nvidia_rtx_a4000",   "map": ["node=node-a,path=0000:01:00.0,id=10de:24b0,subsystem-id=1028:14ad,iommugroup=97"], "type": "pci"},
+        {"id": "intel_arc_b580",     "map": ["node=node-a,path=0000:c3:00.0,id=8086:e20b,subsystem-id=1849:6021,iommugroup=17"], "type": "pci"},
+        {"id": "broadcom_9305_24i",  "map": ["node=node-a,path=0000:84:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=45"], "type": "pci"},
+        {"id": "solidigm_p44_pro_1", "map": ["node=node-a,path=0000:c5:00.0,id=025e:f1ac,subsystem-id=025e:f1ac,iommugroup=19"], "type": "pci"},
+        {"id": "stale_optane",       "map": ["node=node-a,path=0000:46:00.0,id=8086:2525,subsystem-id=8086:380a,iommugroup=99"], "type": "pci"},
+        {"id": "other_node_only",    "map": ["node=node-b,path=0000:03:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=9"], "type": "pci"}
+      ]
+    _desired:
+      - vmid: 200
+        hostpci:
+          - { index: 0, mapping: broadcom_9305_24i, rombar: 0 }
+          - { index: 1, mapping: solidigm_p44_pro_1 }
+      - vmid: 201
+        hostpci:
+          - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
+          - { index: 1, mapping: intel_arc_b580, pcie: 1 }
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-vm-hostpci-tests
+      register: _tmp
+
+    - name: Run the suite
+      environment:
+        STUB_QM_DIR: "{{ _tmp.path }}/qm"
+        STUB_QM_LOG: "{{ _tmp.path }}/calls.log"
+        STUB_PVESH_STATE: "{{ _tmp.path }}/mappings.json"
+        STUB_PVESH_LOG: "{{ _tmp.path }}/pvesh-calls.log"
+        STUB_PVESH_SYSFS: "{{ _tmp.path }}/sysfs"
+      block:
+        - name: Build the recorded LAN-off sysfs tree
+          ansible.builtin.command:
+            argv: [python3, "{{ _sibling }}/fake_sysfs.py", build, "{{ _tmp.path }}/sysfs", lan_off]
+          changed_when: true
+
+        - name: Install the stubs
+          ansible.builtin.copy:
+            src: "{{ item.src }}"
+            dest: "{{ _tmp.path }}/{{ item.dest }}"
+            mode: "0755"
+          loop:
+            - { src: "{{ playbook_dir }}/stub-qm.py", dest: stub-qm }
+            - { src: "{{ _sibling }}/stub-pvesh.py", dest: stub-pvesh }
+          loop_control:
+            label: "{{ item.dest }}"
+
+        - name: Seed the mapping state
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mappings.json"
+            mode: "0644"
+            content: "{{ _mappings_json }}"
+
+        - name: Create the qm state directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/qm"
+            state: directory
+            mode: "0755"
+
+        # guest-a lacks hostpci1 and carries the old HBA name; guest-b has its options in the
+        # other order and an undeclared rombar on hostpci1.
+        - name: Seed the VM configs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/qm/{{ item.vmid }}.conf"
+            mode: "0644"
+            content: "{{ item.content }}"
+          loop:
+            - vmid: 200
+              content: |
+                agent: 1
+                hostpci0: mapping=broadcom_9305_24e,rombar=0
+                name: guest-a
+            - vmid: 201
+              content: |
+                hostpci0: pcie=1,mapping=nvidia_rtx_a4000
+                hostpci1: mapping=intel_arc_b580,pcie=1,rombar=0
+                name: guest-b
+          loop_control:
+            label: "{{ item.vmid }}"
+
+        - name: Start with an empty call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        # ---------- 1. converge two stopped VMs ----------
+        - name: Run against the seeded VMs
+          vars:
+            <<: *role_vars
+            pve_vm_hostpci_vms: "{{ _desired }}"
+          ansible.builtin.import_role:
+            name: pve_vm_hostpci
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls
+
+        - name: Re-pointed hostpci0, added hostpci1, stripped the undeclared rombar, left the reordered line alone
+          vars:
+            _lines: "{{ (_calls.content | b64decode) | trim | split('\n') | sort }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 3
+              - _lines[0] == 'set 200 --hostpci0 mapping=broadcom_9305_24i,rombar=0'
+              - _lines[1] == 'set 200 --hostpci1 mapping=solidigm_p44_pro_1'
+              - _lines[2] == 'set 201 --hostpci1 mapping=intel_arc_b580,pcie=1'
+              - not (pve_vm_hostpci_restart_required | default([]) | length > 0)
+            success_msg: "{{ _lines }}"
+
+        # ---------- 2. idempotency ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Run again
+          vars:
+            <<: *role_vars
+            pve_vm_hostpci_vms: "{{ _desired }}"
+          ansible.builtin.import_role:
+            name: pve_vm_hostpci
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls2
+
+        - name: Second run is a no-op
+          ansible.builtin.assert:
+            that:
+              - (_calls2.content | b64decode) | trim | length == 0
+            success_msg: "no qm writes"
+
+        # ---------- 3. a running VM: the change lands as pending, and the role says so ----------
+        - name: Mark guest-a running
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/qm/200.running"
+            content: ""
+            mode: "0644"
+
+        - name: Run with a changed declaration for the running VM
+          vars:
+            <<: *role_vars
+            pve_vm_hostpci_vms:
+              - vmid: 200
+                hostpci:
+                  - { index: 0, mapping: broadcom_9305_24i }   # rombar dropped
+                  - { index: 1, mapping: solidigm_p44_pro_1 }
+              - "{{ _desired[1] }}"
+          ansible.builtin.import_role:
+            name: pve_vm_hostpci
+
+        - name: The change is reported as pending for that VM only
+          ansible.builtin.assert:
+            that:
+              - pve_vm_hostpci_restart_required == [200]
+            success_msg: "restart required: {{ pve_vm_hostpci_restart_required }}"
+
+        - name: A re-run sees the pending value as current and stays quiet, but still reports the restart
+          vars:
+            <<: *role_vars
+            pve_vm_hostpci_vms:
+              - vmid: 200
+                hostpci:
+                  - { index: 0, mapping: broadcom_9305_24i }
+                  - { index: 1, mapping: solidigm_p44_pro_1 }
+              - "{{ _desired[1] }}"
+          ansible.builtin.import_role:
+            name: pve_vm_hostpci
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls3
+
+        - name: One pending write in total, restart still flagged
+          vars:
+            _lines: "{{ (_calls3.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _lines == ['set 200 --hostpci0 mapping=broadcom_9305_24i']
+              - pve_vm_hostpci_restart_required == [200]
+            success_msg: "{{ _lines }}"
+
+        - name: Guest-a stops (pending applied by PVE at the next start; the stub folds it in)
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/qm/200.running"
+            state: absent
+
+        # ---------- 4. state: absent on a stopped VM deletes the line ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Run with hostpci1 of guest-a declared absent
+          vars:
+            <<: *role_vars
+            pve_vm_hostpci_vms:
+              - vmid: 200
+                hostpci:
+                  - { index: 0, mapping: broadcom_9305_24i }
+                  - { index: 1, mapping: solidigm_p44_pro_1, state: absent }
+              - "{{ _desired[1] }}"
+          ansible.builtin.import_role:
+            name: pve_vm_hostpci
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls4
+
+        - name: Exactly one delete
+          vars:
+            _lines: "{{ (_calls4.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _lines == ['set 200 --delete hostpci1']
+            success_msg: "{{ _lines }}"
+
+        # ---------- 5. an undeclared hostpci line on a managed VM fails ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: A declaration that omits a line the VM has
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_vm_hostpci_vms:
+                  - vmid: 201
+                    hostpci:
+                      - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
+              ansible.builtin.import_role:
+                name: pve_vm_hostpci
+            - name: Undeclared line should not have been ignored
+              ansible.builtin.fail:
+                msg: "role accepted a VM with a hostpci line the declaration does not mention"
+          rescue:
+            - name: Failed naming the VM and index, without writing
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - "'201' in _msgs"
+                  - "'hostpci1' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+        # ---------- 6. a mapping PVE does not have, or has with a check, fails before any write ----------
+        - name: A declaration referencing a mapping that does not exist
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_vm_hostpci_vms:
+                  - vmid: 201
+                    hostpci:
+                      - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
+                      - { index: 1, mapping: no_such_mapping, pcie: 1 }
+              ansible.builtin.import_role:
+                name: pve_vm_hostpci
+            - name: Unknown mapping should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a hostpci line referencing a mapping PVE does not have"
+          rescue:
+            - name: Failed naming the mapping
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - "'no_such_mapping' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+        - name: A declaration referencing a mapping PVE's check rejects (stale group) and one on another node
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_vm_hostpci_vms:
+                  - vmid: 201
+                    hostpci:
+                      - { index: 0, mapping: stale_optane, pcie: 1 }
+                      - { index: 1, mapping: other_node_only, pcie: 1 }
+              ansible.builtin.import_role:
+                name: pve_vm_hostpci
+            - name: Stale mapping should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a hostpci line referencing a mapping PVE rejects for this node"
+          rescue:
+            - name: Failed naming both mappings
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - "'stale_optane' in _msgs"
+                  - "'other_node_only' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+        # ---------- 7. a bare-address hostpci line is not this role's to manage ----------
+        - name: Seed a VM with a raw-address passthrough line
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/qm/202.conf"
+            mode: "0644"
+            content: |
+              hostpci0: 0000:84:00.0,rombar=0
+              name: guest-c
+
+        - name: A VM whose hostpci line names an address rather than a mapping
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_vm_hostpci_vms:
+                  - vmid: 202
+                    hostpci:
+                      - { index: 0, mapping: broadcom_9305_24i, rombar: 0 }
+              ansible.builtin.import_role:
+                name: pve_vm_hostpci
+            - name: Raw-address line should not have been rewritten
+              ansible.builtin.fail:
+                msg: "role rewrote a raw-address hostpci line"
+          rescue:
+            - name: Failed naming the line
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - "'202' in _msgs"
+                  - "'0000:84:00.0' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls5
+
+        - name: None of the failing cases wrote anything
+          ansible.builtin.assert:
+            that:
+              - (_calls5.content | b64decode) | trim | length == 0
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

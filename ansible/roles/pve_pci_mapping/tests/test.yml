@@ -1,0 +1,514 @@
+---
+# Exercises pve_pci_mapping against a stub pvesh, a fake sysfs tree and fixture VM configs.
+# Runs entirely on localhost; touches no remote host; nothing left behind.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_pci_mapping/tests/inventory roles/pve_pci_mapping/tests/test.yml
+#
+# The sysfs trees are recordings of a real node (fake_sysfs.py): "lan_off" is the 2026-08-31
+# enumeration, "lan_on" the 2026-08-28 one that made both guests fail to start. The stub
+# pvesh applies writes to a JSON state file and reproduces PVE's --check-node validation
+# against the tree, so the sequence below is the real sequence: create the renamed HBA
+# mapping, survive the flip, converge, refuse the dangerous cases, delete the old name.
+#
+# Node and guest names are invented (node-a, guest-a); the PCI ids are the real ones.
+- name: Test pve_pci_mapping
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    _node: node-a
+    _lan_off_map:
+      nvidia_rtx_a4000:     "node=node-a,path=0000:01:00.0,id=10de:24b0,subsystem-id=1028:14ad,iommugroup=97"
+      intel_arc_b580:       "node=node-a,path=0000:c3:00.0,id=8086:e20b,subsystem-id=1849:6021,iommugroup=17"
+      intel_arc_b580_audio: "node=node-a,path=0000:c4:00.0,id=8086:e2f7,subsystem-id=1849:6021,iommugroup=18"
+      broadcom_9305_24e:    "node=node-a,path=0000:84:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=45"
+      skhynix_pe6011:       "node=node-a,path=0000:83:00.0,id=1c5c:2429,subsystem-id=1590:02d0,iommugroup=44"
+      solidigm_p44_pro_1:   "node=node-a,path=0000:c5:00.0,id=025e:f1ac,subsystem-id=025e:f1ac,iommugroup=19"
+      solidigm_p44_pro_2:   "node=node-a,path=0000:c6:00.0,id=025e:f1ac,subsystem-id=025e:f1ac,iommugroup=20"
+      samsung_980_pro_1:    "node=node-a,path=0000:c7:00.0,id=144d:a80a,subsystem-id=144d:a801,iommugroup=21"
+      samsung_980_pro_2:    "node=node-a,path=0000:c8:00.0,id=144d:a80a,subsystem-id=144d:a801,iommugroup=22"
+      intel_p1600x_1:       "node=node-a,path=0000:46:00.0,id=8086:2525,subsystem-id=8086:380a,iommugroup=74"
+      intel_p1600x_2:       "node=node-a,path=0000:47:00.0,id=8086:2525,subsystem-id=8086:380a,iommugroup=75"
+    # What host_vars declares: the eleven live ids plus the renamed HBA.
+    _desired:
+      - { id: nvidia_rtx_a4000,     topology: "0000:00/01.1/00.0",           pci_id: "10de:24b0", subsystem_id: "1028:14ad" }
+      - { id: intel_arc_b580,       topology: "0000:c0/01.1/00.0/01.0/00.0", pci_id: "8086:e20b", subsystem_id: "1849:6021" }
+      - { id: intel_arc_b580_audio, topology: "0000:c0/01.1/00.0/02.0/00.0", pci_id: "8086:e2f7", subsystem_id: "1849:6021" }
+      - { id: broadcom_9305_24i,    topology: "0000:80/03.1/00.0",           pci_id: "1000:00c4", subsystem_id: "1000:31a0" }
+      - { id: broadcom_9305_24e,    topology: "0000:80/03.1/00.0",           pci_id: "1000:00c4", subsystem_id: "1000:31a0" }
+      - { id: skhynix_pe6011,       topology: "0000:80/01.4/00.0",           pci_id: "1c5c:2429", subsystem_id: "1590:02d0" }
+      - { id: solidigm_p44_pro_1,   topology: "0000:c0/03.1/00.0",           pci_id: "025e:f1ac", subsystem_id: "025e:f1ac" }
+      - { id: solidigm_p44_pro_2,   topology: "0000:c0/03.2/00.0",           pci_id: "025e:f1ac", subsystem_id: "025e:f1ac" }
+      - { id: samsung_980_pro_1,    topology: "0000:c0/03.3/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
+      - { id: samsung_980_pro_2,    topology: "0000:c0/03.4/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
+      - { id: intel_p1600x_1,       topology: "0000:40/03.3/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+      - { id: intel_p1600x_2,       topology: "0000:40/03.4/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+    _conf_200_old: |
+      agent: 1
+      boot: order=ide2;scsi0;net0
+      hostpci0: mapping=broadcom_9305_24e,rombar=0
+      hostpci1: mapping=solidigm_p44_pro_1
+      hostpci6: mapping=intel_p1600x_1
+      name: guest-a
+      onboot: 1
+    _conf_200_new: |
+      agent: 1
+      hostpci0: mapping=broadcom_9305_24i,rombar=0
+      hostpci1: mapping=solidigm_p44_pro_1
+      name: guest-a
+    _conf_201: |
+      hostpci0: mapping=nvidia_rtx_a4000,pcie=1
+      hostpci1: mapping=intel_arc_b580,pcie=1
+      hostpci2: mapping=intel_arc_b580_audio,pcie=1
+      name: guest-b
+    # Every case points the role at the same stub, tree link and fixture root.
+    _role_vars: &role_vars
+      pve_pci_mapping_node: "{{ _node }}"
+      pve_pci_mapping_pvesh_command: "{{ _tmp.path }}/stub-pvesh"
+      pve_pci_mapping_sysfs_root: "{{ _tmp.path }}/sysfs"
+      pve_pci_mapping_resolver_path: "{{ _tmp.path }}/resolve-pci-topology"
+      pve_pci_mapping_vm_config_root: "{{ _tmp.path }}/pve/nodes"
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-pci-mapping-tests
+      register: _tmp
+
+    - name: Run the suite
+      environment:
+        STUB_PVESH_STATE: "{{ _tmp.path }}/mappings.json"
+        STUB_PVESH_LOG: "{{ _tmp.path }}/calls.log"
+        STUB_PVESH_SYSFS: "{{ _tmp.path }}/sysfs"
+      block:
+        - name: Build both recorded sysfs trees
+          ansible.builtin.command:
+            argv: [python3, "{{ playbook_dir }}/fake_sysfs.py", build, "{{ _tmp.path }}/tree-{{ item }}", "{{ item }}"]
+          loop: [lan_off, lan_on]
+          changed_when: true
+
+        - name: Point the sysfs link at the LAN-off tree
+          ansible.builtin.file:
+            src: "{{ _tmp.path }}/tree-lan_off"
+            dest: "{{ _tmp.path }}/sysfs"
+            state: link
+
+        - name: Install the stub pvesh
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/stub-pvesh.py"
+            dest: "{{ _tmp.path }}/stub-pvesh"
+            mode: "0755"
+
+        - name: Seed the eleven live mappings, LAN-off layout
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mappings.json"
+            mode: "0644"
+            content: |
+              [
+              {% for id, map in _lan_off_map.items() %}
+                {"id": "{{ id }}", "map": ["{{ map }}"], "type": "pci"}{{ "," if not loop.last }}
+              {% endfor %}
+              ]
+
+        - name: Create the fixture qemu-server directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server"
+            state: directory
+            mode: "0755"
+
+        - name: Seed the fixture VM configs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/{{ item.name }}.conf"
+            mode: "0640"
+            content: "{{ item.content }}"
+          loop:
+            - { name: "200", content: "{{ _conf_200_old }}" }
+            - { name: "201", content: "{{ _conf_201 }}" }
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Start with an empty call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        # ---------- 1. create the missing (renamed) mapping, touch nothing else ----------
+        - name: Run against a host that lacks broadcom_9305_24i
+          vars:
+            <<: *role_vars
+            pve_pci_mapping_mappings: "{{ _desired }}"
+          ansible.builtin.import_role:
+            name: pve_pci_mapping
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls
+
+        - name: Exactly one create, with the resolved LAN-off values
+          vars:
+            _lines: "{{ (_calls.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 1
+              - _lines[0] == 'create /cluster/mapping/pci --id broadcom_9305_24i --map node=node-a,path=0000:84:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=45'
+            success_msg: "{{ _lines }}"
+
+        # ---------- 2. the flip: same declaration, shifted hardware ----------
+        - name: Point the sysfs link at the LAN-on tree
+          ansible.builtin.file:
+            src: "{{ _tmp.path }}/tree-lan_on"
+            dest: "{{ _tmp.path }}/sysfs"
+            state: link
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Run after the X550 appeared
+          vars:
+            <<: *role_vars
+            pve_pci_mapping_mappings: "{{ _desired }}"
+          ansible.builtin.import_role:
+            name: pve_pci_mapping
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls2
+
+        - name: Exactly the three entries that moved were set, to the recorded 08-28 values
+          vars:
+            _lines: "{{ (_calls2.content | b64decode) | trim | split('\n') | sort }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 3
+              - _lines[0] == 'set /cluster/mapping/pci/intel_p1600x_1 --map node=node-a,path=0000:48:00.0,id=8086:2525,subsystem-id=8086:380a,iommugroup=77'
+              - _lines[1] == 'set /cluster/mapping/pci/intel_p1600x_2 --map node=node-a,path=0000:49:00.0,id=8086:2525,subsystem-id=8086:380a,iommugroup=78'
+              - _lines[2] == 'set /cluster/mapping/pci/nvidia_rtx_a4000 --map node=node-a,path=0000:01:00.0,id=10de:24b0,subsystem-id=1028:14ad,iommugroup=100'
+            success_msg: "{{ _lines }}"
+
+        - name: PVE's own check is clean afterwards
+          ansible.builtin.command:
+            argv: ["{{ _tmp.path }}/stub-pvesh", get, /cluster/mapping/pci, --check-node, "{{ _node }}", --output-format, json]
+          register: _check
+          changed_when: false
+
+        - name: No mapping carries a check
+          ansible.builtin.assert:
+            that:
+              - (_check.stdout | from_json) | length == 12
+              - (_check.stdout | from_json) | map(attribute='checks') | map('length') | sum == 0
+
+        # ---------- 3. idempotency ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Run again against converged state
+          vars:
+            <<: *role_vars
+            pve_pci_mapping_mappings: "{{ _desired }}"
+          ansible.builtin.import_role:
+            name: pve_pci_mapping
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls3
+
+        - name: Second run is a no-op
+          ansible.builtin.assert:
+            that:
+              - (_calls3.content | b64decode) | trim | length == 0
+            success_msg: "no pvesh writes"
+
+        # ---------- 4. a wrong pci_id refuses before any write ----------
+        - name: A declaration whose pci_id is not what sits at that topology
+          block:
+            - name: Should refuse
+              vars:
+                <<: *role_vars
+                pve_pci_mapping_mappings: >-
+                  {{ _desired | rejectattr('id', 'eq', 'intel_p1600x_1') | list
+                     + [{'id': 'intel_p1600x_1', 'topology': '0000:40/03.3/00.0', 'pci_id': '1a03:2000', 'subsystem_id': '1a03:2000'}] }}
+              ansible.builtin.import_role:
+                name: pve_pci_mapping
+            - name: Mismatch should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a pci_id that does not match the device at the topology"
+          rescue:
+            - name: Read the call log
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls4
+            - name: Refused before writing, naming both ids
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - (_calls4.content | b64decode) | trim | length == 0
+                  - "'1a03:2000' in _msgs"
+                  - "'8086:2525' in _msgs"
+                  - "'intel_p1600x_1' in _msgs"
+                success_msg: "refused: {{ _msgs | trim }}"
+
+        # ---------- 5. an unlisted mapping on the node fails the run ----------
+        - name: A declaration that forgot one of the node's mappings
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_pci_mapping_mappings: "{{ _desired | rejectattr('id', 'eq', 'skhynix_pe6011') | list }}"
+              ansible.builtin.import_role:
+                name: pve_pci_mapping
+            - name: Unlisted mapping should not have been ignored
+              ansible.builtin.fail:
+                msg: "role ran with a mapping on the node that the declaration does not mention"
+          rescue:
+            - name: Read the call log
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls5
+            - name: Failed naming the unlisted id, without writing
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - (_calls5.content | b64decode) | trim | length == 0
+                  - "'skhynix_pe6011' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+        # ---------- 6. absent but still referenced: main section, [PENDING], snapshot ----------
+        - name: Deleting a mapping a VM config still references
+          vars:
+            _absent_24e: >-
+              {{ _desired | rejectattr('id', 'eq', 'broadcom_9305_24e') | list
+                 + [{'id': 'broadcom_9305_24e', 'topology': '0000:80/03.1/00.0', 'pci_id': '1000:00c4', 'subsystem_id': '1000:31a0', 'state': 'absent'}] }}
+          block:
+            - name: Write the reference the way this variant puts it
+              ansible.builtin.copy:
+                dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/200.conf"
+                mode: "0640"
+                content: "{{ item.content }}"
+              loop:
+                - name: main
+                  content: "{{ _conf_200_old }}"
+              loop_control:
+                label: "{{ item.name }}"
+            - name: Should refuse (main section)
+              block:
+                - name: Run with broadcom_9305_24e absent
+                  vars:
+                    <<: *role_vars
+                    pve_pci_mapping_mappings: "{{ _absent_24e }}"
+                  ansible.builtin.import_role:
+                    name: pve_pci_mapping
+                - name: Delete should have been refused
+                  ansible.builtin.fail:
+                    msg: "role deleted a mapping still referenced in the main section"
+              rescue:
+                - name: Refused naming the config file
+                  vars:
+                    _msgs: >-
+                      {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                         ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+                  ansible.builtin.assert:
+                    that:
+                      - "'200.conf' in _msgs"
+                      - "'broadcom_9305_24e' in _msgs"
+                    success_msg: "refused: {{ _msgs | trim }}"
+
+            - name: Reference only in a [PENDING] section
+              ansible.builtin.copy:
+                dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/200.conf"
+                mode: "0640"
+                content: |
+                  hostpci0: mapping=broadcom_9305_24i,rombar=0
+                  name: guest-a
+
+                  [PENDING]
+                  hostpci0: mapping=broadcom_9305_24e,rombar=0
+            - name: Should refuse (pending)
+              block:
+                - name: Run with broadcom_9305_24e absent
+                  vars:
+                    <<: *role_vars
+                    pve_pci_mapping_mappings: "{{ _absent_24e }}"
+                  ansible.builtin.import_role:
+                    name: pve_pci_mapping
+                - name: Delete should have been refused
+                  ansible.builtin.fail:
+                    msg: "role deleted a mapping still referenced in [PENDING]"
+              rescue:
+                - name: Refused naming the config file
+                  vars:
+                    _msgs: >-
+                      {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                         ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+                  ansible.builtin.assert:
+                    that:
+                      - "'200.conf' in _msgs"
+                    success_msg: "refused: {{ _msgs | trim }}"
+
+            - name: Reference only in a snapshot section
+              ansible.builtin.copy:
+                dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/200.conf"
+                mode: "0640"
+                content: |
+                  hostpci0: mapping=broadcom_9305_24i,rombar=0
+                  name: guest-a
+                  parent: pre-change
+
+                  [pre-change]
+                  hostpci0: mapping=broadcom_9305_24e,rombar=0
+                  name: guest-a
+            - name: Should refuse (snapshot)
+              block:
+                - name: Run with broadcom_9305_24e absent
+                  vars:
+                    <<: *role_vars
+                    pve_pci_mapping_mappings: "{{ _absent_24e }}"
+                  ansible.builtin.import_role:
+                    name: pve_pci_mapping
+                - name: Delete should have been refused
+                  ansible.builtin.fail:
+                    msg: "role deleted a mapping still referenced in a snapshot"
+              rescue:
+                - name: Refused naming the config file
+                  vars:
+                    _msgs: >-
+                      {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                         ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+                  ansible.builtin.assert:
+                    that:
+                      - "'200.conf' in _msgs"
+                    success_msg: "refused: {{ _msgs | trim }}"
+
+            - name: Read the call log
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls6
+
+            - name: None of the three refusals wrote anything
+              ansible.builtin.assert:
+                that:
+                  - (_calls6.content | b64decode) | trim | length == 0
+
+            # ---------- 7. absent and unreferenced: deleted ----------
+            - name: The VM now references the new name everywhere
+              ansible.builtin.copy:
+                dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/200.conf"
+                mode: "0640"
+                content: "{{ _conf_200_new }}"
+
+            - name: Run with broadcom_9305_24e absent and unreferenced
+              vars:
+                <<: *role_vars
+                pve_pci_mapping_mappings: "{{ _absent_24e }}"
+              ansible.builtin.import_role:
+                name: pve_pci_mapping
+
+            - name: Read the call log
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls7
+
+            - name: Exactly one delete, of the old name
+              vars:
+                _lines: "{{ (_calls7.content | b64decode) | trim | split('\n') }}"
+              ansible.builtin.assert:
+                that:
+                  - _lines | length == 1
+                  - _lines[0] == 'delete /cluster/mapping/pci/broadcom_9305_24e'
+                success_msg: "{{ _lines }}"
+
+        # ---------- 8. a prefix of another id is not a reference ----------
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: guest-b references only the audio function
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pve/nodes/{{ _node }}/qemu-server/201.conf"
+            mode: "0640"
+            content: |
+              hostpci0: mapping=nvidia_rtx_a4000,pcie=1
+              hostpci2: mapping=intel_arc_b580_audio,pcie=1
+              name: guest-b
+
+        - name: Run with intel_arc_b580 absent while guest-b still uses intel_arc_b580_audio
+          vars:
+            <<: *role_vars
+            pve_pci_mapping_mappings: >-
+              {{ _desired | rejectattr('id', 'in', ['broadcom_9305_24e', 'intel_arc_b580']) | list
+                 + [{'id': 'intel_arc_b580', 'topology': '0000:c0/01.1/00.0/01.0/00.0', 'pci_id': '8086:e20b', 'subsystem_id': '1849:6021', 'state': 'absent'}] }}
+          ansible.builtin.import_role:
+            name: pve_pci_mapping
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls8
+
+        - name: The _audio reference did not block the delete
+          vars:
+            _lines: "{{ (_calls8.content | b64decode) | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 1
+              - _lines[0] == 'delete /cluster/mapping/pci/intel_arc_b580'
+            success_msg: "{{ _lines }}"
+
+        # ---------- 9. a mapping that names two nodes is out of scope: fail ----------
+        - name: Seed a mapping with two map entries
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/mappings.json"
+            mode: "0644"
+            content: |
+              [
+                {"id": "shared_thing", "map": ["node=node-a,path=0000:84:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=45", "node=node-b,path=0000:03:00.0,id=1000:00c4,subsystem-id=1000:31a0,iommugroup=9"], "type": "pci"}
+              ]
+
+        - name: A multi-node mapping on this node
+          block:
+            - name: Should fail
+              vars:
+                <<: *role_vars
+                pve_pci_mapping_mappings:
+                  - { id: shared_thing, topology: "0000:80/03.1/00.0", pci_id: "1000:00c4", subsystem_id: "1000:31a0" }
+              ansible.builtin.import_role:
+                name: pve_pci_mapping
+            - name: Multi-node mapping should not have been accepted
+              ansible.builtin.fail:
+                msg: "role reconciled a mapping that also names another node"
+          rescue:
+            - name: Failed naming the mapping
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.msg | default('')) ~ ' ' ~
+                     ((ansible_failed_result.results | default([])) | selectattr('msg', 'defined') | map(attribute='msg') | join(' ')) }}
+              ansible.builtin.assert:
+                that:
+                  - "'shared_thing' in _msgs"
+                success_msg: "failed: {{ _msgs | trim }}"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

@@ -1,0 +1,147 @@
+---
+# Invariants for the PCI passthrough declaration on nas-host-01 (host_vars/nas-host-01/vars.yaml):
+# pve_pci_mapping_mappings and pve_vm_hostpci_vms must describe each other. Contacts nothing,
+# needs no secret:
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i localhost, tests/test-pci-passthrough.yml
+#
+# Same shape as test-media-data-disks.yml: `-i localhost,` keeps inventory.ini and group_vars out,
+# the vault stub keeps 1Password out, and the file under test comes in through include_vars,
+# namespaced so its vault references are never templated.
+#
+# The fixture below is the oracle: the eleven mappings as they stand in /etc/pve/mapping/pci.cfg
+# on nas-host-01 (hardware/nas-host-01.md, re-verified live 2026-09-09) plus the renamed HBA.
+# When a device is genuinely added, removed or renamed, this list changes in the same edit.
+- name: PCI passthrough declaration invariants
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    _id_re: '^[a-zA-Z][a-zA-Z0-9_-]+$'
+    _topology_re: '^[0-9a-f]{4}:[0-9a-f]{2}(/[0-9a-f]{2}\.[0-7])+$'
+    _pci_id_re: '^[0-9a-f]{4}:[0-9a-f]{4}$'
+    fixture_ids:
+      - nvidia_rtx_a4000
+      - intel_arc_b580
+      - intel_arc_b580_audio
+      - broadcom_9305_24i
+      - broadcom_9305_24e
+      - skhynix_pe6011
+      - solidigm_p44_pro_1
+      - solidigm_p44_pro_2
+      - samsung_980_pro_1
+      - samsung_980_pro_2
+      - intel_p1600x_1
+      - intel_p1600x_2
+    fixture_vmids: [200, 201]
+
+  tasks:
+    - name: Load the real host_vars, namespaced
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../host_vars/nas-host-01/vars.yaml"
+        name: _nas_host_01
+
+    - name: C1 - the mapping list is present and is exactly the fixture
+      vars:
+        _ids: "{{ _nas_host_01.pve_pci_mapping_mappings | default([]) | map(attribute='id') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _ids | length > 0
+          - _ids | length == fixture_ids | length
+          - _ids | unique | length == _ids | length
+          - _ids | sort == fixture_ids | sort
+        fail_msg: >-
+          pve_pci_mapping_mappings ids {{ _ids | sort }} are not the fixture
+          {{ fixture_ids | sort }}. If a device was genuinely added/removed/renamed, update
+          fixture_ids in this file in the same change.
+        quiet: true
+
+    - name: C2 - every mapping entry is well-formed
+      ansible.builtin.assert:
+        that:
+          - item.id is match(_id_re)
+          - item.topology is match(_topology_re)
+          - item.pci_id is match(_pci_id_re)
+          - item.subsystem_id is match(_pci_id_re)
+          - item.state | default('present') in ['present', 'absent']
+        fail_msg: "malformed mapping entry: {{ item }}"
+        quiet: true
+      loop: "{{ _nas_host_01.pve_pci_mapping_mappings }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: C3 - the two HBA names share one topology, and no other topology is shared
+      vars:
+        _topos: "{{ _nas_host_01.pve_pci_mapping_mappings | map(attribute='topology') | list }}"
+        _hba: "{{ _nas_host_01.pve_pci_mapping_mappings | selectattr('id', 'match', '^broadcom_9305_24') | map(attribute='topology') | unique | list }}"
+      ansible.builtin.assert:
+        that:
+          - _hba | length == 1
+          - _topos | unique | length == _topos | length - 1
+        fail_msg: >-
+          Topologies must be unique except for the HBA rename pair. Got {{ _topos }}.
+        quiet: true
+
+    - name: C4 - the VM list is present and covers the fixture VMs
+      vars:
+        _vmids: "{{ _nas_host_01.pve_vm_hostpci_vms | default([]) | map(attribute='vmid') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _vmids | length > 0
+          - _vmids | sort == fixture_vmids | sort
+        fail_msg: "pve_vm_hostpci_vms vmids {{ _vmids }} are not {{ fixture_vmids }}"
+        quiet: true
+
+    - name: C5 - every hostpci line references a present mapping, indexes unique per VM
+      vars:
+        _present_ids: >-
+          {{ _nas_host_01.pve_pci_mapping_mappings
+             | rejectattr('state', 'defined') | map(attribute='id') | list
+             + (_nas_host_01.pve_pci_mapping_mappings
+                | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | map(attribute='id') | list) }}
+        _refs: "{{ item.hostpci | rejectattr('state', 'defined') | map(attribute='mapping') | list }}"
+        _indexes: "{{ item.hostpci | map(attribute='index') | list }}"
+      ansible.builtin.assert:
+        that:
+          - _refs | length > 0
+          - _refs | difference(_present_ids) | length == 0
+          - _indexes | unique | length == _indexes | length
+        fail_msg: >-
+          VM {{ item.vmid }} references mappings that are not declared present:
+          {{ _refs | difference(_present_ids) }}, or repeats an index: {{ _indexes }}.
+        quiet: true
+      loop: "{{ _nas_host_01.pve_vm_hostpci_vms }}"
+      loop_control:
+        label: "{{ item.vmid }}"
+
+    - name: C6 - every present mapping is consumed by exactly one hostpci line
+      vars:
+        _present_ids: >-
+          {{ _nas_host_01.pve_pci_mapping_mappings
+             | rejectattr('state', 'defined') | map(attribute='id') | list
+             + (_nas_host_01.pve_pci_mapping_mappings
+                | selectattr('state', 'defined') | selectattr('state', 'eq', 'present') | map(attribute='id') | list) }}
+        _refs: >-
+          {{ _nas_host_01.pve_vm_hostpci_vms | map(attribute='hostpci') | flatten
+             | rejectattr('state', 'defined') | map(attribute='mapping') | list }}
+        # The old HBA name stays present until nas-01 has been re-pointed; it is the one
+        # allowed unconsumed mapping, and only while it is declared present.
+        _unconsumed: "{{ _present_ids | difference(_refs) | difference(['broadcom_9305_24e']) }}"
+      ansible.builtin.assert:
+        that:
+          - _refs | length > 0
+          - _refs | unique | length == _refs | length
+          - _unconsumed | length == 0
+        fail_msg: >-
+          Present mappings no VM uses: {{ _unconsumed }}; or a mapping used twice:
+          {{ _refs | difference(_refs | unique) }}.
+        quiet: true
+
+    - name: C7 - report
+      ansible.builtin.debug:
+        msg:
+          - "mappings ({{ _nas_host_01.pve_pci_mapping_mappings | length }}): {{ _nas_host_01.pve_pci_mapping_mappings | map(attribute='id') | join(', ') }}"
+          - "VMs: {{ _nas_host_01.pve_vm_hostpci_vms | map(attribute='vmid') | join(', ') }}"

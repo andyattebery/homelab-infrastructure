@@ -1,0 +1,2 @@
+---
+_pve_vm_hostpci_mapping_re: '^[a-zA-Z][a-zA-Z0-9_-]+$'
