@@ -1,0 +1,14 @@
+---
+# Settings to write into a systemd-journald drop-in, as a dict of key to value. Empty by
+# default, which makes the role a no-op and removes any drop-in it previously wrote.
+#
+#   journald_config_settings:
+#     SyncIntervalSec: "30s"
+#
+# Keys go under [Journal] verbatim; the role does not validate them, so a typo is silently
+# ignored by journald. `systemd-analyze cat-config systemd/journald.conf` on the host shows
+# what actually took effect, which is the check worth running after a change.
+journald_config_settings: {}
+
+journald_config_dropin_dir: /etc/systemd/journald.conf.d
+journald_config_dropin_name: 10-ansible.conf

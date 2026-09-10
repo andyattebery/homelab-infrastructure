@@ -1,0 +1,7 @@
+---
+# journald re-reads its configuration on restart. Restarting it is safe and does not lose
+# buffered messages: systemd hands the socket over, and clients block rather than drop.
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted

@@ -1,0 +1,32 @@
+---
+- name: Ensure the journald drop-in directory exists
+  when: journald_config_settings | length > 0
+  ansible.builtin.file:
+    path: "{{ journald_config_dropin_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the journald drop-in
+  when: journald_config_settings | length > 0
+  ansible.builtin.copy:
+    dest: "{{ journald_config_dropin_dir }}/{{ journald_config_dropin_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the journald_config Ansible role.
+      [Journal]
+      {% for key, value in journald_config_settings | dictsort %}
+      {{ key }}={{ value }}
+      {% endfor %}
+  notify: Restart systemd-journald
+
+# Reversible: emptying the dict removes the drop-in rather than leaving it behind.
+- name: Remove the journald drop-in
+  when: journald_config_settings | length == 0
+  ansible.builtin.file:
+    path: "{{ journald_config_dropin_dir }}/{{ journald_config_dropin_name }}"
+    state: absent
+  notify: Restart systemd-journald
