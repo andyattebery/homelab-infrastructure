@@ -18,6 +18,21 @@
     # Real strings, from the cluster on 2026-09-08.
     _v_squid: "ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)"
     _v_tentacle: "ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable)"
+    _v_tentacle_2024: "ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable)"
+    # ceph versions -f json. The 20.2.4 dump is the cluster on 2026-09-10 and the
+    # 20.2.2 one is 2026-09-08, both verbatim — note the " - None" tail daemons
+    # append that `ceph -v` does not, which is why the guard reads word 3 and not
+    # the codename. The squid dump is assembled from the real 19.2.5 version
+    # string and the real two-node counts; the cluster has not run squid since.
+    _versions_2024: '{"mon":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"osd":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"mds":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3}}'
+    _versions_2022: '{"mon":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"osd":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mds":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"overall":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":12}}'
+    # A cluster caught mid-upgrade: mons and mgrs already on 20.2.4, OSDs and
+    # MDSs still on 20.2.2. Assembled from the two real version strings above —
+    # this is the shape a node would meet if it were rebuilt during a rolling
+    # upgrade, and the case that forces the guard to read every daemon type
+    # rather than the first one it finds.
+    _versions_partial: '{"mon":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"mgr":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":3},"osd":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"mds":{"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":3},"overall":{"ceph version 20.2.4 (4302593b7d5304637a99b628879b32886b798252) tentacle (stable - None)":6,"ceph version 20.2.2 (06f6a7ab7187f570d9fc04b7ac9664f1fb6b84b0) tentacle (stable - None)":6}}'
+    _versions_squid: '{"mon":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2},"mgr":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2},"osd":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2},"mds":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":2},"overall":{"ceph version 19.2.5 (2585b218312ba8cf25c7fe6bc1890e6cfda5949e) squid (stable)":8}}'
     _mon_dump_squid_without_us: >-
       {"epoch":19,"min_mon_release":19,"min_mon_release_name":"squid",
        "mons":[{"rank":0,"name":"nas-host-01"},{"rank":1,"name":"vm-host-01"}],"quorum":[0,1]}
@@ -160,6 +175,9 @@
                 "mon dump -f json")
                   if [ -f "$d/mon-dump.json" ]; then cat "$d/mon-dump.json"; echo "dumped monmap" >&2
                   else echo "Error initializing cluster client" >&2; exit 1; fi ;;
+                "versions -f json")
+                  if [ -f "$d/versions.json" ]; then cat "$d/versions.json"
+                  else echo "Error initializing cluster client" >&2; exit 1; fi ;;
                 "osd tree -f json") cat "$d/osd-tree.json" ;;
                 "osd dump -f json") cat "$d/osd-dump.json" ;;
                 "mds metadata -f json")
@@ -233,6 +251,7 @@
           loop:
             - { name: ceph-v.txt, body: "{{ _v_squid }}" }
             - { name: mon-dump.json, body: "{{ _mon_dump_squid_without_us }}" }
+            - { name: versions.json, body: "{{ _versions_squid }}" }
 
         - name: Guard passes when installed, cluster and group_vars agree
           vars:
@@ -242,11 +261,14 @@
             name: pve_node_ceph
             tasks_from: check_release
 
-        - name: Parsed the installed release from the real string
+        - name: Parsed both the release and the version from the real string
           ansible.builtin.assert:
             that:
               - pve_node_ceph_installed_release == 'squid'
-            success_msg: "installed={{ pve_node_ceph_installed_release }}"
+              - pve_node_ceph_installed_version == '19.2.5'
+            success_msg: >-
+              installed={{ pve_node_ceph_installed_release }}
+              {{ pve_node_ceph_installed_version }}
 
         # ---------- 2. the 2026-09-07 case: node installed one major ahead ----------
         - name: Seed a tentacle install against a squid cluster
@@ -307,11 +329,174 @@
                   - "'Refusing to create daemons' in ansible_failed_result.msg"
                 success_msg: "{{ ansible_failed_result.msg }}"
 
+        # ---------- 3b. point release: node and cluster agree ----------
+        # The positive control for 3c and 3d. Same codename is not enough to
+        # pass here — the x.y.z has to match too.
+        - name: Seed 20.2.4 on the node and on every daemon
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_tentacle_2024 }}" }
+            - { name: mon-dump.json, body: "{{ _mon_dump_tentacle }}" }
+            - { name: versions.json, body: "{{ _versions_2024 }}" }
+
+        - name: Guard passes when the point releases match
+          vars:
+            pve_ceph_release: tentacle
+            pve_node_ceph_ceph_command: "{{ _stub }}"
+          ansible.builtin.include_role:
+            name: pve_node_ceph
+            tasks_from: check_release
+
+        - name: The daemon-version check ran, and read the version not the codename
+          ansible.builtin.assert:
+            that:
+              - pve_node_ceph_release_versions.rc == 0
+              - pve_node_ceph_installed_version == '20.2.4'
+            success_msg: "installed={{ pve_node_ceph_installed_version }}"
+
+        # ---------- 3c. the 2026-09-09 case: node one point release ahead ----------
+        # Both codename checks pass here — this is the skew that reached
+        # production and drove the other two monitors' memory up.
+        - name: Seed 20.2.2 daemons under the 20.2.4 node
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/versions.json"
+            content: "{{ _versions_2022 }}\n"
+            mode: "0644"
+
+        - name: A node ahead of the cluster's running daemons
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: tentacle
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: Point-release skew should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted a 20.2.4 node against a 20.2.2 cluster"
+          rescue:
+            - name: Refused, naming both versions and the upgrade playbook
+              ansible.builtin.assert:
+                that:
+                  - "'This node runs Ceph 20.2.4' in ansible_failed_result.msg"
+                  - "'daemons report 20.2.2' in ansible_failed_result.msg"
+                  - "'playbook-prod-proxmox-cluster-ceph-upgrade.yaml' in ansible_failed_result.msg"
+                  # _versions_2022 carries ceph's `overall` rollup; the report
+                  # drops it, so the same version is never counted twice.
+                  - "'overall' not in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 3d. the same skew the other way: node behind the cluster ----------
+        # "Not newer" would let this through. The remedy is the same playbook,
+        # so the guard asserts equality rather than an ordering.
+        - name: Seed a 20.2.2 node against the 20.2.4 daemons
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_tentacle }}" }
+            - { name: versions.json, body: "{{ _versions_2024 }}" }
+
+        - name: A node behind the cluster's running daemons
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: tentacle
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: Point-release skew should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted a 20.2.2 node against a 20.2.4 cluster"
+          rescue:
+            - name: Refused in the other direction too
+              ansible.builtin.assert:
+                that:
+                  - "'This node runs Ceph 20.2.2' in ansible_failed_result.msg"
+                  - "'daemons report 20.2.4' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 3e. a cluster caught mid-upgrade: some daemons match ----------
+        # Matching the mons is not enough. A guard that stopped at the first
+        # daemon type would pass this and still let the node build on top of
+        # 20.2.2 OSDs.
+        - name: Seed a 20.2.4 node against a half-upgraded cluster
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            content: "{{ item.body }}\n"
+            mode: "0644"
+          loop:
+            - { name: ceph-v.txt, body: "{{ _v_tentacle_2024 }}" }
+            - { name: versions.json, body: "{{ _versions_partial }}" }
+
+        - name: A cluster where only some daemons match this node
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: tentacle
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: A partial match should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted a 20.2.4 node against a half-20.2.2 cluster"
+          rescue:
+            - name: Refused, naming both versions the cluster is running
+              ansible.builtin.assert:
+                that:
+                  - "'daemons report 20.2.2, 20.2.4' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        # ---------- 3f. the cluster answers but names no daemons ----------
+        # The vacuous-pass guard: with an empty report every version trivially
+        # "matches", which is the shape of a check that has stopped checking.
+        - name: Seed a daemon-version answer with nothing in it
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/versions.json"
+            content: "{}\n"
+            mode: "0644"
+
+        - name: An empty daemon-version report
+          block:
+            - name: Should be refused
+              vars:
+                pve_ceph_release: tentacle
+                pve_node_ceph_ceph_command: "{{ _stub }}"
+              ansible.builtin.include_role:
+                name: pve_node_ceph
+                tasks_from: check_release
+            - name: An empty report should not have passed
+              ansible.builtin.fail:
+                msg: "guard accepted a cluster reporting no daemon versions"
+          rescue:
+            - name: Refused rather than passing on nothing
+              ansible.builtin.assert:
+                that:
+                  - "'no daemons at all' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
         # ---------- 4. no cluster yet: only the installed check applies ----------
-        - name: Remove the monmap (fresh cluster, before pveceph init)
+        # Re-seeds ceph-v.txt because 3d left tentacle there: this case is about
+        # a node with nothing to compare against, not about which release it is.
+        - name: Seed a squid install with no cluster to talk to
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/ceph-v.txt"
+            content: "{{ _v_squid }}\n"
+            mode: "0644"
+        - name: Remove the monmap and the daemon versions (fresh cluster, before pveceph init)
           ansible.builtin.file:
-            path: "{{ _tmp.path }}/mon-dump.json"
+            path: "{{ _tmp.path }}/{{ item }}"
             state: absent
+          loop:
+            - mon-dump.json
+            - versions.json
 
         - name: Guard passes on the installed release alone
           vars:
@@ -321,11 +506,14 @@
             name: pve_node_ceph
             tasks_from: check_release
 
-        - name: The cluster check was skipped, not passed vacuously
+        - name: Both cluster checks were skipped, not passed vacuously
           ansible.builtin.assert:
             that:
               - pve_node_ceph_release_mon_dump.rc != 0
-            success_msg: "mon dump rc={{ pve_node_ceph_release_mon_dump.rc }}"
+              - pve_node_ceph_release_versions.rc != 0
+            success_msg: >-
+              mon dump rc={{ pve_node_ceph_release_mon_dump.rc }},
+              versions rc={{ pve_node_ceph_release_versions.rc }}
 
         # ---------- 5. mon_state: today's vm-host-02 ----------
         - name: Seed the stale state — out of the monmap, section + mon_host + store left

@@ -212,6 +212,9 @@ converged only on a node that passes it, so this role never switches a disagreei
 2. `ceph mon dump -f json` → `min_mon_release_name` must equal `pve_ceph_release`. Otherwise:
    *"The cluster's min_mon_release is 'X' … Refusing to create daemons that cannot join."*
    Skipped when there is no monmap yet (the designated runner before `pveceph init`).
+3. `ceph versions -f json` → every running daemon must report the **exact x.y.z** this node has
+   installed. Otherwise: *"This node runs Ceph 20.2.4 but the cluster's running daemons report
+   20.2.2."* Skipped when there is no cluster to answer, like check 2.
 
 Why this exists: on 2026-09-07 `install_ceph.yaml` ran `pveceph install` with no `--version`
 and a rebuilt node got tentacle against a squid cluster. A monitor one major ahead of
@@ -219,6 +222,25 @@ and a rebuilt node got tentacle against a squid cluster. A monitor one major ahe
 the election churn OOM-killed another node's monitor until systemd's start limiter gave up,
 and the cluster lost quorum. Check 2 is what would have stopped that run before
 `pveceph mon create`.
+
+Why check 3 exists: checks 1 and 2 compare release *names*, and on 2026-09-09 that was not
+enough. A reinstalled node got 20.2.4 while the cluster ran 20.2.2 — both `tentacle`, so both
+passed — and the new monitor store-syncing against its older peers drove hundreds of MB/s of
+memory growth on the other two monitors until it was stopped by hand. Check 3 is the version
+axis of the same guard.
+
+It asserts **equality**, not "this node is not newer". The harm observed came from a newer
+node, but the 2026-09-07 failure was a node one major *behind* what the cluster would accept,
+and the remedy for both is the same playbook — so an ordering test would silently readmit half
+of what this guard exists to stop. `overall` is dropped from the comparison: it is Ceph's own
+rollup of the other keys and can never carry a version they do not.
+
+None of this blocks a rolling upgrade: `pve_ceph_upgrade` includes this role with
+`tasks_from: repo` only, so the upgrade playbook never reaches these assertions and a cluster
+that is legitimately mid-upgrade is free to be mixed. The main playbook is a different matter —
+run it against a node while the cluster is half-upgraded and check 3 refuses, naming every
+version in play. That is intended: a mixed cluster is a fine thing to be *upgrading* and a bad
+thing to be *building a new node into*.
 
 ## Forgetting a stale monitor
 
@@ -307,7 +329,10 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
 ```
 
 Localhost only, stub `ceph` and `ceph-volume`, tempdir; nothing contacted. Covers the release
-guard (agreeing, installed-ahead, cluster-ahead, no cluster yet), every `mon_state` decision
+guard (agreeing, installed-ahead, cluster-ahead, point releases agreeing, a node one point
+release ahead of the daemons, the same skew the other way, a half-upgraded cluster where only
+some daemons match, a cluster naming no daemons at all, and no cluster yet), every `mon_state`
+decision
 (stale, member, unreachable, clean, and the `10.1.40.12` vs `10.1.40.120` boundary),
 `forget_mon()`'s editing, that `ceph.sources` renders byte-identical to the file `pveceph
 install` writes, every `osd_state` decision against the real CRUSH tree (an OSD present, the
@@ -322,7 +347,10 @@ task, asserted from the parsed `create_ceph_services.yaml` because that file can
 on the control node at all — three of its tasks are `ansible.builtin.systemd_service`, two
 shell out to a bare `systemctl` that is not behind a command variable, and one reads
 `/proc/self/mountinfo`. Each new case was shown to go red under a code mutation before it
-counted (2026-09-08; the mon-gate case on 2026-09-10, once per gate and once for the default).
+counted (2026-09-08; the mon-gate case on 2026-09-10, once per gate and once for the default;
+the six daemon-version cases on 2026-09-10, six mutations — stray check disabled, empty report
+allowed, codename read instead of the version, the clusterless skip removed, the `overall` rollup
+left in, and only the first daemon type compared — each killing a different case).
 
 Not covered, on purpose: `pveceph` itself, the join and up/in waits, OSD activation, and the
 `forget_*.yaml` actions — those are verified live by the waits failing when a daemon does not

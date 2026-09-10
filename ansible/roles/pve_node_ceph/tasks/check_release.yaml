@@ -3,23 +3,30 @@
 # `pveceph install` defaulted to (tentacle) against a squid cluster. Its
 # monitor could never join — a newer major cannot enter an older quorum — and
 # the election churn OOM-killed another node's monitor until the cluster lost
-# quorum. Both assertions below run before any daemon is created.
+# quorum. On 2026-09-09 the same failure arrived one axis down: a rebuilt node
+# got 20.2.4 against a 20.2.2 cluster. Both are `tentacle`, so the two
+# codename assertions passed, and the new monitor store-syncing against its
+# older peers drove hundreds of MB/s of memory growth on the other two
+# monitors. All three assertions below run before any daemon is created.
 - name: Read the installed Ceph release
   ansible.builtin.command:
     argv:
       - "{{ pve_node_ceph_ceph_command }}"
       - -v
-  register: pve_node_ceph_installed_version
+  register: pve_node_ceph_ceph_v
   changed_when: false
 
-# `ceph -v` → "ceph version 19.2.5 (<sha>) squid (stable)": the codename is
-# the fifth word.
-- name: Set the installed release name
+# `ceph -v` → "ceph version 19.2.5 (<sha>) squid (stable)": the version is the
+# third word and the codename the fifth.
+- name: Set the installed release name and version
   vars:
-    _words: "{{ pve_node_ceph_installed_version.stdout.split() }}"
+    _words: "{{ pve_node_ceph_ceph_v.stdout.split() }}"
+    _parsed: "{{ _words | length >= 5 and _words[0:2] == ['ceph', 'version'] }}"
   ansible.builtin.set_fact:
     pve_node_ceph_installed_release: >-
-      {{ _words[4] if (_words | length >= 5 and _words[0:2] == ['ceph', 'version']) else '' }}
+      {{ _words[4] if _parsed | bool else '' }}
+    pve_node_ceph_installed_version: >-
+      {{ _words[2] if _parsed | bool else '' }}
 
 - name: Assert the installed release is the one group_vars declares
   ansible.builtin.assert:
@@ -27,7 +34,7 @@
       - pve_node_ceph_installed_release == pve_ceph_release
     fail_msg: >-
       Installed Ceph is '{{ pve_node_ceph_installed_release }}'
-      ({{ pve_node_ceph_installed_version.stdout }}) but pve_ceph_release is
+      ({{ pve_node_ceph_ceph_v.stdout }}) but pve_ceph_release is
       '{{ pve_ceph_release }}'. If the cluster is being upgraded, run
       playbook-prod-proxmox-cluster-ceph-upgrade.yaml first. If this node was
       just installed, pveceph installed a different release than group_vars
@@ -61,4 +68,60 @@
       pve_ceph_release is '{{ pve_ceph_release }}'. Refusing to create daemons
       that cannot join. Either the variable is wrong, or the cluster has to be
       upgraded first — playbook-prod-proxmox-cluster-ceph-upgrade.yaml.
+    quiet: true
+
+# Both checks above compare release *names*, which a point-release skew passes
+# straight through. `ceph versions` reports what every running daemon is
+# actually executing, keyed by the same string `ceph -v` prints — some daemons
+# append " - None" to the "(stable)" tail, so the codename shifts but the x.y.z
+# is the third word either way.
+- name: Read the versions of the cluster's running daemons
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_node_ceph_ceph_command }}"
+      - versions
+      - -f
+      - json
+  register: pve_node_ceph_release_versions
+  changed_when: false
+  failed_when: false
+
+# Skipped when there is no cluster to compare against, exactly as the monmap
+# assert above is. `overall` is Ceph's own rollup of the other keys, so it is
+# dropped rather than counted as a daemon type.
+- name: Assert this node's Ceph version matches every running daemon
+  when: pve_node_ceph_release_versions.rc == 0
+  vars:
+    _v: "{{ pve_node_ceph_release_versions.stdout | from_json }}"
+    _report: >-
+      {%- set out = [] -%}
+      {%- for t, counts in _v.items() if t != 'overall' -%}
+        {%- for k, n in counts.items() -%}
+          {%- set _ = out.append({'type': t, 'version': k.split()[2], 'count': n}) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ out }}
+    _stray: "{{ _report | rejectattr('version', 'equalto', pve_node_ceph_installed_version) | list }}"
+  ansible.builtin.assert:
+    that:
+      # The cluster answered, so at least its monitors are reporting a version.
+      # Without this an empty report would satisfy the stray check vacuously —
+      # a guard that passes because it found nothing to check. There is no
+      # clause for an unparseable `ceph -v`: that leaves the codename fact ''
+      # too, and the first assert above has already refused it.
+      - _report | length > 0
+      - _stray | length == 0
+    fail_msg: >-
+      This node runs Ceph {{ pve_node_ceph_installed_version }} but the
+      cluster's running daemons report
+      {{ (_report | map(attribute='version') | unique | sort | join(', '))
+         or 'no daemons at all' }}.
+      Refusing to create daemons. On 2026-09-09 a fresh 20.2.4 node against a
+      20.2.2 cluster — both 'tentacle', so the two checks above passed — drove
+      hundreds of MB/s of memory growth on the other two monitors while its new
+      monitor store-synced. Either bring the cluster to this node's version
+      with playbook-prod-proxmox-cluster-ceph-upgrade.yaml, or find out why
+      this node installed a different point release than its peers
+      (`apt policy ceph` and /etc/apt/sources.list.d/ceph.sources).
+      Full picture: {{ _report }}.
     quiet: true
