@@ -10,18 +10,17 @@
 
 ## From proxmox installer
 
-1. Add non-root user `adduser <username>`
-2. Install sudo `apt install sudo`
-3. Add user to sudo group `usermod -a -G sudo <username>`
-4. Copy ssh key for new user `ssh-copy-id <username>@<hostname>`
+One play does what used to be four hand steps plus the stale-host-key cleanup — from the
+control node, in a terminal (the root password is prompted for):
 
-## Clearing stale SSH host keys (after a reinstall)
-
-If the host previously existed and has been wiped/reinstalled, the
-control node's `~/.ssh/known_hosts` still has the old host's keys and
-will refuse to connect. Clear them before the first SSH:
-
+```sh
+cd ansible
+.venv/bin/ansible-playbook playbook-prod-proxmox-cluster-node-rebuild.yaml \
+  -e rebuild_node=<node> -e rebuild_osd=preserve --tags bootstrap --ask-pass
 ```
-ssh-keygen -R <hostname>
-ssh-keygen -R <ip>
-```
+
+It forgets the node's old host keys in `~/.ssh/known_hosts` (short name, FQDN, address),
+installs `sudo`, creates the automation user with the control node's key and passwordless
+sudo, and nothing else; the main playbook does the rest. `rebuild_osd` is required by the
+playbook's input check but unused by this phase. Details and the whole rebuild flow:
+[proxmox_node_reinstall.md](proxmox_node_reinstall.md), Phase 4.
