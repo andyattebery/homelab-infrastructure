@@ -1,5 +1,7 @@
 ---
 - name: Reload network
   ansible.builtin.command:
-    cmd: ifreload -a
+    argv:
+      - "{{ debian_add_network_interface_ifreload }}"
+      - -a
   changed_when: true

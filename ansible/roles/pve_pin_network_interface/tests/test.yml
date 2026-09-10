@@ -25,6 +25,10 @@
             content: |
               #!/bin/sh
               echo "$@" >> "$(dirname "$0")/calls.log"
+              if [ -f "$(dirname "$0")/fail" ]; then
+                echo "There already exists a pin for NIC '$3' - aborting." >&2
+                exit 1
+              fi
               echo "Name for link '$3' will change to '$5'"
 
         - name: Start with an empty call log
@@ -136,32 +140,203 @@
               - not (pve_pin_network_interface_reboot_required | bool)
             success_msg: "no CLI calls, no reboot flagged"
 
-        # ---------- 3. a MAC pinned to a different name aborts ----------
-        - name: Requesting a different name for an already-pinned MAC
+        # ---------- 3. re-pin: a MAC pinned to a different name ----------
+        # The installer's case: the NIC is pinned (here as cx4p0, with a legacy
+        # 50-pve- twin) and host_vars wants another name. Both files go, the
+        # tool is called with the *live* name, and a reboot is flagged.
+        - name: Add a legacy twin of the first pin
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/absent/50-pve-cx4p0.link"
+            mode: "0644"
+            content: |
+              [Match]
+              MACAddress={{ _probes[0].macaddress }}
+              Type=ether
+
+              [Link]
+              Name=cx4p0
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Re-pin the first MAC to a new name
+          vars:
+            pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+            pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+            pve_pin_network_interface_pins:
+              - mac: "{{ _probes[0].macaddress }}"
+                name: renamed0
+              - mac: "{{ _probes[1].macaddress }}"
+                name: cx4p1
+          ansible.builtin.import_role:
+            name: pve_pin_network_interface
+
+        - name: Read the call log
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _calls3
+
+        - name: List the link directory
+          ansible.builtin.find:
+            paths: "{{ _tmp.path }}/absent"
+            patterns: '*'
+          register: _links3
+
+        - name: Old pins replaced, tool called with the live name, reboot flagged
+          vars:
+            _lines: "{{ (_calls3.content | b64decode) | trim | split('\n') }}"
+            _names: "{{ _links3.files | map(attribute='path') | map('basename') | sort | list }}"
+          ansible.builtin.assert:
+            that:
+              - _lines == ['generate --interface ' ~ _probes[0].device ~ ' --target-name renamed0']
+              - "'50-pmx-cx4p0.link' not in _names"
+              - "'50-pve-cx4p0.link' not in _names"
+              - "'50-pmx-cx4p0.link.replaced' not in _names"
+              - "'50-pve-cx4p0.link.replaced' not in _names"
+              - "'50-pmx-cx4p1.link' in _names"
+              - pve_pin_network_interface_reboot_required | bool
+            success_msg: "calls={{ _lines }} links={{ _names }}"
+
+        # ---------- 3b. a pin is never set aside for a MAC that no longer resolves ----------
+        - name: Pin a MAC that matches nothing to some old name
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/absent/50-pmx-ghost0.link"
+            mode: "0644"
+            content: |
+              [Match]
+              MACAddress=de:ad:be:ef:00:01
+              Type=ether
+
+              [Link]
+              Name=ghost0
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
+
+        - name: Renaming a pinned MAC that is not on the host
           block:
-            - name: Should refuse to re-pin
+            - name: Should fail on resolution
               vars:
                 pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
                 pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
                 pve_pin_network_interface_pins:
-                  - mac: "{{ _probes[0].macaddress }}"
-                    name: renamed0
+                  - mac: "de:ad:be:ef:00:01"
+                    name: ghost1
               ansible.builtin.import_role:
                 name: pve_pin_network_interface
-            - name: Re-pin should not have been allowed
+            - name: Unresolvable MAC should not have been accepted
               ansible.builtin.fail:
-                msg: "role re-pinned a MAC that already had a different name"
+                msg: "role re-pinned a MAC that matches no interface"
           rescue:
-            - name: Refusal names the file to remove
+            - name: Stat the old pin
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/absent/50-pmx-ghost0.link"
+              register: _ghost
+            - name: Stat the set-aside copy
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/absent/50-pmx-ghost0.link.replaced"
+              register: _ghost_replaced
+            - name: Read the call log
+              ansible.builtin.slurp:
+                src: "{{ _tmp.path }}/calls.log"
+              register: _calls3b
+            - name: Failed on resolution, with the old pin untouched and the CLI never run
               vars:
                 _msgs: >-
                   {{ (ansible_failed_result.results | default([]))
                      | map(attribute='msg') | join(' ') }}
               ansible.builtin.assert:
                 that:
-                  - "'is already pinned to' in _msgs"
-                  - "'50-pmx-cx4p0.link' in _msgs"
-                success_msg: "refused, with removal instructions"
+                  - "'matched 0 physical interfaces' in _msgs"
+                  - _ghost.stat.exists
+                  - not _ghost_replaced.stat.exists
+                  - (_calls3b.content | b64decode) | trim | length == 0
+                success_msg: "old pin kept, nothing set aside, no CLI call"
+
+        - name: Remove the ghost pin
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/absent/50-pmx-ghost0.link"
+            state: absent
+
+        # ---------- 3c. a name that is live on another NIC is refused ----------
+        - name: Wanting the second NIC's live name for the first MAC
+          block:
+            - name: Should be refused
+              vars:
+                pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+                pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+                pve_pin_network_interface_pins:
+                  - mac: "{{ _probes[0].macaddress }}"
+                    name: "{{ _probes[1].device }}"
+              ansible.builtin.import_role:
+                name: pve_pin_network_interface
+            - name: Swap should not have been accepted
+              ansible.builtin.fail:
+                msg: "role accepted a name that is live on a different NIC"
+          rescue:
+            - name: Refused for the right reason
+              vars:
+                _msgs: >-
+                  {{ (ansible_failed_result.results | default([]))
+                     | map(attribute='msg') | join(' ') }}
+              ansible.builtin.assert:
+                that:
+                  - "'live name of a different interface' in _msgs"
+                success_msg: "swap refused"
+
+        # ---------- 3d. a failed generate puts the set-aside pin back ----------
+        - name: Make the stub fail
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/fail"
+            content: ""
+            mode: "0644"
+
+        - name: Re-pinning when the tool fails
+          block:
+            - name: Should fail and restore
+              vars:
+                pve_pin_network_interface_command: "{{ _tmp.path }}/stub-pinning"
+                pve_pin_network_interface_link_directory: "{{ _tmp.path }}/absent"
+                pve_pin_network_interface_pins:
+                  - mac: "{{ _probes[1].macaddress }}"
+                    name: renamed1
+              ansible.builtin.import_role:
+                name: pve_pin_network_interface
+            - name: Tool failure should have failed the role
+              ansible.builtin.fail:
+                msg: "role ignored a failed generate"
+          rescue:
+            - name: List the link directory
+              ansible.builtin.find:
+                paths: "{{ _tmp.path }}/absent"
+                patterns: '*'
+              register: _links3d
+            - name: The old pin is back and nothing is set aside
+              vars:
+                _names: "{{ _links3d.files | map(attribute='path') | map('basename') | sort | list }}"
+              ansible.builtin.assert:
+                that:
+                  - "'50-pmx-cx4p1.link' in _names"
+                  - "'50-pmx-cx4p1.link.replaced' not in _names"
+                  - "'put back' in ansible_failed_result.msg"
+                success_msg: "links={{ _names }}"
+
+        - name: Make the stub succeed again
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/fail"
+            state: absent
+
+        - name: Reset the call log
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/calls.log"
+            content: ""
+            mode: "0644"
 
         # ---------- 4. unknown MAC fails before the CLI runs ----------
         - name: A MAC that matches nothing

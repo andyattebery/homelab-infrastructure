@@ -1,10 +1,29 @@
 # pve_pin_network_interface
 
 Pins Proxmox network interface names to MAC addresses, so a NIC keeps its name when a card
-moves to a different PCIe slot. Wraps `pve-network-interface-pinning generate` and adds the
-idempotency the tool itself doesn't have.
+moves to a different PCIe slot — and re-pins a NIC the installer (or an earlier scheme) named
+differently. Wraps `pve-network-interface-pinning generate` and adds the idempotency and the
+re-pin the tool itself doesn't have.
 
 ## Status: Production
+
+## Contract
+
+- **Owns:** `50-pmx-<name>.link` (and the legacy `50-pve-` form) in the link directory, for
+  every MAC in `pve_pin_network_interface_pins`; and, through the tool, the references to
+  those interfaces in `/etc/network/interfaces` (staged as `interfaces.new`), `host.fw` and
+  the SDN config.
+- **Requires:** each listed MAC resolves to exactly one physical interface. Nothing else — no
+  particular current name, no prior pin.
+- **Guarantees on exit:** every listed MAC has a `.link` naming it as requested, re-pinned if
+  it was pinned to something else; `pve_pin_network_interface_reboot_required` is true iff any
+  `.link` was created or replaced. **Live names match the pins only after a reboot.**
+- **Never:** reboots; touches an interface it was not given, or anything under
+  `interfaces.d/`; swaps names between two NICs in one run (see "Re-pinning").
+
+The ordering follows from this: run it **first** in the play, reboot if it asks, and only
+then run anything that resolves a name — `debian_add_network_interface`,
+`e1000e_disable_offloads`, Ceph. `playbook-prod-proxmox-cluster.yaml` does exactly that.
 
 ## Why
 
@@ -31,7 +50,7 @@ pve_pin_network_interface_pins:
 ```
 
 `mac` is matched case-insensitively against the interface's MAC. If nothing matches, the role
-fails rather than pinning the wrong card.
+fails rather than pinning the wrong card — and it fails *before* touching any existing pin.
 
 `name` must match `^[a-zA-Z][a-zA-Z0-9_]{1,14}$` — PVE's own `pve-iface` format
 (`^[a-z][a-z0-9_]{1,20}$`, from `PVE/JSONSchema.pm`) capped at the kernel's 15-character
@@ -47,21 +66,34 @@ of the two wins.
 Default `/usr/local/lib/systemd/network`. Where PVE keeps pinning, for both the installer and
 the CLI. Note this is *not* `/etc/systemd/network`, which is empty on a pinned host.
 
+### `pve_pin_network_interface_command`
+
+Default `/usr/bin/pve-network-interface-pinning`. Overridable so the tests can run the role
+against a stub.
+
 ## Sets
 
 ### `pve_pin_network_interface_reboot_required`
 
-`true` when a pin was staged. The rename only happens at boot; the role never reboots.
+`true` when a pin was created or replaced. The rename only happens at boot — `.link` files are
+read by udev at device-add, and `pvenetcommit.service` moves `interfaces.new` into place before
+networking starts. The role never reboots; the caller does, immediately, before anything
+references a name:
 
 ```yaml
-- name: Pin NIC names
+- name: Pin network interface names
   ansible.builtin.import_role:
     name: pve_pin_network_interface
 
-- name: Reboot if pinning was staged
+- name: Reboot to apply pinned interface names
   when: pve_pin_network_interface_reboot_required | default(false)
   ansible.builtin.reboot:
+    reboot_timeout: 600
 ```
+
+That pair is the first two tasks of `playbook-prod-proxmox-cluster.yaml` (tagged `network`,
+`pin_nics`), and `docs/proxmox_node_reinstall.md` Phase 5 counts on it: a node installed with
+`nicN` names converges without a console.
 
 ## Never let it auto-number
 
@@ -78,6 +110,37 @@ not stable, and it counts things you would not expect:
 This role therefore always passes `--interface <current> --target-name <name>`, one interface at
 a time. Anything you don't list is never touched.
 
+## Re-pinning
+
+Two scenarios reach this role, and they used to be treated as one:
+
+- an **existing, provisioned node**: NICs unpinned, or already pinned to the wanted names —
+  the role stages what is missing, or does nothing;
+- a **fresh install**: the PVE installer pinned every NIC as `nic0`, `nic1`, … (unless the
+  names were set in its Options dialog), and `/etc/network/interfaces` says
+  `bridge-ports nic0`.
+
+The tool (`PVE/CLI/pve_network_interface_pinning.pm`, pve-manager 9.2.11) has no unpin
+subcommand: `generate` aborts with `There already exists a pin for NIC` while any `.link`
+names the MAC, and with `target-name already exists as link or pin` if the wanted name is
+taken. So a re-pin means the old `.link` goes first — and the two facts that make that safe:
+
+1. **Removing a `.link` does not rename the running interface.** The tool still finds the
+   NIC under its current name and rewrites `interfaces.new`, `host.fw` and SDN to the new one.
+2. **The rename happens at the next boot**, together with the `interfaces.new` commit.
+
+The role sets the old file aside as `<file>.replaced` (a name neither systemd nor the tool
+reads), runs `generate`, then deletes the set-aside copy. If `generate` fails, the rescue puts
+the old file back for every MAC that failed and stops the play: a MAC that is *unpinned* when
+the node reboots gets a kernel name, and `bridge-ports` stops matching anything. That is the
+console-only outage of 2026-09-07, caused by deleting the installer's pins by hand and letting
+the playbook's own kernel reboot land before this role ran. Set-aside and generate happen in the
+same run, and the playbook reboots straight after — that sequence is the fix.
+
+**Swapping names between two NICs is not possible in one run**: the wanted name is still a
+live interface, and the tool refuses it. The role fails with that reason before touching
+anything. Pin the other NIC to its final name first, reboot, then re-run.
+
 ## It does not touch `/etc/network/interfaces.d/`
 
 The tool rewrites `/etc/network/interfaces` (as a staged `.new` file), `host.fw`, and the SDN
@@ -89,88 +152,36 @@ until reboot would be torn down by the next `ifreload -a` from any source — an
 the pinned name early would take a working interface down *before* the reboot, which is the one
 thing the staged approach exists to prevent.
 
-The consequence: after the reboot, drop-in-configured interfaces come up with no address until
-the playbook runs again and regenerates them from their MACs. Check first that nothing critical
-rides those interfaces — on this cluster corosync uses `vmbr0`, so quorum and SSH are
-unaffected and the fix is always deliverable.
-
-### Services bound to those addresses will not recover on their own
-
-This is the part that actually costs you. Anything binding an address on a drop-in-configured
-interface fails at boot, and systemd's restart limiter then gives up **permanently**:
-
-```
-ceph-mon: bind unable to bind to v2:10.1.40.13:3300/0: (99) Cannot assign requested address
-ceph-mon@…: Start request repeated too quickly
-```
-
-Bringing the interface back later does not revive them — they stay `failed` until something
-restarts them. On this cluster that took out `ceph-mon`, `ceph-mgr` and the node's OSD, and it
-went unnoticed for 18 hours after a card swap.
-
-**`ceph-mds` fails differently, and silently.** It does not exit — it starts anyway with no
-address and never registers with the cluster:
-
-```
-ceph-mds: unable to find any IPv4 address in networks '10.1.40.0/24' interfaces ''
-ceph-mds: starting mds.<host> at            <- note the empty address
-```
-
-`systemctl is-active` reports `active`, so a unit-state check passes on a daemon that is doing
-nothing. Two nodes sat like this until caught by `ceph -s` reporting
-`insufficient standby MDS daemons available`. **Verify MDS with `ceph mds stat` (expect
-`N up:standby`), never with `systemctl is-active`.**
-
-So the reboot procedure is three steps, not two:
-
-```sh
-ssh <host> 'bash -lc "sudo systemctl reboot"'
-# once it is back on vmbr0:
-ansible-playbook playbook-prod-proxmox-cluster.yaml --limit <host> --tags network
-# then revive whatever died while the address was missing:
-ssh <host> 'bash -lc "sudo systemctl reset-failed ceph-mon@<host> ceph-mgr@<host>; \
-  sudo systemctl start ceph-mon@<host> ceph-mgr@<host>; \
-  sudo systemctl restart ceph-mds@<host>; \
-  sudo ceph-volume lvm activate --all"'
-```
-
-`restart` for the MDS, not `start` — it is already "running" and useless, so `start` is a no-op.
-`ceph-volume lvm activate --all` is what brings the OSD back: its `/var/lib/ceph/osd/ceph-N` is
-a tmpfs that boot leaves unpopulated, so `systemctl start ceph-osd@N` alone dies on `no keyring`.
-
-Then confirm with Ceph's own view, not systemd's:
-
-```sh
-ssh <host> 'bash -lc "sudo ceph -s; sudo ceph mds stat"'
-```
-
-A full playbook run (no `--tags`) does the last step for you — `pve_node_ceph` reset-failes and
-starts the OSD — but it also runs `apt dist-upgrade`. Pick deliberately.
+With the playbook order above, the drop-ins are regenerated in the **same run**, right after
+the reboot, against the new names. What still happens in between: an interface configured only
+by a drop-in comes up with no address for the few seconds until that task runs, and any daemon
+that binds to it fails at boot. `pve_node_ceph` converges the Ceph daemons afterwards —
+`reset-failed` and start for `ceph-mon`/`ceph-mgr`, a restart for an MDS that started bound to
+nothing — and waits for each to appear in Ceph's own view. The 18-hour version of that failure,
+found by `ceph -s` reporting `insufficient standby MDS daemons available` while
+`systemctl is-active` said `active`, is why the role checks with Ceph and not with systemd.
 
 **Before rebooting a Ceph node, confirm the cluster can lose it:** `ceph -s` must show
 `HEALTH_OK` and all mons in quorum. If another node is already out, rebooting this one can drop
 mon quorum below half and take all Ceph storage offline cluster-wide.
 
-## No unpin
-
-`generate` is the only subcommand. It aborts with `There already exists a pin for NIC` rather
-than re-pinning, so the role fails with instructions instead of deleting anything: removing a
-pin is irreversible from Ansible's point of view and should be a deliberate human act. To
-rename an already-pinned interface, delete its `.link` file on the host and re-run.
-
 ## Tests
 
 ```sh
 cd ansible
-.venv/bin/ansible-playbook -i roles/pve_pin_network_interface/tests/inventory \
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_pin_network_interface/tests/inventory \
   roles/pve_pin_network_interface/tests/test.yml
 ```
 
 Runs the role against a stubbed pinning CLI and a throwaway `tempfile` directory —
 localhost only, no host contacted, nothing left behind. Covers: staging on an unpinned
-host (including a missing link directory), idempotency on re-run, refusing to re-pin a MAC
-that already has a different name, failing before the CLI runs on an unknown MAC, rejecting
-a name in the kernel's namespace, and the bridge-MAC regression below.
+host (including a missing link directory), idempotency on re-run, re-pinning a MAC that the
+installer named differently (both `50-pmx-` and `50-pve-` files replaced, the tool called with
+the live name, reboot flagged), a MAC that no longer resolves failing *before* its pin is set
+aside, a name that is live on another NIC being refused, a failed `generate` restoring the
+set-aside pin, failing before the CLI runs on an unknown MAC, rejecting a name in the kernel's
+namespace, and the bridge-MAC regression below.
 
 The bridge and ambiguity cases assert against the same filter chain as `vars/main.yaml`
 rather than through the role, because injecting fake facts would be overwritten by the

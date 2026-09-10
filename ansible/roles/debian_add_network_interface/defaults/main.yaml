@@ -15,3 +15,9 @@
 #                                            compatible setting.
 debian_add_network_interface_method: dhcp
 debian_add_network_interface_wol: ""
+
+# Paths and the reload command, overridable so tests/test.yml can run the real
+# role against a tempdir and a stub ifreload. Nothing else should change them.
+debian_add_network_interface_interfaces_file: /etc/network/interfaces
+debian_add_network_interface_interfaces_d: /etc/network/interfaces.d
+debian_add_network_interface_ifreload: /usr/sbin/ifreload

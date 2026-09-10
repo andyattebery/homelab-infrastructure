@@ -71,37 +71,60 @@
   when: _fields | length == 2
   ansible.builtin.set_fact:
     _pve_pin_existing: >-
-      {{ _pve_pin_existing + [{'mac': _fields[0] | lower, 'name': _fields[1]}] }}
+      {{ _pve_pin_existing
+         + [{'mac': _fields[0] | lower, 'name': _fields[1], 'path': item.item.path}] }}
   loop: "{{ _pve_pin_contents.results | default([]) }}"
   loop_control:
     label: "{{ item.item.path | basename }}"
 
-- name: Fail on a MAC already pinned to a different name
+# Index the wanted pins and, for each wanted MAC, the name it is pinned to
+# right now ('' if unpinned). Every decision below is "is it pinned to the
+# name we want", never just "is it pinned". Reset first: the role can run
+# more than once in a play.
+- name: Start with no wanted/current pin index
+  ansible.builtin.set_fact:
+    _pve_pin_wanted: {}
+    _pve_pin_current: {}
+
+- name: Index the wanted pins and the current name of each wanted MAC
   vars:
     _pinned_as: >-
       {{ _pve_pin_existing | selectattr('mac', 'eq', item.mac | lower)
          | map(attribute='name') | first | default('') }}
+  ansible.builtin.set_fact:
+    _pve_pin_wanted: "{{ _pve_pin_wanted | combine({item.mac | lower: item.name}) }}"
+    _pve_pin_current: "{{ _pve_pin_current | combine({item.mac | lower: _pinned_as}) }}"
+  loop: "{{ pve_pin_network_interface_pins }}"
+  loop_control:
+    label: "{{ item.name }}: {{ _pinned_as | default('unpinned', true) }}"
+
+# pve-network-interface-pinning refuses a target name that already exists as a
+# link or a pin, and a live name only goes away at boot — so two NICs cannot
+# swap names in one run. Refuse it here with the reason, before touching
+# anything.
+- name: Fail if a wanted name is live on a different NIC
   when:
-    - _pinned_as | length > 0
-    - _pinned_as != item.name
+    - item.name in ansible_facts['interfaces']
+    - (ansible_facts[item.name]['macaddress'] | default('') | lower) != (item.mac | lower)
   ansible.builtin.fail:
     msg: >-
-      {{ item.mac | lower }} is already pinned to '{{ _pinned_as }}', not
-      '{{ item.name }}'. pve-network-interface-pinning has no unpin subcommand
-      and refuses to re-pin, so this is a deliberate manual step: remove
-      {{ pve_pin_network_interface_link_directory }}/50-pmx-{{ _pinned_as }}.link
-      (and any 50-pve- sibling) on the host, then re-run.
+      '{{ item.name }}' is currently the live name of a different interface
+      (MAC {{ ansible_facts[item.name]['macaddress'] | default('?') | lower }}),
+      so {{ item.mac | lower }} cannot be pinned to it: the tool refuses a
+      target name that exists as a link or pin, and a live name only changes at
+      boot. Swapping names between two NICs takes two runs with a reboot
+      between — pin the other NIC to its final name first.
   loop: "{{ pve_pin_network_interface_pins }}"
   loop_control:
     label: "{{ item.name }}"
 
-# Checked before running anything, so neither an unknown MAC nor an ambiguous
-# one can reach the tool as `--interface ''` or as the wrong device.
+# Checked before anything is set aside or run, so neither an unknown MAC nor an
+# ambiguous one can cost an existing pin or reach the tool as `--interface ''`.
 - name: Fail unless a MAC resolves to exactly one physical interface
   vars:
     _pve_pin_lookup_mac: "{{ item.mac | lower }}"
   when:
-    - (item.mac | lower) not in (_pve_pin_existing | map(attribute='mac') | list)
+    - _pve_pin_current[item.mac | lower] != item.name
     - _pve_pin_matching_nics | length != 1
   ansible.builtin.fail:
     msg: >-
@@ -114,31 +137,102 @@
   loop_control:
     label: "{{ item.name }}"
 
-- name: Pin interface names
-  when: (item.mac | lower) not in (_pve_pin_existing | map(attribute='mac') | list)
-  vars:
-    _pve_pin_lookup_mac: "{{ item.mac | lower }}"
+# Re-pinning. The tool aborts with "There already exists a pin for NIC" while a
+# .link names the MAC, so that file has to go first. It is set aside under a
+# name systemd and the tool both ignore rather than deleted, so the rescue
+# below can put it back if the tool then fails: a MAC that is unpinned when
+# the node reboots gets a kernel name, and vmbr0's bridge-ports stops
+# matching anything — the console-only outage of 2026-09-07.
+#
+# Setting the file aside does NOT rename the running interface; the tool still
+# finds it under its current name and rewrites interfaces(.new) to the new
+# one. Set-aside and generate therefore happen in the same run, and the
+# rename in the next boot.
+- name: Set aside pins that name a wanted MAC differently
+  when:
+    - item.mac in _pve_pin_wanted
+    - item.name != _pve_pin_wanted[item.mac]
   ansible.builtin.command:
     argv:
-      - "{{ pve_pin_network_interface_command }}"
-      - generate
-      - --interface
-      - "{{ _pve_pin_resolved_nic_name }}"
-      - --target-name
-      - "{{ item.name }}"
-  register: _pve_pin_result
-  # The tool prints "Name for link 'x' will change to 'y'" only when it acts.
-  changed_when: "'will change to' in _pve_pin_result.stdout"
-  loop: "{{ pve_pin_network_interface_pins }}"
+      - mv
+      - "{{ item.path }}"
+      - "{{ item.path }}.replaced"
+  changed_when: true
+  loop: "{{ _pve_pin_existing }}"
   loop_control:
-    label: "{{ item.name }} ({{ item.mac | lower }})"
+    label: "{{ item.path | basename }}: {{ item.mac }} is '{{ item.name }}', wanted '{{ _pve_pin_wanted[item.mac] | default('-') }}'"
+  register: _pve_pin_set_aside
+
+- name: Pin interface names
+  block:
+    - name: Generate pins
+      when: _pve_pin_current[item.mac | lower] != item.name
+      vars:
+        _pve_pin_lookup_mac: "{{ item.mac | lower }}"
+      ansible.builtin.command:
+        argv:
+          - "{{ pve_pin_network_interface_command }}"
+          - generate
+          - --interface
+          - "{{ _pve_pin_resolved_nic_name }}"
+          - --target-name
+          - "{{ item.name }}"
+      register: _pve_pin_result
+      # The tool prints "Name for link 'x' will change to 'y'" only when it acts.
+      changed_when: "'will change to' in _pve_pin_result.stdout"
+      loop: "{{ pve_pin_network_interface_pins }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.mac | lower }})"
+  rescue:
+    - name: Restore the set-aside pins of every MAC the tool failed on
+      vars:
+        _failed_macs: >-
+          {{ _pve_pin_result.results | default([])
+             | selectattr('failed', 'defined') | selectattr('failed')
+             | map(attribute='item.mac') | map('lower') | list }}
+      when:
+        - item.changed | default(false)
+        - item.item.mac in _failed_macs
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ item.item.path }}.replaced"
+          - "{{ item.item.path }}"
+      changed_when: true
+      loop: "{{ _pve_pin_set_aside.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.path | basename }}"
+
+    - name: Report the failed pins
+      vars:
+        _failures: >-
+          {{ _pve_pin_result.results | default([])
+             | selectattr('failed', 'defined') | selectattr('failed') | list }}
+      ansible.builtin.fail:
+        msg: >-
+          pve-network-interface-pinning failed for
+          {{ _failures | map(attribute='item.name') | list }}:
+          {{ _failures | map(attribute='stderr', default='') | join(' | ') }}
+          {{ _failures | map(attribute='msg', default='') | join(' | ') }}.
+          The previous pins of those MACs were put back, so the node is as it
+          was and can still reboot safely. Pins that succeeded stay in place.
+
+- name: Delete the set-aside pins now that their replacements exist
+  when: item.changed | default(false)
+  ansible.builtin.file:
+    path: "{{ item.item.path }}.replaced"
+    state: absent
+  loop: "{{ _pve_pin_set_aside.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.path | basename }}.replaced"
 
 - name: Set pve_pin_network_interface_reboot_required
   ansible.builtin.set_fact:
     pve_pin_network_interface_reboot_required: >-
-      {{ _pve_pin_result.results | default([])
-         | selectattr('changed', 'defined')
-         | selectattr('changed') | list | length > 0 }}
+      {{ (_pve_pin_result.results | default([])
+          | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0)
+         or (_pve_pin_set_aside.results | default([])
+             | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0) }}
 
 # The rename only happens at boot. The role deliberately does not run
 # `ifreload -a` and does not touch /etc/network/interfaces.d — see README.
@@ -147,5 +241,5 @@
   ansible.builtin.debug:
     msg: >-
       Interface pinning staged. Nothing has changed on the running system.
-      Reboot to apply, then re-run this playbook so the interfaces.d drop-ins
-      are regenerated against the pinned names.
+      Reboot to apply (pvenetcommit.service commits interfaces.new at boot);
+      the calling playbook does this before anything that uses a name.

@@ -13,25 +13,45 @@
       (e.g. 10.1.40.12/24). The template emits no separate `netmask`
       line, so the prefix length must be on the address itself.
 
-# Treat /etc/network/interfaces existing as the signal that the host
-# is using ifupdown. If it's missing, the host is on netplan / NM /
+# Contract: this role requires the NIC's *final* name to be live. A pending
+# network change — pve-network-interface-pinning's staged rename, or an
+# unapplied GUI edit — sits in interfaces.new until pvenetcommit.service
+# commits it at boot (or the GUI applies it). The role cannot know what it
+# says, and a drop-in written against a name that is about to change is how a
+# node loses its cluster NIC at the next boot. Refuse.
+- name: Check for pending network changes
+  ansible.builtin.stat:
+    path: "{{ debian_add_network_interface_interfaces_file }}.new"
+  register: _interfaces_new
+
+- name: Refuse to run while network changes are pending
+  when: _interfaces_new.stat.exists
+  ansible.builtin.fail:
+    msg: >-
+      {{ debian_add_network_interface_interfaces_file }}.new exists: a pending
+      network change (a staged interface rename from
+      pve-network-interface-pinning, or an unapplied GUI edit) that nobody has
+      committed. It is committed at boot by pvenetcommit.service, or by the
+      GUI's "Apply Configuration". Reboot or apply first — this role will not
+      write a drop-in against names that may be about to change.
+
+# Treat the main interfaces file existing as the signal that the host is
+# using ifupdown. If it's missing, the host is on netplan / NM /
 # systemd-networkd and our drop-in would never be read — bail out.
 # (The slurp itself raises a clear error if the file isn't there.)
-- name: Read /etc/network/interfaces
+- name: Read the main interfaces file
   ansible.builtin.slurp:
-    src: /etc/network/interfaces
+    src: "{{ debian_add_network_interface_interfaces_file }}"
   register: _interfaces_main
 
 # Ensure the drop-in directory exists, and that the main file
 # sources it. Both are no-ops on a normal Debian host, but a freshly
 # installed minimal image (or a host that's never used a drop-in)
 # may be missing one or both.
-- name: Ensure /etc/network/interfaces.d exists
+- name: Ensure the drop-in directory exists
   ansible.builtin.file:
-    path: /etc/network/interfaces.d
+    path: "{{ debian_add_network_interface_interfaces_d }}"
     state: directory
-    owner: root
-    group: root
     mode: "0755"
 
 # Both `source` and `source-directory` are documented in ifupdown(5)
@@ -39,13 +59,13 @@
 # ifupdown since well before bookworm. We accept either form when
 # detecting and append the `source ... *` form when neither is present
 # (it's the form the Debian installer itself writes by default).
-- name: Ensure /etc/network/interfaces sources interfaces.d/
-  when: >-
-    (_interfaces_main.content | b64decode)
-    is not search('(?m)^\s*(source\s+/etc/network/interfaces\.d/|source-directory\s+/etc/network/interfaces\.d)')
+- name: Ensure the main file sources the drop-in directory
+  vars:
+    _source_re: '(?m)^\s*(source\s+{{ debian_add_network_interface_interfaces_d | regex_escape }}/|source-directory\s+{{ debian_add_network_interface_interfaces_d | regex_escape }})'
+  when: (_interfaces_main.content | b64decode) is not search(_source_re)
   ansible.builtin.lineinfile:
-    path: /etc/network/interfaces
-    line: source /etc/network/interfaces.d/*
+    path: "{{ debian_add_network_interface_interfaces_file }}"
+    line: "source {{ debian_add_network_interface_interfaces_d }}/*"
     insertafter: EOF
     state: present
 
@@ -59,15 +79,19 @@
       - '!min'
       - network
 
-# Resolve interface name from MAC so we don't hardcode whatever the
-# installer / udev pinning chose (e.g. nic1 today, could differ).
+# Resolve the interface name from the MAC so we never hardcode whatever the
+# installer / udev pinning chose. `type == 'ether'` is load-bearing: a bridge
+# inherits the MAC of its port, so vmbr0 and its uplink share one, and
+# without the filter the lookup can return the bridge.
 - name: Resolve NIC name from MAC
   ansible.builtin.set_fact:
     _resolved_nic_name: >-
       {{ ansible_facts['interfaces']
          | map('extract', ansible_facts)
          | selectattr('macaddress', 'defined')
-         | selectattr('macaddress', 'eq', debian_add_network_interface_mac)
+         | selectattr('macaddress', 'eq', debian_add_network_interface_mac | lower)
+         | selectattr('type', 'defined')
+         | selectattr('type', 'eq', 'ether')
          | map(attribute='device')
          | first | default('') }}
 
@@ -75,15 +99,43 @@
   when: _resolved_nic_name | length == 0
   ansible.builtin.fail:
     msg: >-
-      No interface found with MAC {{ debian_add_network_interface_mac }}.
+      No physical interface found with MAC {{ debian_add_network_interface_mac }}.
 
-- name: Configure NIC via /etc/network/interfaces.d
+# The installer writes a bare `iface <nic> inet manual` for every NIC it does
+# not configure. Once this role's drop-in defines the interface, that stanza is
+# a second definition of the same interface and goes (below). A stanza that
+# carries options is a real configuration, and a human's call.
+- name: Refuse a configured stanza for this NIC in the main file
+  vars:
+    _configured_re: '(?m)^iface {{ _resolved_nic_name | regex_escape }} inet \S+[ \t]*\n[ \t]+\S'
+  when: (_interfaces_main.content | b64decode) is search(_configured_re)
+  ansible.builtin.fail:
+    msg: >-
+      {{ debian_add_network_interface_interfaces_file }} configures
+      {{ _resolved_nic_name }} itself (an `iface` stanza with options). This
+      role's drop-in {{ debian_add_network_interface_interfaces_d }}/{{
+      debian_add_network_interface_filename }}.cfg would be a second definition
+      of the same interface. Move that configuration into this role's inputs,
+      or leave the interface out of the playbook.
+
+- name: Configure NIC via the drop-in
   ansible.builtin.template:
     src: interface.cfg.j2
-    dest: "/etc/network/interfaces.d/{{ debian_add_network_interface_filename }}.cfg"
-    owner: root
-    group: root
+    dest: "{{ debian_add_network_interface_interfaces_d }}/{{ debian_add_network_interface_filename }}.cfg"
     mode: "0644"
+  notify: Reload network
+
+# A NIC that is another interface's bridge port, bond slave or VLAN parent is
+# declared by that other interface; its bare stanza stays.
+- name: Remove the bare stanza the drop-in shadows
+  vars:
+    _name_re: "{{ _resolved_nic_name | regex_escape }}"
+    _referenced_re: '(?m)^[ \t]+(?:bridge[-_]ports|bond[-_]slaves|vlan[-_]raw[-_]device)[ \t]+(?:\S+[ \t,]+)*{{ _name_re }}(?:[ \t,]|$)'
+  when: (_interfaces_main.content | b64decode) is not search(_referenced_re)
+  ansible.builtin.replace:
+    path: "{{ debian_add_network_interface_interfaces_file }}"
+    regexp: '(?m)^(?:auto {{ _name_re }}[ \t]*\n)?iface {{ _name_re }} inet manual[ \t]*\n(?![ \t])\n?'
+    replace: ''
   notify: Reload network
 
 # Apply now (rather than at end of play) so subsequent tasks in this
