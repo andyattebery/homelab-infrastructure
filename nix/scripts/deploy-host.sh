@@ -56,6 +56,10 @@ if [[ -z "$HOSTNAME" ]]; then
     usage
 fi
 
+# Before reading domainName: a placeholder vars.nix yields "example.com", so every ssh
+# and store URL below would silently target <host>.example.com and fail looking like DNS.
+"$SCRIPT_DIR"/check-secrets.sh
+
 DOMAIN=$(grep 'domainName' "$SCRIPT_DIR/../secrets/vars.nix" | sed 's/.*= *"\(.*\)".*/\1/')
 FQDN="${HOSTNAME}.${DOMAIN}"
 

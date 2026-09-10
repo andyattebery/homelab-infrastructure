@@ -3,6 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# First, before anything mutates the repo. A placeholder vars.nix only surfaces at the
+# flake check at the bottom of this script -- by which point nix-image and flake.lock
+# have already been rewritten, so "update.sh failed" would not mean "nothing changed".
+"$SCRIPT_DIR"/check-secrets.sh
+
 # Pin the Nix Docker image to the current release, tracked alongside flake.lock.
 # nix-shell.sh recreates its store cache when this pin changes.
 docker pull -q nixos/nix:latest
