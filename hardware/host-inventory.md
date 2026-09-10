@@ -25,17 +25,19 @@ run the refresh command. Do not infer either from the other.
 
 ## Proxmox cluster — physical nodes
 
-Three nodes, one cluster (`pve_cluster_name: homelab`), all on **PVE 9.2.11**, kernel
-`7.0.14-14-pve`. Dedicated Ceph cluster network, CIDR set per-host via
+Three nodes, one cluster (`pve_cluster_name: homelab`), on **PVE 9.2.x**, kernel `7.0.14-16-pve`
+(nas-host-01 still on `-15`, reboot pending), Ceph **20.2.4 tentacle** (`pve_ceph_release`).
+Release changes go through
+[playbook-prod-proxmox-cluster-ceph-upgrade.yaml](../ansible/playbook-prod-proxmox-cluster-ceph-upgrade.yaml). Dedicated Ceph cluster network, CIDR set per-host via
 `ceph_cluster_nic_address_cidr` ([group_vars/prod_proxmox_cluster/vars.yaml](../ansible/group_vars/prod_proxmox_cluster/vars.yaml)).
 Inventory group `prod_proxmox_cluster`; all three managed by
 [playbook-prod-proxmox-cluster.yaml](../ansible/playbook-prod-proxmox-cluster.yaml).
 
 | Host | Chassis | CPU | RAM | Ceph OSD | Guests |
 | --- | --- | --- | --- | --- | --- |
-| `vm-host-01` | Dell OptiPlex Micro 5070 | Intel i5-9500T, 6C/6T | 62 GB | Samsung 960 PRO 512G (osd.0) | `docker-01` (102), `network-01` (103), `homeassistant` (110) |
-| `vm-host-02` | Dell OptiPlex Micro 3070 | Intel i3-9100T, 4C/4T | 38 GB | Samsung 970 EVO 500G (osd.1) | `vdesktop-01` (120) + two templates. **HA failover target for vm-host-01's VMs** |
-| `nas-host-01` | Innovision S45624 4U, Asrock Rack ROMED8-2T ([nas-host-01.md](nas-host-01.md)) | AMD EPYC 7282, 16C/32T | 192 GB | Intel Optane 905P 960G (osd.2) | `nas-01` (200, HBA + bulk storage), `media-01` (201, RTX A4000 + Arc B580), `network-03` (203) |
+| `vm-host-01` | Dell OptiPlex Micro 5070 | Intel i5-9500T, 6C/6T | 62 GB | Intel DC S3610 1.6T `BTHC637404T21P6PGN` (osd.0, class `ssd`) on an Optane P1600X 58G boot | `docker-01` (102), `network-01` (103), `homeassistant` (110), `vdesktop-01` (120) |
+| `vm-host-02` | Dell OptiPlex Micro 3070 | Intel i3-9100T, 4C/4T | 38 GB | Intel DC S3610 1.6T (osd.1, class `ssd`) on an Optane P1600X 58G boot | none. **HA failover target for vm-host-01's VMs** |
+| `nas-host-01` | Innovision S45624 4U, Asrock Rack ROMED8-2T ([nas-host-01.md](nas-host-01.md)) | AMD EPYC 7282, 16C/32T | 192 GB | Intel Optane 905P 960G (osd.2) | `nas-01` (200, HBA + bulk storage), `media-01` (201, RTX A4000 + Arc B580), `network-03` (203), templates `1000`/`1001` |
 
 All three OSDs `up`, one per node.
 
@@ -43,8 +45,10 @@ All three OSDs `up`, one per node.
 owns cluster-wide writes (ACME, storage defs, Ceph init). It is also the current CRM master,
 which is a separate thing and can move.
 
-**vm-host-02 is idle by design.** `vdesktop-01` is an experiment; if it stays it moves to
-vm-host-01. The two templates are `1000` ubuntu-2404-cloudinit and `1001` nixos-2511.
+**vm-host-02 is idle by design** — it exists as the HA failover target. `vdesktop-01` (120, an
+experiment) runs on vm-host-01; the two templates, `1000` ubuntu-2404-cloudinit and `1001`
+nixos-2511, live on nas-host-01. None of the three is HA-managed, so a rebuild of their host moves
+them with `qm migrate` (`rebuild_evacuate_to`) rather than by failover.
 
 ### Network interface names
 
@@ -67,23 +71,33 @@ slot-independent.
 Being **HA-managed** and being in a **node-affinity rule** are two different things — check
 `ha-manager status` for the former, `/etc/pve/ha/rules.cfg` for the latter.
 
+Declared in `group_vars/prod_proxmox_cluster/vars.yaml` and converged by
+[pve_cluster_ha](../ansible/roles/pve_cluster_ha/README.md). Adding an HA resource or rule in the
+web UI now fails the next cluster run until it is declared there too — the role never deletes, it
+refuses.
+
 HA-managed resources: `vm:102`, `vm:103`, `vm:110`.
 
-One node-affinity rule (`ha-group-main`) covers only two of them:
+One node-affinity rule (`ha-group-main`) covers all three:
 
-| Resource | VM | Preferred (prio) | Failover (prio) | Last resort (prio) | strict |
-| --- | --- | --- | --- | --- | --- |
-| `vm:102` | docker-01 | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
-| `vm:110` | homeassistant | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 |
+| Resource | VM | Preferred (prio) | Failover (prio) | Last resort (prio) | strict | failback |
+| --- | --- | --- | --- | --- | --- | --- |
+| `vm:102` | docker-01 | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 | 1 |
+| `vm:103` | network-01 | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 | 1 (default) |
+| `vm:110` | homeassistant | vm-host-01 (3) | vm-host-02 (2) | nas-host-01 (1) | 0 | 1 |
 
-`vm:103` (network-01) is HA-managed but has no affinity rule, so it may run on any node and HA
-will not pull it toward a preferred one.
+Neither `strict` nor `vm:103`'s `failback` is written in `/etc/pve/ha/rules.cfg`; both are absent
+keys taking PVE's documented default, which is not the same as being unset.
 
-**Consequence for maintenance:** because the rule is priority-ordered, the CRM actively
-migrates `vm:102`/`vm:110` back to vm-host-01 whenever it is online. Plainly migrating them
-elsewhere does not stick. Use `ha-manager crm-command node-maintenance enable <node>` instead —
-it evacuates all HA resources, survives a reboot, and moves them back only when maintenance is
-disabled.
+**Consequence for maintenance:** because the rule is priority-ordered and `failback` is on, PVE 9.2
+**refuses** a hand migration of any of the three off vm-host-01 —
+
+    Cannot migrate VM, because HA resource vm:102 is not allowed on the selected target node.
+
+A resource may only be moved among the nodes tied at the highest priority, and vm-host-01 holds
+priority 3 alone. This is the rule working as declared. Use
+`ha-manager crm-command node-maintenance enable <node>` instead — it evacuates all HA resources,
+survives a reboot, and moves them back only when maintenance is disabled.
 
 `strict 0` = non-strict: if all preferred nodes are down, HA will start the VM on any remaining
 online node. nas-host-01's passthrough VMs (`nas-01`, `media-01`) are **not** HA-managed —
@@ -99,9 +113,9 @@ Nine guests across the cluster: **seven running, two stopped templates**.
 | `docker-01` | vm-host-01 | 102 | 4 | 16 GB | 2× 128 GB (Ceph) | Ubuntu 24.04.4 | [playbook-docker-01.yaml](../ansible/playbook-docker-01.yaml) | Apps + observability. Traefik, the Prometheus/Grafana stack and its exporters, dashboards, and the small self-hosted utilities. |
 | `network-01` | vm-host-01 | 103 | 2 | 4 GB | 64 GB (Ceph) | NixOS 26.05 | _(not Ansible-managed)_ [nix/hosts/network-01/](../nix/hosts/network-01/) | DNS primary. AdGuardHome (keepalived MASTER, prio 200), AdGuardHome-sync, network-inventory-manager, nginx, Tailscale. |
 | `homeassistant` | vm-host-01 | 110 | 4 | 12 GB | 128 GB (Ceph) | HAOS 18.2 (HA 2026.9.1, supervisor 2026.08.0) | _(none)_ | Home automation. |
-| `vdesktop-01` | vm-host-02 | 120 | 4 | 8 GB | 64 GB (Ceph) | — | _(none)_ | Virtual desktop **experiment**. Moves to vm-host-01 if it stays. |
-| `ubuntu-2404-cloudinit-template` | vm-host-02 | 1000 | 2 | 8 GB | 64 GB (Ceph) | Ubuntu 24.04 | — | Template, stopped. |
-| `nixos-2511-template` | vm-host-02 | 1001 | 2 | 4 GB | 64 GB (Ceph) | NixOS 25.11 | — | Template, stopped. |
+| `vdesktop-01` | vm-host-01 | 120 | 4 | 8 GB | 64 GB (Ceph) | — | _(none)_ | Virtual desktop **experiment**. On vm-host-01 by decision (2026-09-08). |
+| `ubuntu-2404-cloudinit-template` | vm-host-01 | 1000 | 2 | 8 GB | 64 GB (Ceph) | Ubuntu 24.04 | — | Template, stopped. |
+| `nixos-2511-template` | vm-host-01 | 1001 | 2 | 4 GB | 64 GB (Ceph) | NixOS 25.11 | — | Template, stopped. |
 | `nas-01` | nas-host-01 | 200 | 14 | 48 GB **(88 GB staged)** | 128 + 32 + 64 GB on `pve-optane-01`, plus all passed-through storage | Ubuntu 22.04.5 | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services. Owns every bulk disk via HBA passthrough; runs the ZFS pools, snapraid/mergerfs, and syncoid to backup-01 and offsite-nas. |
 | `media-01` | nas-host-01 | 201 | 24 | 56 GB | 192 + 640 GB on `pve-optane-01` | Ubuntu 26.04.1 | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference. RTX A4000 + Intel Arc B580 passthrough; media servers, Tdarr **server and an A4000 node**, Immich ML, Whisper. |
 | `network-03` | nas-host-01 | 203 | 2 | 4 GB | 64 GB (Ceph) | NixOS 26.05 | _(not Ansible-managed)_ [nix/hosts/network-03/](../nix/hosts/network-03/) | DNS tertiary. AdGuardHome (keepalived BACKUP, prio 100), Tailscale. |

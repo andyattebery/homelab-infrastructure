@@ -49,6 +49,13 @@ change affected only the 2/3/4/6 TB Reds).
 
 I initially had a [Supermicro H12SSL-i](https://www.supermicro.com/en/products/motherboard/H12SSL-i). [However, it has exposed surface mount components for the BMC next to the middle PCIe slots that I damaged with a PCIe bracket when inserting a card.](https://forums.servethehome.com/index.php?threads/h12ssl-i-stuck-at-bmc-initiating.38043/) This kills the BMC, and the BIOS by default won’t boot if the BMC isn’t online. **If you do get this motherboard, immediately disable the option in the BIOS to wait for the BMC before booting and be careful when inserting cards.** *Please learn from my mistake.*
 
+**That applies to this board too, not just the one it replaced.** The ROMED8-2T has the same
+setting at `Server Mgmt → Wait For BMC`, and the manual documents it as Enabled by default. Leave
+it alone. This board's BMC restarts itself every couple of days and hung for a full hour on
+2026-09-09, so enabling it would turn each of those into a machine that will not come up. It has
+been proposed twice as a fix for the PCI enumeration flip; it is not one, and re-enabling Onboard
+LAN solves that properly — see [Why the enumeration changes](#why-the-enumeration-changes).
+
 ### CPU
 
 I chose the 7282 because it has a 120 W TDP vs the comparable 16 core 7302P that has a 155W TDP. It achieves this by only having 2 active CCDs vs the 7302P's 4 CCDs. [However this limits it to 4 memory channels vs the full 8 memory channels](https://www.servethehome.com/amd-epyc-7002-rome-cpus-with-half-memory-bandwidth/). I value lower power consumption over raw performance, so the trade-off was worth it. Additionally, I chose DDR4-3200 RAM (the fastest supported) to try to make up some of the performance.
@@ -235,25 +242,30 @@ Connected to the case backplane that all of the hard drives are connected to.
 - **CPU**: AMD EPYC 7282 — 16 cores / 32 threads
 - **RAM**: 192 GB DDR4-3200 as 4× 32 GB + 4× 16 GB, all running at 3200 MT/s
 - **BIOS**: P3.90
-- **Hypervisor**: PVE 9.2.11, kernel 7.0.14-14-pve
+- **Hypervisor**: PVE 9.2.18, running kernel 7.0.14-15-pve, Ceph 20.2.4 tentacle (2026-09-10)
+    - **7.0.14-16-pve is installed and on both ESPs**, so the next boot changes the kernel as
+      well as applying the `memmap=` reservations below. Two variables, one reboot.
 
-### VMs (as of 2026-09-06)
+### VMs (as of 2026-09-10)
 
 | VMID | VM | Status | vCPUs | RAM Allocated | Boot disk |
 | --- | --- | --- | --- | --- | --- |
-| 200 | nas-01 | running | 14 | 48 GB — **88 GB staged** | 128 GB |
-| 201 | media-01 | running | 24 | 56 GB | 192 GB (+ 640 GB scsi1) |
+| 200 | nas-01 | running | 14 | 80 GB | 128 GB |
+| 201 | media-01 | stopped | 24 | 64 GB | 192 GB (+ 640 GB scsi1) |
 | 203 | network-03 | running | 2 | 4 GB | 64 GB (Ceph) |
 
-**Running totals**: 40 vCPUs allocated against 32 threads, 108 GB RAM of 192 GB.
+**Totals when all three run**: 40 vCPUs allocated against 32 threads, 148 GB RAM of 188 GiB
+usable.
 
 The vCPU figure is **overcommitted on purpose and temporarily** — media-01 was widened from
 16 to 24 for a one-time job and gets narrowed again. Do not treat 40/32 as the steady state.
 
-nas-01's `200.conf` carries a `[PENDING] memory: 90112`. It is intended and applies on the
-next stop/start, taking nas-01 from 48 GB to 88 GB. Until then `qm list` reports 48.
+**The headroom is thin.** 80 + 64 + 4 leaves about 40 GiB for the host. That is enough for PVE
+and a healthy `ceph-mon`, but not for a monitor that has grown during a cluster rebuild — one
+reached 46 GB on 2026-09-09 and the OOM killer took both guests. Watch monitor memory whenever
+the cluster is degraded, and do not raise guest memory further.
 
-media-01 also holds a `pre-26-04` snapshot taken before the Ubuntu 26.04 upgrade.
+media-01 holds one snapshot, `pre-26-04`, from before the Ubuntu 26.04 upgrade (2026-08-29).
 
 ## Use
 
@@ -272,7 +284,7 @@ All conventional PCI passthrough — no `pcie=1`.
 
 | `hostpciN` | Mapping | Device | Serial | Role |
 | --- | --- | --- | --- | --- |
-| `hostpci0` | `broadcom_9305_24e` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24i HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
+| `hostpci0` | `broadcom_9305_24i` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24i HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
 | `hostpci1` | `solidigm_p44_pro_1` | Solidigm P44 Pro 2 TB | `SDC1N403710501322` | ZFS sink pool |
 | `hostpci2` | `solidigm_p44_pro_2` | Solidigm P44 Pro 2 TB | `SJC1N5037101A1H3A` | ZFS sink pool |
 | `hostpci3` | `samsung_980_pro_1` | Samsung 980 Pro 2 TB | `S6B0NU0W400960M` | ZFS sink pool |
@@ -315,10 +327,8 @@ All use `pcie=1` (the VM is `q35`).
 | `hostpci2` | `intel_arc_b580_audio` | Intel Arc B580 HDA | Rides along with the B580 |
 
 **The A4000 passes as GPU only.** Its mapping path is `0000:01:00.0` — function-scoped, not
-function-less — so the card's HDA at `0000:01:00.1` is *not* attached. Confirmed twice:
-`pci.cfg` on the host, and `lspci` inside media-01, which shows the A4000 with no NVIDIA audio
-device. `01:00.1` sits unmapped on the host. (An earlier revision of this file claimed the
-opposite; it was wrong.)
+function-less — so the card's HDA at `0000:01:00.1` is *not* attached and sits unmapped on the
+host. `lspci` inside media-01 shows the A4000 with no NVIDIA audio device.
 
 The B580's GPU and HDA are on different buses with different device IDs, so they cannot share
 one mapping — hence the two separate entries above.
@@ -334,25 +344,34 @@ A mapping records the device's `id`, `subsystem-id` and `iommugroup` and refuses
 start the VM if any stops matching. A raw address gets no identity check — it fails
 only if the address is empty, and otherwise passes whatever now sits there.
 
-| Mapping | Path | ID | Subsystem-ID | IOMMU grp | Consumer |
-| --- | --- | --- | --- | --- | --- |
-| `nvidia_rtx_a4000` | `0000:01:00` | `10de:24b0` | `1028:14ad` | 97 | media-01 |
-| `intel_arc_b580` | `0000:c3:00.0` | `8086:e20b` | `1849:6021` | 17 | media-01 |
-| `intel_arc_b580_audio` | `0000:c4:00.0` | `8086:e2f7` | `1849:6021` | 18 | media-01 |
-| `broadcom_9305_24e` | `0000:84:00.0` | `1000:00c4` | `1000:31a0` | 45 | nas-01 |
-| `skhynix_pe6011` | `0000:83:00.0` | `1c5c:2429` | `1590:02d0` | 44 | nas-01 |
-| `solidigm_p44_pro_1` | `0000:c5:00.0` | `025e:f1ac` | `025e:f1ac` | 19 | nas-01 |
-| `solidigm_p44_pro_2` | `0000:c6:00.0` | `025e:f1ac` | `025e:f1ac` | 20 | nas-01 |
-| `samsung_980_pro_1` | `0000:c7:00.0` | `144d:a80a` | `144d:a801` | 21 | nas-01 |
-| `samsung_980_pro_2` | `0000:c8:00.0` | `144d:a80a` | `144d:a801` | 22 | nas-01 |
-| `intel_p1600x_1` | `0000:46:00.0` | `8086:2525` | `8086:380a` | 74 | nas-01 |
-| `intel_p1600x_2` | `0000:47:00.0` | `8086:2525` | `8086:380a` | 75 | nas-01 |
+| Mapping | Topology | ID | Subsystem-ID | Consumer |
+| --- | --- | --- | --- | --- |
+| `nvidia_rtx_a4000` | `0000:00/01.1/00.0` | `10de:24b0` | `1028:14ad` | media-01 |
+| `intel_arc_b580` | `0000:c0/01.1/00.0/01.0/00.0` | `8086:e20b` | `1849:6021` | media-01 |
+| `intel_arc_b580_audio` | `0000:c0/01.1/00.0/02.0/00.0` | `8086:e2f7` | `1849:6021` | media-01 |
+| `broadcom_9305_24i` | `0000:80/03.1/00.0` | `1000:00c4` | `1000:31a0` | nas-01 |
+| `skhynix_pe6011` | `0000:80/01.4/00.0` | `1c5c:2429` | `1590:02d0` | nas-01 |
+| `solidigm_p44_pro_1` | `0000:c0/03.1/00.0` | `025e:f1ac` | `025e:f1ac` | nas-01 |
+| `solidigm_p44_pro_2` | `0000:c0/03.2/00.0` | `025e:f1ac` | `025e:f1ac` | nas-01 |
+| `samsung_980_pro_1` | `0000:c0/03.3/00.0` | `144d:a80a` | `144d:a801` | nas-01 |
+| `samsung_980_pro_2` | `0000:c0/03.4/00.0` | `144d:a80a` | `144d:a801` | nas-01 |
+| `intel_p1600x_1` | `0000:40/03.3/00.0` | `8086:2525` | `8086:380a` | nas-01 |
+| `intel_p1600x_2` | `0000:40/03.4/00.0` | `8086:2525` | `8086:380a` | nas-01 |
+
+The PCI address and IOMMU group are deliberately not tabulated: they are what changes, and the
+`pve_pci_mapping` role writes them from the topology on every run. Read the live values with
+`pvesh get /cluster/mapping/pci --output-format json`. "Topology" is the position in the PCIe
+tree with bus numbers dropped — `readlink -f /sys/bus/pci/devices/<addr>`, keep the
+`device.function` of each hop. Root-port numbers are fixed by the silicon; bus numbers are not.
 
 **A mapping does not establish instance identity for the Optanes.** All four P1600X
 report the same `id` and `subsystem-id`; only `iommugroup` differs, and group numbers
 are renumbered by any topology change. Two of the four are the host's `rpool` boot
-mirror. When re-pointing `intel_p1600x_*`, confirm the serial first — the mapping
-will not catch it if you aim at an `rpool` drive.
+mirror, under root ports `00:03.5` and `40:01.1`; the two passed-through ones sit on the PCIE4
+splitter under `40:03.3` and `40:03.4`, so the topology cannot reach an `rpool` drive. Serials
+read by address on 2026-09-09 (drives on the `nvme` driver, VMs stopped): `intel_p1600x_1` =
+`PHOC150200LL118B`, `intel_p1600x_2` = `PHOC150201CU118B`; the Solidigm, Samsung and SK hynix
+serials in the table above also matched.
 
 Working with mappings:
 
@@ -364,15 +383,108 @@ Working with mappings:
 - `delete` has no in-use guard; deleting a mapping a VM still references leaves it
   unbootable.
 
-**Mappings are not managed by Ansible.** They exist only in `/etc/pve/mapping/pci.cfg` on this
-node, were created by hand through `pvesh`/the GUI, and are referenced nowhere in `ansible/` or
-`nix/` — only by these hardware docs. Nothing re-creates them if the node is rebuilt.
+**Mappings and the VMs' `hostpci` lines are managed by Ansible** since 2026-09-09:
+`pve_pci_mapping` owns this node's entries in `pci.cfg`, `pve_vm_hostpci` owns the `hostpciN`
+lines on VMs 200 and 201, and `textfile_collector_pve_pci_mapping` exports
+`pve_pci_mapping_check_ok{mapping}` for Grafana (`rules-pve-pci-mapping.yaml`). The declaration
+is in `ansible/host_vars/nas-host-01/vars.yaml`; the playbook is
+`playbook-prod-proxmox-cluster.yaml --tags pci_passthrough --limit nas-host-01`. Each role's
+README has the traps. The old `broadcom_9305_24e` name was deleted the same day, after VM 200
+was re-pointed to `broadcom_9305_24i`.
 
-One consequence is already visible: **`broadcom_9305_24e` names a card that is a 9305-24i.**
-The name is wrong and is kept as-is because it is the string PVE matches on, and there is no
-rename API — fixing it means create-new, re-point VM 200, restart, delete-old. Doing that by
-hand would deepen exactly the drift this file exists to prevent, so it waits on a role that
-owns the mappings. The table above, re-verified live on 2026-09-06, is that role's input.
+### Why the enumeration changes
+
+The mechanism, consistent across every boot on record:
+
+> "Onboard LAN1/LAN2 Disabled" is applied at POST on a **cold power-on**, and only if the BMC
+> is ready at that moment. On a warm reset the previous hide state persists. A cold power-on
+> that starts while the BMC is still initialising leaves the X550 at its hardware default,
+> enabled, under root port `40:01.3` at bus 42: every bus below it on root bus 40 shifts by two
+> (the Optanes `46/47` → `48/49`, the BMC's VGA lands on `46:00.0`) and every IOMMU group after
+> it shifts by three (`nvidia_rtx_a4000` 97 → 100).
+
+The POST-time marker is the BIOS's own SEL entry `System Firmwares | Unrecoverable video
+controller failure`: the VGA is inside the same AST2500 as the BMC. The kernel-side marker is
+`ipmi_si … BMC returned incorrect response` instead of `Found new BMC` at boot; the collector
+exports it as `pve_pci_mapping_bmc_kcs_ok`.
+
+What makes that boot happen, in order: a spurious `CPU_THERMTRIP` (asserted 2026-09-09 18:17 with
+the CPU at 34 °C by both the BMC and k10temp — a hardware fault on the THERMTRIP path, socket
+first suspect given the May-11 contamination) powers the host off; the BMC (fw 2.02) hangs or
+restarts — six self-restarts in the twelve days to 09-09 and one hour-long hang; and
+`Restore AC Power Loss = always-on` powers the host back on the instant the BMC comes up, before
+its host interface does. The 2026-08-28 event had the same shape (host off 16:19, BMC reboot
+16:26, power-on at BMC boot 16:28, kernel's first IPMI exchange failed).
+
+Open follow-ups, none of them Ansible: re-enable Onboard LAN1/LAN2 at the next setup visit
+(Enabled is the hardware default, so a BIOS that skips the setting lands on the same enumeration
+as one that applies it, and the flip stops mattering); update the BMC (2.08 public, 3.04 via
+ASRock support); reseat/inspect the CPU for the THERMTRIP.
+
+A reboot here stalls every Ceph-backed guest unless the cluster has three monitors in quorum, so
+check `ceph -s` before taking the host down.
+
+Two settings that must be left as they are:
+
+- **Restore AC Power Loss stays `always-on`.** Last State would stop the BMC's own restart from
+  powering the host on, but this host is a NUT client of the rack UPS, so a sustained outage ends
+  in a clean shutdown — and Last State would then leave it powered off when mains returned,
+  needing a walk to the rack.
+- **Do not enable `Server Mgmt → Wait For BMC`.** See the warning under [Motherboard](#motherboard):
+  this board's predecessor would not boot at all once its BMC died with that setting on. This
+  BMC restarts itself every couple of days, so enabling it would trade a rare enumeration flip
+  that one playbook run fixes for a regular hard-down.
+
+**Keeping the SEL usable.** The BIOS writes a `PCI PERR` entry and rasdaemon writes an OEM record
+for **the same** corrected PCIe event — roughly 190 each per day from `c8:00.0` and the A4000's
+root port, which together with correctable ECC filled the ~3,600-entry log in a week.
+
+rasdaemon's half is blocked by `rasdaemon_block_ipmitool_sel`, which sandboxes `ipmitool` away
+from that one service — **not** by a `PATH` override, which would break the uncorrectable-error
+trigger script that inherits only `PATH`. The log now fills at about 100 entries a day and lasts
+roughly five weeks, of which ~90% is correctable ECC.
+
+Lowering PCIe link speed to stop the errors is available for the A4000's slot, which holds nothing
+else, but **not** for the Hyper M.2 slot: all four drives there are sink-pool mirror legs, so
+slowing any of them caps the mirror it belongs to.
+
+### Corrected memory errors
+
+`DDR4_A1` and `DDR4_B1` log corrected single-bit ECC errors continuously — a small set of stuck
+cells, stable since May and not spreading. There has never been an uncorrected, uncorrectable or
+deferred error, and these are **not** the cause of the shutdowns below.
+
+The `Over` flag in `MC17_STATUS[Over|CE|…]` looks like "errors arriving faster than they can be
+corrected" and is not: it means the logging undercounts, because firmware reports only every
+tenth corrected error (`mce: HEST corrected error threshold limit: 10`). ECC corrects a
+single-bit error however fast the next one arrives.
+
+The failing pages are three 32 KiB aligned blocks plus two single pages rather than scattered
+cells, so whole blocks are reserved — 104 KiB of 188 GiB:
+
+    memmap=32K$0x17fcb0000 memmap=32K$0xa40fa8000 memmap=32K$0xa6a890000
+    memmap=4K$0x6ad451000  memmap=4K$0x2961ceb000
+
+Declared in `ansible/host_vars/nas-host-01/vars.yaml`, written to `/etc/kernel/cmdline` by
+`kernel_parameters`, effective at boot.
+
+**Do not replace this with rasdaemon's soft-offline.** The kernel refuses it on this host —
+`thp split failed` for pages inside a transparent huge page, `unhandlable page` for others.
+
+Check it with `grep -c memmap /proc/cmdline` = 5 and the ranges absent from `/proc/iomem` as
+`System RAM`. Neither `ras-mc-ctl --summary` nor `HardwareCorrupted` reports anything here:
+rasdaemon cannot subscribe to `ras:memory_failure_event` on this kernel, and a `memmap=`
+reservation is never handed to the allocator so nothing is poisoned.
+
+### Shutdowns
+
+The host has powered itself off three times — 2026-06-29, 2026-08-28, 2026-09-09. Each time the
+journal stops mid-stream with no shutdown, the host stays off, the front-panel power button does
+nothing, and only an AC cycle recovers it.
+
+That is `THERMTRIP` cutting the rails, which is what the BMC logged on 09-09 — with the CPU at
+34 °C and every voltage rail flat, so a spurious trip rather than heat. Suspects in order: CPU
+socket contact (channel G was dead until the 2026-05-11 reseat), BMC firmware 2.02, then the VRM.
 
 ## PVE storages
 
@@ -385,5 +497,4 @@ owns the mappings. The table above, re-verified live on 2026-09-06, is that role
 | `pve_cephfs` | cephfs | Ceph |
 | `nas-01_proxmox` | cifs | An SMB share back from nas-01 |
 | `backup-01_pbs_nas-host-01` | pbs | backup-01, active |
-| `backup-01_pbs_vm-host-01`, `backup-01_pbs_vm-host-02` | pbs | **disabled** |
-| `local-lvm` | lvmthin | **disabled** |
+| `backup-01_pbs_vm-host-01`, `backup-01_pbs_vm-host-02` | pbs | Restricted to their own node via `nodes=`, so `pvesm status` here reports them disabled |
