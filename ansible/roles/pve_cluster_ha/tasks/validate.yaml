@@ -1,0 +1,95 @@
+---
+# Declaration-only. Nothing here contacts the cluster, so a malformed group_vars
+# entry fails before a single read — and so the fixture suite can drive this file
+# on its own, with no stubs installed.
+
+- name: Every declared HA resource has a well-formed sid
+  vars:
+    _missing: "{{ pve_cluster_ha_resources | rejectattr('sid', 'defined') | list }}"
+    _sids: "{{ pve_cluster_ha_resources | selectattr('sid', 'defined') | map(attribute='sid') | list }}"
+    _malformed: "{{ _sids | reject('match', '^(vm|ct):[0-9]+$') | list }}"
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+      - _malformed | length == 0
+      - _sids | length == _sids | unique | length
+    fail_msg: >-
+      pve_cluster_ha_resources is malformed —
+      entries with no sid: {{ _missing | length }};
+      sids not shaped vm:<id> or ct:<id>: {{ _malformed }};
+      duplicated sids: {{ _sids | difference(_sids | unique) | unique }}
+    quiet: true
+
+- name: Every declared HA resource state is one PVE accepts
+  vars:
+    _states: "{{ pve_cluster_ha_resources | selectattr('state', 'defined') | map(attribute='state') | list }}"
+    _bad: "{{ _states | reject('in', ['disabled', 'enabled', 'ignored', 'started', 'stopped']) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _bad | length == 0
+    fail_msg: "unknown HA resource state(s) {{ _bad }} — PVE accepts disabled, enabled, ignored, started, stopped"
+    quiet: true
+
+- name: Every declared HA rule is named and typed
+  vars:
+    _unnamed: "{{ pve_cluster_ha_rules | rejectattr('rule', 'defined') | list }}"
+    _untyped: "{{ pve_cluster_ha_rules | rejectattr('type', 'defined') | list }}"
+    _names: "{{ pve_cluster_ha_rules | selectattr('rule', 'defined') | map(attribute='rule') | list }}"
+    _types: "{{ pve_cluster_ha_rules | selectattr('type', 'defined') | map(attribute='type') | list }}"
+    _bad_types: "{{ _types | reject('in', ['node-affinity', 'resource-affinity']) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _unnamed | length == 0
+      - _untyped | length == 0
+      - _bad_types | length == 0
+      - _names | length == _names | unique | length
+    fail_msg: >-
+      pve_cluster_ha_rules is malformed —
+      entries with no rule name: {{ _unnamed | length }};
+      entries with no type: {{ _untyped | length }};
+      unknown types: {{ _bad_types }};
+      duplicated rule names: {{ _names | difference(_names | unique) | unique }}
+    quiet: true
+
+# Split from the rule shape checks above on purpose: selectattr('type', …) below
+# would raise on a rule that has no type, so that has to have failed already.
+- name: Every declared HA rule carries only the keys its type accepts
+  vars:
+    _node_rules: "{{ pve_cluster_ha_rules | selectattr('type', 'equalto', 'node-affinity') | list }}"
+    _res_rules: "{{ pve_cluster_ha_rules | selectattr('type', 'equalto', 'resource-affinity') | list }}"
+    _no_nodes: "{{ _node_rules | rejectattr('nodes', 'defined') | map(attribute='rule') | list }}"
+    _stray_nodes: "{{ _res_rules | selectattr('nodes', 'defined') | map(attribute='rule') | list }}"
+    _stray_strict: "{{ _res_rules | selectattr('strict', 'defined') | map(attribute='rule') | list }}"
+    _no_affinity: "{{ _res_rules | rejectattr('affinity', 'defined') | map(attribute='rule') | list }}"
+    _no_resources: "{{ pve_cluster_ha_rules | rejectattr('resources', 'defined') | map(attribute='rule') | list }}"
+  ansible.builtin.assert:
+    that:
+      - _no_nodes | length == 0
+      - _stray_nodes | length == 0
+      - _stray_strict | length == 0
+      - _no_affinity | length == 0
+      - _no_resources | length == 0
+    fail_msg: >-
+      HA rule options do not match their type —
+      node-affinity without nodes: {{ _no_nodes }};
+      resource-affinity with nodes (not an option for that type): {{ _stray_nodes }};
+      resource-affinity with strict (not an option for that type): {{ _stray_strict }};
+      resource-affinity without affinity (it has no default): {{ _no_affinity }};
+      rules without resources: {{ _no_resources }}
+    quiet: true
+
+- name: Every sid a rule names is itself a declared HA resource
+  vars:
+    _declared: "{{ pve_cluster_ha_resources | map(attribute='sid') | list }}"
+    _referenced: >-
+      {{ pve_cluster_ha_rules | map(attribute='resources')
+         | map('split', ',') | flatten | map('trim') | unique | list }}
+    _dangling: "{{ _referenced | reject('in', _declared) | list }}"
+  ansible.builtin.assert:
+    that:
+      - _dangling | length == 0
+    fail_msg: >-
+      HA rules reference {{ _dangling }}, which pve_cluster_ha_resources does not declare.
+      A rule may only name resources this role also manages, or the two would disagree
+      about what is HA-managed.
+    success_msg: "{{ pve_cluster_ha_resources | length }} resource(s), {{ pve_cluster_ha_rules | length }} rule(s) declared"

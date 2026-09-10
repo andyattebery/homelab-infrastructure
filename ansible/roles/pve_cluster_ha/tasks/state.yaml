@@ -1,0 +1,273 @@
+---
+# Reads the cluster, normalises both sides of every comparison against the
+# documented defaults, refuses anything it was not told about, then plans the
+# exact argv it would run. Nothing here writes.
+#
+# Normalisation is the load-bearing part. `pvesh` fills in some defaults and not
+# others — a rule read back carries `affinity: positive` that /etc/pve/ha/rules.cfg
+# never stored, yet omits `strict` entirely; two of three resources carry an
+# explicit `failback` and the third does not. Comparing on a key's presence would
+# rewrite settings that already match.
+
+- name: Read the HA resources
+  ansible.builtin.command:
+    argv: ["{{ pve_cluster_ha_pvesh_command }}", get, /cluster/ha/resources, --output-format, json]
+  register: pve_cluster_ha_resources_raw
+  changed_when: false
+
+- name: Read the HA rules
+  ansible.builtin.command:
+    argv: ["{{ pve_cluster_ha_pvesh_command }}", get, /cluster/ha/rules, --output-format, json]
+  register: pve_cluster_ha_rules_raw
+  changed_when: false
+
+# Matched on `vmid`, not on the row's `type`, so `vm:` and `ct:` sids go through
+# one code path. /cluster/resources reports a QEMU guest as type `qemu` and a
+# container as `lxc`, and this cluster has no containers to check that mapping
+# against — `vmid` sidesteps the question.
+- name: Read the cluster's guests, to tell a missing VM from a missing HA entry
+  ansible.builtin.command:
+    argv: ["{{ pve_cluster_ha_pvesh_command }}", get, /cluster/resources, --type, vm, --output-format, json]
+  register: pve_cluster_ha_guests_raw
+  changed_when: false
+
+- name: Normalise the declared and the live state
+  vars:
+    _res_rows: "{{ pve_cluster_ha_resources_raw.stdout | from_json }}"
+    _rule_rows: "{{ pve_cluster_ha_rules_raw.stdout | from_json }}"
+    _vmids: "{{ pve_cluster_ha_guests_raw.stdout | from_json | map(attribute='vmid') | map('int') | list }}"
+    _live_res_json: >-
+      {% set out = {} %}
+      {% for r in _res_rows %}
+      {% set _ = out.update({r.sid: {
+           'state': r.state | default('started'),
+           'failback': (r.failback | default(1)) | bool | ternary(1, 0),
+           'max_relocate': (r.max_relocate | default(1)) | int,
+           'max_restart': (r.max_restart | default(1)) | int,
+           'comment': r.comment | default(''),
+         }}) %}
+      {% endfor %}
+      {{ out | to_json }}
+    _live_rule_json: >-
+      {% set out = {} %}
+      {% for r in _rule_rows %}
+      {% set _ = out.update({r.rule: {
+           'type': r.type,
+           'nodes': r.nodes | default(''),
+           'resources': r.resources | default(''),
+           'strict': (r.strict | default(0)) | bool | ternary(1, 0),
+           'affinity': r.affinity | default('positive'),
+           'comment': r.comment | default(''),
+           'disable': (r.disable | default(0)) | bool | ternary(1, 0),
+         }}) %}
+      {% endfor %}
+      {{ out | to_json }}
+    _want_res_json: >-
+      {% set out = {} %}
+      {% for d in pve_cluster_ha_resources %}
+      {% if (d.sid | split(':') | last | int) in _vmids %}
+      {% set _ = out.update({d.sid: {
+           'state': d.state | default('started'),
+           'failback': (d.failback | default(true)) | bool | ternary(1, 0),
+           'max_relocate': (d.max_relocate | default(1)) | int,
+           'max_restart': (d.max_restart | default(1)) | int,
+           'comment': d.comment | default(''),
+         }}) %}
+      {% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  ansible.builtin.set_fact:
+    pve_cluster_ha_live_res: "{{ _live_res_json | trim | from_json }}"
+    pve_cluster_ha_live_rules: "{{ _live_rule_json | trim | from_json }}"
+    pve_cluster_ha_want_res: "{{ _want_res_json | trim | from_json }}"
+    pve_cluster_ha_guest_vmids: "{{ _vmids }}"
+
+# A declared sid whose guest does not exist is skipped rather than fatal, so a
+# fresh cluster can be built before its VMs are restored. Skipping the resource
+# alone would only move the failure one step later, into a rule that names it —
+# so every rule mentioning a skipped sid is skipped with it.
+- name: Work out what has no guest yet, and which rules that takes with it
+  vars:
+    _skipped: >-
+      {{ pve_cluster_ha_resources | map(attribute='sid')
+         | reject('in', pve_cluster_ha_want_res.keys() | list) | list }}
+    _want_rule_json: >-
+      {% set out = {} %}
+      {% for d in pve_cluster_ha_rules %}
+      {% set sids = d.resources | split(',') | map('trim') | list %}
+      {% if sids | reject('in', _skipped) | list | length == sids | length %}
+      {% set _ = out.update({d.rule: {
+           'type': d.type,
+           'nodes': d.nodes | default(''),
+           'resources': d.resources,
+           'strict': (d.strict | default(false)) | bool | ternary(1, 0),
+           'affinity': d.affinity | default('positive'),
+           'comment': d.comment | default(''),
+           'disable': (d.disable | default(false)) | bool | ternary(1, 0),
+         }}) %}
+      {% endif %}
+      {% endfor %}
+      {{ out | to_json }}
+  ansible.builtin.set_fact:
+    pve_cluster_ha_skipped_sids: "{{ _skipped }}"
+    pve_cluster_ha_want_rules: "{{ _want_rule_json | trim | from_json }}"
+    pve_cluster_ha_skipped_rules: >-
+      {{ pve_cluster_ha_rules | map(attribute='rule')
+         | reject('in', (_want_rule_json | trim | from_json).keys() | list) | list }}
+
+- name: Report what was skipped for having no guest
+  when: pve_cluster_ha_skipped_sids | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      No guest exists for {{ pve_cluster_ha_skipped_sids }}, so those HA resources
+      are not created{{ ' and rules ' ~ (pve_cluster_ha_skipped_rules | join(', ')) ~ ' are left alone'
+        if pve_cluster_ha_skipped_rules | length > 0 else '' }}.
+      Cluster has guests {{ pve_cluster_ha_guest_vmids | sort }}.
+
+# Compared against the full declaration, not against what survived the guest
+# check: an HA resource whose VM has gone missing is still declared, and is not
+# an extra.
+- name: Refuse HA resources and rules the declaration does not cover
+  vars:
+    _extra_res: >-
+      {{ pve_cluster_ha_live_res.keys() | list
+         | reject('in', pve_cluster_ha_resources | map(attribute='sid') | list) | list }}
+    _extra_rules: >-
+      {{ pve_cluster_ha_live_rules.keys() | list
+         | reject('in', pve_cluster_ha_rules | map(attribute='rule') | list) | list }}
+  ansible.builtin.assert:
+    that:
+      - _extra_res | length == 0
+      - _extra_rules | length == 0
+    fail_msg: >-
+      The cluster has HA config this role was not told about —
+      resources: {{ _extra_res }}; rules: {{ _extra_rules }}.
+      This role never deletes. Either declare them in pve_cluster_ha_resources /
+      pve_cluster_ha_rules, or remove them by hand with `ha-manager remove` /
+      `ha-manager rules remove` and re-run.
+    quiet: true
+
+- name: Refuse HA settings this role does not manage
+  vars:
+    _res_known: "{{ pve_cluster_ha_resource_keys + pve_cluster_ha_resource_ignored_keys }}"
+    _rule_known: "{{ pve_cluster_ha_rule_keys + pve_cluster_ha_rule_ignored_keys }}"
+    _bad_res: >-
+      {% set bad = [] %}
+      {% for r in pve_cluster_ha_resources_raw.stdout | from_json %}
+      {% for k in r.keys() | reject('in', _res_known) | list %}
+      {% set _ = bad.append(r.sid ~ ' -> ' ~ k) %}
+      {% endfor %}
+      {% endfor %}
+      {{ bad | to_json }}
+    _bad_rules: >-
+      {% set bad = [] %}
+      {% for r in pve_cluster_ha_rules_raw.stdout | from_json %}
+      {% for k in r.keys() | reject('in', _rule_known) | list %}
+      {% set _ = bad.append(r.rule ~ ' -> ' ~ k) %}
+      {% endfor %}
+      {% endfor %}
+      {{ bad | to_json }}
+  ansible.builtin.assert:
+    that:
+      - (_bad_res | trim | from_json) | length == 0
+      - (_bad_rules | trim | from_json) | length == 0
+    fail_msg: >-
+      The cluster carries HA settings outside this role's managed set —
+      {{ (_bad_res | trim | from_json) + (_bad_rules | trim | from_json) }}.
+      They would drift silently, so the role stops instead. Either clear them by
+      hand, or add the key to pve_cluster_ha_resource_keys / pve_cluster_ha_rule_keys
+      and teach the role to converge it.
+    quiet: true
+
+# `ha-manager rules set` takes <type> positionally and cannot change it, so a
+# rule whose type differs is not the same rule.
+- name: Refuse a rule whose live type differs from the declaration
+  vars:
+    _conflicts: >-
+      {% set bad = [] %}
+      {% for name, want in pve_cluster_ha_want_rules.items() %}
+      {% if name in pve_cluster_ha_live_rules
+            and pve_cluster_ha_live_rules[name].type != want.type %}
+      {% set _ = bad.append(name ~ ': live ' ~ pve_cluster_ha_live_rules[name].type
+                            ~ ', declared ' ~ want.type) %}
+      {% endif %}
+      {% endfor %}
+      {{ bad | to_json }}
+  ansible.builtin.assert:
+    that:
+      - (_conflicts | trim | from_json) | length == 0
+    fail_msg: >-
+      HA rule type mismatch — {{ _conflicts | trim | from_json }}.
+      `ha-manager rules set` takes the type positionally and cannot change it.
+      Remove the rule by hand with `ha-manager rules remove <name>` and re-run.
+    quiet: true
+
+- name: Plan the writes
+  vars:
+    _res_ops_json: >-
+      {% set ops = [] %}
+      {% for sid in pve_cluster_ha_want_res.keys() | list %}
+      {% set want = pve_cluster_ha_want_res[sid] %}
+      {% if sid not in pve_cluster_ha_live_res %}
+      {% set argv = [pve_cluster_ha_manager_command, 'add', sid] %}
+      {% for k in pve_cluster_ha_resource_keys %}
+      {% if k == 'comment' %}
+      {% if want.comment %}{% set _ = argv.extend(['--comment', want.comment]) %}{% endif %}
+      {% else %}{% set _ = argv.extend(['--' ~ k, want[k] | string]) %}{% endif %}
+      {% endfor %}
+      {% set _ = ops.append({'name': sid, 'op': 'add', 'argv': argv}) %}
+      {% else %}
+      {% set live = pve_cluster_ha_live_res[sid] %}
+      {% set diff = [] %}
+      {% for k in pve_cluster_ha_resource_keys %}
+      {% if want[k] != live[k] %}{% set _ = diff.append(k) %}{% endif %}
+      {% endfor %}
+      {% if diff | length > 0 %}
+      {% set argv = [pve_cluster_ha_manager_command, 'set', sid] %}
+      {% for k in diff %}
+      {% if k == 'comment' and not want.comment %}{% set _ = argv.extend(['--delete', 'comment']) %}
+      {% elif k == 'comment' %}{% set _ = argv.extend(['--comment', want.comment]) %}
+      {% else %}{% set _ = argv.extend(['--' ~ k, want[k] | string]) %}{% endif %}
+      {% endfor %}
+      {% set _ = ops.append({'name': sid, 'op': 'set ' ~ (diff | join(',')), 'argv': argv}) %}
+      {% endif %}
+      {% endif %}
+      {% endfor %}
+      {{ ops | to_json }}
+    _rule_ops_json: >-
+      {% set ops = [] %}
+      {% for name in pve_cluster_ha_want_rules.keys() | list %}
+      {% set want = pve_cluster_ha_want_rules[name] %}
+      {% set drop = ['nodes', 'strict'] if want.type == 'resource-affinity' else [] %}
+      {% set keys = pve_cluster_ha_rule_keys | reject('in', drop) | list %}
+      {% if name not in pve_cluster_ha_live_rules %}
+      {% set argv = [pve_cluster_ha_manager_command, 'rules', 'add', want.type, name] %}
+      {% for k in keys %}
+      {% if k == 'comment' %}
+      {% if want.comment %}{% set _ = argv.extend(['--comment', want.comment]) %}{% endif %}
+      {% elif k == 'disable' %}
+      {% if want.disable %}{% set _ = argv.extend(['--disable', '1']) %}{% endif %}
+      {% else %}{% set _ = argv.extend(['--' ~ k, want[k] | string]) %}{% endif %}
+      {% endfor %}
+      {% set _ = ops.append({'name': name, 'op': 'add', 'argv': argv}) %}
+      {% else %}
+      {% set live = pve_cluster_ha_live_rules[name] %}
+      {% set diff = [] %}
+      {% for k in keys %}
+      {% if want[k] != live[k] %}{% set _ = diff.append(k) %}{% endif %}
+      {% endfor %}
+      {% if diff | length > 0 %}
+      {% set argv = [pve_cluster_ha_manager_command, 'rules', 'set', want.type, name] %}
+      {% for k in diff %}
+      {% if k == 'comment' and not want.comment %}{% set _ = argv.extend(['--delete', 'comment']) %}
+      {% elif k == 'comment' %}{% set _ = argv.extend(['--comment', want.comment]) %}
+      {% else %}{% set _ = argv.extend(['--' ~ k, want[k] | string]) %}{% endif %}
+      {% endfor %}
+      {% set _ = ops.append({'name': name, 'op': 'set ' ~ (diff | join(',')), 'argv': argv}) %}
+      {% endif %}
+      {% endif %}
+      {% endfor %}
+      {{ ops | to_json }}
+  ansible.builtin.set_fact:
+    pve_cluster_ha_res_ops: "{{ _res_ops_json | trim | from_json }}"
+    pve_cluster_ha_rule_ops: "{{ _rule_ops_json | trim | from_json }}"

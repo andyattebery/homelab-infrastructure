@@ -1,0 +1,34 @@
+---
+# Seed the stubbed cluster, run the role, hand the case back the exact command
+# lines it produced. Callers set _case_live_res / _case_live_rules / _case_guests
+# and the role's own pve_cluster_ha_* vars on the enclosing block.
+- name: Seed the stubbed cluster
+  ansible.builtin.copy:
+    dest: "{{ _tmp.path }}/{{ item.name }}"
+    content: "{{ item.body }}"
+    mode: "0644"
+  loop:
+    - {name: ha-resources.json, body: "{{ _case_live_res }}"}
+    - {name: ha-rules.json, body: "{{ _case_live_rules }}"}
+    - {name: guests.json, body: "{{ _case_guests }}"}
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Clear the call log
+  ansible.builtin.file:
+    path: "{{ _tmp.path }}/calls.log"
+    state: absent
+
+- name: Run the role
+  ansible.builtin.include_role:
+    name: pve_cluster_ha
+
+- name: Read the call log
+  ansible.builtin.command: "cat {{ _tmp.path }}/calls.log"
+  register: _case_log
+  changed_when: false
+  failed_when: false
+
+- name: Expose the calls
+  ansible.builtin.set_fact:
+    _calls: "{{ _case_log.stdout_lines if _case_log.rc == 0 else [] }}"

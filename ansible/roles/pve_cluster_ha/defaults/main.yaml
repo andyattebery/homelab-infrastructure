@@ -1,0 +1,24 @@
+---
+# ---------- what to converge ----------
+# Declared in group_vars, never here: a role must not carry this homelab's
+# hostnames or VMIDs. Empty on purpose, and empty is NOT the same as "do
+# nothing" — with the cluster holding HA resources and nothing declared, the
+# undeclared-extras gate fails by design. See README, "It never deletes".
+pve_cluster_ha_resources: []
+pve_cluster_ha_rules: []
+
+# ---------- keys this role manages ----------
+# Anything the cluster carries outside these lists makes the role fail rather
+# than drift silently. `digest` and `order` are server-side and never compared;
+# a resource's `type` is derived from its sid prefix; a rule's `type` is half of
+# its identity (with `rule`) and is matched, never written.
+pve_cluster_ha_resource_keys: [state, failback, max_relocate, max_restart, comment]
+pve_cluster_ha_resource_ignored_keys: [sid, type, digest]
+pve_cluster_ha_rule_keys: [nodes, resources, strict, affinity, comment, disable]
+pve_cluster_ha_rule_ignored_keys: [rule, type, digest, order]
+
+# ---------- commands, overridable for the stubs in tests/test.yml ----------
+# Bare names on purpose: the play runs with become, whose PATH has /usr/sbin —
+# the same reasoning as pve_node_rebuild/defaults/main.yaml:67-68.
+pve_cluster_ha_manager_command: ha-manager
+pve_cluster_ha_pvesh_command: pvesh

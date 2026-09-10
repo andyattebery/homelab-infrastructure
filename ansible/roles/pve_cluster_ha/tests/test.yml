@@ -1,0 +1,391 @@
+---
+# Fixture suite for pve_cluster_ha. Localhost only; stubs `pvesh` and `ha-manager`
+# in a tempdir. The ha-manager stub logs each argument separated by `|`, so an
+# assertion pins argument boundaries and catches a quoting bug that joining on
+# spaces would hide.
+#
+# Run:
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_cluster_ha/tests/inventory \
+#       roles/pve_cluster_ha/tests/test.yml
+#
+# Pass is failed=0: every negative case catches its own failure in `rescue:`.
+
+- name: pve_cluster_ha fixtures
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # ---------- PVE, captured 2026-09-08 from the live cluster ----------
+    # Guest rows carry only the fields the role reads. `name` is dropped on
+    # purpose: guest names are what the repo's role grep forbids under roles/,
+    # and the role matches on vmid anyway.
+    _live_res_today: >-
+      [{"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},
+       {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"},
+       {"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:110","state":"started","type":"vm"}]
+    _live_rules_today: >-
+      [{"affinity":"positive","comment":"Generated from HA group 'main'.","digest":"d959de85",
+        "nodes":"nas-host-01:1,vm-host-01:3,vm-host-02:2","order":1,
+        "resources":"vm:102,vm:103,vm:110","rule":"ha-group-main","type":"node-affinity"}]
+    _guests_today: >-
+      [{"vmid":102,"type":"qemu","node":"vm-host-01","status":"running"},
+       {"vmid":103,"type":"qemu","node":"vm-host-01","status":"running"},
+       {"vmid":110,"type":"qemu","node":"vm-host-01","status":"running"},
+       {"vmid":120,"type":"qemu","node":"vm-host-01","status":"running"}]
+
+    _want_res_today:
+      - {sid: "vm:102", state: started, failback: true, max_relocate: 3, max_restart: 2}
+      - {sid: "vm:103", state: started, failback: true, max_relocate: 3, max_restart: 2}
+      - {sid: "vm:110", state: started, failback: true, max_relocate: 3, max_restart: 2}
+    _want_rules_today:
+      - rule: ha-group-main
+        type: node-affinity
+        nodes: "nas-host-01:1,vm-host-01:3,vm-host-02:2"
+        resources: "vm:102,vm:103,vm:110"
+        strict: false
+        affinity: positive
+        comment: "Generated from HA group 'main'."
+
+    _rule_add_today: >-
+      ha-manager|rules|add|node-affinity|ha-group-main|--nodes|nas-host-01:1,vm-host-01:3,vm-host-02:2|--resources|vm:102,vm:103,vm:110|--strict|0|--affinity|positive|--comment|Generated from HA group 'main'.
+
+  tasks:
+    - name: Make a tempdir for the stubs
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-cluster-ha
+      register: _tmp
+
+    - name: Cases
+      vars:
+        pve_cluster_ha_pvesh_command: "{{ _tmp.path }}/pvesh"
+        pve_cluster_ha_manager_command: "{{ _tmp.path }}/ha-manager"
+        _case_guests: "{{ _guests_today }}"
+      block:
+        - name: Install the stubs
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/{{ item.name }}"
+            mode: "0755"
+            content: "{{ item.body }}"
+          loop:
+            - name: pvesh
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                case "$*" in
+                  "get /cluster/ha/resources --output-format json") cat "$d/ha-resources.json" ;;
+                  "get /cluster/ha/rules --output-format json") cat "$d/ha-rules.json" ;;
+                  "get /cluster/resources --type vm --output-format json") cat "$d/guests.json" ;;
+                  *) echo "stub: unexpected pvesh args: $*" >&2; exit 2 ;;
+                esac
+            - name: ha-manager
+              body: |
+                #!/bin/sh
+                d="$(dirname "$0")"
+                { printf 'ha-manager'; for a in "$@"; do printf '|%s' "$a"; done; printf '\n'; } >> "$d/calls.log"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: 1. Today's cluster against today's declaration writes nothing
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "{{ _live_rules_today }}"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 1. No writes at all
+              ansible.builtin.assert:
+                that:
+                  - pve_cluster_ha_res_ops == []
+                  - pve_cluster_ha_rule_ops == []
+                  - _calls == []
+                fail_msg: "expected no writes, got {{ _calls }}"
+                success_msg: >-
+                  no writes — vm:103 carries no failback key yet declares failback: true,
+                  and ha-group-main carries no strict key yet declares strict: false;
+                  both normalised to the documented default
+
+        - name: 2. A declared resource the cluster lacks is added
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: []
+            _case_live_rules: "[]"
+            _case_live_res: >-
+              [{"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 2. One add, booleans rendered as 1 rather than True
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|add|vm:110|--state|started|--failback|1|--max_relocate|3|--max_restart|2']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+        - name: 3. A resource whose setting drifted is set, carrying only that key
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: []
+            _case_live_rules: "[]"
+            _case_live_res: >-
+              [{"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":1,"sid":"vm:102","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:110","state":"started","type":"vm"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 3. One set, only the key that differed
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|set|vm:102|--max_restart|2']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+        - name: 4. A declared node-affinity rule the cluster lacks is added
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "[]"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 4. Type and name positional; the apostrophe in the comment survives as one argument
+              ansible.builtin.assert:
+                that:
+                  - _calls == [_rule_add_today]
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+        - name: 5. A rule whose nodes drifted is set, carrying only nodes
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: >-
+              [{"affinity":"positive","comment":"Generated from HA group 'main'.","digest":"d959de85",
+                "nodes":"nas-host-01:1,vm-host-01:1,vm-host-02:1","order":1,
+                "resources":"vm:102,vm:103,vm:110","rule":"ha-group-main","type":"node-affinity"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 5. rules set, type and name still positional
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|rules|set|node-affinity|ha-group-main|--nodes|nas-host-01:1,vm-host-01:3,vm-host-02:2']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+        - name: 6. strict absent live and declared true is a real difference
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: >-
+              {{ _want_rules_today | map('combine', {'strict': true}) | list }}
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "{{ _live_rules_today }}"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 6. One set carrying strict 1
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|rules|set|node-affinity|ha-group-main|--strict|1']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }} — the same absent key that produced no write in case 1"
+
+        - name: 7. A resource-affinity rule gets neither --nodes nor --strict
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules:
+              - rule: keep-apart
+                type: resource-affinity
+                affinity: negative
+                resources: "vm:102,vm:103"
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "[]"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 7. Only the options that type accepts
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|rules|add|resource-affinity|keep-apart|--resources|vm:102,vm:103|--affinity|negative']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+        - name: 8. An undeclared HA resource on the cluster is refused, not deleted
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_rules: "{{ _live_rules_today }}"
+            _case_live_res: >-
+              [{"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:110","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":1,"max_restart":1,"sid":"vm:120","state":"started","type":"vm"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 8. Should not have been reached
+              ansible.builtin.fail:
+                msg: "an undeclared HA resource was accepted"
+          rescue:
+            - name: 8. Refused, naming the sid, and nothing was removed
+              ansible.builtin.assert:
+                that:
+                  - "'vm:120' in ansible_failed_result.msg"
+                  - "'never deletes' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 9. An undeclared HA rule on the cluster is refused
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: []
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "{{ _live_rules_today }}"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 9. Should not have been reached
+              ansible.builtin.fail:
+                msg: "an undeclared HA rule was accepted"
+          rescue:
+            - name: 9. Refused, naming the rule
+              ansible.builtin.assert:
+                that:
+                  - "'ha-group-main' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 10. A setting outside the managed set is refused rather than left to drift
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: []
+            _case_live_rules: "[]"
+            _case_live_res: >-
+              [{"digest":"c4bf12cc","failback":1,"group":"main","max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:110","state":"started","type":"vm"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 10. Should not have been reached
+              ansible.builtin.fail:
+                msg: "an unmanaged key was accepted"
+          rescue:
+            - name: 10. Refused, naming the sid and the key
+              ansible.builtin.assert:
+                that:
+                  - "'vm:102 -> group' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 11. A rule whose live type differs is refused, because set cannot change it
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: >-
+              [{"affinity":"negative","digest":"d959de85","order":1,
+                "resources":"vm:102,vm:103,vm:110","rule":"ha-group-main","type":"resource-affinity"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 11. Should not have been reached
+              ansible.builtin.fail:
+                msg: "a rule type change was accepted"
+          rescue:
+            - name: 11. Refused, naming both types and the manual fix
+              ansible.builtin.assert:
+                that:
+                  - "'live resource-affinity, declared node-affinity' in ansible_failed_result.msg"
+                  - "'rules remove' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 12. A malformed declaration fails before the cluster is contacted
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules:
+              - rule: no-nodes
+                type: node-affinity
+                resources: "vm:102"
+            pve_cluster_ha_pvesh_command: /nonexistent/pvesh
+            pve_cluster_ha_manager_command: /nonexistent/ha-manager
+          block:
+            - name: 12. Run validate on its own, with no stubs reachable
+              ansible.builtin.include_role:
+                name: pve_cluster_ha
+                tasks_from: validate
+            - name: 12. Should not have been reached
+              ansible.builtin.fail:
+                msg: "a node-affinity rule with no nodes was accepted"
+          rescue:
+            - name: 12. Refused by validate, naming the rule
+              ansible.builtin.assert:
+                that:
+                  - "'node-affinity without nodes' in ansible_failed_result.msg"
+                  - "'no-nodes' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 13. A rule naming a resource the declaration does not manage is refused
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules:
+              - rule: ha-group-main
+                type: node-affinity
+                nodes: "vm-host-01:1"
+                resources: "vm:102,vm:999"
+            pve_cluster_ha_pvesh_command: /nonexistent/pvesh
+          block:
+            - name: 13. Run validate on its own
+              ansible.builtin.include_role:
+                name: pve_cluster_ha
+                tasks_from: validate
+            - name: 13. Should not have been reached
+              ansible.builtin.fail:
+                msg: "a rule referencing an unmanaged sid was accepted"
+          rescue:
+            - name: 13. Refused, naming the dangling sid
+              ansible.builtin.assert:
+                that:
+                  - "'vm:999' in ansible_failed_result.msg"
+                success_msg: "{{ ansible_failed_result.msg }}"
+
+        - name: 14. A declared resource whose guest does not exist is skipped, and takes its rule with it
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: "{{ _want_rules_today }}"
+            _case_live_rules: "[]"
+            _case_live_res: >-
+              [{"digest":"c4bf12cc","failback":1,"max_relocate":3,"max_restart":2,"sid":"vm:102","state":"started","type":"vm"},
+               {"digest":"c4bf12cc","max_relocate":3,"max_restart":2,"sid":"vm:103","state":"started","type":"vm"}]
+            _case_guests: >-
+              [{"vmid":102,"type":"qemu","node":"vm-host-01","status":"running"},
+               {"vmid":103,"type":"qemu","node":"vm-host-01","status":"running"}]
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 14. Nothing written, and the rule naming the missing sid is skipped too
+              ansible.builtin.assert:
+                that:
+                  - pve_cluster_ha_skipped_sids == ['vm:110']
+                  - pve_cluster_ha_skipped_rules == ['ha-group-main']
+                  - _calls == []
+                fail_msg: >-
+                  skipped_sids={{ pve_cluster_ha_skipped_sids }}
+                  skipped_rules={{ pve_cluster_ha_skipped_rules }} calls={{ _calls }}
+                success_msg: "vm:110 has no guest, so neither it nor ha-group-main is written"
+
+        - name: 15. A comment removed from the declaration is deleted, not blanked
+          vars:
+            pve_cluster_ha_resources: "{{ _want_res_today }}"
+            pve_cluster_ha_rules: >-
+              {{ [_want_rules_today[0] | dict2items | rejectattr('key', 'equalto', 'comment')
+                  | items2dict] }}
+            _case_live_res: "{{ _live_res_today }}"
+            _case_live_rules: "{{ _live_rules_today }}"
+          block:
+            - ansible.builtin.include_tasks: run_case.yml
+            - name: 15. --delete comment, since --comment '' would not clear it
+              ansible.builtin.assert:
+                that:
+                  - _calls == ['ha-manager|rules|set|node-affinity|ha-group-main|--delete|comment']
+                fail_msg: "got {{ _calls }}"
+                success_msg: "{{ _calls[0] }}"
+
+      always:
+        - name: Remove the tempdir
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

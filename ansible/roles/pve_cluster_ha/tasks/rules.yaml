@@ -1,0 +1,9 @@
+---
+# Runs after resources.yaml: a rule names resources, so they have to exist first.
+- name: Converge HA rules
+  ansible.builtin.command:
+    argv: "{{ item.argv }}"
+  loop: "{{ pve_cluster_ha_rule_ops }}"
+  loop_control:
+    label: "{{ item.op }} {{ item.name }}"
+  changed_when: true

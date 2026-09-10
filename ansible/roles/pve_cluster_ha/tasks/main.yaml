@@ -1,0 +1,22 @@
+---
+- name: Check the declaration before touching the cluster
+  ansible.builtin.include_tasks: validate.yaml
+
+- name: Read the cluster, refuse the undeclared, plan the writes
+  ansible.builtin.include_tasks: state.yaml
+
+- name: Converge HA resources
+  ansible.builtin.include_tasks: resources.yaml
+
+- name: Converge HA rules
+  ansible.builtin.include_tasks: rules.yaml
+
+- name: Report what the cluster now holds
+  ansible.builtin.debug:
+    msg: >-
+      {{ (pve_cluster_ha_res_ops + pve_cluster_ha_rule_ops) | length }} write(s):
+      {{ (pve_cluster_ha_res_ops + pve_cluster_ha_rule_ops)
+         | map(attribute='op') | zip((pve_cluster_ha_res_ops + pve_cluster_ha_rule_ops)
+         | map(attribute='name')) | map('join', ' ') | list }}.
+      Managed: {{ pve_cluster_ha_want_res.keys() | list }},
+      rules {{ pve_cluster_ha_want_rules.keys() | list }}.

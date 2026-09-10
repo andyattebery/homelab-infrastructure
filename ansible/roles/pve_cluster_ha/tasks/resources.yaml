@@ -1,0 +1,10 @@
+---
+# One task for both verbs: the verb is already in the planned argv, so the
+# fixture suite compares whole command lines rather than trusting a `when:`.
+- name: Converge HA resources
+  ansible.builtin.command:
+    argv: "{{ item.argv }}"
+  loop: "{{ pve_cluster_ha_res_ops }}"
+  loop_control:
+    label: "{{ item.op }} {{ item.name }}"
+  changed_when: true
