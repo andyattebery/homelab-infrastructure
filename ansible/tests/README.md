@@ -9,7 +9,7 @@ one that can actually fail for the right reason.**
 
 | Pattern | Lives in | Contacts | Use it for |
 | --- | --- | --- | --- |
-| Invariant check | `tests/test-*.yml` | nothing (`connection: local`) | facts about inventory, `host_vars`, vault wiring — things that must hold across hosts |
+| Invariant check | `tests/test-*.yml` | nothing (`connection: local`) | facts that must hold repo-wide — inventory, `host_vars`, vault wiring, and rules about the roles' own source |
 | Role fixture test | `roles/<role>/tests/test.yml` | nothing (localhost + tempdir) | a role's decision logic, with its paths pointed at a scratch directory |
 | Container integration | `tests/<subject>/` | throwaway containers | anything whose result depends on a real distro — apt, packages, systemd-free service config |
 | pytest | `roles/<role>/tests/*.py` | nothing (I/O injected) | vendored Python that ships inside a role |
@@ -26,13 +26,47 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i localhost, tests/test-media-data-disks.yml
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh ANSIBLE_ROLES_PATH=roles \
   .venv/bin/ansible-playbook -i localhost, tests/test-github-release-install-win.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i localhost, tests/test-ceph-osd-config.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i localhost, tests/test-until-waits.yml
 
 # this one DOES read the vault — the MACs it checks are vaulted values
 .venv/bin/ansible-playbook tests/test-network-interface-pinning.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh ANSIBLE_ROLES_PATH=roles \
+  .venv/bin/ansible-playbook -i localhost, tests/test-pci-passthrough.yml
 
-# role fixture tests
-.venv/bin/ansible-playbook -i roles/e1000e_disable_offloads/tests/inventory \
+# role fixture tests (the vault variable for the reason under "Fixtures and secrets")
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/e1000e_disable_offloads/tests/inventory \
   roles/e1000e_disable_offloads/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_pin_network_interface/tests/inventory \
+  roles/pve_pin_network_interface/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_pci_mapping/tests/inventory \
+  roles/pve_pci_mapping/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_vm_hostpci/tests/inventory \
+  roles/pve_vm_hostpci/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/debian_add_network_interface/tests/inventory \
+  roles/debian_add_network_interface/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_node_ceph/tests/inventory \
+  roles/pve_node_ceph/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_ceph_upgrade/tests/inventory \
+  roles/pve_ceph_upgrade/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_node_rebuild/tests/inventory \
+  roles/pve_node_rebuild/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_cephx_migration/tests/inventory \
+  roles/pve_cephx_migration/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/kernel_parameters/tests/inventory \
+  roles/kernel_parameters/tests/test.yml
 
 # these three fixture tests need the `docker` CLI -- the only ones with an external
 # dependency. None needs a daemon: `docker compose config` renders and exits,
@@ -55,6 +89,8 @@ tests/apt-sources/run.sh setup.yml verify-fish.yml
 
 # pytest
 .venv/bin/pytest roles/docker_compose_certbot_asrock_ipmi/tests/ -q
+.venv/bin/pytest roles/pve_pci_mapping/tests/ -q
+.venv/bin/pytest roles/textfile_collector_pve_pci_mapping/tests/ -q
 ```
 
 ## Role resolution: the thing that bites first
@@ -77,6 +113,11 @@ resolution starts from the *playbook's* directory, which is `tests/`. See
 `roles/e1000e_disable_offloads/tests/roles/`, a single
 `<role> -> ../../` link.
 
+A role directory that carries both a fixture test and a pytest needs a `conftest.py`
+with `collect_ignore = ["roles"]` next to the tests — pytest otherwise recurses through
+the `roles/<role> -> ../../` link and collects the same file dozens of times.
+`roles/pve_pci_mapping/tests/` is the example.
+
 A role that itself `include_role`s another needs **one link per role**, or the
 nested include fails the same way. `roles/docker_compose_wyoming_faster_whisper/tests/roles/`
 has two: `docker_compose_wyoming_faster_whisper -> ../../` and
@@ -96,6 +137,24 @@ Ask what could actually be wrong, and pick the pattern that can catch it.
   **real** role. `roles/e1000e_disable_offloads/tests/test.yml` is the model.
   This is why roles take their paths from `defaults/main.yaml` rather than
   hardcoding them — a role that hardcodes `/etc/...` cannot be tested this way.
+  A role whose decisions rest on a CLI's output (`ceph`, `pveceph`,
+  `pve-network-interface-pinning`) takes the command path from `defaults/`
+  too, and the test drops a stub script there that answers with output
+  captured from the real system — `roles/pve_node_ceph/tests/test.yml` and
+  `roles/pve_ceph_upgrade/tests/test.yml` are the models; a stub that also
+  appends its argv to a log lets a case assert the exact command sequence
+  (`roles/pve_node_rebuild/tests/test.yml`). Include only the
+  decision task files (`tasks_from:`); the parts that need the real system
+  stay out, and the README says so.
+- **"this rule must hold everywhere in the roles' own source"** → also
+  `tests/test-<subject>.yml`, but reading files rather than variables.
+  `test-until-waits.yml` is the model: it shells out to `tests/check-until-waits.py`,
+  which parses every task file and playbook and fails on any `until` wait that
+  cannot fail. Python and not a Jinja expression on purpose — `block`/`rescue`/`always`
+  nesting is arbitrary-depth, and a Jinja flatten has to hard-code how deep to look,
+  which is the same vacuous pass the check exists to catch. Assert the case-set size
+  before concluding anything from a green run: a glob that matches nothing reports
+  itself as a perfect result.
 - **"this only breaks on a particular distro/release"** → container integration.
   Expensive, so reserve it for things a fixture genuinely cannot answer: whether
   apt accepts a file, whether a package resolves, whether two releases differ.
