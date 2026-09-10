@@ -35,12 +35,13 @@ import yaml
 # rather than skipped by a rule, so the blind spot is visible and any NEW
 # unparseable file fails this check instead of quietly joining the list.
 #
-# Both of these contain raw `.env` lines (`MAIL_MAILER=log`) pasted into a YAML
-# file, so the role cannot load at all. Pre-existing; unrelated to waits.
-KNOWN_UNPARSEABLE = {
-    "roles/docker_compose_invoiceninja/defaults/main.yaml",
-    "roles/docker_compose_invoiceninja/tasks/main.yaml",
-}
+# Empty, and that is the intended resting state. It held
+# docker_compose_invoiceninja's two files — raw `.env` lines (`MAIL_MAILER=log`)
+# pasted into YAML, so the role could not load at all — until that unused role
+# was deleted on 2026-09-10. The set stays because it is the mechanism that
+# keeps a blind spot visible; a path only belongs in it with a comment saying
+# why the file cannot be fixed now.
+KNOWN_UNPARSEABLE = set()
 
 
 def walk(tasks, path, out):
@@ -122,15 +123,17 @@ def main():
         print("\nAdd to KNOWN_UNPARSEABLE only with a comment saying why, or fix the file.")
 
     if gone:
-        print(f"\n{len(gone)} file(s) in KNOWN_UNPARSEABLE now parse — remove them from the list:")
+        print(f"\n{len(gone)} file(s) in KNOWN_UNPARSEABLE no longer belong there — each one "
+              f"either parses now or has been deleted. Remove them from the list:")
         for rel in sorted(gone):
             print(f"  {rel}")
 
     if bad or new_unparseable or gone:
         return 1
 
-    print(f"every `until` wait states its own failure condition "
-          f"({len(KNOWN_UNPARSEABLE)} file(s) unparseable and knowingly skipped)")
+    skipped = (f"{len(KNOWN_UNPARSEABLE)} file(s) unparseable and knowingly skipped"
+               if KNOWN_UNPARSEABLE else "nothing skipped")
+    print(f"every `until` wait states its own failure condition ({skipped})")
     return 0
 
 
