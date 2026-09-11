@@ -468,3 +468,108 @@
           Rendered {{ _rendered | length }} lines against {{ _expected | length }} expected.
           Tdarr writes JSON.stringify(obj, null, 2): two-space indent, LF only, no trailing newline.
         quiet: true
+
+    # --- worker counts -------------------------------------------------------------------------
+    # W1-W4 drive roles/tdarr_node_win/tasks/set_worker_env.yaml, the real file. Worker counts are
+    # NOT part of Tdarr_Node_Config.json — Tdarr documents them as environment-only and the file
+    # has no key for them — so this is a separate code path from C1-C12, not a variation on it.
+    #
+    # The owner-vs-ansible_user assert is deliberately NOT covered here: it lives in main.yaml
+    # because it is about the connection identity, and this playbook contacts no host.
+    - name: W1 setup - all four counts
+      vars:
+        tdarr_node_win_workers:
+          transcodegpuWorkers: 1
+          transcodecpuWorkers: 0
+          healthcheckgpuWorkers: 0
+          healthcheckcpuWorkers: 1
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_worker_env.yaml
+
+    # Values must arrive as STRINGS: win_environment takes strings, and an int would be rendered
+    # by the module rather than by this role, which is where a surprise would hide.
+    - name: W1 - counts are cast to strings, keys untouched
+      ansible.builtin.assert:
+        that:
+          - >-
+            __tdarr_node_win_worker_env == {'transcodegpuWorkers': '1',
+                                            'transcodecpuWorkers': '0',
+                                            'healthcheckgpuWorkers': '0',
+                                            'healthcheckcpuWorkers': '1'}
+        fail_msg: "Got {{ __tdarr_node_win_worker_env }}"
+        quiet: true
+
+    - name: W2 setup - a subset of the keys
+      vars:
+        tdarr_node_win_workers:
+          transcodegpuWorkers: 2
+      ansible.builtin.include_role:
+        name: tdarr_node_win
+        tasks_from: set_worker_env.yaml
+
+    - name: W2 - a partial dict is passed through as-is, not filled in
+      ansible.builtin.assert:
+        that:
+          - >-
+            __tdarr_node_win_worker_env == {'transcodegpuWorkers': '2'}
+        fail_msg: "Got {{ __tdarr_node_win_worker_env }}"
+        quiet: true
+
+    # The fact-then-assert shape matches C10/C11: a bare block/rescue would also catch a `fail`
+    # used for something else, so record whether the assert fired and assert on that.
+    #
+    # W3 is the case with no other guard anywhere. win_environment sets whatever name it is given
+    # and Tdarr ignores a name it does not know, so a misspelt key deploys clean and changes
+    # nothing — there is no error at any layer below this assert.
+    - name: W3 setup - a key Tdarr does not read
+      block:
+        - name: W3 setup - compute with a misspelt key
+          vars:
+            tdarr_node_win_workers:
+              transcodeGpuWorkers: 1
+          ansible.builtin.include_role:
+            name: tdarr_node_win
+            tasks_from: set_worker_env.yaml
+
+        - name: W3 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            w3_rejected: false
+      rescue:
+        - name: W3 setup - record that the assert fired
+          ansible.builtin.set_fact:
+            w3_rejected: true
+
+    - name: W3 - a key Tdarr does not read is rejected
+      ansible.builtin.assert:
+        that: w3_rejected
+        fail_msg: >-
+          transcodeGpuWorkers was accepted. Tdarr reads transcodegpuWorkers, lowercase, and
+          ignores anything else — so this would deploy without error and set no worker count.
+        quiet: true
+
+    - name: W4 setup - a string count
+      block:
+        - name: W4 setup - compute with a string value
+          vars:
+            tdarr_node_win_workers:
+              transcodegpuWorkers: "1"
+          ansible.builtin.include_role:
+            name: tdarr_node_win
+            tasks_from: set_worker_env.yaml
+
+        - name: W4 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            w4_rejected: false
+      rescue:
+        - name: W4 setup - record that the assert fired
+          ansible.builtin.set_fact:
+            w4_rejected: true
+
+    # A string is rejected even though the value is cast to a string anyway: the point is to catch
+    # "1 " or "one", which cast cleanly and are read as zero.
+    - name: W4 - a string count is rejected
+      ansible.builtin.assert:
+        that: w4_rejected
+        fail_msg: "A string worker count was accepted; '1 ' and 'one' would pass too."
+        quiet: true

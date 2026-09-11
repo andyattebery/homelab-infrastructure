@@ -490,6 +490,19 @@
         github_release_install_binary_in_archive: "{{ item }}"
         github_release_install_binary_path: "{{ htpc_ffmpeg_dir }}/{{ item }}"
         github_release_install_use_tag_stamp: true
+        # For the env file the role writes for github-release-update, so a run of that script
+        # restarts the node the same way the stat/handler pair below does for a playbook run.
+        # Without it the script replaces ffmpeg and the node keeps executing the old build from
+        # its read-only bind mount, with nothing on the host saying so.
+        #
+        # ffmpeg only: the node never executes the ffprobe installed here, so replacing it is not
+        # a reason to interrupt a transcode.
+        #
+        # try-restart, not restart: it does nothing to a stopped unit, which is what keeps
+        # gpu-mode's deliberate stop from being undone behind someone's back. Same guard the
+        # service_facts check below applies, expressed in one word.
+        github_release_install_post_update_command: >-
+          {{ 'systemctl try-restart tdarr-node.service' if item == 'ffmpeg' else '' }}
       # Tdarr executes only ffmpeg from here. It probes with its own bundled ffprobe at
       # /app/Tdarr_Node/assets/app/ffmpeg/linux_x64/ffprobe -- confirmed in the node's
       # startup log -- so this does NOT put probing and encoding on one build, whatever an
@@ -584,14 +597,32 @@
         # The fork build installed above, in place of the image's bundled ffmpeg.
         podman_quadlet_tdarr_ffmpeg_dir: "{{ htpc_ffmpeg_dir }}"
 
-        # CPU-only for the first deploy. The AV1 flows are NVENC-only — their encode
-        # parameters (-preset p7, -tune uhq, -b_ref_mode middle) do not exist on VAAPI, and
-        # the iPad-kids flow tonemaps with tonemap_cuda. So GPU workers here would take work
-        # this card cannot execute. This proves registration, mounts and permissions first;
-        # raising transcodegpuWorkers waits on a VAAPI flow, which is a new RD measurement
-        # rather than a translation. See docs/tdarr-av1-flow.md.
-        podman_quadlet_tdarr_transcode_gpu_workers: 0
-        podman_quadlet_tdarr_transcode_cpu_workers: 1
+        # One GPU worker, no CPU worker — the count the iPad-kids recipe gives this host.
+        #
+        # The type is a gate, not a label: a transcode CPU worker reads the ffmpeg arguments
+        # and refuses any job containing nvenc/cuda/vaapi. Left at CPU-only this node would
+        # register, report healthy, and silently take nothing from the kids library, because
+        # all four of its vaapi leaves carry the word vaapi.
+        #
+        # This replaces the first-deploy CPU-only setting, whose stated condition was that
+        # raising transcodegpuWorkers "waits on a VAAPI flow". tdarr-flow-ipad-kids.json is
+        # that flow — it has hevc_vaapi leaves measured on this card. The AV1 archival flows
+        # are still NVENC-only and this node still cannot run them; that is now a per-library
+        # question, not a reason to hold the worker type down.
+        #
+        # ⚠ A GPU worker here means kids transcodes contend for the same 16 GB card as
+        # ComfyUI and llama-server. See the gpu-mode arbitration below.
+        podman_quadlet_tdarr_transcode_gpu_workers: 1
+        podman_quadlet_tdarr_transcode_cpu_workers: 0
+
+        # AMD_DEBUG=noefc on every AMD encode: EFC is unstable in upstream Mesa and jellyfin
+        # disables it for the same reason. A stability setting, not a correctness one.
+        #
+        # It has to be here rather than in the flow. Tdarr's Execute plugin spawns ffmpeg with
+        # an argument list and no environment override, so a flow cannot set it; ffmpeg picks
+        # it up by inheriting the container environment.
+        podman_quadlet_tdarr_extra_env:
+          AMD_DEBUG: noefc
 
         # No Network=, unlike comfyui and llama-swap: nothing proxies a Tdarr node. It has
         # no web UI, listens on nothing (nodeIP/nodePort have been legacy since 2.00.17),

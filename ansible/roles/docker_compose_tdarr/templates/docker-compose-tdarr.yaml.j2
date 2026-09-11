@@ -76,6 +76,11 @@ services:
       - healthcheckgpuWorkers=${TDARR_HEALTHCHECK_GPU_WORKERS{{ _sfx }}}
       - healthcheckcpuWorkers=${TDARR_HEALTHCHECK_CPU_WORKERS{{ _sfx }}}
 {% endif %}
+{# Caller-supplied, inline rather than via .env so two components on one host can differ without
+   needing an env suffix. Sorted so the rendered file does not churn when the dict is reordered. #}
+{% for name, value in (docker_compose_tdarr_extra_env | dictsort) %}
+      - {{ name }}={{ value }}
+{% endfor %}
 {% if docker_compose_tdarr_custom_ffmpeg_path is defined %}
       - ffmpegPath=/ffmpeg/ffmpeg
 {% endif %}

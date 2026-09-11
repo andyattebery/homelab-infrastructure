@@ -12,3 +12,36 @@ tdarr_node_win_install_dir: 'C:\Program Files\Tdarr'
 # ansible_user's profile, so a different value here would grant one account and autostart another.
 # The role asserts that rather than letting the two drift apart silently.
 tdarr_node_win_owner: "{{ ansible_user }}"
+
+# Worker counts, as Tdarr's own environment-variable names. Empty means the role does not manage
+# them and whatever the node has stays.
+#
+# These are NOT in Tdarr_Node_Config.json — Tdarr documents them under "Worker Configuration
+# (Node Only - Environment Variables)", and the file has no key for them. An environment variable
+# is the only way to set them from configuration.
+#
+# Set at USER level, for the account this play connects as, because that is the account whose
+# Startup folder autostarts the tray app. Two consequences, both from ansible-doc win_environment:
+# a user-level variable is "not available until the user has logged off and on again", and the
+# module "does not broadcast change events". A logoff/logon does both jobs at once here — it
+# applies the variable and restarts the node that reads it.
+#
+# Allowed keys, and nothing else:
+#   transcodegpuWorkers  transcodecpuWorkers  healthcheckgpuWorkers  healthcheckcpuWorkers
+#
+# Worker TYPE is not a separate setting — a worker's type is which count it came from. A node
+# with only CPU transcode workers refuses every job whose ffmpeg arguments contain nvenc, cuda or
+# vaapi, so it registers, reports healthy, and takes nothing from a hardware-accelerated library.
+tdarr_node_win_workers: {}
+
+# Extra environment for the node, as name: value. Empty means the role manages none.
+#
+# Same level and same caveats as tdarr_node_win_workers above: USER level, for the account this
+# play connects as, applied on the next logoff/logon.
+#
+# For anything the node's ffmpeg reads at runtime. A Tdarr flow cannot set an environment
+# variable, so it has to arrive this way.
+#
+# NOT for telling nodes apart in a flow — Node Tags do that, are writable over the API
+# (POST /api/v2/update-node) despite the UI gating them, and a flow reads args.nodeTags directly.
+tdarr_node_win_extra_env: {}

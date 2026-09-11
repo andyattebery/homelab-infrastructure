@@ -30,11 +30,6 @@
     # AV1 flows need and the node's bundled ffmpeg has not got. host_vars derives
     # tdarr_node_win_ffmpeg_path from eta_ffmpeg_dir, so this directory and ffmpegPath are one
     # value and cannot drift.
-    #
-    # The host also carries 'ffmpeg (jellyfin-nvenc-n13.0.19.1)' and 'ffmpeg (BtbN)', unpacked by
-    # hand and left alone — Ansible does not delete what it did not install. Safe to remove once
-    # this play has run AND the node has been restarted; until then the running node is still
-    # executing whichever one its startup config named.
     - name: Install jellyfin-ffmpeg (fork build with av1_nvenc)
       tags: [tdarr, ffmpeg]
       ansible.builtin.include_role:

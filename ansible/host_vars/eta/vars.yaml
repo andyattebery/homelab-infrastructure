@@ -42,6 +42,21 @@ tdarr_node_win_node_type: mapped
 tdarr_node_win_priority: -1
 tdarr_node_win_log_level: INFO
 
+# Worker counts. NOT one of the nine config keys above — Tdarr keeps these outside
+# Tdarr_Node_Config.json entirely and documents them as environment-only, so the role sets them as
+# user-level environment variables instead. Applying a change needs a logoff/logon of the Tdarr
+# account, which also restarts the node; the role says so when it changes them.
+#
+# One GPU transcode worker, no CPU one — the count the iPad-kids recipe gives this host. Type is a
+# gate, not a label: a CPU transcode worker refuses any job whose ffmpeg arguments contain
+# nvenc/cuda/vaapi, so a CPU-only node would register, report healthy, and take nothing from a
+# hardware-accelerated library.
+tdarr_node_win_workers:
+  transcodegpuWorkers: 1
+  transcodecpuWorkers: 0
+  healthcheckgpuWorkers: 0
+  healthcheckcpuWorkers: 1
+
 # Tdarr wants a single forward slash for local paths, so these are NOT the backslash form above.
 # split + path_join rather than a string substitution: path_join is controller-side os.path.join
 # and the controller is always POSIX (Ansible cannot run on Windows), so it always emits `/`.

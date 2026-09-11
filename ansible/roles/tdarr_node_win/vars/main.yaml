@@ -50,3 +50,11 @@ tdarr_node_win__config_skeleton:
   maxLogSizeMB: 10
   pollInterval: 2000
   startPaused: false
+
+# The only keys tdarr_node_win_workers may carry. In vars/ rather than defaults/ because it is the
+# role's own constant, not something a caller sets.
+__tdarr_node_win_worker_keys:
+  - transcodegpuWorkers
+  - transcodecpuWorkers
+  - healthcheckgpuWorkers
+  - healthcheckcpuWorkers

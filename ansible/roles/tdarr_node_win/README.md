@@ -47,6 +47,37 @@ Worth knowing rather than arguing: a standard user with Full Control on a subtre
 `C:\Program Files` can replace the binaries in it. That is inherent to running Tdarr from there as
 that user.
 
+## Worker counts and node environment
+
+- `tdarr_node_win_workers` — default `{}`, meaning unmanaged. A dict keyed by Tdarr's own
+  environment-variable names, integer values:
+  `transcodegpuWorkers`, `transcodecpuWorkers`, `healthcheckgpuWorkers`, `healthcheckcpuWorkers`.
+  Any other key, or a non-integer value, fails the assert rather than being written.
+
+- `tdarr_node_win_extra_env` — default `{}`, meaning unmanaged. Any other environment variables
+  the node should have, as name/value pairs. Merged with the worker counts into a single
+  `win_environment` call, since both are user-level environment for the account running the node.
+  For anything the node's ffmpeg reads at runtime. ⚠ Not for identifying the node in a flow —
+  Node Tags do that, are writable over `POST /api/v2/update-node` despite the UI gating them,
+  and a flow reads `args.nodeTags` directly.
+
+Worker counts are **not** part of `Tdarr_Node_Config.json` and cannot be — Tdarr documents them under
+*"Worker Configuration (Node Only - Environment Variables)"*, and the file has no key for them.
+So they are set as environment variables instead, at **user** level, for the account this play
+connects as. That has to be the account running the tray app, so the role asserts
+`tdarr_node_win_owner == ansible_user` before writing them.
+
+⚠ **A change needs a logoff/logon, not just a node restart.** `ansible-doc win_environment`:
+user-level variables are *"not available until the user has logged off and on again"*, and the
+module *"does not broadcast change events"*. Since the node autostarts from that account's Startup
+folder, one logoff/logon does both jobs — applies the variable and restarts the node that reads it.
+The role prints this when it changes something.
+
+⚠ **Worker TYPE is a gate, not a label.** A worker's type is simply which count it came from. A
+node with only CPU transcode workers refuses every job whose ffmpeg arguments contain `nvenc`,
+`cuda` or `vaapi` — it registers, reports healthy, and takes nothing from a hardware-accelerated
+library.
+
 ## Node config inputs
 
 Nine keys of `Tdarr_Node_Config.json` can be managed. **All are optional, and unset means
@@ -127,10 +158,15 @@ network:
 | `vars/main.yaml` (the skeleton) | the 17-key file a fresh host gets | C9, C13, C20 |
 | `tasks/select_updater_url.yaml` | which updater to download, and from what URL | C14-C16 |
 | `tasks/check_updater_result.yaml` | whether an updater run failed | C17-C19 |
+| `tasks/set_worker_env.yaml` | the worker-count env dict, and what it refuses | W1-W4 |
 
-The last two exist as separate files **because** they need testing. `check_updater_result.yaml` is
-the whole failure detector for a tool that dismantles an install and then exits 0, so the string
-check is the only thing standing between a failed play and silent destruction.
+`select_updater_url.yaml`, `check_updater_result.yaml` and `set_worker_env.yaml` exist as separate
+files **because** they need testing — each is pure computation lifted out of `main.yaml`, which
+cannot be driven without a Windows host. `check_updater_result.yaml` is the whole failure detector
+for a tool that dismantles an install and then exits 0, so the string check is the only thing
+standing between a failed play and silent destruction. `set_worker_env.yaml` guards a name nothing
+below it validates: `win_environment` sets whatever it is given and Tdarr ignores a variable it
+does not know, so a misspelt worker key deploys clean and changes nothing.
 
 Every case has a positive control — the mutation that must make it fail is recorded in
 `ansible/tests/fixtures/README.md` alongside where each fixture came from. Two lessons are baked in

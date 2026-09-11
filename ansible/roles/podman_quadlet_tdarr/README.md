@@ -41,6 +41,16 @@ database — see `docker_compose_tdarr` for a Docker-Compose one.
 - `podman_quadlet_tdarr_healthcheck_gpu_workers` / `_healthcheck_cpu_workers` — default
   `0` / `1`. All four are environment-variable-only on a node: they cannot be changed from
   the Tdarr UI, so changing them here is the only way.
+  ⚠ **Worker TYPE is a gate, not a label.** A transcode CPU worker reads the ffmpeg arguments
+  and refuses any job containing `nvenc`, `cuda`, `vaapi` and the like; a transcode GPU worker
+  is the one that takes them. A node set to CPU-only silently processes nothing from a library
+  whose flow is hardware-accelerated — it registers, reports healthy, and takes no work.
+- `podman_quadlet_tdarr_extra_env` — default `{}`, one `Environment=` per key. For variables
+  the **transcoder** reads, not ones Tdarr reads; Tdarr's own settings have named inputs above.
+  ffmpeg runs as a child of the node process and inherits the container environment, which is
+  the only route to it — a flow builds an argument list and has no environment override, so
+  anything that is not an ffmpeg flag cannot be set from a flow. Left empty, nothing is
+  emitted. See "Environment for the transcoder".
 - `podman_quadlet_tdarr_ffmpeg_dir` — default empty, meaning the image's bundled ffmpeg.
   Set to a host directory and it is bind-mounted read-only with `ffmpegPath` pointed inside
   it. **Must contain the ffmpeg payload and nothing else** — see "Bringing your own ffmpeg".
@@ -205,6 +215,20 @@ Two things this does *not* do:
 The directory becomes a `Volume=` source like any other, so `podman_quadlet` will chown it to
 the PUID on every run — create it with that ownership, or it reports *changed* forever. See
 "PUID must match the mount's owner".
+
+## Environment for the transcoder
+
+`podman_quadlet_tdarr_extra_env` exists because there is no other way to reach ffmpeg's
+environment. A Tdarr flow assembles an argument vector and the Execute plugin spawns
+`ffmpegPath` with no environment override, so a variable ffmpeg or its libraries read at
+runtime cannot come from the flow. It has to be on the container, which ffmpeg inherits as a
+child of the node process.
+
+The case it was added for is `AMD_DEBUG=noefc` on a VAAPI node. EFC is unstable in upstream
+Mesa and jellyfin disables it for the same reason. It is a **stability** setting, not a
+correctness one: an AMD encode runs without it.
+
+Keys are emitted sorted, so the rendered unit does not churn when the dict is reordered.
 
 ## Accelerators are a device list
 

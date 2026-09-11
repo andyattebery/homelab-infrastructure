@@ -1,0 +1,42 @@
+---
+## Pure computation, no I/O — so it can be exercised by a local test with no Windows host.
+## See ansible/tests/test-tdarr-node-win-config.yml, cases W1-W4.
+##
+## Inputs:
+##   - tdarr_node_win_workers   dict of Tdarr worker env names to integer counts
+## Output fact: __tdarr_node_win_worker_env, the same dict with values cast to strings
+
+# Two separate asserts rather than one, so the failure message names which rule was broken.
+#
+# The key check exists because a wrong name is silent at every layer below: win_environment sets
+# whatever it is given, and Tdarr ignores a variable it does not know, so `transcodeGpuWorkers`
+# would deploy clean and change nothing.
+- name: Assert worker keys are ones Tdarr reads
+  ansible.builtin.assert:
+    that:
+      - tdarr_node_win_workers.keys() | difference(__tdarr_node_win_worker_keys) | length == 0
+    fail_msg: >-
+      tdarr_node_win_workers accepts only {{ __tdarr_node_win_worker_keys | join(', ') }}.
+      Got {{ tdarr_node_win_workers.keys() | list }}. Tdarr silently ignores any other name, so
+      a typo here would deploy without error and do nothing.
+    quiet: true
+
+# `| type_debug == 'int'` for the same reason set_node_config.yaml asserts types. The value
+# reaches Tdarr as a string either way, but "1 " or "one" would pass through unnoticed and be
+# read as a worker count of zero.
+- name: Assert worker values are integers
+  ansible.builtin.assert:
+    that:
+      - tdarr_node_win_workers.values() | map('type_debug') | unique | list == ['int']
+    fail_msg: >-
+      tdarr_node_win_workers values must be integers, not strings. Got
+      {{ tdarr_node_win_workers.values() | map('type_debug') | unique | list }}.
+    quiet: true
+
+# win_environment takes strings. Cast here rather than at the call site so the test sees the
+# value that will actually be written.
+- name: Set __tdarr_node_win_worker_env
+  ansible.builtin.set_fact:
+    __tdarr_node_win_worker_env: >-
+      {{ dict(tdarr_node_win_workers.keys()
+              | zip(tdarr_node_win_workers.values() | map('string'))) }}

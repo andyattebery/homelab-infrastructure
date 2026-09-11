@@ -12,6 +12,13 @@ test cannot fail, which is the failure mode these tests exist to prevent.
 | `github-release-jellyfin-ffmpeg.json` | **Shape is real, values are not.** Trimmed to the fields the role reads, with the four asset names exactly as `andyattebery/jellyfin-ffmpeg` publishes them — that `winarm64-clang-gpl.zip` sits next to `win64-clang-gpl.zip` is the whole reason the role asserts *exactly one* match. Ids and digests are placeholders; `browser_download_url` points at `example.invalid` so a test that accidentally fetches fails loudly. |
 | `github-release-no-digest.json` | **Constructed.** A release with no `digest` on its asset, which the live GitHub API no longer produces. Exercises the `id:<n>` fallback — the branch that keeps the stamp meaningful on older responses and cannot be reached with current data. |
 
+Both `github-release-*.json` files now have a second consumer:
+`roles/github_release_install/tests/`, the pytest suite for the on-host updater. That suite builds
+its remaining fixtures in a tempdir rather than committing them — tarballs, a stub `.deb` and a bare
+binary, served to the script over `file://` URLs so nothing reaches the network. The two committed
+files stay committed because neither can be constructed from current API data: one carries four real
+asset names including a near-miss pair, the other predates `digest`.
+
 
 ## Positive controls
 
@@ -28,9 +35,33 @@ making the mutation and confirming that case — and not a different one — wen
 | C16 | delete the non-empty assert | fails, and names the real cause: "No last item, sequence was empty" |
 | C17 / C18 / C19 | pin the detector to `false` / `true`; drop the empty-stdout clause | each fails |
 | C20 | `to_json(indent=2)` → `indent=4` | fails on content (line count is unchanged) |
+| W1 / W2 | drop `\| map('string')` from the cast | fails at W1 on `1` vs `'1'`; the run stops there, so W2 shares this control |
+| W3 | make the key assert always pass | fails, and names `transcodeGpuWorkers` — nothing below this assert would have |
+| W4 | make the type assert always pass | fails on the string count |
 | gh C3 | delete the exactly-one assert | fails |
 | gh C2 | stamp → tag-only; or take the fingerprint from an unselected asset | fails on both |
 | gh C5 | drop the `id:` fallback | fails |
+
+| gru U1 | stamp comparison → tag only | fails on the replaced-asset case |
+| gru U2 | drop the `id:` fallback from `asset_fingerprint` | fails on the no-digest fixture |
+| gru U3 | replace the binary unconditionally (drop the `filecmp` guard) | fails: mtime moves and the post-update command runs |
+| gru U4 | `strip_leading_v` → `tag.replace("v", "")` | fails on `v8.1.2-3+nvenc-…` |
+| gru U5 | move the binary-exists check after the API call | fails: the orphan case reaches the network |
+| gru U6 | run `POST_UPDATE_COMMAND` on an unchanged binary | fails on the identical-bytes case |
+| gru U7 | stop substituting `${VERSION}` | fails on the nested versioned directory |
+| gru U8 | source the env file instead of parsing it | fails: the payload line executes |
+| gru U9 | force the symlink over a regular file | fails: the occupied target is clobbered |
+| gru U10 | take the last matching asset instead of the first | fails on the ambiguous-pattern case |
+| gru U11 | write the stamp before the install rather than after | fails: a failed download leaves a current stamp |
+| grua M1 | stop on the first failing install | fails: the installs after it never run |
+| grua M2 | count `SKIP` as a failure | fails: an orphaned env file makes the run red |
+| grua M3 | accept an unrecognised status word | fails: a changed worker looks healthy |
+| grua M4 | glob `*` instead of `*.env` | fails: a README is treated as an install |
+| grua M6 | drop the `--force` passthrough | fails on the flag round-trip |
+| gri F1 | expand `${VERSION}` when rendering the env file | fails on the rendered-value case |
+| gri F2 | hardcode an architecture in the env template | fails: the pattern is not this host's |
+| gri F3 | emit the whole `_asset_patterns` dict | fails: the value is a dict, not a pattern |
+| gri F5 | drop a setting from the env template | fails the 14-settings case-set check |
 
 Two of these took a second attempt, and the reason is worth keeping:
 
@@ -40,6 +71,24 @@ Two of these took a second attempt, and the reason is worth keeping:
 - **C15 was masked by C14.** Every mutation also moved the chosen version, so C14 failed first and
   C15 never had to be right. The fixture was restructured so every non-candidate sorts *below* the
   winner; a broken filter now grows the candidate list without changing the answer.
+
+The `gru`/`grua`/`gri` rows above cost three more attempts, in the same two shapes:
+
+- **A case that asserted on the standard library.** `test_leading_v_stripped_once_only` called
+  `re.sub` directly, so no mutation of the script could turn it red — it verified that Python works.
+  Fixed by extracting `strip_leading_v()` and testing that. Same failure as C16: the case was not
+  pointed at the code.
+- **A payload that was not live.** The env-file injection case used `REPO='$(touch x)'`, which a
+  shell would not expand inside single quotes either — so a *sourcing* implementation would have
+  passed it too. Rewritten to `REPO='a'; touch x`, and a second case now runs that exact line
+  through `sh` to prove the payload executes. Without that companion, the rejection case was
+  describing a harmless string.
+- **A control with nothing to bite on.** First-vs-last asset selection could not be detected while
+  the only case used a pattern matching exactly one asset. An ambiguous case was added.
+
+Also worth recording: `gri F1` lands on C1 rather than C2, because C1 asserts the whole rendered
+value and runs first. C2 is a narrower restatement, kept for what it documents rather than for
+independent coverage — the C15 masking shape, accepted deliberately this time.
 
 The general shape: a fixture assembled from whatever real data was to hand tends to agree with the
 code that produced it. Build it to disagree.

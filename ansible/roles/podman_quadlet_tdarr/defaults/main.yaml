@@ -23,6 +23,18 @@ podman_quadlet_tdarr_transcode_cpu_workers: 2
 podman_quadlet_tdarr_healthcheck_gpu_workers: 0
 podman_quadlet_tdarr_healthcheck_cpu_workers: 1
 
+# Extra environment for the container, as name: value. Empty means none.
+#
+# This is for variables the TRANSCODER reads, not variables Tdarr reads — Tdarr's own settings
+# have named inputs above. ffmpeg is spawned as a child of the node process and inherits the
+# container environment, which is the only way to reach it: a Tdarr flow builds an argument
+# list and has no environment override, so anything that is not an ffmpeg flag cannot be set
+# from a flow.
+#
+# The case this exists for is AMD_DEBUG=noefc on a VAAPI node. EFC is unstable in upstream
+# Mesa; without it the AMD encode is less stable, though not incorrect.
+podman_quadlet_tdarr_extra_env: {}
+
 # The library, as an opaque list of mounts. REQUIRED and asserted non-empty: a node with
 # nothing mounted registers, reports healthy, and processes nothing.
 #

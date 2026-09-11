@@ -218,6 +218,8 @@
         # replaceHardlinks embed the hardlink-manager URL as {{ domain_name }}.
         # The flows themselves are imported through the Tdarr UI, not deployed.
         docker_compose_src_config_files:
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/checkNodeTag/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/checkNodeTag/1.0.0/index.js
           - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/checkVideoProperties/1.0.0/index.js
             dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/checkVideoProperties/1.0.0/index.js
           - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/detectHardlinks/1.0.0/index.js
@@ -226,6 +228,10 @@
             dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/keepOriginalDate/1.0.0/index.js
           - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
             dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/replaceHardlinks/1.0.0/index.js
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/selectOutputStreams/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/selectOutputStreams/1.0.0/index.js
+          - src_file_path: files/media-01/tdarr/tdarr-plugins/FlowPlugins/LocalFlowPlugins/tools/setScaledGeometry/1.0.0/index.js
+            dst_relative_file_path: tdarr/server/Tdarr/Plugins/FlowPlugins/LocalFlowPlugins/tools/setScaledGeometry/1.0.0/index.js
         # docker_compose_tdarr_hardlink_disks is set in host_vars/media-01/vars.yaml, from
         # storage_media_data_disks. Not repeated here: a role var would outrank the host var
         # and the test could no longer see the value this play uses.

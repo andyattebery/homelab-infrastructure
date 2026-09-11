@@ -31,6 +31,12 @@ Namespacing, for a host running two invocations:
   writes into the host's shared `.env`. Leave it empty on a host running one component. Give each
   invocation its own value (`_SERVER`, `_NODE`) on a host running two, or the later invocation
   redefines the earlier one's worker counts and `nodeName`.
+- `docker_compose_tdarr_extra_env` — default `{}`, one `environment:` entry per key. Written
+  **straight into the compose file, not through `.env`**, so `docker_compose_tdarr_env_suffix`
+  does not apply and two components on one host get independent values without needing a suffix.
+  That is the point: this exists to tell them apart. Keys are emitted sorted, so the rendered
+  file does not churn when the dict is reordered. ⚠ The compose file is world-readable — nothing
+  secret. See "Labelling a component for flow routing".
 
 Node connection — read only when the component is `node`:
 
@@ -197,6 +203,26 @@ but is not plumbed anywhere — see its entry under Inputs.
 
 The container will see every render node on the host, including a discrete card's. That is the
 cost of keeping the names real.
+
+## Labelling a component for flow routing
+
+A Tdarr flow **cannot set an environment variable** — the Execute plugin spawns ffmpeg with no
+environment override. So anything ffmpeg or its libraries read at runtime has to be on the
+container. That is what `docker_compose_tdarr_extra_env` is for; the live user is
+`AMD_DEBUG=noefc` on a VAAPI node.
+
+⚠ **Do not use it to tell one component from another in a flow.** Node Tags are the native
+mechanism and a flow reads them directly as `args.nodeTags`. The Tdarr UI gates editing that
+field, but it **is writable over the API** —
+`POST /api/v2/update-node {"data":{"nodeID":"…","nodeUpdates":{"nodeTags":"…"}}}` — so it is
+settable without a licence. ⚠ Resolve the `nodeID` from `/api/v2/get-nodes` at run time; node
+IDs are **not** stable across restarts.
+
+⚠ **Tag by the specific card, not by encoder or vendor.** Settings are measured per card:
+`-qp 15` is a property of an A4000, not of `hevc_nvenc`. And an encoder probe cannot separate
+vendors that implement the same encoder — an Intel Arc and an AMD card both pass a `hevc_vaapi`
+probe, so a recipe whose VAAPI settings were measured on one would silently be applied to the
+other.
 
 ## One host running both server and node
 

@@ -249,3 +249,48 @@
         msg: >-
           Tdarr_Node_Config.json changed. A running node holds the settings it read at startup, so
           restart it for this to take effect. Writing the file while the node runs is safe.
+
+# --- worker counts -----------------------------------------------------------------------------
+# Separate from the node config above because Tdarr keeps these outside it: they are
+# environment-only, so the merge-into-JSON path cannot reach them.
+- name: Manage node environment variables
+  when: (tdarr_node_win_workers | length + tdarr_node_win_extra_env | length) > 0
+  block:
+    # level: user sets the variable for the account Ansible connects as. The tray app is
+    # autostarted from that account's Startup folder, so the two have to be the same account or
+    # the variable lands where nothing reads it. Kept here rather than in set_worker_env.yaml
+    # because it is about the connection, not about the value.
+    - name: Assert the Tdarr identity is the connecting user
+      ansible.builtin.assert:
+        that: tdarr_node_win_owner == ansible_user
+        fail_msg: >-
+          A node environment variable is set, but tdarr_node_win_owner is
+          '{{ tdarr_node_win_owner }}' while this play connects as '{{ ansible_user }}'.
+          These are set as USER-level environment variables for the connecting user, and the node
+          runs as tdarr_node_win_owner, so the two must be the same account.
+        quiet: true
+
+    - name: Compute the worker environment
+      when: tdarr_node_win_workers | length > 0
+      ansible.builtin.include_tasks: set_worker_env.yaml
+
+    # One call for both, because they are the same kind of thing — user-level environment for the
+    # account running the node. `default({})` covers the case where only extra_env is set, which
+    # leaves set_worker_env.yaml above unrun and its fact undefined.
+    - name: Set the node environment variables
+      ansible.windows.win_environment:
+        level: user
+        variables: >-
+          {{ (__tdarr_node_win_worker_env | default({}))
+             | combine(tdarr_node_win_extra_env) }}
+      register: tdarr_node_win_workers_env
+
+    # noqa no-handler: no handler to notify — this role does not own the node process.
+    - name: Note that the user must log off and on # noqa no-handler
+      when: tdarr_node_win_workers_env is changed
+      ansible.builtin.debug:
+        msg: >-
+          Node environment changed. A user-level environment variable is not visible to a
+          running session, and the node reads its environment at startup, so log
+          {{ tdarr_node_win_owner }} off and on again. That applies the variable and restarts the
+          tray app from the Startup folder in one step.

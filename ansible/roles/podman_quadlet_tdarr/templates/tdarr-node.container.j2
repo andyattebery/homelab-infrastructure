@@ -68,6 +68,13 @@ Environment=transcodecpuWorkers={{ podman_quadlet_tdarr_transcode_cpu_workers }}
 Environment=healthcheckgpuWorkers={{ podman_quadlet_tdarr_healthcheck_gpu_workers }}
 Environment=healthcheckcpuWorkers={{ podman_quadlet_tdarr_healthcheck_cpu_workers }}
 
+{# Kept separate from the block above: those are Tdarr's own settings, these are for the
+   ffmpeg the node spawns as a child, which inherits this environment. A flow cannot set them
+   — it builds an argument list and Execute spawns with no environment override. #}
+{% for name, value in (podman_quadlet_tdarr_extra_env | dictsort) %}
+Environment={{ name }}={{ value }}
+{% endfor %}
+
 {# /app/configs, /app/logs and /temp are the image's own paths, not host layout. /app/configs
    also persists the node's identity and its resolved server URL — see the README. #}
 Volume={{ podman_quadlet_tdarr_data_dir }}/configs:/app/configs

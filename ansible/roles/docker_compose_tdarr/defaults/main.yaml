@@ -17,6 +17,23 @@ docker_compose_tdarr_component: ""
 # SMB_STORAGE_* is never suffixed: it is shared with other roles on purpose.
 docker_compose_tdarr_env_suffix: ""
 
+# Extra environment for the container, as name: value. Empty means none.
+#
+# Written STRAIGHT INTO the compose file, not through `.env`, and so not touched by
+# docker_compose_tdarr_env_suffix. Two components on one host therefore get independent values
+# without needing a suffix, which is the point: this exists to tell them apart.
+#
+# The live user is AMD_DEBUG=noefc on a VAAPI node — see podman_quadlet_tdarr for the same idea.
+# A Tdarr flow cannot set an environment variable (Execute spawns ffmpeg with no environment
+# override), so anything ffmpeg or its libraries read at runtime has to arrive this way.
+#
+# NOT for telling components apart in a flow — use Node Tags for that. They are writable over
+# the API (POST /api/v2/update-node) despite the UI gating the field, and a flow reads them
+# directly as args.nodeTags.
+#
+# ⚠ Values land in a world-readable compose file. Nothing secret.
+docker_compose_tdarr_extra_env: {}
+
 # Where a NODE dials to reach the server. Not the server's own settings — the server listens on
 # 0.0.0.0:8266 unconditionally.
 docker_compose_tdarr_server_ip: "tdarr.{{ domain_name }}"

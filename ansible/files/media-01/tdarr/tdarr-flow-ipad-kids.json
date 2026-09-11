@@ -1,7 +1,7 @@
 {
-  "name": "iPad Kids \u2014 HEVC/SDR mp4 (2d-animation + standard)",
-  "description": "Derivative iPad-kids copies. Branch profile by /2d-animation/ path segment and HDR by checkHdr. HDR->SDR via tonemap_cuda bt2390 (param=0.5, limited range, 10-bit p010). Fully GPU-resident: nvdec -> scale_cuda -> tonemap_cuda -> hevc_nvenc, no hwupload/hwdownload. standard = <=1080p ceiling (downscale-only) p4 cq32; 2d-animation = NATIVE res (no scale) p3 cq34. HDR and SDR share the same cq per profile. mp4, AAC stereo, no subs. Integrity guard then Move To Directory (library output_dir, keep relative path). Never replaces originals. Requires the Tdarr container's shipped jellyfin-ffmpeg: tonemap_cuda is a jellyfin-only filter, and -tune uhq is deliberately absent because jellyfin-ffmpeg compiles it out (nv-codec-headers n12.0.16.1).",
-  "tags": "video,hevc,ipad,kids,tonemap,derivative",
+  "name": "iPad Kids — HEVC/SDR mp4 (standard + 2d-animation, nvenc + vaapi)",
+  "description": "Derivative iPad-kids travel copies. Built from the eight kids-lane scenario blocks in TDARR-TRANSCODE-PLAN.md. Never replaces originals — output goes to the library output_dir with the relative path kept.\n\nBranch order is checkHdr, then the /2d-animation/ path test, then the card test, giving eight leaves.\n\nTHE CARD TEST READS NODE TAGS. checkNodeTag matches args.nodeTags, which is the label on the node that picked the job up: 9070xt takes the AMD vaapi leaves, a4000 or 5060ti take the NVIDIA nvenc ones, anything else hits Fail (No Leaf For This Card). Tag the nodes with POST /api/v2/update-node; resolve the nodeID from /api/v2/get-nodes at run time, node IDs are not stable. The Tdarr UI gates editing the field but the API does not.\n\nIT KEYS ON THE CARD, NOT THE ENCODER OR VENDOR, because that is what was measured. -qp 15 is a property of an A4000, not of hevc_nvenc. a4000 and 5060ti share the nvenc leaves only because the recipe gives both the same cq, both measured. It is NOT checkNodeHardwareEncoder: that runs a real one-second test encode on every job and is blind to vendor — an Intel Arc and an AMD card both pass a hevc_vaapi probe, so an Arc would take leaves whose global_quality was measured on RDNA.\n\nA card with no leaf FAILS rather than falling through to a default branch. With every node tagged and the Arc paused that terminal is unreachable, so if it fires the configuration is wrong — an untagged node, a new card, or a typo in a tag.\n\nstandard: <=1080p ceiling, w=-2:h=min(1080,ih) on ALL FOUR of its leaves so any host emits the same geometry for a title. p4 cq28 (nvenc) / global_quality 22 (vaapi).\n2d-animation: native resolution, no scale. p3 cq34 (nvenc) / global_quality 26 (vaapi).\nHDR->SDR is tonemap_cuda bt2390 on nvenc and libplacebo on vaapi; the libplacebo leaves pin bt709 primaries/trc/colorspace because it does not relabel its own output, and the SDR leaves must not pin them.\nEvery vaapi leaf carries pad_vaapi AND -bsf:v hevc_metadata — one fix, neither optional, or Apple players reject the file. The display dimensions come from the setScaledGeometry local plugin because they are not always 1920x1080.\n\nNo -tune: it costs 51-64% throughput on these lanes and this flow exists for throughput. That rejection is on throughput, not availability — the deployed jellyfin-ffmpeg fork does provide uhq.\n-rc-lookahead is 8: above that is throughput lost for nothing, quality is flat.\n\nAudio is default-disposition WITH A FALLBACK to the first stream, via the selectOutputStreams local plugin. Roughly a fifth of this library flags no default audio at all, and the community Remove Stream By Property plugin has no fallback — it removes every audio stream and the file ships silent. Copy-vs-encode tests the stream actually kept, not whether the file has an aac stream somewhere.\n\nSubtitles: text kept and encoded to mov_text, bitmap removed. A bitmap subtitle reaching -c:s mov_text FAILS THE WHOLE ENCODE rather than being skipped.\n\nAMD_DEBUG=noefc is NOT set here and cannot be: Execute spawns ffmpeg with no environment override. It is set on the htpc-01 node container instead.",
+  "tags": "video,hevc,ipad,kids,tonemap,derivative,vaapi,nvenc",
   "flowPlugins": [
     {
       "name": "Input File",
@@ -23,7 +23,7 @@
       "id": "ffStart1",
       "inputsDB": {},
       "position": {
-        "x": 300,
+        "x": 250,
         "y": 0
       }
     },
@@ -38,8 +38,37 @@
         "forceConform": "true"
       },
       "position": {
-        "x": 600,
+        "x": 500,
         "y": 0
+      }
+    },
+    {
+      "name": "Select Output Streams",
+      "sourceRepo": "Local",
+      "pluginName": "selectOutputStreams",
+      "version": "1.0.0",
+      "id": "selectStreams1",
+      "inputsDB": {
+        "audioMode": "defaultWithFallback",
+        "keepFirstVideoOnly": "true",
+        "dropAttachments": "true",
+        "subtitleMode": "textOnly"
+      },
+      "position": {
+        "x": 750,
+        "y": 0
+      }
+    },
+    {
+      "name": "Fail (No Audio)",
+      "sourceRepo": "Community",
+      "pluginName": "failFlow",
+      "version": "1.0.0",
+      "id": "failNoAudio",
+      "inputsDB": {},
+      "position": {
+        "x": 750,
+        "y": -900
       }
     },
     {
@@ -50,7 +79,7 @@
       "id": "checkHdr1",
       "inputsDB": {},
       "position": {
-        "x": 900,
+        "x": 1150,
         "y": 0
       }
     },
@@ -67,8 +96,8 @@
         "fileToCheck": "originalFile"
       },
       "position": {
-        "x": 1200,
-        "y": -150
+        "x": 1320,
+        "y": -400
       }
     },
     {
@@ -84,81 +113,267 @@
         "fileToCheck": "originalFile"
       },
       "position": {
-        "x": 1200,
-        "y": 150
+        "x": 1320,
+        "y": 400
       }
     },
     {
-      "name": "STD+HDR (<=1080p p4 cq32)",
+      "name": "Fail (No Geometry)",
       "sourceRepo": "Community",
-      "pluginName": "ffmpegCommandCustomArguments",
+      "pluginName": "failFlow",
       "version": "1.0.0",
-      "id": "leafStdHdr",
+      "id": "failGeometry",
+      "inputsDB": {},
+      "position": {
+        "x": 1750,
+        "y": -1100
+      }
+    },
+    {
+      "name": "AMD 9070 XT?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "gpuAnimHdr",
       "inputsDB": {
-        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
-        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih),tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 32 -tag:v hvc1"
+        "tags": "9070xt"
       },
       "position": {
         "x": 1500,
+        "y": -600
+      }
+    },
+    {
+      "name": "Geometry (native)",
+      "sourceRepo": "Local",
+      "pluginName": "setScaledGeometry",
+      "version": "1.0.0",
+      "id": "geoAnimHdr",
+      "inputsDB": {
+        "mode": "native"
+      },
+      "position": {
+        "x": 1750,
+        "y": -500
+      }
+    },
+    {
+      "name": "AMD 9070 XT?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "gpuStdHdr",
+      "inputsDB": {
+        "tags": "9070xt"
+      },
+      "position": {
+        "x": 1500,
+        "y": -200
+      }
+    },
+    {
+      "name": "Geometry (scaled1080)",
+      "sourceRepo": "Local",
+      "pluginName": "setScaledGeometry",
+      "version": "1.0.0",
+      "id": "geoStdHdr",
+      "inputsDB": {
+        "mode": "scaled1080"
+      },
+      "position": {
+        "x": 1750,
         "y": -100
       }
     },
     {
-      "name": "STD+SDR (<=1080p p4 cq32)",
-      "sourceRepo": "Community",
-      "pluginName": "ffmpegCommandCustomArguments",
+      "name": "AMD 9070 XT?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
       "version": "1.0.0",
-      "id": "leafStdSdr",
+      "id": "gpuAnimSdr",
       "inputsDB": {
-        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
-        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih):format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 32 -tag:v hvc1"
+        "tags": "9070xt"
       },
       "position": {
         "x": 1500,
+        "y": 200
+      }
+    },
+    {
+      "name": "Geometry (native)",
+      "sourceRepo": "Local",
+      "pluginName": "setScaledGeometry",
+      "version": "1.0.0",
+      "id": "geoAnimSdr",
+      "inputsDB": {
+        "mode": "native"
+      },
+      "position": {
+        "x": 1750,
         "y": 300
       }
     },
     {
-      "name": "2DANIM+HDR (native p3 cq34)",
-      "sourceRepo": "Community",
-      "pluginName": "ffmpegCommandCustomArguments",
+      "name": "AMD 9070 XT?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
       "version": "1.0.0",
-      "id": "leafAnimHdr",
+      "id": "gpuStdSdr",
       "inputsDB": {
-        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
-        "outputArguments": "-vf tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1"
+        "tags": "9070xt"
       },
       "position": {
         "x": 1500,
+        "y": 600
+      }
+    },
+    {
+      "name": "Geometry (scaled1080)",
+      "sourceRepo": "Local",
+      "pluginName": "setScaledGeometry",
+      "version": "1.0.0",
+      "id": "geoStdSdr",
+      "inputsDB": {
+        "mode": "scaled1080"
+      },
+      "position": {
+        "x": 1750,
+        "y": 700
+      }
+    },
+    {
+      "name": "standard HDR nvenc (p4 cq28)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafStdHdrNv",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih),tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 8 -b_ref_mode middle -g 120 -cq 28 -tag:v hvc1 -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
         "y": -300
       }
     },
     {
-      "name": "2DANIM+SDR (native p3 cq34)",
+      "name": "standard SDR nvenc (p4 cq28)",
       "sourceRepo": "Community",
       "pluginName": "ffmpegCommandCustomArguments",
       "version": "1.0.0",
-      "id": "leafAnimSdr",
+      "id": "leafStdSdrNv",
       "inputsDB": {
         "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
-        "outputArguments": "-vf scale_cuda=format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 32 -spatial-aq 1 -temporal-aq 1 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1"
+        "outputArguments": "-vf scale_cuda=w=-2:h=min(1080\\,ih):format=p010le -c:v hevc_nvenc -preset p4 -rc vbr -b:v 0 -rc-lookahead 8 -b_ref_mode middle -g 120 -cq 28 -tag:v hvc1 -c:s mov_text"
       },
       "position": {
-        "x": 1500,
+        "x": 2050,
+        "y": 500
+      }
+    },
+    {
+      "name": "standard HDR vaapi (gq22)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafStdHdrVa",
+      "inputsDB": {
+        "inputArguments": "-init_hw_device drm=dr:/dev/dri/renderD128 -init_hw_device vaapi=va@dr -init_hw_device vulkan=vk@dr -filter_hw_device vk -hwaccel vaapi -hwaccel_device va -hwaccel_output_format vaapi",
+        "outputArguments": "-vf hwmap=derive_device=drm,format=drm_prime,libplacebo=w=-2:h=min(1080\\,ih):tonemapping=bt.2390:tonemapping_param=0.5:peak_detect=1:range=pc:format=x2rgb10:color_primaries=bt709:color_trc=bt709:colorspace=bt709,format=vulkan,hwmap=derive_device=vaapi,format=vaapi,scale_vaapi=format=p010:out_range=tv,pad_vaapi=w=ceil(iw/64)*64:h=ceil(ih/16)*16 -c:v hevc_vaapi -rc_mode CQP -compression_level 0 -global_quality 22 -g 120 -tag:v hvc1 -bsf:v hevc_metadata=width={{{args.variables.user.bsfW}}}:height={{{args.variables.user.bsfH}}} -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
+        "y": -100
+      }
+    },
+    {
+      "name": "standard SDR vaapi (gq22)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafStdSdrVa",
+      "inputsDB": {
+        "inputArguments": "-hwaccel vaapi -hwaccel_output_format vaapi",
+        "outputArguments": "-vf scale_vaapi=w=-2:h=min(1080\\,ih):format=p010,pad_vaapi=w=ceil(iw/64)*64:h=ceil(ih/16)*16 -c:v hevc_vaapi -rc_mode CQP -compression_level 0 -global_quality 22 -g 120 -tag:v hvc1 -bsf:v hevc_metadata=width={{{args.variables.user.bsfW}}}:height={{{args.variables.user.bsfH}}} -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
+        "y": 700
+      }
+    },
+    {
+      "name": "2d-animation HDR nvenc (p3 cq34)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafAnimHdrNv",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf tonemap_cuda=tonemap=bt2390:param=0.5:r=tv:format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 8 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1 -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
+        "y": -700
+      }
+    },
+    {
+      "name": "2d-animation SDR nvenc (p3 cq34)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafAnimSdrNv",
+      "inputsDB": {
+        "inputArguments": "-hwaccel cuda -hwaccel_output_format cuda",
+        "outputArguments": "-vf scale_cuda=format=p010le -c:v hevc_nvenc -preset p3 -rc vbr -b:v 0 -rc-lookahead 8 -b_ref_mode middle -g 120 -cq 34 -tag:v hvc1 -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
         "y": 100
       }
     },
     {
-      "name": "Check Audio Codec",
+      "name": "2d-animation HDR vaapi (gq26)",
       "sourceRepo": "Community",
-      "pluginName": "checkAudioCodec",
+      "pluginName": "ffmpegCommandCustomArguments",
       "version": "1.0.0",
-      "id": "checkAudio1",
+      "id": "leafAnimHdrVa",
       "inputsDB": {
-        "codec": "aac"
+        "inputArguments": "-init_hw_device drm=dr:/dev/dri/renderD128 -init_hw_device vaapi=va@dr -init_hw_device vulkan=vk@dr -filter_hw_device vk -hwaccel vaapi -hwaccel_device va -hwaccel_output_format vaapi",
+        "outputArguments": "-vf hwmap=derive_device=drm,format=drm_prime,libplacebo=tonemapping=bt.2390:tonemapping_param=0.5:peak_detect=1:range=pc:format=x2rgb10:color_primaries=bt709:color_trc=bt709:colorspace=bt709,format=vulkan,hwmap=derive_device=vaapi,format=vaapi,scale_vaapi=format=p010:out_range=tv,pad_vaapi=w=ceil(iw/64)*64:h=ceil(ih/16)*16 -c:v hevc_vaapi -rc_mode CQP -compression_level 0 -global_quality 26 -g 120 -tag:v hvc1 -bsf:v hevc_metadata=width={{{args.variables.user.bsfW}}}:height={{{args.variables.user.bsfH}}} -c:s mov_text"
       },
       "position": {
-        "x": 1800,
+        "x": 2050,
+        "y": -500
+      }
+    },
+    {
+      "name": "2d-animation SDR vaapi (gq26)",
+      "sourceRepo": "Community",
+      "pluginName": "ffmpegCommandCustomArguments",
+      "version": "1.0.0",
+      "id": "leafAnimSdrVa",
+      "inputsDB": {
+        "inputArguments": "-hwaccel vaapi -hwaccel_output_format vaapi",
+        "outputArguments": "-vf scale_vaapi=format=p010,pad_vaapi=w=ceil(iw/64)*64:h=ceil(ih/16)*16 -c:v hevc_vaapi -rc_mode CQP -compression_level 0 -global_quality 26 -g 120 -tag:v hvc1 -bsf:v hevc_metadata=width={{{args.variables.user.bsfW}}}:height={{{args.variables.user.bsfH}}} -c:s mov_text"
+      },
+      "position": {
+        "x": 2050,
+        "y": 300
+      }
+    },
+    {
+      "name": "Selected audio is AAC?",
+      "sourceRepo": "Community",
+      "pluginName": "checkFlowVariable",
+      "version": "1.0.0",
+      "id": "checkAudioSel",
+      "inputsDB": {
+        "variable": "selectedAudioCodec",
+        "condition": "==",
+        "value": "aac"
+      },
+      "position": {
+        "x": 2400,
         "y": 0
       }
     },
@@ -173,8 +388,8 @@
         "outputArguments": "-c:a copy"
       },
       "position": {
-        "x": 2100,
-        "y": -100
+        "x": 2650,
+        "y": -150
       }
     },
     {
@@ -182,43 +397,14 @@
       "sourceRepo": "Community",
       "pluginName": "ffmpegCommandCustomArguments",
       "version": "1.0.0",
-      "id": "audioEnc",
+      "id": "audioEncode",
       "inputsDB": {
         "inputArguments": "",
         "outputArguments": "-c:a aac -ac 2 -b:a 160k"
       },
       "position": {
-        "x": 2100,
-        "y": 100
-      }
-    },
-    {
-      "name": "Keep primary audio only",
-      "sourceRepo": "Community",
-      "pluginName": "ffmpegCommandRemoveStreamByProperty",
-      "version": "1.0.0",
-      "id": "trimAudio",
-      "inputsDB": {
-        "codecType": "audio",
-        "propertyToCheck": "disposition.default",
-        "valuesToRemove": "1",
-        "condition": "not_equals"
-      },
-      "position": {
-        "x": 2280,
-        "y": 0
-      }
-    },
-    {
-      "name": "Remove Subtitles",
-      "sourceRepo": "Community",
-      "pluginName": "ffmpegCommandRemoveSubtitles",
-      "version": "1.0.0",
-      "id": "ffRemoveSubs",
-      "inputsDB": {},
-      "position": {
-        "x": 2400,
-        "y": 0
+        "x": 2650,
+        "y": 150
       }
     },
     {
@@ -229,7 +415,7 @@
       "id": "ffRemoveData",
       "inputsDB": {},
       "position": {
-        "x": 2550,
+        "x": 3150,
         "y": 0
       }
     },
@@ -241,7 +427,7 @@
       "id": "ffExec1",
       "inputsDB": {},
       "position": {
-        "x": 2850,
+        "x": 3400,
         "y": 0
       }
     },
@@ -253,7 +439,7 @@
       "id": "checkDuration1",
       "inputsDB": {},
       "position": {
-        "x": 3150,
+        "x": 3650,
         "y": 0
       }
     },
@@ -268,7 +454,7 @@
         "lessThan": "110"
       },
       "position": {
-        "x": 3450,
+        "x": 3900,
         "y": 0
       }
     },
@@ -282,7 +468,7 @@
         "checkType": "thorough"
       },
       "position": {
-        "x": 3750,
+        "x": 4150,
         "y": 0
       }
     },
@@ -297,7 +483,7 @@
         "keepRelativePath": "true"
       },
       "position": {
-        "x": 4050,
+        "x": 4400,
         "y": 0
       }
     },
@@ -309,8 +495,8 @@
       "id": "failDuration",
       "inputsDB": {},
       "position": {
-        "x": 3450,
-        "y": -200
+        "x": 3650,
+        "y": -300
       }
     },
     {
@@ -321,8 +507,76 @@
       "id": "failSize",
       "inputsDB": {},
       "position": {
-        "x": 3750,
-        "y": -200
+        "x": 3900,
+        "y": -300
+      }
+    },
+    {
+      "name": "A4000 or 5060 Ti?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "nvAnimHdr",
+      "inputsDB": {
+        "tags": "a4000,5060ti"
+      },
+      "position": {
+        "x": 1850,
+        "y": -700
+      }
+    },
+    {
+      "name": "A4000 or 5060 Ti?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "nvStdHdr",
+      "inputsDB": {
+        "tags": "a4000,5060ti"
+      },
+      "position": {
+        "x": 1850,
+        "y": -300
+      }
+    },
+    {
+      "name": "A4000 or 5060 Ti?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "nvAnimSdr",
+      "inputsDB": {
+        "tags": "a4000,5060ti"
+      },
+      "position": {
+        "x": 1850,
+        "y": 100
+      }
+    },
+    {
+      "name": "A4000 or 5060 Ti?",
+      "sourceRepo": "Local",
+      "pluginName": "checkNodeTag",
+      "version": "1.0.0",
+      "id": "nvStdSdr",
+      "inputsDB": {
+        "tags": "a4000,5060ti"
+      },
+      "position": {
+        "x": 1850,
+        "y": 500
+      }
+    },
+    {
+      "name": "Fail (No Leaf For This Card)",
+      "sourceRepo": "Community",
+      "pluginName": "failFlow",
+      "version": "1.0.0",
+      "id": "failNoLeaf",
+      "inputsDB": {},
+      "position": {
+        "x": 1850,
+        "y": -1100
       }
     }
   ],
@@ -344,184 +598,380 @@
     {
       "source": "ffContainer1",
       "sourceHandle": "1",
-      "target": "checkHdr1",
+      "target": "selectStreams1",
       "targetHandle": null,
       "id": "e3"
+    },
+    {
+      "source": "selectStreams1",
+      "sourceHandle": "2",
+      "target": "failNoAudio",
+      "targetHandle": null,
+      "id": "e5"
     },
     {
       "source": "checkHdr1",
       "sourceHandle": "1",
       "target": "cfniHdr",
       "targetHandle": null,
-      "id": "e4"
+      "id": "e6"
     },
     {
       "source": "checkHdr1",
       "sourceHandle": "2",
       "target": "cfniSdr",
       "targetHandle": null,
-      "id": "e5"
-    },
-    {
-      "source": "cfniHdr",
-      "sourceHandle": "1",
-      "target": "leafAnimHdr",
-      "targetHandle": null,
-      "id": "e6"
-    },
-    {
-      "source": "cfniHdr",
-      "sourceHandle": "2",
-      "target": "leafStdHdr",
-      "targetHandle": null,
       "id": "e7"
     },
     {
-      "source": "cfniSdr",
+      "source": "cfniHdr",
       "sourceHandle": "1",
-      "target": "leafAnimSdr",
+      "target": "gpuAnimHdr",
       "targetHandle": null,
       "id": "e8"
     },
     {
-      "source": "cfniSdr",
-      "sourceHandle": "2",
-      "target": "leafStdSdr",
+      "source": "gpuAnimHdr",
+      "sourceHandle": "1",
+      "target": "geoAnimHdr",
       "targetHandle": null,
       "id": "e9"
     },
     {
-      "source": "leafAnimHdr",
+      "source": "geoAnimHdr",
       "sourceHandle": "1",
-      "target": "checkAudio1",
-      "targetHandle": null,
-      "id": "e10"
-    },
-    {
-      "source": "leafStdHdr",
-      "sourceHandle": "1",
-      "target": "checkAudio1",
+      "target": "leafAnimHdrVa",
       "targetHandle": null,
       "id": "e11"
     },
     {
-      "source": "leafAnimSdr",
-      "sourceHandle": "1",
-      "target": "checkAudio1",
+      "source": "geoAnimHdr",
+      "sourceHandle": "2",
+      "target": "failGeometry",
       "targetHandle": null,
       "id": "e12"
     },
     {
-      "source": "leafStdSdr",
-      "sourceHandle": "1",
-      "target": "checkAudio1",
+      "source": "cfniHdr",
+      "sourceHandle": "2",
+      "target": "gpuStdHdr",
       "targetHandle": null,
       "id": "e13"
     },
     {
-      "source": "checkAudio1",
+      "source": "gpuStdHdr",
       "sourceHandle": "1",
-      "target": "audioCopy",
+      "target": "geoStdHdr",
       "targetHandle": null,
       "id": "e14"
     },
     {
-      "source": "checkAudio1",
-      "sourceHandle": "2",
-      "target": "audioEnc",
-      "targetHandle": null,
-      "id": "e15"
-    },
-    {
-      "source": "audioCopy",
+      "source": "geoStdHdr",
       "sourceHandle": "1",
-      "target": "trimAudio",
+      "target": "leafStdHdrVa",
       "targetHandle": null,
       "id": "e16"
     },
     {
-      "source": "audioEnc",
-      "sourceHandle": "1",
-      "target": "trimAudio",
+      "source": "geoStdHdr",
+      "sourceHandle": "2",
+      "target": "failGeometry",
       "targetHandle": null,
       "id": "e17"
     },
     {
-      "source": "trimAudio",
+      "source": "cfniSdr",
       "sourceHandle": "1",
-      "target": "ffRemoveSubs",
-      "targetHandle": null,
-      "id": "e16b"
-    },
-    {
-      "source": "ffRemoveSubs",
-      "sourceHandle": "1",
-      "target": "ffRemoveData",
+      "target": "gpuAnimSdr",
       "targetHandle": null,
       "id": "e18"
+    },
+    {
+      "source": "gpuAnimSdr",
+      "sourceHandle": "1",
+      "target": "geoAnimSdr",
+      "targetHandle": null,
+      "id": "e19"
+    },
+    {
+      "source": "geoAnimSdr",
+      "sourceHandle": "1",
+      "target": "leafAnimSdrVa",
+      "targetHandle": null,
+      "id": "e21"
+    },
+    {
+      "source": "geoAnimSdr",
+      "sourceHandle": "2",
+      "target": "failGeometry",
+      "targetHandle": null,
+      "id": "e22"
+    },
+    {
+      "source": "cfniSdr",
+      "sourceHandle": "2",
+      "target": "gpuStdSdr",
+      "targetHandle": null,
+      "id": "e23"
+    },
+    {
+      "source": "gpuStdSdr",
+      "sourceHandle": "1",
+      "target": "geoStdSdr",
+      "targetHandle": null,
+      "id": "e24"
+    },
+    {
+      "source": "geoStdSdr",
+      "sourceHandle": "1",
+      "target": "leafStdSdrVa",
+      "targetHandle": null,
+      "id": "e26"
+    },
+    {
+      "source": "geoStdSdr",
+      "sourceHandle": "2",
+      "target": "failGeometry",
+      "targetHandle": null,
+      "id": "e27"
+    },
+    {
+      "source": "leafStdHdrNv",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e28"
+    },
+    {
+      "source": "leafStdSdrNv",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e29"
+    },
+    {
+      "source": "leafStdHdrVa",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e30"
+    },
+    {
+      "source": "leafStdSdrVa",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e31"
+    },
+    {
+      "source": "leafAnimHdrNv",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e32"
+    },
+    {
+      "source": "leafAnimSdrNv",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e33"
+    },
+    {
+      "source": "leafAnimHdrVa",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e34"
+    },
+    {
+      "source": "leafAnimSdrVa",
+      "sourceHandle": "1",
+      "target": "checkAudioSel",
+      "targetHandle": null,
+      "id": "e35"
+    },
+    {
+      "source": "checkAudioSel",
+      "sourceHandle": "1",
+      "target": "audioCopy",
+      "targetHandle": null,
+      "id": "e36"
+    },
+    {
+      "source": "checkAudioSel",
+      "sourceHandle": "2",
+      "target": "audioEncode",
+      "targetHandle": null,
+      "id": "e37"
     },
     {
       "source": "ffRemoveData",
       "sourceHandle": "1",
       "target": "ffExec1",
       "targetHandle": null,
-      "id": "e19"
+      "id": "e41"
     },
     {
       "source": "ffExec1",
       "sourceHandle": "1",
       "target": "checkDuration1",
       "targetHandle": null,
-      "id": "e20"
+      "id": "e42"
     },
     {
       "source": "checkDuration1",
       "sourceHandle": "1",
       "target": "checkSize1",
       "targetHandle": null,
-      "id": "e21"
+      "id": "e43"
     },
     {
       "source": "checkDuration1",
       "sourceHandle": "2",
       "target": "failDuration",
       "targetHandle": null,
-      "id": "e22"
+      "id": "e44"
     },
     {
       "source": "checkDuration1",
       "sourceHandle": "3",
       "target": "failDuration",
       "targetHandle": null,
-      "id": "e23"
+      "id": "e45"
     },
     {
       "source": "checkSize1",
       "sourceHandle": "1",
       "target": "healthCheck1",
       "targetHandle": null,
-      "id": "e24"
+      "id": "e46"
     },
     {
       "source": "checkSize1",
       "sourceHandle": "2",
       "target": "failSize",
       "targetHandle": null,
-      "id": "e25"
+      "id": "e47"
     },
     {
       "source": "checkSize1",
       "sourceHandle": "3",
       "target": "failSize",
       "targetHandle": null,
-      "id": "e26"
+      "id": "e48"
     },
     {
       "source": "healthCheck1",
       "sourceHandle": "1",
       "target": "move1",
       "targetHandle": null,
-      "id": "e27"
+      "id": "e49"
+    },
+    {
+      "source": "selectStreams1",
+      "sourceHandle": "1",
+      "target": "checkHdr1",
+      "targetHandle": null,
+      "id": "e50"
+    },
+    {
+      "source": "gpuAnimHdr",
+      "sourceHandle": "2",
+      "target": "nvAnimHdr",
+      "targetHandle": null,
+      "id": "e51"
+    },
+    {
+      "source": "nvAnimHdr",
+      "sourceHandle": "1",
+      "target": "leafAnimHdrNv",
+      "targetHandle": null,
+      "id": "e52"
+    },
+    {
+      "source": "nvAnimHdr",
+      "sourceHandle": "2",
+      "target": "failNoLeaf",
+      "targetHandle": null,
+      "id": "e53"
+    },
+    {
+      "source": "gpuStdHdr",
+      "sourceHandle": "2",
+      "target": "nvStdHdr",
+      "targetHandle": null,
+      "id": "e54"
+    },
+    {
+      "source": "nvStdHdr",
+      "sourceHandle": "1",
+      "target": "leafStdHdrNv",
+      "targetHandle": null,
+      "id": "e55"
+    },
+    {
+      "source": "nvStdHdr",
+      "sourceHandle": "2",
+      "target": "failNoLeaf",
+      "targetHandle": null,
+      "id": "e56"
+    },
+    {
+      "source": "gpuAnimSdr",
+      "sourceHandle": "2",
+      "target": "nvAnimSdr",
+      "targetHandle": null,
+      "id": "e57"
+    },
+    {
+      "source": "nvAnimSdr",
+      "sourceHandle": "1",
+      "target": "leafAnimSdrNv",
+      "targetHandle": null,
+      "id": "e58"
+    },
+    {
+      "source": "nvAnimSdr",
+      "sourceHandle": "2",
+      "target": "failNoLeaf",
+      "targetHandle": null,
+      "id": "e59"
+    },
+    {
+      "source": "gpuStdSdr",
+      "sourceHandle": "2",
+      "target": "nvStdSdr",
+      "targetHandle": null,
+      "id": "e60"
+    },
+    {
+      "source": "nvStdSdr",
+      "sourceHandle": "1",
+      "target": "leafStdSdrNv",
+      "targetHandle": null,
+      "id": "e61"
+    },
+    {
+      "source": "nvStdSdr",
+      "sourceHandle": "2",
+      "target": "failNoLeaf",
+      "targetHandle": null,
+      "id": "e62"
+    },
+    {
+      "source": "audioCopy",
+      "sourceHandle": "1",
+      "target": "ffRemoveData",
+      "targetHandle": null,
+      "id": "e63"
+    },
+    {
+      "source": "audioEncode",
+      "sourceHandle": "1",
+      "target": "ffRemoveData",
+      "targetHandle": null,
+      "id": "e64"
     }
   ]
 }
