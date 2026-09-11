@@ -1,0 +1,13 @@
+[Unit]
+Description=systemd-unit-watchdog timer
+
+[Timer]
+{# At boot the mounts are still being tried for the first time; firing into that races them
+   for no benefit. After that, the interval is the worst-case recovery latency once the far
+   end comes back. #}
+OnBootSec={{ systemd_unit_watchdog_boot_delay }}
+OnUnitActiveSec={{ systemd_unit_watchdog_interval }}
+Unit=systemd-unit-watchdog.service
+
+[Install]
+WantedBy=timers.target

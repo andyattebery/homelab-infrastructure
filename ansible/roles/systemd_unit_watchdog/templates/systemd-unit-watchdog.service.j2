@@ -1,0 +1,6 @@
+[Unit]
+Description=Bring back systemd units that should be up and are not
+
+[Service]
+Type=oneshot
+ExecStart={{ systemd_unit_watchdog_script_path }}

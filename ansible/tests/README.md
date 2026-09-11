@@ -68,6 +68,9 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i roles/kernel_parameters/tests/inventory \
   roles/kernel_parameters/tests/test.yml
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/systemd_unit_watchdog/tests/inventory \
+  roles/systemd_unit_watchdog/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i roles/systemd_cifs_mount/tests/inventory \
   roles/systemd_cifs_mount/tests/test.yml
 

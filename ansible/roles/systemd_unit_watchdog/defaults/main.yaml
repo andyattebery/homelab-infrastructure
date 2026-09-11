@@ -1,0 +1,33 @@
+---
+# Mount POINTS, not unit names. The script escapes each to a .mount unit name at runtime, so
+# the caller passes the same paths it already has and nobody derives unit names twice.
+# Empty means the role installs a watchdog that guards nothing, so tasks/main.yaml asserts.
+systemd_unit_watchdog_mount_paths: []
+
+# Unit names, reconciled AFTER every mount above — a consumer with RequiresMountsFor= cannot
+# start until the mounts it needs are up, so the order is load-bearing, not cosmetic.
+systemd_unit_watchdog_units: []
+
+# OnUnitActiveSec= and OnBootSec=. The interval is the worst-case recovery latency after the
+# far end comes back; the boot delay exists because at boot the mounts are still being tried
+# for the first time and a watchdog firing into that races them for no benefit.
+systemd_unit_watchdog_interval: 2min
+systemd_unit_watchdog_boot_delay: 2min
+
+systemd_unit_watchdog_script_path: /usr/local/sbin/systemd-unit-watchdog
+
+# Where the .service and .timer land. A default rather than a literal for the same reason as
+# the CLI paths below — a fixture test points it at a tempdir and renders the real templates.
+systemd_unit_watchdog_unit_directory_path: /etc/systemd/system
+
+# Holds one marker per unit currently reported as failing, which is what keeps the journal to
+# one line per outage instead of one line per unit per interval. Under /run on purpose: the
+# markers are meaningless across a reboot, and clearing them is how a reboot gets a fresh
+# "went down" line rather than silence.
+systemd_unit_watchdog_state_dir: /run/systemd-unit-watchdog
+
+# The two CLIs every decision rests on. Paths rather than bare names so a fixture test can
+# point them at stubs — see ansible/tests/README.md, "this role decides the wrong thing given
+# input Y". Without these the script cannot be tested anywhere but a live systemd host.
+systemd_unit_watchdog_systemctl: /usr/bin/systemctl
+systemd_unit_watchdog_systemd_escape: /usr/bin/systemd-escape

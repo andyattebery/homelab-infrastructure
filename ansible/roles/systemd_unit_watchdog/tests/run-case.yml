@@ -1,0 +1,50 @@
+---
+# One case: re-render the real templates for this case's inputs, reset the logs, write the
+# stub unit states, run the rendered script. The caller sets `_case`, `_state`, and optionally
+# `_mounts_override` and `_keep_markers`.
+
+- name: "{{ _case }} — render for this case's inputs"
+  ansible.builtin.include_role:
+    name: systemd_unit_watchdog
+    tasks_from: install.yaml
+  vars:
+    systemd_unit_watchdog_mount_paths: "{{ _mounts_override | default(_mounts) }}"
+    systemd_unit_watchdog_units: "{{ _units }}"
+    systemd_unit_watchdog_script_path: "{{ _d }}/systemd-unit-watchdog"
+    systemd_unit_watchdog_unit_directory_path: "{{ _d }}"
+    systemd_unit_watchdog_state_dir: "{{ _d }}/markers"
+    systemd_unit_watchdog_systemctl: "{{ _d }}/systemctl"
+    systemd_unit_watchdog_systemd_escape: "{{ _d }}/systemd-escape"
+
+- name: "{{ _case }} — empty the logs"
+  ansible.builtin.copy:
+    dest: "{{ _d }}/{{ item }}"
+    content: ""
+    mode: "0644"
+  loop: [calls.log, stdout.log, stderr.log]
+
+# Markers persist only where a case is deliberately continuing the previous one's outage
+# (C5, C6) — that continuity is the thing being tested.
+- name: "{{ _case }} — clear the failing markers"
+  when: not (_keep_markers | default(false))
+  ansible.builtin.file:
+    path: "{{ _d }}/markers"
+    state: absent
+
+- name: "{{ _case }} — write the stub unit states"
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      rm -f {{ _d }}/state/*
+      {% for unit, props in _state.items() %}
+      {% for prop, value in props.items() %}
+      printf '%s' {{ value | quote }} > {{ _d }}/state/{{ unit }}.{{ prop }}
+      {% endfor %}
+      {% endfor %}
+  changed_when: false
+
+- name: "{{ _case }} — run the watchdog"
+  ansible.builtin.shell:
+    cmd: "{{ _d }}/systemd-unit-watchdog >> {{ _d }}/stdout.log 2>> {{ _d }}/stderr.log"
+  changed_when: false
+  failed_when: false

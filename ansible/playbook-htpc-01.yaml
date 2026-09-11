@@ -605,6 +605,32 @@
         # freshly provisioned host the node does not start until gpu-mode has run once.
         podman_quadlet_tdarr_install_wanted_by: ""
 
+    # Self-healing for the nas-01 CIFS mounts. A failed .mount has no way back on its own:
+    # Restart= is not a mount-unit option, and a consumer whose RequiresMountsFor= dependency
+    # failed never runs its own Restart= either. When nas-01 rebooted on 2026-09-10 that left
+    # eight mounts in `failed` and the Tdarr node down until someone noticed.
+    #
+    # Placed after the Tdarr role for readability, not dependency — it reads host_vars, so it
+    # would work anywhere in the play.
+    #
+    # comfyui.service is listed and llama-swap.service is not, because ComfyUI is the other
+    # consumer of a nas-01 share (RequiresMountsFor=.../nas_01_ai_images) while llama-swap only
+    # needs the local data disk. Listing a GPU container is safe: the role never starts a unit
+    # whose WantedBy is empty, which is exactly how gpu-mode marks the modes it turned off.
+    - name: Keep the storage mounts and their consumers up
+      tags: mount-watchdog
+      ansible.builtin.include_role:
+        name: systemd_unit_watchdog
+        apply:
+          tags: mount-watchdog
+      vars:
+        # The same list systemd_cifs_mount is given, so the watchdog cannot end up guarding a
+        # different set of mounts than the host actually has.
+        systemd_unit_watchdog_mount_paths: "{{ htpc_nas_01_cifs_mounts | map(attribute='path') | list }}"
+        systemd_unit_watchdog_units:
+          - tdarr-node.service
+          - comfyui.service
+
     # Manual GPU arbitration. ComfyUI, llama-server, the Tdarr node and gaming cannot share
     # the 16 GB card — measured: the same 8k prompt took >900 s with ComfyUI resident vs
     # 45 s without. There is no automatic fix here; this is a script the operator runs.

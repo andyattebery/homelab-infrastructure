@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+#
+# systemd-unit-watchdog — bring back units that should be up and are not.
+#
+# Written by Ansible: ansible/roles/systemd_unit_watchdog/templates/systemd-unit-watchdog.sh.j2
+#
+# Why this exists: a .mount unit that fails has no way back. `Restart=` is not a mount-unit
+# option, and a consumer whose RequiresMountsFor= dependency failed never runs its own
+# Restart= either — that governs a service which started and exited, not one whose dependency
+# failed. So a NAS that reboots leaves the mounts in `failed` and everything above them down
+# until a person notices.
+#
+# What keeps this from fighting an operator: a unit that is installed, not active, and has an
+# EMPTY WantedBy was deliberately uninstalled, and is left alone. That is the same test as
+# podman_quadlet's __podman_quadlet_installed_off and gpu-mode's boot_enabled().
+#
+# The test is only sound over units with an [Install] section that something in this repo
+# wrote. udisks removable-disk mounts also report an empty WantedBy, and there it means
+# "mounted by udisks", not "turned off" — which is why this takes an explicit list and never
+# discovers work for itself by scanning `systemctl --failed`.
+
+set -uo pipefail
+
+SYSTEMCTL={{ systemd_unit_watchdog_systemctl | quote }}
+SYSTEMD_ESCAPE={{ systemd_unit_watchdog_systemd_escape | quote }}
+STATE_DIR={{ systemd_unit_watchdog_state_dir | quote }}
+
+MOUNT_PATHS=(
+{% for path in systemd_unit_watchdog_mount_paths %}
+  {{ path | quote }}
+{% endfor %}
+)
+
+UNITS=(
+{% for unit in systemd_unit_watchdog_units %}
+  {{ unit | quote }}
+{% endfor %}
+)
+
+mkdir -p "$STATE_DIR"
+
+log() { echo "systemd-unit-watchdog: $*"; }
+warn() { echo "systemd-unit-watchdog: $*" >&2; }
+
+# A marker exists for exactly as long as a unit is known-failing. Reporting on the transition
+# rather than on every pass is what stops a multi-hour outage writing a line per unit per
+# interval; the journal then reads as "went down at X, came back at Y".
+mark_failing() {
+  local unit="$1" marker="$STATE_DIR/${1//\//_}.failing"
+  [ -e "$marker" ] && return 0
+  : > "$marker"
+  warn "$unit is down and could not be started"
+}
+
+clear_failing() {
+  local unit="$1" marker="$STATE_DIR/${1//\//_}.failing"
+  [ -e "$marker" ] || return 0
+  rm -f "$marker"
+  log "$unit recovered"
+}
+
+# Returns 0 if the unit is active after this call, 1 otherwise.
+reconcile() {
+  local unit="$1" load wanted
+
+  load="$("$SYSTEMCTL" show -p LoadState --value "$unit" 2>/dev/null)"
+  if [ "$load" = "not-found" ] || [ -z "$load" ]; then
+    # Not silent, and not treated as "deliberately off". This is a name in the caller's list
+    # that does not exist on the host — a watchdog that swallowed it would report healthy
+    # while guarding nothing, which is the failure this whole role exists to prevent.
+    warn "$unit does not exist (LoadState=${load:-unknown}) — check the caller's list"
+    return 1
+  fi
+
+  wanted="$("$SYSTEMCTL" show -p WantedBy --value "$unit" 2>/dev/null)"
+  if [ -z "$wanted" ]; then
+    # Deliberately uninstalled. Silent: this is a normal steady state, not a fault.
+    return 1
+  fi
+
+  if "$SYSTEMCTL" is-active --quiet "$unit"; then
+    clear_failing "$unit"
+    return 0
+  fi
+
+  # StartLimitBurst is set on these units, and a unit that burned its budget refuses to start
+  # at all until the counter is cleared. Without this the watchdog goes quiet exactly when it
+  # is needed most — after the fifth retry of a long outage.
+  if [ "$("$SYSTEMCTL" is-failed "$unit" 2>/dev/null)" = "failed" ]; then
+    "$SYSTEMCTL" reset-failed "$unit" 2>/dev/null || true
+  fi
+
+  # stderr is dropped on purpose: `systemctl start` prints the same "Job for X failed" blurb
+  # on every attempt, and the actual reason is already in the journal under the unit itself.
+  # What this script adds is the transition, not a second copy of systemd's error.
+  if "$SYSTEMCTL" start "$unit" 2>/dev/null; then
+    clear_failing "$unit"
+    return 0
+  fi
+
+  mark_failing "$unit"
+  return 1
+}
+
+mounts_ok=0
+
+for path in ${MOUNT_PATHS+"${MOUNT_PATHS[@]}"}; do
+  unit="$("$SYSTEMD_ESCAPE" --path --suffix=mount "$path" 2>/dev/null)"
+  if [ -z "$unit" ]; then
+    warn "could not derive a mount unit name for $path"
+    mounts_ok=1
+    continue
+  fi
+  reconcile "$unit" || mounts_ok=1
+done
+
+# The units come second and only if every mount is up. Starting a consumer whose Requires=
+# mount is still down is a guaranteed failure: it burns start-limit budget and marks a unit
+# that is perfectly healthy as failing.
+if [ "$mounts_ok" -ne 0 ]; then
+  exit 0
+fi
+
+for unit in ${UNITS+"${UNITS[@]}"}; do
+  reconcile "$unit" || true
+done
+
+# Always 0. A watchdog that failed its own unit would land in `failed` itself and need a
+# reset-failed before the timer could run it again — the exact trap it exists to get others
+# out of. Outages are reported through the log, not through this exit status.
+exit 0

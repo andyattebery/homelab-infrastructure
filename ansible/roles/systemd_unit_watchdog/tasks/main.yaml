@@ -1,0 +1,19 @@
+---
+- name: Render the watchdog script and units
+  ansible.builtin.include_tasks: install.yaml
+
+# The timer is enabled, not the service: the service is a oneshot the timer drives, and
+# enabling it too would run it once at boot outside the timer's boot delay.
+#
+# `restarted` only when a unit file actually changed. daemon_reload re-reads the files, but a
+# running timer keeps the schedule it was armed with, so a changed interval needs the restart
+# to take effect before the next reboot.
+- name: Enable and start the watchdog timer
+  ansible.builtin.systemd:
+    name: systemd-unit-watchdog.timer
+    enabled: true
+    daemon_reload: true
+    state: >-
+      {{ 'restarted'
+         if (__systemd_unit_watchdog_service_unit.changed or __systemd_unit_watchdog_timer_unit.changed)
+         else 'started' }}

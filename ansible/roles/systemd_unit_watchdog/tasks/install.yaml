@@ -1,0 +1,38 @@
+---
+# Everything that renders files and nothing that talks to systemd, so a fixture test can
+# include this file alone on a controller with no systemd at all. See ansible/tests/README.md,
+# "this role decides the wrong thing given input Y".
+#
+# No handlers anywhere in this role on purpose: a handler fires at end of play, which in a
+# fixture test means a systemd call on a machine that has none. The unit-file changes are
+# registered here and acted on by main.yaml instead.
+
+- name: Assert the watchdog has something to guard
+  ansible.builtin.assert:
+    that: (systemd_unit_watchdog_mount_paths | length) + (systemd_unit_watchdog_units | length) > 0
+    fail_msg: >-
+      Set systemd_unit_watchdog_mount_paths and/or systemd_unit_watchdog_units. With both
+      empty the timer installs, fires on schedule, reconciles nothing and reports success —
+      a watchdog that looks healthy while guarding nothing is worse than no watchdog.
+
+# Not registered: the oneshot re-reads the script on every fire, so a changed script needs no
+# restart of anything.
+- name: Install the watchdog script
+  ansible.builtin.template:
+    src: systemd-unit-watchdog.sh.j2
+    dest: "{{ systemd_unit_watchdog_script_path }}"
+    mode: "0755"
+
+- name: Install the watchdog service unit
+  ansible.builtin.template:
+    src: systemd-unit-watchdog.service.j2
+    dest: "{{ systemd_unit_watchdog_unit_directory_path }}/systemd-unit-watchdog.service"
+    mode: "0644"
+  register: __systemd_unit_watchdog_service_unit
+
+- name: Install the watchdog timer unit
+  ansible.builtin.template:
+    src: systemd-unit-watchdog.timer.j2
+    dest: "{{ systemd_unit_watchdog_unit_directory_path }}/systemd-unit-watchdog.timer"
+    mode: "0644"
+  register: __systemd_unit_watchdog_timer_unit

@@ -1,0 +1,324 @@
+---
+# Exercises systemd_unit_watchdog's decisions against a stub `systemctl` and `systemd-escape`
+# that answer with states captured from the calling host on 2026-09-10 and log every argv. Renders the
+# REAL templates into a tempdir via tasks_from: install.yaml — the systemd: task in
+# tasks/main.yaml is deliberately out of scope, since no systemd exists on the controller.
+#
+# The states are the live case set from that host:
+#   failed + WantedBy=multi-user.target   the CIFS mounts, after the storage host rebooted
+#   inactive + WantedBy=multi-user.target tdarr-node.service, after gpu-mode selected tdarr
+#   inactive + WantedBy=<empty>           comfyui.service / llama-swap.service, gpu-mode off
+#   active + WantedBy=<empty>             /run/media/system/data, a udisks automount
+#
+# Run:
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/systemd_unit_watchdog/tests/inventory \
+#     roles/systemd_unit_watchdog/tests/test.yml
+
+- name: systemd_unit_watchdog decision tests
+  hosts: localhost
+  gather_facts: false
+  vars:
+    _mounts:
+      - /run/media/system/tdarr_media
+      - /run/media/system/tdarr_media_raw/data01
+    _units:
+      - tdarr-node.service
+      - comfyui.service
+
+  tasks:
+    - name: Make a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: _tmp
+
+    - name: Name the scratch paths
+      ansible.builtin.set_fact:
+        _d: "{{ _tmp.path }}"
+
+    # ── stubs ────────────────────────────────────────────────────────────────────────────
+    #
+    # The stub reads per-unit state from files the cases write, so a case changes behaviour by
+    # writing a file rather than by rewriting the stub. `show -p X --value <unit>` answers from
+    # <unit>.<property>; is-active/is-failed answer from <unit>.ActiveState; `start` consults
+    # <unit>.start-result so a case can make a start fail.
+    - name: Install the systemctl stub
+      ansible.builtin.copy:
+        dest: "{{ _d }}/systemctl"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          d="$(dirname "$0")"
+          echo "systemctl $*" >> "$d/calls.log"
+          state_of() { cat "$d/state/$1.$2" 2>/dev/null; }
+          case "$1" in
+            show)
+              # show -p <prop> --value <unit>
+              prop="$2"; [ "$prop" = "-p" ] && prop="$3"
+              unit="${@: -1}"
+              state_of "$unit" "$prop"
+              ;;
+            is-active)
+              # -\-quiet consumes no argument value; the unit is always last
+              unit="${@: -1}"
+              [ "$(state_of "$unit" ActiveState)" = "active" ] && exit 0 || exit 3
+              ;;
+            is-failed)
+              unit="${@: -1}"
+              s="$(state_of "$unit" ActiveState)"
+              echo "$s"
+              [ "$s" = "failed" ] && exit 0 || exit 1
+              ;;
+            reset-failed) exit 0 ;;
+            start)
+              unit="${@: -1}"
+              r="$(state_of "$unit" start-result)"
+              if [ "$r" = "fail" ]; then exit 1; fi
+              printf 'active' > "$d/state/$unit.ActiveState"
+              exit 0
+              ;;
+            *) echo "stub: unexpected systemctl args: $*" >&2; exit 2 ;;
+          esac
+
+    # Logs argv so a case can assert the script asked for the right path, and returns the real
+    # escaped names captured from the real host rather than reimplementing systemd's escaping here.
+    - name: Install the systemd-escape stub
+      ansible.builtin.copy:
+        dest: "{{ _d }}/systemd-escape"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          d="$(dirname "$0")"
+          echo "systemd-escape $*" >> "$d/calls.log"
+          path="${@: -1}"
+          case "$path" in
+            /run/media/system/tdarr_media)               echo run-media-system-tdarr_media.mount ;;
+            /run/media/system/tdarr_media_raw/data01)    echo run-media-system-tdarr_media_raw-data01.mount ;;
+            /run/media/system/nope)                      echo run-media-system-nope.mount ;;
+            *) echo "stub: unexpected path: $path" >&2; exit 2 ;;
+          esac
+
+    - name: Create the stub state directory
+      ansible.builtin.file:
+        path: "{{ _d }}/state"
+        state: directory
+        mode: "0755"
+
+    # ── render the real role ─────────────────────────────────────────────────────────────
+    - name: Render the watchdog with every path pointed at the scratch directory
+      ansible.builtin.include_role:
+        name: systemd_unit_watchdog
+        tasks_from: install.yaml
+      vars:
+        systemd_unit_watchdog_mount_paths: "{{ _mounts }}"
+        systemd_unit_watchdog_units: "{{ _units }}"
+        systemd_unit_watchdog_script_path: "{{ _d }}/systemd-unit-watchdog"
+        systemd_unit_watchdog_unit_directory_path: "{{ _d }}"
+        systemd_unit_watchdog_state_dir: "{{ _d }}/markers"
+        systemd_unit_watchdog_systemctl: "{{ _d }}/systemctl"
+        systemd_unit_watchdog_systemd_escape: "{{ _d }}/systemd-escape"
+
+    - name: The rendered script must be valid bash
+      ansible.builtin.command:
+        argv: [bash, -n, "{{ _d }}/systemd-unit-watchdog"]
+      changed_when: false
+
+    - name: The rendered script must actually carry the configured units
+      vars:
+        _script: "{{ lookup('file', _d ~ '/systemd-unit-watchdog') }}"
+      ansible.builtin.assert:
+        that:
+          - _script | length > 0
+          - _script is search('/run/media/system/tdarr_media_raw/data01')
+          - _script is search('tdarr-node.service')
+          - _script is search('comfyui.service')
+        fail_msg: "rendered script does not contain the configured units"
+        success_msg: "rendered script carries all {{ _mounts | length + _units | length }} entries"
+
+    # ── shared case machinery ────────────────────────────────────────────────────────────
+    #
+    # A case sets `_state` (unit -> {property: value}) and `_case`, then includes run-case.yml,
+    # which truncates the call log, writes the state and runs the real rendered script.
+
+    - name: C1 — everything healthy, nothing to do
+      vars:
+        _case: C1
+        _state:
+          run-media-system-tdarr_media.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          run-media-system-tdarr_media_raw-data01.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C1 — a healthy pass issues no start and no reset-failed
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log | length > 0
+          - _log is not search('systemctl start')
+          - _log is not search('systemctl reset-failed')
+        fail_msg: "C1 acted on a healthy system:\n{{ _log }}"
+        success_msg: "C1 no-op confirmed over {{ _log | split('\n') | select() | list | length }} calls"
+
+    - name: C2 — the CIFS mounts are failed, everything wanted
+      vars:
+        _case: C2
+        _state:
+          run-media-system-tdarr_media.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: failed}
+          run-media-system-tdarr_media_raw-data01.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: failed}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: inactive}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C2 — a failed mount is reset-failed BEFORE it is started
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+        _lines: "{{ _log | split('\n') | select() | list }}"
+        _reset_at: "{{ _lines.index('systemctl reset-failed run-media-system-tdarr_media.mount') }}"
+        _start_at: "{{ _lines.index('systemctl start run-media-system-tdarr_media.mount') }}"
+      ansible.builtin.assert:
+        that:
+          - _lines | length > 0
+          - _reset_at | int < _start_at | int
+        fail_msg: "C2 started a failed unit without clearing its start limit:\n{{ _log }}"
+        success_msg: "C2 reset-failed at {{ _reset_at }} precedes start at {{ _start_at }}"
+
+    - name: C2 — an inactive-but-wanted unit is started WITHOUT reset-failed
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log is search('systemctl start tdarr-node.service')
+          - _log is not search('systemctl reset-failed tdarr-node.service')
+        fail_msg: "C2 mishandled the inactive-but-wanted case:\n{{ _log }}"
+        success_msg: "C2 started tdarr-node.service without a needless reset-failed"
+
+    # THE gpu-mode guarantee. Constructed directly rather than by deleting the WantedBy test
+    # and re-running — per ansible/tests/README.md:192-196, a control that runs the unmodified
+    # role stops being runnable the moment the role is fixed.
+    - name: C3 — a unit gpu-mode deliberately uninstalled is never started
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log | length > 0
+          - _log is search('systemctl show -p WantedBy --value comfyui.service')
+          - _log is not search('systemctl start comfyui.service')
+          - _log is not search('systemctl reset-failed comfyui.service')
+        fail_msg: "C3 started a deliberately-uninstalled unit — this fights gpu-mode:\n{{ _log }}"
+        success_msg: "C3 comfyui.service (WantedBy empty) was inspected and left alone"
+
+    - name: C2/C3 — every mount is reconciled before any unit is touched
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+        _lines: "{{ _log | split('\n') | select() | list }}"
+        _last_mount: "{{ _lines | select('search', 'run-media-system-') | list | last }}"
+        _first_unit: "{{ _lines | select('search', '(tdarr-node|comfyui)\\.service') | list | first }}"
+      ansible.builtin.assert:
+        that:
+          - _lines | length > 0
+          - _lines.index(_last_mount) | int < _lines.index(_first_unit) | int
+        fail_msg: "mounts and units were interleaved:\n{{ _log }}"
+        success_msg: "last mount call at {{ _lines.index(_last_mount) }} precedes first unit call at {{ _lines.index(_first_unit) }}"
+
+    - name: C4 — a mount that cannot be started blocks the units
+      vars:
+        _case: C4
+        _state:
+          run-media-system-tdarr_media.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: failed, start-result: fail}
+          run-media-system-tdarr_media_raw-data01.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: inactive}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C4 — no unit is started while a mount is still down
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log is search('systemctl start run-media-system-tdarr_media.mount')
+          - _log is not search('systemctl start tdarr-node.service')
+        fail_msg: "C4 started a consumer whose Requires= mount is down:\n{{ _log }}"
+        success_msg: "C4 tdarr-node.service correctly held back while a mount was down"
+
+    - name: C4 — the first failure is reported once
+      vars:
+        _err: "{{ lookup('file', _d ~ '/stderr.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _err is search('could not be started')
+          - _err | split('\n') | select('search', 'could not be started') | list | length == 1
+        fail_msg: "C4 failure reporting is wrong:\n{{ _err }}"
+        success_msg: "C4 reported the outage exactly once"
+
+    - name: C5 — the same failure persists, and must NOT be reported again
+      vars:
+        _case: C5
+        _keep_markers: true
+        _state:
+          run-media-system-tdarr_media.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: failed, start-result: fail}
+          run-media-system-tdarr_media_raw-data01.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: inactive}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C5 — a continuing outage is silent
+      vars:
+        _err: "{{ lookup('file', _d ~ '/stderr.log') }}"
+      ansible.builtin.assert:
+        that: _err is not search('could not be started')
+        fail_msg: "C5 re-reported an outage it had already reported — this is the journal-spam case:\n{{ _err }}"
+        success_msg: "C5 stayed silent while the outage continued"
+
+    - name: C6 — the storage host comes back
+      vars:
+        _case: C6
+        _keep_markers: true
+        _state:
+          run-media-system-tdarr_media.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: failed, start-result: ok}
+          run-media-system-tdarr_media_raw-data01.mount: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: active}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: inactive}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C6 — recovery is reported once, and the units are released
+      vars:
+        _out: "{{ lookup('file', _d ~ '/stdout.log') }}"
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _out | split('\n') | select('search', 'recovered') | list | length == 1
+          - _log is search('systemctl start tdarr-node.service')
+        fail_msg: "C6 recovery handling is wrong:\nstdout:\n{{ _out }}\ncalls:\n{{ _log }}"
+        success_msg: "C6 reported recovery once and released tdarr-node.service"
+
+    # Separate from C3 on purpose: both produce "no start", and a script that collapsed
+    # not-found into deliberately-off would pass C3 while silently guarding nothing.
+    - name: C7 — a path whose unit does not exist
+      vars:
+        _case: C7
+        _mounts_override: ["/run/media/system/nope"]
+        _state:
+          run-media-system-nope.mount: {LoadState: not-found, WantedBy: "", ActiveState: inactive}
+          tdarr-node.service: {LoadState: loaded, WantedBy: multi-user.target, ActiveState: inactive}
+          comfyui.service: {LoadState: loaded, WantedBy: "", ActiveState: inactive}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C7 — a non-existent unit warns loudly and is not treated as deliberately-off
+      vars:
+        _err: "{{ lookup('file', _d ~ '/stderr.log') }}"
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _err is search('does not exist')
+          - _log is not search('systemctl start run-media-system-nope.mount')
+          - _log is not search('systemctl start tdarr-node.service')
+        fail_msg: "C7 swallowed a bad unit name:\nstderr:\n{{ _err }}\ncalls:\n{{ _log }}"
+        success_msg: "C7 warned about the missing unit and held the consumers back"
+
+    - name: Clean up
+      ansible.builtin.file:
+        path: "{{ _d }}"
+        state: absent
