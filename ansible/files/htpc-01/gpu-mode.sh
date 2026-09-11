@@ -19,11 +19,14 @@
 # however far that one file had got.
 #
 # Managed by Ansible: ansible/files/htpc-01/gpu-mode.sh
-# Background: docs/llama-swap-htpc-01-tuning.md
+# Background: research/local-llm/docs/llm-tuning.md
 
 set -euo pipefail
 
-[ "$(id -u)" -eq 0 ] || exec sudo -- "$0" "$@"
+# `card` only reads world-readable sysfs, so it does not need root — which is what makes
+# the card selector testable against a fixture tree (see GPU_MODE_SYSFS_DRM below).
+# `status` still re-execs: its model line runs `podman exec` against ROOTFUL podman.
+[ "${1:-}" = card ] || [ "$(id -u)" -eq 0 ] || exec sudo -- "$0" "$@"
 
 COMFY_UNIT=comfyui.service
 LLM_UNIT=llama-swap.service
@@ -35,19 +38,62 @@ TDARR_UNIT=tdarr-node.service
 SETTLE_CEILING_MB=2500
 SETTLE_TIMEOUT=60
 
+# The card is PINNED by PCI ID, not discovered as "the first amdgpu device that has VRAM
+# counters". htpc-01 has TWO amdgpu devices — this dGPU and the Cezanne iGPU — and both
+# satisfy that test, so lexical glob order decided it and the iGPU (card0) won. Measured
+# 2026-09-10: `status` reported the iGPU's 2048 MB UMA carve-out as "the GPU", and because
+# 2048 < SETTLE_CEILING_MB and used <= total always, wait_for_release's early return was
+# unconditional. The settle wait had never once waited.
+#
+# Ranking by largest mem_info_vram_total was rejected: it is the same failure class — a
+# heuristic that yields a plausible number when it is wrong and stays wrong silently. A pin
+# either matches or the script refuses to start. A replaced card therefore needs a
+# deliberate edit here, which is correct — SETTLE_CEILING_MB and the whole "16 GB, exactly
+# one consumer" premise are properties of this specific card, not of "the GPU".
+GPU_PCI_ID=1002:7550   # ASRock Steel Legend Radeon RX 9070 XT (gfx1201)
+
+# Overridable ONLY so the selector has a positive and a negative control off-hardware:
+# point it at a fixture tree and run `gpu-mode card`. Nothing in production sets it.
+SYSFS_DRM="${GPU_MODE_SYSFS_DRM:-/sys/class/drm}"
+
+# card[0-9] rather than card*, which is cosmetic and not the fix: the eight connector
+# directories (card1-DP-1, card0-HDMI-A-2, card1-Writeback-1, ...) are already excluded
+# on their own merits. Their `device` symlink resolves to the DRM *minor*, not the PCI
+# device, so their uevent holds only MAJOR/MINOR/DEVNAME/DEVTYPE=drm_minor — no DRIVER=
+# line and no mem_info_*. Narrowing the glob just stops the loop stat-ing directories that
+# can never match.
 card_path() {
-  local d
-  for d in /sys/class/drm/card*/device; do
+  local d found="" pci mb
+  for d in "$SYSFS_DRM"/card[0-9]/device; do
     [ -r "$d/uevent" ] || continue
-    if grep -q '^DRIVER=amdgpu$' "$d/uevent" 2>/dev/null && [ -r "$d/mem_info_vram_used" ]; then
+    grep -qx 'DRIVER=amdgpu' "$d/uevent" 2>/dev/null || continue
+    [ -r "$d/mem_info_vram_used" ] || continue
+    [ -r "$d/mem_info_vram_total" ] || continue
+    if grep -qx "PCI_ID=$GPU_PCI_ID" "$d/uevent" 2>/dev/null; then
       printf '%s' "$d"; return 0
     fi
+    pci="$(sed -n 's/^PCI_ID=//p' "$d/uevent" | head -1)"
+    mb=$(( $(cat "$d/mem_info_vram_total") / 1048576 ))
+    found="${found}    $(basename "$(dirname "$d")")  ${pci:-unknown}  ${mb} MB"$'\n'
   done
-  echo "gpu-mode: no amdgpu card with mem_info_vram_used found" >&2
+  {
+    echo "gpu-mode: no amdgpu card with PCI_ID=$GPU_PCI_ID under $SYSFS_DRM"
+    if [ -n "$found" ]; then
+      echo "  amdgpu cards that are present:"
+      printf '%s' "$found"
+      echo "  If the GPU was replaced, set GPU_PCI_ID in this script to the right one — and"
+      echo "  re-check SETTLE_CEILING_MB, which assumes a 16 GB card idling at ~1.3 GB."
+    else
+      echo "  no amdgpu cards found at all"
+    fi
+  } >&2
   return 1
 }
 
-CARD="$(card_path)"
+# Deliberately at top level, so every subcommand fails on a card that is not there rather
+# than each one rediscovering it.
+CARD="$(card_path)" || exit 1
+CARD_NAME="$(basename "$(dirname "$CARD")")"
 vram_used_mb() { echo $(( $(cat "$CARD/mem_info_vram_used") / 1048576 )); }
 vram_total_mb() { echo $(( $(cat "$CARD/mem_info_vram_total") / 1048576 )); }
 
@@ -146,7 +192,9 @@ wait_for_release() {
 status() {
   local used total
   used="$(vram_used_mb)"; total="$(vram_total_mb)"
-  echo "GPU:  ${used} MB used / ${total} MB total  ($((total - used)) MB free)"
+  # The device is named on this line on purpose. The wrong-card bug went unnoticed because
+  # the figure looked like a number rather than a number *about a device*.
+  echo "GPU:  ${used} MB used / ${total} MB total  ($((total - used)) MB free)  [${CARD_NAME} ${GPU_PCI_ID}]"
   # "boot" is the [Install] drop-in state, which is the only thing that decides
   # whether the container comes back after a reboot.
   printf 'ComfyUI:    %-10s boot=%s\n' "$(systemctl is-active $COMFY_UNIT)" \
@@ -209,19 +257,30 @@ case "${1:-}" in
     # Unlike the other two this starts working immediately, as soon as the server has
     # a queued file to hand it.
     ;;
+  card)
+    # Selection only, no unit state: this is the one subcommand that needs neither root nor
+    # systemd, which is what lets the selector be tested against a fixture tree.
+    printf '%s  %s  %s MB total\n' "$CARD_NAME" "$GPU_PCI_ID" "$(vram_total_mb)"
+    exit 0
+    ;;
   status|"")
     status
     exit 0
     ;;
   *)
     cat >&2 <<'USAGE'
-Usage: gpu-mode {game|comfy|llm|tdarr|status}
+Usage: gpu-mode {game|comfy|llm|tdarr|status|card}
 
   game    stop all three containers, leaving the card to Steam/gamescope
   comfy   stop llama-swap and Tdarr, start ComfyUI
   llm     stop ComfyUI and Tdarr, start llama-swap
   tdarr   stop ComfyUI and llama-swap, start the Tdarr transcode node
   status  show VRAM, unit states and any loaded model
+  card    print which GPU this script is driving, and nothing else
+
+This host has two amdgpu devices — the RX 9070 XT and the Cezanne iGPU. The card is pinned
+by PCI ID rather than discovered, so 'card' should always name the 16 GB one. If it names
+the iGPU, or the script refuses to start, the pin no longer matches the hardware.
 
 While not in 'llm' mode, Onyx cannot generate — retrieval, indexing, web search and
 the UI are unaffected, but chat returns a connection error. That is the intended

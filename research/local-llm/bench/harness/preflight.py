@@ -65,7 +65,7 @@ def ssh(host: str, command: str) -> subprocess.CompletedProcess:
 def parse_gpu_mode(out: str) -> tuple[bool, str]:
     """`gpu-mode status` must report exactly `llm`.
 
-    Read from `ansible/files/htpc-01/gpu-mode.sh:139-161`, not guessed: `status` prints
+    Read from `ansible/files/htpc-01/gpu-mode.sh:192-225`, not guessed: `status` prints
     several lines (GPU VRAM, ComfyUI, llama-swap, models) and names the mode on its own line
     as one of `llm`, `comfy`, `game (neither container is running)`, or
     `CONTENDED — both consumers running, expect VRAM thrashing`.

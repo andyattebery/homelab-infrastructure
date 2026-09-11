@@ -16,11 +16,11 @@ import shootout
 
 
 # Real `gpu-mode status` output shapes, transcribed from
-# ansible/files/htpc-01/gpu-mode.sh:139-161 rather than imagined. The multi-line preamble is
+# ansible/files/htpc-01/gpu-mode.sh:192-225 rather than imagined. The multi-line preamble is
 # load-bearing: an earlier version of parse_gpu_mode matched "llm" anywhere in the blob and
 # passed the CONTENDED case, which is the exact state that voids a measurement.
 def _status(mode_line: str, llama: str = "active", comfy: str = "inactive") -> str:
-    return ("GPU:  12534 MB used / 16304 MB total  (3770 MB free)\n"
+    return ("GPU:  12534 MB used / 16304 MB total  (3770 MB free)  [card1 1002:7550]\n"
             f"ComfyUI:    {comfy:<10} boot=no\n"
             f"llama-swap: {llama:<10} boot=yes\n"
             "models:     [{\"model\": \"gemma-4-12b-it\"}]\n"

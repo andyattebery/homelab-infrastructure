@@ -861,8 +861,8 @@ ComfyUI, llama-server and gaming cannot share 16 GB (measured: the same 8k promp
 > [The 1.5 GB floor is a margin, not a cliff](#the-15-gb-floor-is-a-margin-not-a-cliff).
 > Exclusivity, not headroom, is the precondition that protects a measurement run.
 [files/htpc-01/gpu-mode.sh](../../../ansible/files/htpc-01/gpu-mode.sh) installs as
-`/usr/local/bin/gpu-mode` and takes `game` / `comfy` / `llm` / `status`. Switching is
-exclusive by design — `gpu-mode comfy` stops llama-swap, and vice versa.
+`/usr/local/bin/gpu-mode` and takes `game` / `comfy` / `llm` / `tdarr` / `status` / `card`.
+Switching is exclusive by design — `gpu-mode comfy` stops llama-swap, and vice versa.
 
 It stops the llama-swap **container**, not just the loaded model, because Onyx can
 trigger a load at any moment and would otherwise pull ~10 GiB back onto the card.
