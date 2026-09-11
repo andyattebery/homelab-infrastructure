@@ -260,34 +260,41 @@
         cmd: mountpoint -q {{ htpc_data_mount_path }}
       changed_when: false
 
-    - name: Create NAS output mount point
+    # Every CIFS mount from nas-01 on this host, in one place: the Tdarr node's seven and
+    # ComfyUI's output share. They used to be provisioned by two separate implementations —
+    # the node's inside podman_quadlet_tdarr, ComfyUI's inline here — which meant two mount
+    # templates that drifted, and two 0600 files holding the same credential.
+    #
+    # Ahead of both consumers on purpose: ComfyUI below, and the Tdarr node further down.
+    #
+    # The list is DERIVED from htpc_tdarr_mounts in host_vars, not written out again, so a
+    # path cannot be mounted here and missing from the node's bind mounts.
+    - name: Mount the nas-01 shares
+      tags: [mounts, tdarr]
+      ansible.builtin.include_role:
+        name: systemd_cifs_mount
+        apply:
+          tags: [mounts, tdarr]
+      vars:
+        systemd_cifs_mount_server: "nas-01.{{ domain_name }}"
+        systemd_cifs_mount_username: "{{ smb_nas_01_username }}"
+        systemd_cifs_mount_password: "{{ smb_nas_01_password }}"
+        systemd_cifs_mount_uid: "{{ smb_nas_01_uid }}"
+        systemd_cifs_mount_gid: "{{ smb_nas_01_gid }}"
+        systemd_cifs_mount_mounts: "{{ htpc_nas_01_cifs_mounts }}"
+
+    # Migration, 2026-09-10: one credentials file per server replaced these two, which held
+    # the same value. Safe to remove in the same run — a live mount authenticated at mount
+    # time and never re-reads the file, and a later remount reads the rewritten unit, which
+    # points at the new path. Permanent no-ops once every host has run this.
+    - name: Remove the superseded per-role SMB credentials files
+      tags: [mounts, tdarr]
       ansible.builtin.file:
-        path: /run/media/system/nas_01_ai_images
-        state: directory
-        mode: "0755"
-
-    - name: Template SMB credentials
-      ansible.builtin.template:
-        src: files/htpc-01/nas-mount/smb-credentials.j2
-        dest: /etc/smb-credentials-nas-01
-        owner: root
-        group: root
-        mode: "0600"
-
-    - name: Template NAS output mount unit
-      ansible.builtin.template:
-        src: files/htpc-01/nas-mount/nas-output.mount.j2
-        dest: /etc/systemd/system/run-media-system-nas_01_ai_images.mount
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Enable and start NAS output mount
-      ansible.builtin.systemd:
-        name: run-media-system-nas_01_ai_images.mount
-        state: started
-        enabled: true
-        daemon_reload: true
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/smb-credentials-nas-01
+        - /etc/tdarr-smb-credentials
 
     # Ahead of every container that declares Network=caddy.network, since the network
     # unit has to exist before those units are generated. Caddy resolves upstreams
@@ -519,39 +526,23 @@
         apply:
           tags: tdarr
       vars:
-        # The pool mount stays literal here because it is the one entry that takes
-        # noserverino. The six per-disk mounts come from htpc_tdarr_media_raw_mounts in
-        # host_vars/htpc-01/vars.yaml, derived from storage_media_data_disks — the same list
-        # that creates the shares on nas-01, so a disk cannot be mounted here and missing
-        # there. The pool takes noserverino; the per-disk shares must NOT, because
-        # `find -samefile` needs server-provided inode numbers. mount.cifs(8) has serverino
-        # on by default, so those entries pass no options at all. See docs/tdarr-av1-flow.md.
+        # The mount list lives in host_vars/htpc-01/vars.yaml, built from
+        # storage_media_data_disks — the same list that creates the shares on nas-01, so a
+        # disk cannot be mounted here and missing there. This role only bind-mounts them; the
+        # mounting itself is the systemd_cifs_mount call earlier in this play.
         #
         # dest is NOT free choice. detectHardlinks derives its `find -samefile` search root
         # from the first three path components of the file path — /media-raw/<disk>/<x> —
         # so the per-disk mounts have to land exactly there. /media likewise matches what
         # the server on media-01 sees, which nodeType=mapped requires: the server hands
         # this node absolute paths from its own view.
-        _htpc_tdarr_pool_mount:
-          src: /run/media/system/tdarr_media
-          dest: /media
-          share: storage
-          options: noserverino
-        podman_quadlet_tdarr_mounts: "{{ [_htpc_tdarr_pool_mount] + htpc_tdarr_media_raw_mounts }}"
+        podman_quadlet_tdarr_mounts: "{{ htpc_tdarr_mounts }}"
 
         podman_quadlet_tdarr_server_ip: "tdarr.{{ domain_name }}"
         podman_quadlet_tdarr_puid: "{{ smb_nas_01_uid }}"
         podman_quadlet_tdarr_pgid: "{{ smb_nas_01_gid }}"
         podman_quadlet_tdarr_data_dir: "{{ htpc_data_mount_path }}/tdarr-node"
         podman_quadlet_tdarr_transcode_cache_dir: "{{ htpc_data_mount_path }}/tdarr-node/temp"
-
-        # Nothing on this host mounts the media shares, so the role makes them. The other
-        # CIFS mount here (nas_01_ai_images, for ComfyUI) is a different share and is
-        # written by this playbook directly, so the two do not collide.
-        podman_quadlet_tdarr_manage_mounts: true
-        podman_quadlet_tdarr_storage_host: nas-01
-        podman_quadlet_tdarr_smb_username: "{{ smb_nas_01_username }}"
-        podman_quadlet_tdarr_smb_password: "{{ smb_nas_01_password }}"
 
         # Not the stock image. That one is Ubuntu 24.04 with Mesa 25.2.8, which drives this
         # card but sits below the 26.1.2 floor: it misses the gfx1201 VCN ring-timeout fix

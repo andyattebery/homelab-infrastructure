@@ -1,0 +1,30 @@
+---
+- name: Render the CIFS credentials, mount points and units
+  ansible.builtin.include_tasks: configure.yaml
+
+- name: Enable and start CIFS mounts
+  ansible.builtin.systemd:
+    name: "{{ item.stdout | trim }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: "{{ __systemd_cifs_mount_unit_names.results }}"
+  loop_control:
+    label: "{{ item.stdout | trim }}"
+
+# Visible rather than silent, in the same spirit as podman_quadlet's report on a
+# deliberately-uninstalled unit. `state: started` is a no-op on an already-mounted path, so a
+# changed Options= line does NOT take effect here — a remount is required, and remounting under
+# a running consumer is an operator decision rather than something a playbook should do
+# unprompted.
+- name: Report CIFS mounts whose options changed but are already mounted
+  vars:
+    __stale: >-
+      {{ __systemd_cifs_mount_units.results
+         | selectattr('changed') | map(attribute='item.path') | list }}
+  when: __stale | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      Mount unit rewritten for: {{ __stale | join(', ') }}. If a path was already mounted, the
+      new options are NOT active — systemd will not remount in place. Stop whatever consumes the
+      path, `systemctl restart` the corresponding *.mount unit, then start it again.

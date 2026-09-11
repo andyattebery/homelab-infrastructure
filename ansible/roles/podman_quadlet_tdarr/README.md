@@ -57,22 +57,9 @@ database — see `docker_compose_tdarr` for a Docker-Compose one.
 - `podman_quadlet_tdarr_image` — default `ghcr.io/haveagitgat/tdarr_node:latest`.
 - `podman_quadlet_tdarr_timezone` — default `{{ timezone }}`.
 
-### Required only when `podman_quadlet_tdarr_manage_mounts` is true
-
-Left at its default of `false`, none of these is read or asserted, and the role never handles
-a credential.
-
-- `podman_quadlet_tdarr_storage_host` — the host serving the shares over SMB.
-- `podman_quadlet_tdarr_smb_username` / `_smb_password`.
-- a `share` key on every `podman_quadlet_tdarr_mounts` entry.
-- `podman_quadlet_tdarr_storage_domain` — default `{{ domain_name }}`.
-- `podman_quadlet_tdarr_smb_credentials_path` — default `/etc/tdarr-smb-credentials`. Written
-  at mode `0600`. A role-owned file rather than host layout, so any self-consistent value
-  works.
-
 ## Example
 
-From the calling playbook, with the role mounting the shares itself:
+From the calling playbook. The shares are mounted before this runs, by `systemd_cifs_mount`:
 
 ```yaml
 - name: Deploy Tdarr node quadlet
@@ -87,13 +74,9 @@ From the calling playbook, with the role mounting the shares itself:
     podman_quadlet_tdarr_pgid: "{{ smb_storage_gid }}"
     podman_quadlet_tdarr_data_dir: /var/data/tdarr-node
     podman_quadlet_tdarr_transcode_cache_dir: /var/data/tdarr-node/temp
-    podman_quadlet_tdarr_manage_mounts: true
-    podman_quadlet_tdarr_storage_host: <storage_host>
-    podman_quadlet_tdarr_smb_username: "{{ smb_storage_username }}"
-    podman_quadlet_tdarr_smb_password: "{{ smb_storage_password }}"
     podman_quadlet_tdarr_devices: [/dev/dri]
     podman_quadlet_tdarr_mounts:
-      - {src: /mnt/library, dest: /media, share: storage, options: noserverino}
+      - {src: /mnt/library, dest: /media}
 ```
 
 `apply:` is required when tagging an `include_role` — a tag on the include gates only the
@@ -107,10 +90,14 @@ per-disk shares, or a plain local directory are all the same to this role.
 
 | Key | When | Meaning |
 | --- | --- | --- |
-| `src` | always | Host path bind-mounted in. Also the mountpoint when `manage_mounts` is true. |
-| `dest` | always | Container path. **Not free choice** — see below. |
-| `share` | `manage_mounts` | Share name on the storage host. |
-| `options` | `manage_mounts` | Extra CIFS options, appended after the ones the role sets. Optional. |
+| `src` | required | Host path bind-mounted in. Asserted to be a real mountpoint owned by the PUID. |
+| `dest` | required | Container path. **Not free choice** — see below. |
+| anything else | ignored | Deliberate — see below. |
+
+**Extra keys are ignored on purpose.** This role does not mount anything, so it has no use for
+a `share` or CIFS `options`. It tolerates them so that a caller can keep **one** list and hand
+it to both this role and whatever performs the mount, rather than maintaining two lists that
+describe the same filesystems. Two lists is how they drift.
 
 **`dest` must be the path the server uses.** The node runs with `nodeType=mapped`, which means
 the server hands it absolute paths from the server's own view of the library. A node that
@@ -120,7 +107,8 @@ requires a specific `dest` shape, not merely a consistent one.
 
 A multi-mount example, where a merged pool and the per-disk shares behind it are mounted
 separately so that inode-based sibling detection works. This is one deployment's arrangement,
-not a mode this role knows about:
+not a mode this role knows about. The `share`/`options` keys are there for the mount role that
+consumes the same list; this one reads straight past them:
 
 ```yaml
 podman_quadlet_tdarr_mounts:
@@ -129,27 +117,22 @@ podman_quadlet_tdarr_mounts:
   - {src: /mnt/raw/disk2, dest: /media-raw/disk2,   share: disk2}
 ```
 
-`mount.cifs(8)` says server-provided inode numbers are "enabled by default", so the per-disk
-entries pass no options and the pool opts *out* with `noserverino`.
+## This role does not mount anything
 
-## Two mount modes
+Every `src` must already be mounted when the role runs, by whatever means — `systemd_cifs_mount`,
+a `.mount` unit the playbook writes, fstab, NFS, or a plain local filesystem. A path that is not
+actually mounted fails the mountpoint assert, and one mounted by the wrong owner fails the owner
+assert.
 
-`podman_quadlet_tdarr_manage_mounts` is a two-valued input, and both values have a defined
-failure:
+It used to mount CIFS shares itself, behind a `manage_mounts` flag. That is gone: a role that
+deploys one application should not also be the only way to mount a filesystem, and keeping it
+meant a second consumer on the same host grew its own parallel implementation — two mount
+templates that drifted, and two files holding one credential.
 
-- **`false` (default)** — the caller has already mounted every `src`, by whatever means:
-  `smb_add_mount`, a `.mount` unit the playbook writes, fstab, NFS, or a local filesystem.
-  If a path is not actually mounted, the deploy fails at the mountpoint assert.
-- **`true`** — the role writes the credentials file and one CIFS `.mount` unit per entry. If
-  the caller has *also* mounted those paths by other means, two definitions fight over the
-  same mountpoint.
+### Why the mount is a `.mount` unit and not a `.volume` quadlet
 
-Default `false` because the mount is the part most likely to already exist, and a role that
-silently takes ownership of someone else's mount is worse than one that asks.
-
-### Why `.mount` units and not `.volume` quadlets
-
-Only relevant when `manage_mounts` is true.
+Relevant to whoever does mount it, and the reason `systemd_cifs_mount` exists in the shape it
+does.
 
 `podman_quadlet` writes every unit at mode `0644`. A Quadlet `.volume` unit carrying CIFS
 `Options=` would therefore put the SMB password in a world-readable file, and `credentials=`
@@ -157,13 +140,9 @@ cannot rescue it: `mount.cifs(8)` documents that option as read by the userspace
 Podman's local volume driver does not invoke. A systemd `.mount` unit runs `/bin/mount`, so
 `credentials=<0600 file>` works.
 
-`smb_add_mount` is not reused, because it installs `cifs-utils` with `ansible.builtin.package`
-— on an rpm-ostree host that means a layered package and a reboot. On a host where
-`smb_add_mount` is the right tool, run it and leave `manage_mounts` at `false`.
-
 ### The mountpoint assert is not redundant
 
-Both modes end by asserting every `src` is a real mountpoint. That is not belt-and-braces
+The role asserts every `src` is a real mountpoint. That is not belt-and-braces
 alongside the unit's `RequiresMountsFor=`, because `RequiresMountsFor=` does not catch this:
 `systemd.unit(5)` says it adds dependencies for the mount units *required to access* the
 path, so a path that is not itself a mount point resolves to its nearest **parent** mount,
@@ -179,9 +158,18 @@ its mount options, so chowning it to anything else does not stick and reports *c
 every run. Using the PUID is a no-op on those mounts and is simultaneously correct for
 `configs`, `logs` and the transcode cache, which Tdarr writes as that user.
 
-When the role manages the mounts it uses the same PUID/PGID for the CIFS `uid=`/`gid=`, so
-the two cannot drift. When it does not, matching them is the caller's job — which is why
-they are inputs rather than derived from an SMB uid that may not exist.
+Matching the PUID to the mount's owner is the caller's job, which is why they are inputs
+rather than derived from an SMB uid that may not exist — the mount could be CIFS, NFS or
+local, and only the caller knows.
+
+The role used to mount the shares itself and reuse PUID/PGID for the CIFS `uid=`/`gid=`, so
+the two could not drift by construction. That is gone, and is replaced by something better:
+the role reads each mountpoint's **actual** owner and asserts it against the PUID. A wrong
+uid is not a mount failure — the node reads the library and cannot write to it, which
+surfaces much later as a flow failure — so it is worth failing the deploy over.
+
+For a CIFS mount that owner comes from the mount's own `uid=` option, not from the
+filesystem, so a mismatch is fixed where the mount is defined. `chown` does not stick.
 
 ## Changing the server address after first start
 

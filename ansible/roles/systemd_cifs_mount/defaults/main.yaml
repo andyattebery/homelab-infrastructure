@@ -1,0 +1,44 @@
+---
+# The SMB server, as it appears in What=//<server>/<share>. A full name, e.g.
+# "<storage_host>.{{ domain_name }}" — this role does not compose host and domain for you,
+# because a
+# caller mounting from an IP or a short name has no domain to give.
+systemd_cifs_mount_server: ""
+
+systemd_cifs_mount_username: ""
+systemd_cifs_mount_password: ""
+
+# uid=/gid= on every mount this role makes. A CIFS mount's ownership is fixed by these, so they
+# must match whatever identity the consuming service runs as — a mismatch is not a mount
+# failure, it is a service that can read the share and not write to it.
+systemd_cifs_mount_uid: ""
+systemd_cifs_mount_gid: ""
+
+# List of {path, share, options?, description?}:
+#   path         where it mounts locally. Also the .mount unit's name, after systemd-escape.
+#   share        everything after //<server>/ — a bare share name OR a share with sub-path.
+#                Passed through verbatim; this role never validates or splits it.
+#   options      extra CIFS options, appended after the ones this role sets. Optional.
+#   description  the unit's Description=. Optional, defaults to naming the share and server.
+systemd_cifs_mount_mounts: []
+
+# One file per server, shared by every mount from it — which is the point: two callers mounting
+# the same server converge on one credential rather than each writing their own copy.
+systemd_cifs_mount_credentials_path: "/etc/cifs-credentials-{{ systemd_cifs_mount_server }}"
+
+# Seconds mount.cifs is given before the unit fails. Kept low deliberately: a mount that cannot
+# reach the server should fail and be retried, not hang the boot.
+systemd_cifs_mount_timeout_sec: 15
+
+systemd_cifs_mount_unit_directory_path: /etc/systemd/system
+
+# Owner of the credentials file and the unit files. Defaults are the only correct values on a
+# real host; they are variables so a fixture test can render as an unprivileged user, for the
+# same reason the CLI paths below are variables.
+systemd_cifs_mount_file_owner: root
+systemd_cifs_mount_file_group: root
+
+# The two CLIs the decisions rest on, as paths rather than bare names so a fixture test can point
+# them at stubs. See ansible/tests/README.md, "this role decides the wrong thing given input Y".
+systemd_cifs_mount_systemd_escape: /usr/bin/systemd-escape
+systemd_cifs_mount_mountpoint: /usr/bin/mountpoint

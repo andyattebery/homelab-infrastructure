@@ -30,15 +30,16 @@ podman_quadlet_tdarr_healthcheck_cpu_workers: 1
 # property of the storage behind it, not of Tdarr. One entry, ten entries, a merged pool
 # plus per-disk shares, or a plain local directory — all the same to this role.
 #
-#   - src:     host path, bind-mounted into the container. Also the mountpoint when
-#              podman_quadlet_tdarr_manage_mounts is true. Asserted to be a real mountpoint
-#              either way — see tasks/main.yaml for why that check is not redundant.
+#   - src:     host path, bind-mounted into the container. Asserted to be a real mountpoint
+#              owned by the PUID — see tasks/main.yaml for why that check is not redundant.
 #     dest:    container path. Must match what the SERVER sees: nodeType=mapped means the
 #              server hands this node absolute paths from its own view, so a node that
 #              mounts the same data somewhere else cannot act on the work it is given.
-#     share:   manage_mounts only — share name on the storage host.
-#     options: manage_mounts only — extra CIFS options appended after the ones this role
-#              always sets. Optional; empty means the mount.cifs defaults apply.
+#
+# Extra keys are ignored, deliberately. Mounting is somebody else's job — typically
+# systemd_cifs_mount — and that role's list is keyed differently, so a caller that builds one
+# list and hands it to both roles is the intended shape rather than an accident. Without this
+# tolerance the two lists would have to be maintained separately, which is how they drift.
 podman_quadlet_tdarr_mounts: []
 
 # Quadlet networks, one Network= line each. Empty means the default rootful Podman network,
@@ -97,31 +98,12 @@ podman_quadlet_tdarr_transcode_cache_dir: ""
 # a mismatch means the node reads the library and cannot write to it, which surfaces as a
 # flow failure rather than a permissions error.
 #
-# Not derived from an SMB uid, because with manage_mounts false there is no SMB uid to
-# derive from — the mount could be NFS or local. When this role does manage the mounts it
-# uses these same two values for the CIFS uid=/gid=, so the two identities cannot drift.
+# Not derived from an SMB uid, because the mount could be CIFS, NFS or local and this role
+# does not make it. These must match the owner the mount actually has — a mismatch is not a
+# mount failure, it is a node that reads the library and cannot write to it, so tasks/main.yaml
+# asserts the mountpoint's real owner against them rather than trusting the caller.
 podman_quadlet_tdarr_puid: ""
 podman_quadlet_tdarr_pgid: ""
-
-# CIFS mount machinery.
-#
-#   false — the caller has already mounted every podman_quadlet_tdarr_mounts entry, by
-#           whatever means. Nothing in this block is read or asserted, and this role never
-#           handles a credential. A path that is not actually mounted fails the mountpoint
-#           assert in tasks/main.yaml.
-#   true  — this role writes a credentials file at 0600 and one CIFS .mount unit per entry.
-#           If the caller has ALSO mounted those paths by other means, two definitions fight
-#           over the same mountpoint.
-#
-# Default false because the mount is the part most likely to already exist on a given host.
-podman_quadlet_tdarr_manage_mounts: false
-podman_quadlet_tdarr_storage_host: ""
-podman_quadlet_tdarr_storage_domain: "{{ domain_name }}"
-podman_quadlet_tdarr_smb_username: ""
-podman_quadlet_tdarr_smb_password: ""
-# Role-owned file rather than host layout: any self-consistent value works, since the
-# .mount units point at whatever it is. Hence a default.
-podman_quadlet_tdarr_smb_credentials_path: /etc/tdarr-smb-credentials
 
 podman_quadlet_tdarr_image: ghcr.io/haveagitgat/tdarr_node:latest
 podman_quadlet_tdarr_timezone: "{{ timezone }}"

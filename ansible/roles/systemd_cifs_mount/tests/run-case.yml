@@ -1,0 +1,44 @@
+---
+# One case: render the real templates into the scratch dir for this case's inputs, after
+# resetting the call log. The caller sets `_case`, `_mounts`, and optionally `_premounted`
+# (paths the mountpoint stub should report as already mounted).
+
+- name: "{{ _case }} — empty the call log"
+  ansible.builtin.copy:
+    dest: "{{ _d }}/calls.log"
+    content: ""
+    mode: "0644"
+
+- name: "{{ _case }} — set which paths the mountpoint stub calls already-mounted"
+  ansible.builtin.copy:
+    dest: "{{ _d }}/premounted"
+    content: "{{ (_premounted | default([])) | join('\n') }}\n"
+    mode: "0644"
+
+# Units AND mount points are reset between cases. Without the mount-point reset a path created
+# by an earlier case still exists in a later one, and the "already mounted paths are never
+# created" assertion passes for the wrong reason.
+- name: "{{ _case }} — clear previously rendered units and mount points"
+  ansible.builtin.file:
+    path: "{{ _d }}/{{ item.0 }}"
+    state: "{{ item.1 }}"
+    mode: "0755"
+  loop: "{{ ['units', 'mnt'] | product(['absent', 'directory']) | list }}"
+
+- name: "{{ _case }} — render"
+  ansible.builtin.include_role:
+    name: systemd_cifs_mount
+    tasks_from: configure.yaml
+  vars:
+    systemd_cifs_mount_server: nas-test.example.invalid
+    systemd_cifs_mount_username: test-user
+    systemd_cifs_mount_password: test-pass
+    systemd_cifs_mount_uid: 1000
+    systemd_cifs_mount_gid: 1001
+    systemd_cifs_mount_mounts: "{{ _mounts }}"
+    systemd_cifs_mount_credentials_path: "{{ _d }}/creds"
+    systemd_cifs_mount_unit_directory_path: "{{ _d }}/units"
+    systemd_cifs_mount_file_owner: "{{ _me }}"
+    systemd_cifs_mount_file_group: "{{ _my_group }}"
+    systemd_cifs_mount_mountpoint: "{{ _d }}/mountpoint"
+    systemd_cifs_mount_systemd_escape: "{{ _d }}/systemd-escape"

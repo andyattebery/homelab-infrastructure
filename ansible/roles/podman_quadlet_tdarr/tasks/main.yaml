@@ -27,10 +27,6 @@
       nodeType=mapped means the server hands this node absolute paths from its own view, so
       each dest must be the path the SERVER uses for that data.
 
-- name: Deploy CIFS mounts
-  when: podman_quadlet_tdarr_manage_mounts | bool
-  ansible.builtin.include_tasks: mounts.yaml
-
 - name: Create tdarr node directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -63,6 +59,19 @@
     label: "{{ item.src }}"
   register: __podman_quadlet_tdarr_mountpoint
 
+# Owner, not just mountedness. This role used to mount the shares itself and reused PUID/PGID
+# for the CIFS uid=/gid=, so the two identities could not drift by construction. Mounting now
+# belongs to the caller, so that guarantee is gone and is replaced by checking the real thing:
+# a mount owned by someone else is not a mount failure, it is a node that reads the library and
+# cannot write to it, which surfaces much later as a flow failure.
+- name: Read the owner of each tdarr library mount
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+  loop: "{{ podman_quadlet_tdarr_mounts }}"
+  loop_control:
+    label: "{{ item.src }}"
+  register: __podman_quadlet_tdarr_owner
+
 - name: Assert tdarr library mounts are mounted
   vars:
     __unmounted: >-
@@ -72,16 +81,25 @@
     that: __unmounted | length == 0
     fail_msg: >-
       Not mounted: {{ __unmounted | join(', ') }}.
-      {% if podman_quadlet_tdarr_manage_mounts | bool %}
-      podman_quadlet_tdarr_manage_mounts is true, so this role wrote a .mount unit for each
-      of these — the unit failed to mount. Check `systemctl status` for the corresponding
-      *.mount unit and the SMB credentials.
-      {% else %}
-      podman_quadlet_tdarr_manage_mounts is false, so mounting these is the caller's job and
-      it has not happened. Either mount them before this role runs, or set
-      podman_quadlet_tdarr_manage_mounts to true and supply the storage host and SMB
-      credentials.
-      {% endif %}
+      Mounting these is the caller's job and it has not happened — mount them before this role
+      runs, typically with the systemd_cifs_mount role. Check `systemctl status` for the
+      corresponding *.mount unit, and the credentials it points at.
+
+- name: Assert tdarr library mounts are owned by the PUID
+  vars:
+    __wrong_owner: >-
+      {{ __podman_quadlet_tdarr_owner.results
+         | selectattr('stat.exists')
+         | rejectattr('stat.uid', 'equalto', podman_quadlet_tdarr_puid | int)
+         | map(attribute='item.src') | list }}
+  ansible.builtin.assert:
+    that: __wrong_owner | length == 0
+    fail_msg: >-
+      Owned by the wrong uid: {{ __wrong_owner | join(', ') }}.
+      podman_quadlet_tdarr_puid is {{ podman_quadlet_tdarr_puid }}, so the node runs as that
+      user and must be able to write there. For a CIFS mount the owner comes from the mount's
+      own uid= option, not from the filesystem — fix it where the mount is defined, not with
+      chown, which does not stick.
 
 - name: Deploy tdarr node quadlet
   vars:

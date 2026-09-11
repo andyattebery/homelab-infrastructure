@@ -1,0 +1,28 @@
+[Unit]
+Description={{ item.description | default('CIFS: ' ~ item.share ~ ' on ' ~ systemd_cifs_mount_server) }}
+Requires=network-online.target
+After=network-online.target nss-lookup.target
+
+[Mount]
+{# `share` is interpolated whole. It is a bare share name for most callers and a share with a
+   sub-path for some, and this role deliberately does not know the difference — splitting or
+   validating it would break the sub-path case for no gain. #}
+What=//{{ systemd_cifs_mount_server }}/{{ item.share }}
+Where={{ item.path }}
+Type=cifs
+{# The password is deliberately NOT here: this file is 0644, and credentials= is read by the
+   mount.cifs userspace helper from a 0600 file. That is also why the shares are not mounted as
+   Quadlet .volume units, which have no equivalent escape — see the README.
+
+   No nofail or _netdev. systemd.mount(5) is explicit: both "can only be used in /etc/fstab, and
+   will be ignored when part of the Options= setting in a unit file". They are inert here, not
+   protective. The ordering they stand for is stated directly by After= above.
+
+   serverino is not set either way. mount.cifs(8): server inode numbers are "enabled by
+   default", and a caller that needs them off passes noserverino through item.options. #}
+Options=rw,uid={{ systemd_cifs_mount_uid }},gid={{ systemd_cifs_mount_gid }},credentials={{ systemd_cifs_mount_credentials_path }}{% if item.options | default('') | length > 0 %},{{ item.options }}{% endif %}
+
+TimeoutSec={{ systemd_cifs_mount_timeout_sec }}
+
+[Install]
+WantedBy=multi-user.target

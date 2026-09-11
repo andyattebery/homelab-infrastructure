@@ -67,6 +67,9 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i roles/kernel_parameters/tests/inventory \
   roles/kernel_parameters/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/systemd_cifs_mount/tests/inventory \
+  roles/systemd_cifs_mount/tests/test.yml
 
 # these three fixture tests need the `docker` CLI -- the only ones with an external
 # dependency. None needs a daemon: `docker compose config` renders and exits,

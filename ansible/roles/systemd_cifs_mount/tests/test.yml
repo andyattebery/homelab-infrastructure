@@ -1,0 +1,180 @@
+---
+# Exercises systemd_cifs_mount's rendering and its mountpoint decision, against stub
+# `mountpoint` and `systemd-escape` that log every argv. Renders the REAL templates into a
+# tempdir via tasks_from: configure.yaml — the ansible.builtin.systemd task in tasks/main.yaml
+# is deliberately out of scope, since no systemd exists on the controller.
+#
+# The shapes come from the two real callers on the CIFS host: a bare share with an extra CIFS
+# option, six bare shares with none, and one share carrying a SUB-PATH. The sub-path case is the
+# one a naive implementation breaks, by validating or splitting the share.
+#
+# Run:
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/systemd_cifs_mount/tests/inventory \
+#     roles/systemd_cifs_mount/tests/test.yml
+
+- name: systemd_cifs_mount rendering tests
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Make a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: _tmp
+
+    - name: Learn the unprivileged identity to render as
+      ansible.builtin.command:
+        argv: [id, -un]
+      changed_when: false
+      register: _id_user
+
+    - name: Learn the group to render as
+      ansible.builtin.command:
+        argv: [id, -gn]
+      changed_when: false
+      register: _id_group
+
+    - name: Name the scratch paths
+      ansible.builtin.set_fact:
+        _d: "{{ _tmp.path }}"
+        _me: "{{ _id_user.stdout | trim }}"
+        _my_group: "{{ _id_group.stdout | trim }}"
+
+    # ── stubs ────────────────────────────────────────────────────────────────────────────
+    #
+    # `mountpoint -q <path>` answers from the `premounted` file a case writes, so a case changes
+    # behaviour by writing a file rather than by rewriting the stub.
+    - name: Install the mountpoint stub
+      ansible.builtin.copy:
+        dest: "{{ _d }}/mountpoint"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          d="$(dirname "$0")"
+          echo "mountpoint $*" >> "$d/calls.log"
+          path="${@: -1}"
+          grep -qxF "$path" "$d/premounted" 2>/dev/null && exit 0 || exit 1
+
+    # Implements systemd's path escaping for the shapes under test and logs argv, so a case can
+    # assert the role ASKED for the name rather than computing one itself.
+    - name: Install the systemd-escape stub
+      ansible.builtin.copy:
+        dest: "{{ _d }}/systemd-escape"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          d="$(dirname "$0")"
+          echo "systemd-escape $*" >> "$d/calls.log"
+          p="${@: -1}"
+          p="${p#/}"
+          p="${p//-/\\x2d}"
+          printf '%s.mount' "${p//\//-}"
+
+    # ── C1: the two real caller shapes together ──────────────────────────────────────────
+    - name: C1 — bare share with options, bare share without, and a share with a sub-path
+      vars:
+        _case: C1
+        _mounts:
+          - {path: "{{ _d }}/mnt/pool", share: storage, options: noserverino}
+          - {path: "{{ _d }}/mnt/raw/data01", share: data01}
+          - {path: "{{ _d }}/mnt/images", share: storage/AI/images, options: noserverino}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C1 — read every rendered unit
+      ansible.builtin.shell:
+        cmd: "cat {{ _d }}/units/*.mount"
+      changed_when: false
+      register: _c1_units
+
+    - name: C1 — three units rendered, and a sub-path share passed through verbatim
+      vars:
+        _all: "{{ _c1_units.stdout }}"
+      ansible.builtin.assert:
+        that:
+          - _all | length > 0
+          - _all | regex_findall('^Where=', multiline=True) | length == 3
+          - "'What=//nas-test.example.invalid/storage/AI/images' in _all"
+          - "'Where=' ~ _d ~ '/mnt/images' in _all"
+        fail_msg: "C1 mangled a sub-path share:\n{{ _all }}"
+        success_msg: "C1 3 units; sub-path share intact as //nas-test.example.invalid/storage/AI/images"
+
+    - name: C1 — per-entry options appended when set, line ends clean when not
+      vars:
+        _all: "{{ _c1_units.stdout }}"
+        _base: "Options=rw,uid=1000,gid=1001,credentials={{ _d }}/creds"
+      ansible.builtin.assert:
+        that:
+          # Anchored on the newline, not '$' — `search` is not multiline, so '$' would mean
+          # end-of-blob and silently pass on any single matching line.
+          - _all is search(_base | regex_escape ~ ',noserverino\n')
+          - _all is search(_base | regex_escape ~ '\n')
+          - _all is not search('Options=.*,,')
+        fail_msg: "C1 options handling wrong:\n{{ _all }}"
+        success_msg: "C1 options appended when set; no trailing comma when unset"
+
+    - name: C1 — unit names come from systemd-escape, not a Jinja replace
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log | length > 0
+          - _log is search('systemd-escape --path --suffix=mount ' ~ (_d ~ '/mnt/raw/data01') | regex_escape)
+          - _log is search('systemd-escape --path --suffix=mount ' ~ (_d ~ '/mnt/images') | regex_escape)
+        fail_msg: "C1 did not consult systemd-escape:\n{{ _log }}"
+        success_msg: "C1 asked systemd-escape for every unit name"
+
+    - name: C1 — stat the credentials file
+      ansible.builtin.stat:
+        path: "{{ _d }}/creds"
+      register: _creds
+
+    - name: C1 — one credentials file for all entries, 0600, task carries no_log
+      vars:
+        _src: "{{ lookup('file', playbook_dir ~ '/../tasks/configure.yaml') }}"
+      ansible.builtin.assert:
+        that:
+          - _creds.stat.exists
+          - _creds.stat.mode == '0600'
+          - "_src is search('no_log: true')"   # quoted: the colon would make YAML read a mapping
+        fail_msg: "C1 credentials wrong: mode={{ _creds.stat.mode | default('absent') }}"
+        success_msg: "C1 one credentials file at mode {{ _creds.stat.mode }}, task carries no_log"
+
+    # ── C2: the mountpoint pre-test is what makes an explicit mode safe ──────────────────
+    - name: C2 — one path already mounted, one not
+      vars:
+        _case: C2
+        _premounted: ["{{ _d }}/mnt/pool"]
+        _mounts:
+          - {path: "{{ _d }}/mnt/pool", share: storage}
+          - {path: "{{ _d }}/mnt/fresh", share: data02}
+      ansible.builtin.include_tasks: run-case.yml
+
+    - name: C2 — stat both mount points
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: ["{{ _d }}/mnt/pool", "{{ _d }}/mnt/fresh"]
+      register: _c2_paths
+
+    - name: C2 — the pre-test gated the mkdir
+      vars:
+        _log: "{{ lookup('file', _d ~ '/calls.log') }}"
+      ansible.builtin.assert:
+        that:
+          - _log | length > 0
+          - _log is search('mountpoint -q ' ~ (_d ~ '/mnt/pool') | regex_escape)
+          - _log is search('mountpoint -q ' ~ (_d ~ '/mnt/fresh') | regex_escape)
+          # Already "mounted" -> skipped, so never created. Not mounted -> created.
+          - not _c2_paths.results[0].stat.exists
+          - _c2_paths.results[1].stat.exists
+        fail_msg: >-
+          C2 pre-test wrong. pool exists={{ _c2_paths.results[0].stat.exists }}
+          fresh exists={{ _c2_paths.results[1].stat.exists }}
+          log:\n{{ _log }}
+        success_msg: "C2 mounted path skipped, unmounted path created — the mode is only ever applied to a fresh dir"
+
+    - name: Clean up
+      ansible.builtin.file:
+        path: "{{ _d }}"
+        state: absent

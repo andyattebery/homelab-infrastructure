@@ -6,10 +6,23 @@
 # Keeping it for bootstrap on a fresh install.
 ansible_ssh_extra_args: "-o SetEnv=TERM=dumb"
 
+# The merged /media pool mount. Lives here rather than in the playbook because three callers
+# need it — the Tdarr role, systemd_cifs_mount and systemd_unit_watchdog — and a path
+# duplicated between them would drift.
+#
+# It is the one entry taking noserverino; the per-disk shares below must NOT, because
+# `find -samefile` needs server-provided inode numbers and mount.cifs(8) has serverino on by
+# default. See docs/tdarr-av1-flow.md.
+htpc_tdarr_pool_mount_path: /run/media/system/tdarr_media
+htpc_tdarr_pool_mount:
+  src: "{{ htpc_tdarr_pool_mount_path }}"
+  dest: /media
+  share: storage
+  options: noserverino
+
 # The Tdarr node's per-disk CIFS mounts, derived from storage_media_data_disks
 # (group_vars/all/vars.yaml) — the same list that creates the shares on nas-01, so a disk
-# cannot be mounted here and missing there. The /media pool mount is NOT here: it is the one
-# entry taking noserverino, and it stays literal in playbook-htpc-01.yaml.
+# cannot be mounted here and missing there.
 #
 # These must not take noserverino. `find -samefile` needs server-provided inode numbers, and
 # mount.cifs(8) has serverino on by default, so they pass no options at all. dest is not free
@@ -22,3 +35,27 @@ _htpc_tdarr_media_raw_mounts_yaml: |
     dest: /media-raw/{{ disk }}
     share: {{ disk }}
   {% endfor %}
+
+# Everything the Tdarr node bind-mounts. Extra keys (share, options) are ignored by that role
+# and are what let the CIFS list below be derived from this one instead of written beside it.
+htpc_tdarr_mounts: "{{ [htpc_tdarr_pool_mount] + htpc_tdarr_media_raw_mounts }}"
+
+# Everything mounted from nas-01 on this host: the Tdarr list remapped, plus ComfyUI's output
+# share, which nothing else consumes.
+#
+# DERIVED, not written out again. One list used to serve both mounting and bind-mounting, so a
+# path could not be mounted-but-not-bound; deriving keeps that true now that mounting lives in
+# a separate role. `src` becomes `path` because in a mount role `src` reads as the remote share,
+# and these are local targets.
+htpc_nas_01_cifs_mounts: "{{ _htpc_nas_01_cifs_mounts_yaml | from_yaml }}"
+_htpc_nas_01_cifs_mounts_yaml: |
+  {% for m in htpc_tdarr_mounts %}
+  - path: {{ m.src }}
+    share: {{ m.share }}
+  {% if m.options is defined %}
+    options: {{ m.options }}
+  {% endif %}
+  {% endfor %}
+  - path: /run/media/system/nas_01_ai_images
+    share: {{ nas_01_ai_image_path }}
+    options: noserverino
