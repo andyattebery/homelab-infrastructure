@@ -61,6 +61,9 @@ homelab_hosts:
   media-01:
     ip: 192.168.1.233
     mac: {{ op://Home Lab/media-01/hardware/mac address }}
+  vdesktop-01:
+    ip: 192.168.1.237
+    mac: {{ op://Home Lab/vdesktop-01/hardware/mac address }}
 
   # Single Purpose
   pi-camera:
