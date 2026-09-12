@@ -63,8 +63,7 @@ fi
 DOMAIN=$(grep 'domainName' "$SCRIPT_DIR/../secrets/vars.nix" | sed 's/.*= *"\(.*\)".*/\1/')
 FQDN="${HOSTNAME}.${DOMAIN}"
 
-# Preview first, ALWAYS -- with or without --dry-run. `nh os build` returns before
-# activation, so this only builds and diffs.
+# Preview first, ALWAYS -- with or without --dry-run.
 #
 # Deliberately NOT `deploy --dry-activate`, which would also produce the closure but
 # additionally runs the dry-activation script -- and that is not a simulation: snippets
@@ -72,33 +71,92 @@ FQDN="${HOSTNAME}.${DOMAIN}"
 # "Imported ... as age key" on every single run. A plain build produces the closure the
 # diff needs and nothing else.
 #
-# --build-host and --target-host MUST both be set and identical. With --target-host
-# omitted nh diffs against the LOCAL /run/current-system and copies the built closure
-# back; with both set it diffs on the host and leaves the closure there, which is also
-# what the subsequent deploy-rs deploy needs. Dropping --target-host does not error --
-# it silently diffs the wrong machine.
+# NOT `nh os build` either, though it was used here until 2026-09-10. nh 4.4.2 deadlocks
+# on large diffs: nh-remote/src/remote.rs:1664-1690 gives ssh BOTH .stdout(Redirection::Pipe)
+# and .stderr(Redirection::Pipe), then waits for the process to exit before reading either.
+# Past 64 KiB of build output nothing drains the pipe and the deploy hangs forever -- 27
+# minutes on network-03 and again on network-01, both times after the build had finished.
+# The capture below reads continuously, so it cannot deadlock the same way.
 #
-# services@ matches deploy.nodes.<host>.sshUser in flake.nix.
+# --eval-store auto evaluates HERE and --store ssh-ng://... builds THERE, the same split
+# deploy-rs uses for remoteBuild. Evaluation has to be local: the host has neither the
+# flake nor secrets/vars.nix, so it cannot evaluate its own configuration.
 #
-# -R because nh refuses to run as root and the nix-shell.sh container is root.
-# --diff always because `auto` silently skips when it cannot find a local profile.
-# --no-nom keeps output predictable; drop it for nix-output-monitor's progress display.
+# The derivation must be copied first or the build fails with "don't know how to build
+# these paths" -- verified on network-01. -s makes the host pull dependencies from
+# substituters instead of having them pushed over ssh from here.
 #
-# nh is pinned to the flake's own nixpkgs so the diff tool cannot drift from what is
-# being deployed. Flags verified against nh 4.4.2; re-check after a nixpkgs bump.
-#
-# Follow root.inputs.nixpkgs to its node rather than hardcoding a node name -- the node
-# is currently "nixpkgs_2" (the one named "nixpkgs" belongs to nixos-raspberrypi) and
-# those suffixes get renumbered when inputs are added or removed.
-NIXPKGS_REV=$(jq -r '.nodes[.nodes.root.inputs.nixpkgs].locked.rev' "$SCRIPT_DIR/../flake.lock")
+# Not wasted work: the activatable-* wrapper the real deploy builds references this
+# toplevel directly, so only two small activate scripts remain to realise afterwards.
+REF=".#nixosConfigurations.$HOSTNAME.config.system.build.toplevel"
+# services@ matches deploy.nodes.<host>.sshUser in flake.nix. The other ssh calls here
+# use a bare $FQDN and rely on ssh config; the store URL has to name the user.
+STORE="ssh-ng://services@$FQDN"
 
 echo "Building $HOSTNAME without activating..."
-"$SCRIPT_DIR/nix-shell.sh" --ssh run "github:NixOS/nixpkgs/$NIXPKGS_REV#nh" -- \
-    os build . \
-    -H "$HOSTNAME" \
-    --build-host  "services@$FQDN" \
-    --target-host "services@$FQDN" \
-    --diff always --no-nom -R
+"$SCRIPT_DIR/nix-shell.sh" --ssh copy -s --to "$STORE" --derivation "$REF"
+
+# --json rather than --print-out-paths: `nix build --help` documents it as "suitable for
+# consumption by another program", and a corrupted stream makes jq fail loudly instead of
+# returning a plausible-looking string. No line-position guessing either.
+#
+# </dev/null because nix-shell.sh adds `docker run -it` when stdin is a TTY
+# (nix-shell.sh:51). A data capture should not vary with how the script was invoked.
+#
+# --no-link is deliberate: per the nix manual the result symlink is what registers a GC
+# root, so omitting it means "only looking, do not pin this on the host". If the deploy
+# follows, deploy-rs roots the system properly; if it does not, the closure stays
+# reclaimable. The trade is that a GC in between costs a rebuild, never correctness.
+NEW=$("$SCRIPT_DIR/nix-shell.sh" --ssh build "$REF" \
+    --eval-store auto --store "$STORE" \
+    --json --no-link </dev/null | jq -r '.[0].outputs.out')
+
+# Anchored at BOTH ends. Start-anchored only would let a trailing ANSI escape through,
+# and trailing is the real case -- a reset (\033[0m) is emitted at the end of coloured
+# output, which is what produced a confusing remote shell parse error once.
+if [[ ! "$NEW" =~ ^/nix/store/[a-z0-9]{32}-[a-zA-Z0-9.:_+?=-]+$ ]]; then
+    echo "Error: could not determine the new system path for $HOSTNAME"
+    echo "  got: $NEW"
+    exit 1
+fi
+
+echo
+# dix rather than `nix store diff-closures`: it drops size-only entries carrying no
+# version, groups multiple outputs, aligns columns and prints closure totals.
+#
+# The two marker characters are independent (crates/dix/src/render.rs:190-223): the first
+# is the diff status (U upgraded, D downgraded, C changed or mixed, A added, R removed),
+# the second is SELECTION status (* selected, + newly selected, . unselected, - newly
+# unselected). So [U*] means "upgraded and selected", i.e. a top-level package rather than
+# a transitive dependency. It says nothing about how large the version jump is.
+#
+# --force-correctness because dix's default backend can fall back to opening nix's SQLite
+# database with ?immutable=1, which its own help notes "can be inaccurate if the database
+# is being written to at the same time". This runs immediately after a build on that host,
+# which is exactly that case.
+#
+# Empty output means no package VERSIONS moved, which is not the same as "no change" --
+# a config-only change shows up as a non-zero DIFF with no CHANGED section.
+#
+# Followed from nixpkgs-unstable, NOT the flake's own nixpkgs: dix there is 2.2.0 versus
+# 1.4.2 in the pinned nixpkgs. 2.x is what prints exact closure path counts (the PATHS
+# line) and per-package size deltas, and it is the same version nh vendored. Note the node
+# is literally "nixpkgs-unstable" whereas plain nixpkgs is "nixpkgs_2", so the bracket
+# lookup is required here too. nixpkgs-unstable is already a flake input (flake.nix:4), so
+# no new input is added -- but the HOST does now fetch and evaluate that nixpkgs itself.
+#
+# This preview is a hard gate: under `set -e` a failed fetch or eval aborts before anything
+# is deployed. That is deliberate -- a deploy whose diff could not be shown is the one you
+# least want to wave through -- but it means a transient network failure on the host blocks
+# deploying, and `nix run` registers no GC root, so nh-clean's weekly GC drops dix and the
+# next run re-fetches it.
+DIX_REV=$(jq -r '.nodes[.nodes.root.inputs["nixpkgs-unstable"]].locked.rev' "$SCRIPT_DIR/../flake.lock")
+echo "Package changes:"
+# The path goes over stdin and xargs appends it as the final argument, so no variable
+# content is ever interpolated into a remote command string. The hosts' login shell is
+# fish; this makes that irrelevant rather than something to quote around.
+printf '%s\n' "$NEW" | ssh "$FQDN" \
+    "xargs nix run github:NixOS/nixpkgs/$DIX_REV#dix -- --color=always --force-correctness /run/current-system"
 echo
 
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -132,9 +190,34 @@ NEEDS_REBOOT=$(ssh "$FQDN" 'bash -c "
 if [[ "$NEEDS_REBOOT" == "yes" ]]; then
     if [[ "$REBOOT" == "true" ]]; then
         echo "System closure changed — rebooting $HOSTNAME..."
+        # `sudo reboot` tears the connection down, so a non-zero exit here is normal and
+        # says nothing about whether the command ran. It cannot be the success signal.
         ssh "$FQDN" 'sudo reboot' || true
+
+        # Wait for the host to actually GO DOWN before waiting for it to come back.
+        # Without this, the "came back" loop cannot tell a completed reboot from one that
+        # never happened. On 2026-09-12 DNS resolution failed for exactly this ssh, the
+        # `|| true` swallowed it, the loop below then succeeded on its FIRST attempt
+        # against a host that had never restarted, and the script printed "is back online"
+        # while network-01 sat on the old kernel with booted != current.
+        echo "Waiting for $HOSTNAME to go down..."
+        down=false
+        elapsed=0
+        while [[ $elapsed -lt 120 ]]; do
+            if ! ssh -o ConnectTimeout=3 -o BatchMode=yes "$FQDN" true 2>/dev/null; then
+                down=true
+                break
+            fi
+            sleep 5
+            elapsed=$((elapsed + 5))
+        done
+        if [[ "$down" != "true" ]]; then
+            echo "Error: $HOSTNAME never went down — the reboot did not take effect."
+            echo "  The new configuration is active, but the host is still on the old kernel."
+            exit 1
+        fi
+
         echo "Waiting for $HOSTNAME to come back..."
-        sleep 10
         timeout=300
         elapsed=0
         until ssh -o ConnectTimeout=5 -o BatchMode=yes "$FQDN" true 2>/dev/null; do
@@ -145,7 +228,19 @@ if [[ "$NEEDS_REBOOT" == "yes" ]]; then
                 exit 1
             fi
         done
-        echo "$HOSTNAME is back online."
+
+        # sshd answering only proves the host booted, not that it booted into the new
+        # system -- a failed boot that fell back to the previous generation also answers.
+        BOOTED_OK=$(ssh "$FQDN" 'bash -c "
+            b=\$(readlink -f /run/booted-system/{initrd,kernel,kernel-modules} 2>/dev/null)
+            c=\$(readlink -f /run/current-system/{initrd,kernel,kernel-modules} 2>/dev/null)
+            if [ \"\$b\" != \"\$c\" ]; then echo no; else echo yes; fi
+        "')
+        if [[ "$BOOTED_OK" != "yes" ]]; then
+            echo "Error: $HOSTNAME came back, but its booted system still differs from current."
+            exit 1
+        fi
+        echo "$HOSTNAME is back online, running the deployed kernel."
     else
         echo "Reboot required — booted system differs from current profile. Run with --reboot to reboot automatically."
     fi
