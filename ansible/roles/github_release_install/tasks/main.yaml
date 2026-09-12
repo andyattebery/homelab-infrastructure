@@ -221,3 +221,9 @@
     state: link
     owner: root
     group: root
+
+# Split into its own file so a test can render the env file without running everything above it --
+# the tasks before this one call the GitHub API and write to real paths, and a fixture test must do
+# neither. Same reason systemd_unit_watchdog splits install.yaml from main.yaml.
+- name: Deploy the on-host updater
+  ansible.builtin.include_tasks: deploy_updater.yaml

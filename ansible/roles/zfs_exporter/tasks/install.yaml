@@ -26,4 +26,12 @@
       aarch64: "linux-arm64\\.tar\\.gz$"
     github_release_install_archive_type: tarball
     github_release_install_binary_in_archive: "zfs_exporter-{{ zfs_exporter_version }}.{{ zfs_exporter_arch_suffix | trim }}/zfs_exporter"
+    # The same path with the version left as a placeholder, for the env file the role writes for
+    # the on-host updater. The line above is resolved against whatever release is current when the
+    # playbook runs, and is therefore wrong for every release after it -- an updater reading that
+    # literal would look for 2.3.12's directory inside 2.3.13's tarball.
+    #
+    # The architecture stays a Jinja expression and is resolved here: the env file is per-host, so
+    # it is already correct there. Only ${VERSION} is substituted at run time.
+    github_release_install_binary_in_archive_pattern: "zfs_exporter-${VERSION}.{{ zfs_exporter_arch_suffix | trim }}/zfs_exporter"
     github_release_install_binary_path: "{{ zfs_exporter_bin_path }}"

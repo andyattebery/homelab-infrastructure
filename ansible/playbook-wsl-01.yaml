@@ -105,8 +105,20 @@
         github_release_install_archive_type: tarball
         github_release_install_binary_in_archive: ffmpeg-master-latest-linux64-gpl/bin/ffmpeg
         github_release_install_binary_path: /opt/ffmpeg-btbn/bin/ffmpeg
-        github_release_install_version_command: "echo latest"
-        github_release_install_version_regex: "(.*)"
+        # use_tag_stamp, not the `echo latest` idiom this used to carry. That compared the literal
+        # string "latest" against itself, so both sides moved together and the comparison could
+        # never fail: this host installed ffmpeg once and every run afterwards reported no change
+        # while BtbN shipped new builds. The role's own defaults/main.yaml warns about exactly
+        # this, and the warning was right.
+        #
+        # The stamp compares the installed tag AND asset digest against what the release now
+        # offers, so it is correct whether releases/latest returns the rolling `latest` tag or a
+        # dated autobuild-* one -- and BtbN replaces assets in place under a rolling tag, which is
+        # the case the digest half exists for.
+        #
+        # No restart wiring: this node spawns ffmpeg per job, so it picks up a replacement on the
+        # next one. Same reasoning playbook-media-01.yaml records for its own node.
+        github_release_install_use_tag_stamp: true
 
     - name: Deploy Tdarr node
       ansible.builtin.include_role:

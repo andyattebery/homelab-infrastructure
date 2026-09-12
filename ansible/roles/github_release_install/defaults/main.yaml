@@ -52,3 +52,58 @@ github_release_install_tag_stamp_path: "{{ github_release_install_binary_path }}
 # that fails the run rather than silently clobbering something another package owns.
 github_release_install_symlink: false
 github_release_install_symlink_path: "/usr/local/bin/{{ github_release_install_binary_path | basename }}"
+
+# --- the on-host updater ----------------------------------------------------------------------
+#
+# The role installs and updates, but only while ansible-playbook is running. These deploy a
+# script that does the same job between runs, plus one env file per install describing it.
+#
+# The script is a SECOND implementation of the decision above, in Python. The two can drift and
+# nothing structural prevents it -- see the README. It is not generated from these tasks.
+
+# Names the env file: <config_dir>/<name>.env. The basename is unique per host across every
+# current caller; the eight call sites in this repo produce eight distinct basenames, so no two
+# can collide. Override if you add a caller that would be the ninth.
+#
+# Wrong value: two installs share an env file and the second overwrites the first, so one binary
+# silently stops being updated.
+github_release_install_name: "{{ github_release_install_binary_path | basename }}"
+
+# One env file per install. Not reconciled: the role is included once per install and cannot know
+# the host's full set, so an env file for a caller you stopped invoking stays behind. That is
+# harmless because the script refuses to install a binary that is absent -- the orphan reports
+# SKIP rather than resurrecting something you removed.
+github_release_install_config_dir: /etc/github-release-install
+
+# /usr/local/bin, not /usr/local/sbin: every CLI in this repo that a human types lives in bin
+# (gpu-mode, sleep-inhibit, pqup), and this is one. Nothing drives it on a timer.
+github_release_install_updater_path: /usr/local/bin/github-release-update
+github_release_install_updater_all_path: /usr/local/bin/github-release-update-all
+
+# What the script looks for inside the extracted tarball. Defaults to _binary_in_archive, which is
+# right whenever that path does not move between releases.
+#
+# Set this instead when the caller builds _binary_in_archive from the release version, because the
+# rendered literal is only correct for the version current at deploy time. ${VERSION} (leading 'v'
+# stripped) and ${TAG} (raw tag_name) are substituted by the script at run time:
+#
+#   github_release_install_binary_in_archive_pattern: "tool-${VERSION}.<arch expression>/tool"
+#
+# The architecture stays a Jinja expression and is resolved here, because the env file is
+# per-host. Substituting it at run time as well would be a second source of truth for something
+# already known.
+github_release_install_binary_in_archive_pattern: "{{ github_release_install_binary_in_archive | default('') }}"
+
+# Run by the script through `sh -c`, and ONLY when the binary's bytes actually changed.
+#
+# Empty by default, and empty is right for most callers: a consumer that spawns the binary per
+# job picks up a replacement on its own. Set it where the consumer holds the old binary open --
+# a service reading it from a read-only bind mount will not see a new build until it restarts,
+# and nothing on the host would otherwise tell it.
+#
+# Prefer a form that does nothing to a stopped unit (`systemctl try-restart`), so a service
+# someone turned off on purpose is not started behind their back.
+#
+# Wrong value: a non-zero exit fails the run AFTER the binary was replaced, so the install stands
+# and the run reports failure.
+github_release_install_post_update_command: ""

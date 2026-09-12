@@ -1,0 +1,259 @@
+---
+# Fixture test for github_release_install's env-file rendering.
+#
+#   cd ansible && ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/github_release_install/tests/inventory \
+#     roles/github_release_install/tests/test.yml
+#
+# Contacts nothing. Only `deploy_updater.yaml` is included -- the rest of the role calls the
+# GitHub API and writes to /usr/local/bin, neither of which belongs in a fixture test. That split
+# is why the role has a separate task file at all.
+#
+# What is under test is the rendering the SCRIPT depends on: that each env file names the right
+# install, resolves the architecture to this host's single pattern, and passes ${VERSION} through
+# without expanding it. The script's own behaviour is pinned by the pytest suite beside this file.
+- name: github_release_install env file rendering
+  hosts: localhost
+  gather_facts: true
+  vars:
+    # Every case is a real caller from this repo, values lifted from the calling file. A case
+    # invented to match the template would agree with it by construction.
+    cases:
+      - name: beszel-agent
+        comment: "roles/beszel_agent/tasks/install.yaml -- tarball, version-command mode"
+        vars:
+          github_release_install_repo: henrygd/beszel
+          github_release_install_asset_patterns:
+            x86_64: "beszel-agent_linux_amd64.tar.gz"
+            aarch64: "beszel-agent_linux_arm64.tar.gz"
+            armv7l: "beszel-agent_linux_arm.tar.gz"
+            arm64: "beszel-agent_linux_arm64.tar.gz"
+          github_release_install_archive_type: tarball
+          github_release_install_binary_in_archive: beszel-agent
+          github_release_install_binary_path: /usr/local/bin/beszel-agent
+          github_release_install_version_command: "/usr/local/bin/beszel-agent -v"
+        expect:
+          NAME: beszel-agent
+          REPO: henrygd/beszel
+          ARCHIVE_TYPE: tarball
+          BINARY_IN_ARCHIVE: beszel-agent
+          USE_TAG_STAMP: "false"
+          POST_UPDATE_COMMAND: ""
+          TAG_STAMP_PATH: /usr/local/bin/beszel-agent.release-tag
+
+      - name: topgrade
+        comment: "roles/topgrade/tasks/install.yaml -- the only deb caller"
+        vars:
+          github_release_install_repo: topgrade-rs/topgrade
+          github_release_install_asset_patterns:
+            x86_64: "_amd64.deb"
+            aarch64: "_arm64.deb"
+            armv7l: "_armhf.deb"
+            arm64: "_arm64.deb"
+          github_release_install_archive_type: deb
+          github_release_install_binary_path: /usr/bin/topgrade
+          github_release_install_version_command: "/usr/bin/topgrade -V"
+        expect:
+          NAME: topgrade
+          ARCHIVE_TYPE: deb
+          BINARY_IN_ARCHIVE: ""
+          BINARY_PATH: /usr/bin/topgrade
+
+      - name: scrutiny-collector-metrics-linux-amd64
+        comment: "roles/scrutiny_collector/tasks/main.yaml -- the only `binary` caller"
+        vars:
+          github_release_install_repo: AnalogJ/scrutiny
+          github_release_install_asset_patterns:
+            x86_64: "scrutiny-collector-metrics-linux-amd64"
+            aarch64: "scrutiny-collector-metrics-linux-arm64"
+            arm64: "scrutiny-collector-metrics-linux-arm64"
+          github_release_install_archive_type: binary
+          github_release_install_binary_path: /opt/scrutiny/bin/scrutiny-collector-metrics-linux-amd64
+        expect:
+          ARCHIVE_TYPE: binary
+          BINARY_IN_ARCHIVE: ""
+          VERSION_REGEX: '([0-9]+\.[0-9]+\.[0-9]+)'
+
+      - name: ffmpeg
+        comment: "a playbook caller -- stamp mode, and the only POST_UPDATE_COMMAND"
+        vars:
+          github_release_install_repo: andyattebery/jellyfin-ffmpeg
+          github_release_install_asset_patterns:
+            x86_64: 'linux64-gpl\.tar\.xz$'
+            aarch64: 'linuxarm64-gpl\.tar\.xz$'
+            arm64: 'linuxarm64-gpl\.tar\.xz$'
+          github_release_install_archive_type: tarball
+          github_release_install_binary_in_archive: ffmpeg
+          github_release_install_binary_path: /opt/jellyfin-ffmpeg/bin/ffmpeg
+          github_release_install_use_tag_stamp: true
+          github_release_install_post_update_command: "systemctl try-restart example.service"
+        expect:
+          NAME: ffmpeg
+          USE_TAG_STAMP: "true"
+          POST_UPDATE_COMMAND: "systemctl try-restart example.service"
+          TAG_STAMP_PATH: /opt/jellyfin-ffmpeg/bin/ffmpeg.release-tag
+
+      - name: zfs_exporter
+        comment: "roles/zfs_exporter -- the ${VERSION} case; the literal must survive rendering"
+        vars:
+          github_release_install_repo: pdf/zfs_exporter
+          github_release_install_asset_patterns:
+            x86_64: "linux-amd64\\.tar\\.gz$"
+            aarch64: "linux-arm64\\.tar\\.gz$"
+            arm64: "linux-arm64\\.tar\\.gz$"
+          github_release_install_archive_type: tarball
+          github_release_install_binary_in_archive: "zfs_exporter-2.3.12.linux-amd64/zfs_exporter"
+          github_release_install_binary_in_archive_pattern: "zfs_exporter-${VERSION}.linux-amd64/zfs_exporter"
+          github_release_install_binary_path: /usr/local/bin/zfs_exporter
+        expect:
+          BINARY_IN_ARCHIVE: "zfs_exporter-${VERSION}.linux-amd64/zfs_exporter"
+
+  tasks:
+    - name: Create a scratch root
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: github-release-install-test
+      register: scratch
+
+    # The role does not create this: /usr/local/bin exists on every managed host, and a task for a
+    # directory that always exists is a code path for a case that does not occur.
+    - name: Create the scratch bin directory the real hosts already have
+      ansible.builtin.file:
+        path: "{{ scratch.path }}/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Render every case
+      ansible.builtin.include_role:
+        name: github_release_install
+        tasks_from: deploy_updater.yaml
+      vars:
+        github_release_install_config_dir: "{{ scratch.path }}/etc"
+        github_release_install_updater_path: "{{ scratch.path }}/bin/github-release-update"
+        github_release_install_updater_all_path: "{{ scratch.path }}/bin/github-release-update-all"
+        github_release_install_name: "{{ case.name }}"
+        github_release_install_repo: "{{ case.vars.github_release_install_repo }}"
+        github_release_install_asset_patterns: "{{ case.vars.github_release_install_asset_patterns }}"
+        github_release_install_archive_type: "{{ case.vars.github_release_install_archive_type }}"
+        github_release_install_binary_path: "{{ case.vars.github_release_install_binary_path }}"
+        github_release_install_binary_in_archive: "{{ case.vars.github_release_install_binary_in_archive | default('') }}"
+        github_release_install_binary_in_archive_pattern: >-
+          {{ case.vars.github_release_install_binary_in_archive_pattern
+             | default(case.vars.github_release_install_binary_in_archive | default('')) }}
+        github_release_install_version_command: >-
+          {{ case.vars.github_release_install_version_command
+             | default(case.vars.github_release_install_binary_path ~ ' --version') }}
+        github_release_install_tag_stamp_path: "{{ case.vars.github_release_install_binary_path }}.release-tag"
+        github_release_install_symlink_path: "/usr/local/bin/{{ case.vars.github_release_install_binary_path | basename }}"
+        github_release_install_use_tag_stamp: "{{ case.vars.github_release_install_use_tag_stamp | default(false) }}"
+        github_release_install_post_update_command: "{{ case.vars.github_release_install_post_update_command | default('') }}"
+      loop: "{{ cases }}"
+      loop_control:
+        loop_var: case
+        label: "{{ case.name }}"
+
+    - name: Read back every rendered env file
+      ansible.builtin.slurp:
+        src: "{{ scratch.path }}/etc/{{ item.name }}.env"
+      loop: "{{ cases }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: rendered
+
+    # regex_findall with two groups, rather than splitting on a newline: '\n' inside a YAML
+    # folded scalar is a literal backslash-n, so the split matched nothing and every dict came
+    # back empty. C0 below is what caught that -- which is the whole reason it is there.
+    #
+    # The trailing map strips the optional surrounding quotes. Ansible's `quote` filter is
+    # shlex.quote, which quotes only when a value needs it, so the file is a legitimate mix of
+    # KEY=value and KEY='value'. The script reads it with shlex.split and does not care; a test
+    # that assumed every value was quoted parsed a third of each file and silently.
+    - name: Parse each env file into a dict
+      ansible.builtin.set_fact:
+        parsed: >-
+          {{ parsed | default({}) | combine({
+               cases[idx].name:
+                 dict((item.content | b64decode)
+                      | regex_findall("(?m)^([A-Z_]+)=(.*)$")
+                      | map('map', 'regex_replace', "^'(.*)'$", '\1'))
+             }) }}
+      loop: "{{ rendered.results }}"
+      loop_control:
+        index_var: idx
+        label: "{{ cases[idx].name }}"
+
+    # Non-emptiness first. A regex that silently matched nothing would leave every dict empty and
+    # then every `expected in actual` comparison below would be vacuously true.
+    - name: C0 -- every env file parsed to a non-empty dict with all 14 settings
+      ansible.builtin.assert:
+        that:
+          - parsed | length == cases | length
+          - parsed.values() | map('length') | unique | list == [14]
+        fail_msg: >-
+          Parsed {{ parsed | length }} of {{ cases | length }} files;
+          key counts were {{ parsed.values() | map('length') | list }}.
+        success_msg: "{{ cases | length }} env files, 14 settings each: {{ parsed.keys() | list }}"
+
+    - name: C1 -- each case renders the values its caller implies
+      ansible.builtin.assert:
+        that:
+          - item.expect.items() | difference(parsed[item.name].items()) | length == 0
+        fail_msg: >-
+          {{ item.name }}: expected {{ item.expect }},
+          got {{ parsed[item.name] }}
+        success_msg: "{{ item.name }} -> {{ item.expect }}"
+      loop: "{{ cases }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # The single fact the whole ${VERSION} decision rests on. Jinja must not have touched it, and
+    # the architecture must already be resolved -- the script substitutes one and not the other.
+    - name: C2 -- ${VERSION} survives rendering, unexpanded
+      ansible.builtin.assert:
+        that:
+          - "'${VERSION}' in parsed['zfs_exporter'].BINARY_IN_ARCHIVE"
+          # ('{' ~ '{') rather than the literal, which would open a nested template here.
+          - ('{' ~ '{') not in parsed['zfs_exporter'].BINARY_IN_ARCHIVE
+        fail_msg: "got {{ parsed['zfs_exporter'].BINARY_IN_ARCHIVE }}"
+        success_msg: "{{ parsed['zfs_exporter'].BINARY_IN_ARCHIVE }}"
+
+    - name: C3 -- ASSET_PATTERN is resolved to this host's architecture, not left as a dict
+      ansible.builtin.assert:
+        that:
+          - parsed[item.name].ASSET_PATTERN | length > 0
+          - >-
+            parsed[item.name].ASSET_PATTERN
+            == item.vars.github_release_install_asset_patterns[ansible_facts['architecture']]
+          - "'{' not in parsed[item.name].ASSET_PATTERN"
+        fail_msg: >-
+          {{ item.name }}: rendered {{ parsed[item.name].ASSET_PATTERN }} for architecture
+          {{ ansible_facts['architecture'] }}
+        success_msg: "{{ item.name }} -> {{ parsed[item.name].ASSET_PATTERN }}"
+      loop: "{{ cases }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # The names are the env files' basenames, so a collision silently loses one install.
+    - name: C4 -- every install on a host gets a distinct env file
+      ansible.builtin.assert:
+        that:
+          - cases | map(attribute='name') | unique | length == cases | length
+        success_msg: "{{ cases | map(attribute='name') | list }} are distinct"
+
+    - name: C5 -- both scripts are deployed, executable
+      ansible.builtin.stat:
+        path: "{{ scratch.path }}/bin/{{ item }}"
+      loop: [github-release-update, github-release-update-all]
+      register: deployed
+
+    - name: C5 -- assert
+      ansible.builtin.assert:
+        that:
+          - deployed.results | map(attribute='stat.exists') | list == [true, true]
+          - deployed.results | map(attribute='stat.executable') | list == [true, true]
+        success_msg: "both scripts deployed 0755"
+
+    - name: Remove the scratch root
+      ansible.builtin.file:
+        path: "{{ scratch.path }}"
+        state: absent

@@ -1,0 +1,41 @@
+---
+# No owner/group on any of these three, deliberately. Every caller runs under `become: true`
+# (the one exception connects as a root-equivalent inventory user), so these land root-owned
+# anyway — and hardcoding `owner: root` makes the role impossible to run in a fixture test on a
+# controller that is not root, which is the same reason its paths live in defaults/. The same
+# call systemd_unit_watchdog makes for its deployed script.
+#
+# The on-host updater. Everything above converges the binary during a playbook run; these three
+# tasks are what lets the host do it afterwards, without an ssh session full of ad-hoc commands.
+#
+# Deployed unconditionally rather than behind a toggle. A toggle here would be a setting whose
+# only effect is whether the host can update itself, which is not a decision worth offering per
+# caller — and the scripts are inert until someone runs them.
+- name: Create the updater config directory
+  ansible.builtin.file:
+    path: "{{ github_release_install_config_dir }}"
+    state: directory
+    mode: "0755"
+
+# copy, not template: the scripts are ordinary files with no Jinja in them, and keeping them that
+# way is what lets the pytest suite run the same bytes the host runs.
+- name: Deploy the updater scripts
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "0755"
+  loop:
+    - src: github_release_update.py
+      dest: "{{ github_release_install_updater_path }}"
+    - src: github_release_update_all.py
+      dest: "{{ github_release_install_updater_all_path }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+# 0644, not 0600: this holds a repo name, a path and a regex. Nothing in it is a secret, and a
+# file only root can read is a file nobody can debug.
+- name: Write the env file for {{ github_release_install_name }}
+  ansible.builtin.template:
+    src: install.env.j2
+    dest: "{{ github_release_install_config_dir }}/{{ github_release_install_name }}.env"
+    mode: "0644"

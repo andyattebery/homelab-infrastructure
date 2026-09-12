@@ -1,0 +1,77 @@
+---
+# Every github_release_install caller must be able to reach an update. Contacts nothing, needs no
+# secret:
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i localhost, tests/test-github-release-update-reachable.yml
+#
+# Both parts of that invocation are load-bearing, for the reasons in tests/README.md: `-i
+# localhost,` keeps inventory.ini and every host_vars/*/vault.yaml out of scope, and
+# ANSIBLE_VAULT_PASSWORD_FILE overrides ansible.cfg's vault_password_file, which ansible-core
+# reads at CLI init on every invocation.
+#
+# Named for the property it checks, not for idempotency: the `echo <tag>` idiom this catches IS
+# idempotent. That is the problem with it -- it is idempotent and it never updates.
+#
+# The check itself is tests/check-github-release-callers.py; see that script's docstring for the
+# wsl-01 incident behind it.
+#
+# "Run it twice" (tests/README.md) does not apply: this writes no state and touches no host.
+- name: Every github_release_install caller can reach an update
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # Run under the interpreter running ansible, not whatever `python3` resolves to: the script
+    # imports PyYAML, which the venv is guaranteed to have because ansible-core depends on it.
+    - name: Run the caller guard
+      # failed_when: false so G1 below can print the guard's stdout, which names the offending
+      # file and caller. An rc alone would not say which one.
+      ansible.builtin.command:
+        cmd: "{{ ansible_playbook_python }} {{ playbook_dir }}/check-github-release-callers.py"
+      register: _guard
+      changed_when: false
+      failed_when: false
+
+    # The case set, asserted before anything is concluded from it. `rc == 0` alone passes just as
+    # well when the globs match nothing and the guard cheerfully reports zero callers -- the
+    # vacuous pass tests/README.md warns about.
+    #
+    # The lower bound is 8 rather than 1 deliberately. Eight is what the repo has today, and a
+    # guard that accepted one would stay green if a refactor hid seven of them from the parser.
+    - name: G0 - the guard ran and found the expected case set
+      ansible.builtin.assert:
+        that:
+          - _guard.rc is defined
+          - _guard.stdout | length > 0
+          - _guard.stdout is search('checked [1-9][0-9]* files')
+          # No capture-group argument: inside a folded scalar Jinja reads '\1' as chr(1), not a
+          # backreference. Matching the whole phrase and stripping the non-digits sidesteps it.
+          - >-
+            (_guard.stdout
+             | regex_search('found [0-9]+ github_release_install call sites')
+             | regex_replace('[^0-9]', '') | int) >= 8
+        fail_msg: >-
+          check-github-release-callers.py did not report the expected case set.
+          rc={{ _guard.rc | default("<none>") }},
+          stdout={{ _guard.stdout | default("") | truncate(400) }},
+          stderr={{ _guard.stderr | default("") | truncate(400) }}. Either the script failed to
+          run, or its globs stopped matching -- in which case a green run says nothing about any
+          caller. If a caller was deliberately removed, lower the 8 here and say why.
+        quiet: true
+
+    - name: G1 - no caller compares a literal against itself
+      ansible.builtin.assert:
+        that:
+          - _guard.rc == 0
+        fail_msg: |-
+          {{ _guard.stdout }}
+        quiet: true
+
+    # Printed rather than summarised: a vacuous pass should be visible rather than hidden behind
+    # "All assertions passed". The per-caller mode lines are the part worth reading.
+    - name: G2 - report what was checked
+      ansible.builtin.debug:
+        msg: "{{ _guard.stdout_lines }}"

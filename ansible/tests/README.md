@@ -30,6 +30,8 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i localhost, tests/test-ceph-osd-config.yml
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i localhost, tests/test-until-waits.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i localhost, tests/test-github-release-update-reachable.yml
 
 # this one DOES read the vault — the MACs it checks are vaulted values
 .venv/bin/ansible-playbook tests/test-network-interface-pinning.yml
@@ -73,6 +75,9 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i roles/systemd_cifs_mount/tests/inventory \
   roles/systemd_cifs_mount/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/github_release_install/tests/inventory \
+  roles/github_release_install/tests/test.yml
 
 # these three fixture tests need the `docker` CLI -- the only ones with an external
 # dependency. None needs a daemon: `docker compose config` renders and exits,
@@ -97,6 +102,7 @@ tests/apt-sources/run.sh setup.yml verify-fish.yml
 .venv/bin/pytest roles/docker_compose_certbot_asrock_ipmi/tests/ -q
 .venv/bin/pytest roles/pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/textfile_collector_pve_pci_mapping/tests/ -q
+.venv/bin/pytest roles/github_release_install/tests/ -q
 ```
 
 ## Role resolution: the thing that bites first

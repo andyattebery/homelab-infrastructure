@@ -5,6 +5,12 @@ installed binary, runs its version command, compares to the latest
 release tag, and only downloads + installs when missing or outdated.
 Does not handle services, users, configs — caller's responsibility.
 
+## Status: Production
+
+Eight callers across the fleet. Also deploys `github-release-update` and
+`github-release-update-all` to every host it runs on, so a binary can be
+updated between playbook runs — see "The on-host updater" below.
+
 For builds whose version output can never equal the release tag, see
 `github_release_install_use_tag_stamp` under Optional.
 
@@ -162,6 +168,59 @@ Optional:
   the task that sets it. Two expressions that must agree are two
   expressions someone can edit apart.
 
+- `github_release_install_name` — default
+  `{{ github_release_install_binary_path | basename }}`. Names the env file the
+  updater reads: `<config_dir>/<name>.env`.
+
+  The eight callers in this repo produce eight distinct basenames, so no two can
+  collide on one host. **Wrong value:** two installs share an env file, the
+  second overwrites the first, and one binary silently stops being updated.
+
+- `github_release_install_config_dir` — default
+  `/etc/github-release-install`.
+
+- `github_release_install_updater_path` — default
+  `/usr/local/bin/github-release-update`.
+- `github_release_install_updater_all_path` — default
+  `/usr/local/bin/github-release-update-all`.
+
+- `github_release_install_binary_in_archive_pattern` — default
+  `{{ github_release_install_binary_in_archive }}`. What the updater looks for
+  inside the extracted tarball.
+
+  Set this only when the caller builds `_binary_in_archive` **from the release
+  version**, because the rendered literal is correct for exactly one release.
+  `${VERSION}` (leading `v` stripped) and `${TAG}` (raw `tag_name`) are
+  substituted by the script at run time:
+
+  ```yaml
+  github_release_install_binary_in_archive_pattern: "zfs_exporter-${VERSION}.{{ zfs_exporter_arch_suffix | trim }}/zfs_exporter"
+  ```
+
+  The architecture stays a Jinja expression and is resolved when the env file is
+  written — the file is per-host, so it is already correct there. **Wrong
+  value:** substituting the architecture too, or hardcoding `linux-amd64`,
+  produces a path that is silently wrong on the aarch64 hosts the role's own
+  `_asset_patterns` declare support for.
+
+- `github_release_install_post_update_command` — default `""`. Run by the
+  updater through `sh -c`, and **only when the binary's bytes actually
+  changed**.
+
+  Empty is right for most callers: a consumer that spawns the binary per job
+  picks up a replacement on its own. Set it where the consumer holds the old
+  binary open — a service reading it from a read-only bind mount will not see a
+  new build until it restarts, and nothing on the host would otherwise tell it.
+
+  Prefer a form that does nothing to a stopped unit:
+
+  ```yaml
+  github_release_install_post_update_command: "systemctl try-restart <unit>.service"
+  ```
+
+  **Wrong value:** a non-zero exit fails the run *after* the binary was
+  replaced, so the install stands and the run reports failure.
+
 ## Examples
 
 ### deb
@@ -211,3 +270,133 @@ Optional:
     github_release_install_archive_type: binary
     github_release_install_binary_path: /opt/scrutiny/bin/scrutiny-collector-metrics-linux-amd64
 ```
+
+## The on-host updater
+
+The tasks above converge a binary *while `ansible-playbook` is running*. Between
+runs the host has no way to pick up a new release. The role therefore also
+deploys two scripts and one env file per install:
+
+| path | what it is |
+|---|---|
+| `/usr/local/bin/github-release-update` | updates one install |
+| `/usr/local/bin/github-release-update-all` | walks every env file on the host |
+| `/etc/github-release-install/<name>.env` | one per install, written by this role |
+
+```
+github-release-update-all --dry-run
+github-release-update-all
+github-release-update --name <name>
+github-release-update --env-file /etc/github-release-install/<name>.env --force
+```
+
+Both need root — they write to `/usr/local/bin`, `/opt`, and run `apt-get`. They
+do **not** self-elevate the way `gpu-mode` does: the meta script loops over every
+install, and a self-elevating child would raise a sudo prompt per iteration,
+hanging an unattended run.
+
+### It is a second implementation, and it can drift
+
+`files/github_release_update.py` re-implements the decision that
+`tasks/main.yaml` makes. **Nothing keeps the two in step.** They are not
+generated from a common source, and no test compares them directly. Editing one
+without the other is entirely possible and nothing will say so.
+
+What narrows it, honestly labelled:
+
+- **Structural.** The script uses Python's `re`, which is the engine behind
+  Ansible's `regex_search`, so `_version_regex` and `_asset_patterns` behave
+  identically on both sides rather than merely similarly.
+- **Structural.** `roles/github_release_install/tests/` pins the behaviours the
+  two must agree on — both idempotency modes, all three archive types, the
+  digest/`id:` fallback, the byte comparison.
+- **Exhortation.** "Change both." There is no artifact for this.
+
+The one check that can catch a live disagreement is operational: converge a host
+with the script, then run its playbook and confirm `changed=0` for this role's
+tasks. Do that when you change either side.
+
+### It never installs a binary that is absent
+
+A missing `BINARY_PATH` prints `SKIP` and exits 0. Installing is Ansible's job.
+
+That is not only a scoping rule, it is the orphan handling. The role is included
+once per install and cannot know a host's full set, so it never removes an env
+file left behind by a caller you stopped invoking — the same gap
+`remote_power_control` has with its `/etc/remote_power_control/*.env`. Because
+the updater refuses to bootstrap, that stale file reports `SKIP` instead of
+resurrecting something you deliberately removed.
+
+The existence check runs **before** the API call, so an orphan costs nothing
+against the rate limit below. `--force` overrides it for a deliberate reinstall.
+
+### Rate limit
+
+Unauthenticated GitHub allows **60 requests per hour per source IP**, shared by
+every host behind one WAN address — one request per env file per run. Set
+`GITHUB_TOKEN` in the environment if that bites; the role does not deploy one.
+
+### The env file is parsed, not sourced
+
+Values go through Ansible's `quote` filter (`shlex.quote`), so a value is quoted
+only when it needs to be — a mix of `KEY=value` and `KEY='value'` is expected and
+both read the same. The script reads it with `shlex`, and never hands it to a
+shell, so a value cannot become a command. A line that *would* execute under
+`source` is rejected rather than run.
+
+`VERSION_COMMAND` is likewise split and executed directly, matching
+`ansible.builtin.command` — which is what makes `echo <tag>` resolve to
+`/bin/echo`. `POST_UPDATE_COMMAND` is the one exception and does go through
+`sh -c`, because it is a command a human wrote to be run that way.
+
+Mode is `0644`: the file holds a repo name, a path and a regex. Nothing in it is
+a secret, and a file only root can read is a file nobody can debug.
+
+### Bytes, not tags, decide whether anything changed
+
+The script replaces the binary only when the downloaded bytes differ, matching
+`ansible.builtin.copy`. This matters beyond tidiness: a caller keys a service
+restart off the binary's mtime, and a script that rewrote the file
+unconditionally would make the next playbook run report a change that did not
+happen.
+
+A release can move without the bytes moving. That case reports
+`OK … (metadata refreshed, bytes unchanged)`: the stamp is brought up to date so
+the next run is a no-op, and `POST_UPDATE_COMMAND` does **not** run.
+
+### Why `deploy_updater.yaml` is a separate task file
+
+So a fixture test can render the env file without executing everything above it —
+the earlier tasks call the GitHub API and write to real paths, and a test must do
+neither. Same split, for the same reason, as `systemd_unit_watchdog`.
+
+Those three tasks also set no `owner`/`group`. Every caller runs under
+`become: true` (the one exception connects as a root-equivalent inventory user),
+so the files land root-owned anyway, and hardcoding `owner: root` would make the
+role impossible to run in a fixture test on a controller that is not root.
+
+## Tests
+
+```
+cd ansible
+
+# the two scripts
+.venv/bin/pytest roles/github_release_install/tests/ -q
+
+# the env file this role renders
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/github_release_install/tests/inventory \
+  roles/github_release_install/tests/test.yml
+
+# every caller in the repo can actually reach an update
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i localhost, tests/test-github-release-update-reachable.yml
+```
+
+The third exists because one caller could not. It used
+`version_command: "echo latest"` with `version_regex: "(.*)"`, comparing a
+literal against itself: both sides moved together, the binary existed, so the
+comparison could never fail. That host took one build of a rolling release and
+then declined every later one, reporting no change on every run.
+`defaults/main.yaml` warned about the idiom in prose; the prose was not enough,
+so there is now a check.
