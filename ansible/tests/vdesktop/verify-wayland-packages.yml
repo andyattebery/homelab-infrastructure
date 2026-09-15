@@ -1,0 +1,70 @@
+---
+# Exercises the package set the headless WAYLAND session needs, in throwaway containers.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml verify-wayland-packages.yml
+#
+# Run it TWICE against the same containers -- the second run is what catches non-idempotence.
+#
+# This proves PACKAGE RESOLUTION ON BOTH ARCHITECTURES AND NOTHING MORE. It cannot say anything
+# about whether the compositor starts, whether EGL reaches a GPU, or whether libinput opens a
+# device: there is no GPU, no systemd and no udev here. README.md, "What this cannot cover",
+# already says so, and this verify does not change it.
+- name: Verify the Wayland session package set resolves
+  hosts: vdesktop_test
+
+  vars:
+    # Named here rather than read back from the role: role defaults go out of scope when
+    # include_role returns, and a list the test states independently is the stronger check --
+    # it verifies what a caller actually gets, not what the role says it asks for.
+    _packages:
+      - sway
+      # NAMED EXPLICITLY even though sway pulls it in transitively. Relying on another package's
+      # dependency for this one's correctness is how a silent software-rendering fallback
+      # becomes a mystery six months later.
+      - libegl1
+      - libgl1-mesa-dri
+      # The zwlr_screencopy_manager_v1 probe. Without it there is no way to prove the compositor
+      # is producing frames at all, which is exactly the claim `capture: wlr` rests on.
+      - grim
+      # The second viewer, on a UNIX socket rather than a TCP port.
+      - wayvnc
+
+    # xwayland, x11-utils and mesa-utils are GONE from this set, and that is a decision rather
+    # than an oversight. mesa-utils was there for glxinfo, whose whole purpose was proving that
+    # X11 CLIENTS get hardware GL -- and there are no X11 clients here. A Wayland GL probe would
+    # be a different tool making a different claim; none is carried until something needs one.
+
+  tasks:
+    - name: Ask apt what it would install
+      ansible.builtin.command:
+        argv: "{{ ['apt-cache', 'policy'] + _packages }}"
+      register: _policy
+      changed_when: false
+
+    # A simulated install, not just a candidate. A candidate proves the index is reachable and
+    # nothing about whether the package resolves on THIS architecture -- apt will happily report
+    # a candidate from a foreign index and fail only at dependency resolution.
+    - name: Ask apt to simulate the install
+      ansible.builtin.command:
+        argv: "{{ ['apt-get', 'install', '--simulate'] + _packages }}"
+      register: _simulate
+      changed_when: false
+      failed_when: false
+
+    - name: Every package resolves and the set installs cleanly on this architecture
+      vars:
+        _missing: "{{ _policy.stdout | regex_findall('Candidate:\\s*\\(none\\)') }}"
+      ansible.builtin.assert:
+        that:
+          - _policy.stdout | length > 0
+          - _missing | length == 0
+          - _simulate.rc == 0
+        fail_msg: >-
+          the Wayland session package set did not resolve on
+          {{ ansible_facts['architecture'] }} (simulate rc={{ _simulate.rc }},
+          {{ _missing | length }} package(s) with no candidate).
+          simulate stderr: {{ _simulate.stderr }}
+        success_msg: >-
+          all {{ _packages | length }} packages resolve and simulate clean on
+          {{ ansible_facts['architecture'] }}

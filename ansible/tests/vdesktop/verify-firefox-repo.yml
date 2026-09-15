@@ -1,0 +1,144 @@
+---
+# Exercises the apt-source half of the `firefox` role in throwaway containers.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml verify-firefox-repo.yml
+#
+# Run it TWICE -- the second run catches non-idempotence.
+- name: Verify the firefox apt source and pin
+  hosts: vdesktop_test
+
+  vars:
+    # Derived here, not read back from the role: role defaults go out of scope
+    # when include_role returns.
+    _sources_path: /etc/apt/sources.list.d/mozilla.sources
+    _keyring_path: /etc/apt/keyrings/mozilla.asc
+    _prefs_path: /etc/apt/preferences.d/mozilla
+    _expected_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
+
+  tasks:
+    - name: Apply only the apt-source half of the role
+      ansible.builtin.include_role:
+        name: firefox
+        tasks_from: apt_repo.yaml
+
+    - name: Read the rendered source and pin
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      register: _files
+      loop:
+        - "{{ _sources_path }}"
+        - "{{ _prefs_path }}"
+
+    - name: Stat the keyring
+      ansible.builtin.stat:
+        path: "{{ _keyring_path }}"
+      register: _keyring
+
+    - name: Source, keyring and pin all exist and are non-empty
+      vars:
+        _src: "{{ _files.results[0].content | b64decode }}"
+        _pin: "{{ _files.results[1].content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - _src | length > 0
+          - _pin | length > 0
+          - _keyring.stat.exists
+          - _keyring.stat.size > 0
+        fail_msg: "missing or empty source/pin/keyring"
+        success_msg: >-
+          source {{ _src | length }}B, pin {{ _pin | length }}B,
+          keyring {{ _keyring.stat.size }}B
+
+    # Mozilla publish ONE distro-agnostic suite literally named `mozilla`. A
+    # future "fix" that templates distribution_release here would produce a
+    # signed, valid, empty source -- so assert the literal.
+    - name: The suite is the literal `mozilla`, not the Debian codename
+      vars:
+        _src: "{{ _files.results[0].content | b64decode }}"
+        _suite_line: "{{ _src | regex_search('(?m)^Suites:.*$') }}"
+        _arch_line: "{{ _src | regex_search('(?m)^Architectures:.*$') }}"
+      ansible.builtin.assert:
+        that:
+          - _suite_line | length > 0
+          - _arch_line | length > 0
+          - "'mozilla' in _suite_line"
+          - ansible_facts['distribution_release'] not in _suite_line
+          - _expected_arch in _arch_line
+        fail_msg: "unexpected suite/arch: {{ _suite_line }} / {{ _arch_line }}"
+        success_msg: "{{ _suite_line }} | {{ _arch_line }}"
+
+    - name: Ask apt to simulate installing firefox
+      ansible.builtin.command:
+        argv: [apt-get, install, --simulate, firefox]
+      register: _simulate
+      changed_when: false
+      failed_when: false
+
+    - name: Ask apt where firefox comes from
+      ansible.builtin.command:
+        argv: [apt-cache, policy, firefox]
+      register: _ff_policy
+      changed_when: false
+
+    - name: firefox resolves from Mozilla and is installable here
+      vars:
+        _candidate: "{{ _ff_policy.stdout | regex_search('Candidate:\\s*(\\S+)', '\\1') | first | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _candidate | length > 0
+          - _candidate != '(none)'
+          - "'packages.mozilla.org' in _ff_policy.stdout"
+          - "'firefox:' ~ _expected_arch ~ ':' not in _ff_policy.stdout"
+          - _simulate.rc == 0
+        fail_msg: >-
+          firefox did not resolve as installable (simulate rc={{ _simulate.rc }}).
+          policy: {{ _ff_policy.stdout }}
+        success_msg: "firefox {{ _candidate }} from Mozilla, simulates clean on {{ _expected_arch }}"
+
+    # ------------------------------------------------------------------ pin
+    # The pin is not about `firefox` -- trixie ships no such package, so nothing
+    # contests that name. It is about `firefox-esr`, which BOTH archives ship.
+    # This proves the pin is load-bearing by flipping its one input and showing
+    # the winner changes. It survives any fix to the role, because it exercises
+    # the role's own contract rather than a known bug.
+    - name: With the default pin, Mozilla wins firefox-esr
+      ansible.builtin.command:
+        argv: [apt-cache, policy, firefox-esr]
+      register: _esr_pinned
+      changed_when: false
+
+    - name: Re-apply the role with the pin demoted below Debian's 500
+      ansible.builtin.include_role:
+        name: firefox
+        tasks_from: apt_repo.yaml
+      vars:
+        firefox_apt_pin_priority: 100
+
+    - name: Refresh apt after the pin change
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: With the pin demoted, Debian wins firefox-esr
+      ansible.builtin.command:
+        argv: [apt-cache, policy, firefox-esr]
+      register: _esr_demoted
+      changed_when: false
+
+    - name: The pin decides which archive supplies firefox-esr
+      vars:
+        _pinned_cand: "{{ _esr_pinned.stdout | regex_search('Candidate:\\s*(\\S+)', '\\1') | first | default('') }}"
+        _demoted_cand: "{{ _esr_demoted.stdout | regex_search('Candidate:\\s*(\\S+)', '\\1') | first | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _pinned_cand | length > 0
+          - _demoted_cand | length > 0
+          - _pinned_cand != _demoted_cand
+          - "'esr' in _demoted_cand"
+        fail_msg: >-
+          The pin changed nothing: firefox-esr candidate was '{{ _pinned_cand }}'
+          at priority 1000 and '{{ _demoted_cand }}' at 100. If these are equal
+          the pin is decoration and the role should not claim otherwise.
+        success_msg: >-
+          Pin is load-bearing: firefox-esr is {{ _pinned_cand }} at priority 1000
+          and {{ _demoted_cand }} at priority 100

@@ -1,0 +1,185 @@
+---
+# Proves the client-mode helper behaves under the shell it will actually run on.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml verify-client-mode.yml
+#
+# Run it TWICE against the same containers -- the second run is what catches non-idempotence.
+#
+# WHY THIS EXISTS WHEN THE ROLE FIXTURE ALREADY EXECUTES THE SCRIPT. That suite runs on the
+# controller, where /bin/sh is bash in POSIX mode. The helper ships to Debian, where /bin/sh is
+# DASH -- a different implementation with different opinions about parameter expansion and
+# `case` patterns. A script can pass every case under bash-as-sh and fail on the host, and the
+# failure mode is the expensive one: Sunshine aborts the stream launch, so it presents as
+# "Moonlight will not connect" rather than as a shell error anyone sees.
+#
+# It also proves `pgrep` exists, which tier 3 of the socket lookup needs and which is a package
+# (procps), not a shell builtin.
+- name: Verify the sway client-mode helper under dash
+  hosts: vdesktop_test
+
+  vars:
+    _scratch: /tmp/client-mode
+    _helper: /tmp/client-mode/bin/set-client-mode.sh
+    _sock: /tmp/client-mode/sway.sock
+    # ONE RECORD FILE PER STUB. Sharing one between swaymsg and logger makes every assertion
+    # below compare the swaymsg command against swaymsg's command PLUS four log lines -- which is
+    # how the first version of this file failed while the helper was behaving perfectly.
+    _record: /tmp/client-mode/record-swaymsg.txt
+    _record_log: /tmp/client-mode/record-logger.txt
+
+    # Stated independently rather than read back from the role, for the same reason
+    # verify-udev-rule.yml states its rule body: role defaults go out of scope when include_role
+    # returns, and a value the test asserts on its own verifies what a CALLER gets.
+    _expect_valid: "-s /tmp/client-mode/sway.sock -- output * mode --custom 3024x1890@60Hz"
+
+  tasks:
+    # procps for pgrep. NOT pre-installed in setup.yml, deliberately: whether the helper's
+    # dependencies are actually present on a minimal Debian is one of the things worth finding
+    # out, and burying it in the bootstrap would hide the answer.
+    - name: Install what the helper depends on at runtime
+      ansible.builtin.apt:
+        name: [procps, bsdextrautils]
+        state: present
+        update_cache: true
+
+    - name: Confirm this really is dash, or the test proves nothing about the host
+      ansible.builtin.command:
+        argv: [readlink, -f, /bin/sh]
+      register: _sh
+      changed_when: false
+
+    - name: /bin/sh is dash
+      ansible.builtin.assert:
+        that:
+          - "'dash' in _sh.stdout"
+        fail_msg: >-
+          /bin/sh resolves to {{ _sh.stdout }}, not dash. This playbook exists specifically to
+          exercise the helper under dash; on any other shell it duplicates the role fixture and
+          should not be read as evidence about the host.
+        success_msg: "/bin/sh -> {{ _sh.stdout }}"
+
+    - name: Render the helper through the role
+      vars:
+        sway_headless_wayland_session_user: root
+        sway_headless_wayland_session_config_path: "{{ _scratch }}/sway.conf"
+        sway_headless_wayland_session_script_path: "{{ _scratch }}/bin/session.sh"
+        sway_headless_wayland_session_client_mode_script_path: "{{ _helper }}"
+        sway_headless_wayland_session_swaymsg_path: "{{ _scratch }}/bin/stub-swaymsg"
+        sway_headless_wayland_session_logger_path: "{{ _scratch }}/bin/stub-logger"
+        sway_headless_wayland_session_unit_directory_path: "{{ _scratch }}/units"
+      ansible.builtin.include_role:
+        name: sway_headless_wayland_session
+        tasks_from: configure.yaml
+
+    - name: Install stubs that record what the helper would have run
+      ansible.builtin.copy:
+        dest: "{{ _scratch }}/bin/{{ item.stub }}"
+        mode: "0755"
+        # Rejects a `--`-prefixed word before the `--` separator, because real swaymsg does:
+        # its getopt claims `--custom` for itself and exits "unrecognized option". A permissive
+        # stub green-lights an invocation the host refuses -- which is how that bug reached a
+        # real compositor instead of this file.
+        content: |
+          #!/bin/sh
+          seen_sep=0
+          for a in "$@"; do
+              if [ "$a" = "--" ]; then seen_sep=1; continue; fi
+              if [ "$seen_sep" -eq 0 ]; then
+                  case "$a" in
+                      --*) echo "stub: unrecognized option '$a'" >&2; exit 1 ;;
+                  esac
+              fi
+          done
+          printf '%s\n' "$*" >> {{ item.into }}
+          exit 0
+      loop:
+        - {stub: stub-swaymsg, into: "{{ _record }}"}
+        - {stub: stub-logger, into: "{{ _record_log }}"}
+      loop_control:
+        label: "{{ item.stub }} -> {{ item.into | basename }}"
+
+    # `[ -S ]` is what the helper tests, and touch cannot satisfy it -- which is the point: a
+    # plain file at a socket path must be rejected, not used.
+    - name: Create a real unix socket
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import socket, sys
+            s = socket.socket(socket.AF_UNIX)
+            s.bind(sys.argv[1])
+          - "{{ _sock }}"
+        creates: "{{ _sock }}"
+
+    - name: Publish an env file for tier 2
+      ansible.builtin.copy:
+        dest: "{{ _scratch }}/wayland-session.env"
+        mode: "0644"
+        content: |
+          WAYLAND_DISPLAY=wayland-1
+          SWAYSOCK={{ _sock }}
+
+    - name: Run every case
+      ansible.builtin.shell:
+        cmd: >-
+          rm -f {{ _record }} {{ _record_log }};
+          env -i PATH="$PATH" {{ item.env }} sh {{ _helper }} >/dev/null 2>&1;
+          echo "rc=$?";
+          cat {{ _record }} 2>/dev/null || true
+      register: _runs
+      changed_when: false
+      loop:
+        - name: a valid request reaches swaymsg
+          env: "SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _sock }}"
+          expect: "{{ _expect_valid }}"
+        - name: a non-numeric width is refused
+          env: "SUNSHINE_CLIENT_WIDTH=abc SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _sock }}"
+          expect: ""
+        - name: a missing variable is refused
+          env: "SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _sock }}"
+          expect: ""
+        - name: zero is refused
+          env: "SUNSHINE_CLIENT_WIDTH=0 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _sock }}"
+          expect: ""
+        - name: a zero-only value like 00 is refused
+          env: "SUNSHINE_CLIENT_WIDTH=00 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _sock }}"
+          expect: ""
+        - name: a SWAYSOCK that is a plain file is refused
+          env: "SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 SWAYSOCK={{ _helper }}"
+          expect: ""
+        - name: no socket anywhere is refused
+          env: "SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60"
+          expect: ""
+        - name: tier 2 reads the socket from the env file
+          env: "SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60 XDG_RUNTIME_DIR={{ _scratch }}"
+          expect: "{{ _expect_valid }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Every case ran the command it should have, and every one exited 0
+      vars:
+        _got: >-
+          {{ _runs.results | map(attribute='stdout_lines')
+             | map('reject', 'match', '^rc=') | map('join', ' ') | map('trim') | list }}
+        _rcs: >-
+          {{ _runs.results | map(attribute='stdout_lines')
+             | map('select', 'match', '^rc=') | map('join', '') | list }}
+      ansible.builtin.assert:
+        that:
+          # Non-emptiness first: an empty results list makes every comparison below trivially true.
+          - _runs.results | length == 8
+          - _got == (_runs.results | map(attribute='item.expect') | map('trim') | list)
+          # ALWAYS 0, refusals included. Sunshine aborts the stream launch on a non-zero prep
+          # command, so a helper that exits 1 when it cannot find a socket turns "wrong
+          # resolution" into "no stream at all".
+          - _rcs | unique == ['rc=0']
+        fail_msg: |-
+          under dash the helper did not honour its contract.
+          expected: {{ _runs.results | map(attribute='item.expect') | map('trim') | list }}
+          got     : {{ _got }}
+          exit    : {{ _rcs }}
+        success_msg: >-
+          8/8 correct under {{ _sh.stdout }}, all exit 0 -- 2 valid requests reach swaymsg
+          (tier 1 and tier 2) and 6 bad ones never call it.

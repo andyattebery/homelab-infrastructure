@@ -154,6 +154,8 @@ vault_podsync_youtube_api_key: {{ op://Personal/podsync/google cloud - podsync/c
 vault_podsync_feed_id_suffix: {{ op://Personal/podsync/config/feed id suffix }}
 vault_plex_claim_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/claim token }}
 vault_plex_token: {{ op://Personal/2vlvfialgzcmzks2lkgxup2m7i/add more/token }}
+vault_proxmox_api_token_id_ansible: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/ansible api token/token id }}
+vault_proxmox_api_token_secret_ansible: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/ansible api token/secret }}
 vault_proxmox_api_token_id_homepage: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/homepage api token/token id }}
 vault_proxmox_api_token_secret_homepage: {{ op://Home Lab/g35hidstwcsvns45ueha3gmcqm/homepage api token/secret }}
 vault_pushover_user_key: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/add more/user key }}
@@ -189,6 +191,8 @@ vault_pi_rack_nut_upsmon_password: {{ op://Home Lab/pi-rack/nut/upsmon password 
 vault_pi_rack_nut_homeassistant_password: {{ op://Home Lab/pi-rack/nut/homeassistant password }}
 vault_ups_rack_snmp_address: {{ op://Home Lab/ups-rack/config/address }}
 vault_ups_rack_snmp_read_write_community: {{ op://Home Lab/ups-rack/snmp v1/read write community }}
+vault_vdesktop_01_mac_address: {{ op://Home Lab/vdesktop-01/hardware/mac address }}
+vault_vdesktop_01_sunshine_password: {{ op://Home Lab/vdesktop-01/sunshine/web password }}
 vault_vm_host_01_mac_address: {{ op://Home Lab/vm-host-01/hardware/mac address }}
 vault_vm_host_02_mac_address: {{ op://Home Lab/vm-host-02/hardware/mac address }}
 vault_vm_host_03_mac_address: {{ op://Home Lab/vm-host-03/hardware/mac address }}

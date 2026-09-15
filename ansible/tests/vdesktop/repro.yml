@@ -1,0 +1,160 @@
+---
+# Positive controls for the vdesktop harness: proof that a green verify run
+# means something.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml repro.yml
+#
+# MUST be given setup.yml in the same command -- these construct broken apt
+# state deliberately, and start from a pristine configuration on purpose.
+#
+# Both controls CONSTRUCT the bad state by hand rather than running an
+# unmodified role and expecting it to fail. That is deliberate: a
+# run-the-role control stops being runnable the moment the role is fixed, so it
+# becomes a control that cannot fail. These test the symptom, so they survive
+# the fix and keep justifying the guards that live in the roles.
+#
+# Each check is written so the EXPECTED outcome is a pass. A `rescue` that fires
+# is the success path.
+- name: Reproduce the defects the sunshine/firefox apt guards exist to prevent
+  hosts: vdesktop_test
+
+  vars:
+    # The architecture this host is NOT. A role that hardcoded one would produce
+    # exactly this on the other leg.
+    _wrong_arch: "{{ 'amd64' if ansible_facts['architecture'] == 'aarch64' else 'arm64' }}"
+    _right_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' else 'amd64' }}"
+
+  tasks:
+    # ---------------------------------------------------------------- repro 1
+    # A hardcoded Architectures: field does not fail loudly. It produces a
+    # valid, signed, correctly-parsed source that simply contains no packages
+    # for this host -- and `apt-get update` reports success. The only visible
+    # symptom is "no candidate" at install time, which is why
+    # verify-sunshine-repo.yml asserts on the candidate rather than stopping at
+    # a green apt-get update.
+    - name: Fetch the LizardByte key so the wrong-arch source is otherwise valid
+      ansible.builtin.get_url:
+        url: https://dl.cloudsmith.io/public/lizardbyte/stable/gpg.key
+        dest: /etc/apt/keyrings/repro-lizardbyte.asc
+        mode: "0644"
+
+    - name: Construct a source hardcoded to the WRONG architecture
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/repro-wrongarch.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://dl.cloudsmith.io/public/lizardbyte/stable/deb/debian
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: main
+          Architectures: {{ _wrong_arch }}
+          Signed-By: /etc/apt/keyrings/repro-lizardbyte.asc
+
+    - name: apt-get update SUCCEEDS even though the source is useless here
+      ansible.builtin.command:
+        argv: [apt-get, update]
+      register: _wrongarch_update
+      changed_when: false
+
+    - name: Ask apt for a candidate
+      ansible.builtin.command:
+        argv: [apt-cache, policy, sunshine]
+      register: _wrongarch_policy
+      changed_when: false
+
+    - name: Ask apt to simulate the install
+      ansible.builtin.command:
+        argv: [apt-get, install, --simulate, sunshine]
+      register: _wrongarch_simulate
+      changed_when: false
+      failed_when: false
+
+    # The first draft of this control asserted "no candidate", and it did not
+    # reproduce: apt fetches the foreign index perfectly happily and DOES report
+    # a candidate. The real symptom is narrower and only visible one step later
+    # -- the package is reported as `sunshine:<foreign arch>:` and the install
+    # cannot satisfy its dependencies. Keeping the corrected form here is the
+    # whole point of a control: it is what stops the verify playbook's assertion
+    # from quietly degrading into "the repo is reachable".
+    - name: CONTROL 1 -- a wrong-arch source resolves but cannot install
+      vars:
+        _candidate: "{{ _wrongarch_policy.stdout | regex_search('Candidate:\\s*(\\S+)', '\\1') | first | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _wrongarch_update.rc == 0
+          - _candidate | length > 0
+          - _candidate != '(none)'
+          - "'sunshine:' ~ _wrong_arch ~ ':' in _wrongarch_policy.stdout"
+          - _wrongarch_simulate.rc != 0
+        fail_msg: >-
+          Control failed on {{ _right_arch }} with a source pinned to
+          {{ _wrong_arch }}: update rc={{ _wrongarch_update.rc }},
+          candidate '{{ _candidate }}', simulate rc={{ _wrongarch_simulate.rc }}.
+          If this stops reproducing, verify-sunshine-repo.yml's installability
+          assertion is no longer proving anything.
+        success_msg: >-
+          Reproduced: Architectures={{ _wrong_arch }} on {{ _right_arch }} gives
+          apt-get update rc=0, a candidate ({{ _candidate }}) reported as
+          sunshine:{{ _wrong_arch }}, and a FAILED install simulation
+          (rc={{ _wrongarch_simulate.rc }})
+
+    - name: Remove the wrong-arch source before the next control
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/repro-wrongarch.sources
+        state: absent
+
+    # ---------------------------------------------------------------- repro 2
+    # Two sources for the SAME repository with different Signed-By values make
+    # apt refuse every operation -- including the role's own apt calls, which is
+    # why both roles remove predecessors BEFORE writing the new source rather
+    # than after.
+    - name: Construct two conflicting sources for one repository
+      ansible.builtin.copy:
+        dest: "/etc/apt/sources.list.d/{{ item.name }}"
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://dl.cloudsmith.io/public/lizardbyte/stable/deb/debian
+          Suites: {{ ansible_facts['distribution_release'] }}
+          Components: main
+          Architectures: {{ _right_arch }}
+          Signed-By: {{ item.key }}
+      loop:
+        - {name: repro-conflict-a.sources, key: /etc/apt/keyrings/repro-lizardbyte.asc}
+        - {name: repro-conflict-b.sources, key: /usr/share/keyrings/debian-archive-keyring.gpg}
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: apt-get update with a Signed-By conflict
+      block:
+        - name: This is expected to fail
+          ansible.builtin.command:
+            argv: [apt-get, update]
+          register: _conflict_update
+          changed_when: false
+
+        - name: CONTROL 2 did not reproduce
+          ansible.builtin.fail:
+            msg: >-
+              Control failed: apt-get update succeeded (rc=0) with two sources
+              for one repository carrying different Signed-By values. If apt no
+              longer rejects this, the remove-before-write ordering in the
+              sunshine/firefox roles is no longer justified by this symptom.
+
+      rescue:
+        - name: CONTROL 2 -- apt refuses the conflict, as the ordering assumes
+          ansible.builtin.assert:
+            that:
+              - "'Conflicting values set for option Signed-By' in _conflict_update.stderr
+                 or 'could not be read' in _conflict_update.stderr"
+            fail_msg: "apt failed, but not with the Signed-By conflict: {{ _conflict_update.stderr }}"
+            success_msg: "Reproduced: apt rejects the Signed-By conflict (rc={{ _conflict_update.rc }})"
+
+    - name: Clean up the constructed sources
+      ansible.builtin.file:
+        path: "/etc/apt/sources.list.d/{{ item }}"
+        state: absent
+      loop:
+        - repro-conflict-a.sources
+        - repro-conflict-b.sources

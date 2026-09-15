@@ -1,0 +1,73 @@
+---
+# Creates the throwaway containers the vdesktop role tests run against, and
+# bootstraps just enough Python for Ansible modules to work.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml
+#
+# Containers are recreated from scratch every run (`recreate: true`), which is
+# the whole point: every test starts from a pristine apt configuration. Do not
+# "optimise" that away -- a role that only converges because the previous run
+# left state behind is exactly the bug this harness exists to catch.
+- name: Create vdesktop test containers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Pull base images
+      community.docker.docker_image:
+        name: "{{ hostvars[item].vdesktop_test_image }}"
+        source: pull
+        # linux/amd64 on an arm64 Mac is emulated. Needed only for the
+        # intel-media-va-driver leg; see inventory.ini.
+        pull:
+          platform: "{{ hostvars[item].vdesktop_test_platform }}"
+      loop: "{{ groups['vdesktop_test'] }}"
+
+    - name: Create containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        image: "{{ hostvars[item].vdesktop_test_image }}"
+        platform: "{{ hostvars[item].vdesktop_test_platform }}"
+        # No systemd in these images, and nothing under test needs it -- which is
+        # precisely why each role's apt_repo.yaml is split from the half that
+        # talks to systemd. See README.md, "What this cannot cover".
+        command: sleep infinity
+        state: started
+        recreate: true
+        detach: true
+      loop: "{{ groups['vdesktop_test'] }}"
+
+- name: Bootstrap Python in the containers
+  hosts: vdesktop_test
+  gather_facts: false
+
+  tasks:
+    # raw, because there is no python3 yet for any module to run under.
+    # `python3-apt` is required by ansible.builtin.apt. `ca-certificates` is
+    # required to fetch either vendor key over https, and the base images ship
+    # without it.
+    #
+    # python3-debian is deliberately NOT installed here: `deb822_repository`
+    # fails without it, and whether each role installs its own is one of the
+    # things under test.
+    - name: Install python3, python3-apt and ca-certificates
+      ansible.builtin.raw: >-
+        apt-get update -qq &&
+        apt-get install -y -qq --no-install-recommends
+        python3 python3-apt ca-certificates
+      register: vdesktop_test_bootstrap
+      changed_when: true
+
+    - name: Gather facts now that Python exists
+      ansible.builtin.setup:
+
+    - name: Report what each container actually is
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ ansible_facts['distribution'] }}
+          {{ ansible_facts['distribution_version'] }}
+          ({{ ansible_facts['distribution_release'] }})
+          {{ ansible_facts['architecture'] }}

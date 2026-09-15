@@ -72,6 +72,7 @@ pikvm_api_password: "{{ vault_pikvm_api_password }}"
 pikvm_hid_api_username: "{{ vault_pikvm_hid_api_username }}"
 pikvm_hid_api_password: "{{ vault_pikvm_hid_api_password }}"
 
+vdesktop_01_mac_address: "{{ vault_vdesktop_01_mac_address }}"
 vm_host_01_mac_address: "{{ vault_vm_host_01_mac_address }}"
 vm_host_02_mac_address: "{{ vault_vm_host_02_mac_address }}"
 vm_host_03_mac_address: "{{ vault_vm_host_03_mac_address }}"
@@ -200,6 +201,12 @@ paperless_secret_key: "{{ vault_paperless_secret_key }}"
 plex_token: "{{ vault_plex_token }}"
 plex_claim_token: "{{ vault_plex_claim_token }}"
 
+# The PVE account behind the ansible token. Not a secret, so not vaulted. Held separately
+# because community.proxmox wants api_user and api_token_id as two fields, while the vault
+# stores the token id in PVE's combined `user@realm!token` form like the others here.
+proxmox_api_user_ansible: rw-api@pam
+proxmox_api_token_id_ansible: "{{ vault_proxmox_api_token_id_ansible }}"
+proxmox_api_token_secret_ansible: "{{ vault_proxmox_api_token_secret_ansible }}"
 proxmox_api_token_id_homepage: "{{ vault_proxmox_api_token_id_homepage }}"
 proxmox_api_token_secret_homepage: "{{ vault_proxmox_api_token_secret_homepage }}"
 proxmox_api_token_id_monitoring: "{{ vault_proxmox_api_token_id_monitoring }}"

@@ -1,0 +1,154 @@
+---
+# Checks that the udev rule the playbook installs on the HYPERVISOR is syntactically valid,
+# without installing it on the hypervisor.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml verify-udev-rule.yml
+#
+# Run it TWICE against the same containers -- the second run is what catches non-idempotence.
+#
+# WHY THIS EXISTS AT ALL. Writing a udev rules file IS activating it: udevd notices a changed
+# rules file on its own and reloads (systemd v257 src/udev/udev-manager.c:590 calls
+# manager_reload() from event_queue_start(); :268 reloads when udev_rules_should_reload()). So
+# there is no installed-but-inert window on the real node in which to check the syntax -- by the
+# time you could look, it is live. `udevadm verify` is the only check that takes an UNINSTALLED
+# file, and this is the only place it can run without touching production.
+#
+# `udevadm test` is NOT an alternative. It has no alternate-rules-directory option
+# (man/udevadm.xml), so the file must already be installed for it to be seen.
+- name: Verify the lxc-input udev rule parses
+  hosts: vdesktop_test
+
+  vars:
+    _rule_path: /tmp/99-lxc-input.rules
+    # Stated here independently rather than read back from the role. Role defaults go out of
+    # scope when include_role returns, and a list the test states on its own is the stronger
+    # check: it verifies what a CALLER actually gets, not what the role says it asks for. Same
+    # reasoning as verify-wayland-packages.yml.
+    #
+    # This must stay identical to the body in playbook-vdesktop-01.yaml. If they drift, this
+    # verifies a rule nobody installs.
+    _rule_body: >-
+      SUBSYSTEM=="input", KERNEL=="event*", ATTRS{id/vendor}=="1209",
+      ATTRS{id/product}=="0002|0003", GROUP="lxc-input", MODE="0660"
+
+  tasks:
+    # NOT pre-installed in setup.yml, deliberately, for the same reason python3-debian is not:
+    # whether the package installs cleanly in a container with NO SYSTEMD is itself one of the
+    # things worth finding out, and burying it in the bootstrap would hide the answer. udev's
+    # postinst is the risk here; udevadm itself is a pure file parser.
+    - name: Install udev for udevadm
+      ansible.builtin.apt:
+        name: udev
+        state: present
+        update_cache: true
+      register: _udev_install
+
+    - name: udevadm is present
+      ansible.builtin.command:
+        argv: [udevadm, --version]
+      register: _udevadm_version
+      changed_when: false
+
+    - name: Write the rule to a scratch path
+      ansible.builtin.copy:
+        dest: "{{ _rule_path }}"
+        mode: "0644"
+        content: "{{ _rule_body }}\n"
+
+    # Self-isolating, on purpose. The control below asserts that verification FAILS while the
+    # group is missing -- so it cannot fire if a previous run of this file left the group behind,
+    # and the second run would report the control as broken. The harness README's rule ("one
+    # setup.yml per verify playbook") would cover that, but a control that only works against a
+    # pristine container is a control that silently stops working the day someone forgets.
+    - name: Remove the group a previous run may have left
+      ansible.builtin.group:
+        name: lxc-input
+        state: absent
+
+    # ---------- CONTROL: the group must exist FIRST ----------
+    #
+    # `udevadm verify` RESOLVES user and group names against the local system -- it does not
+    # merely parse the syntax. So a rule naming a group nobody created fails, and that is a real
+    # ordering dependency in the calling playbook: the `lxc-input` group task must run BEFORE the
+    # udev_rule task. Reversed, the rule is written and rejected.
+    #
+    # Proving it here means this file also documents WHY the playbook is ordered the way it is,
+    # and the control cannot rot: it constructs the broken condition directly rather than running
+    # something and hoping it breaks.
+    - name: CONTROL -- the rule is rejected while the group is missing
+      ansible.builtin.command:
+        argv: [udevadm, verify, --no-summary, "{{ _rule_path }}"]
+      register: _verify_nogroup
+      changed_when: false
+      failed_when: false
+
+    - name: CONTROL fired -- an unresolvable group is an error, not a warning
+      ansible.builtin.assert:
+        that:
+          - _verify_nogroup.rc != 0
+          - "'lxc-input' in _verify_nogroup.stderr"
+        fail_msg: >-
+          udevadm verify ACCEPTED a rule naming a group that does not exist (rc={{ _verify_nogroup.rc }}).
+          That would mean this check cannot catch the playbook installing the rule before creating
+          the group, and the control is worthless. stderr: {{ _verify_nogroup.stderr | default('') }}
+        success_msg: >-
+          control fired: rc={{ _verify_nogroup.rc }},
+          "{{ _verify_nogroup.stderr | trim | truncate(70) }}"
+
+    # The same group the calling playbook creates on the hypervisor, at the same gid: subgid base
+    # 100000 + the container's `input` gid 996. The gid is not what udevadm checks -- only that
+    # the name resolves -- but using the real number keeps this fixture honest rather than
+    # convenient.
+    - name: Create the group the rule names, as the playbook does before installing it
+      ansible.builtin.group:
+        name: lxc-input
+        gid: 100996
+        state: present
+
+    # --no-summary because the summary line goes to stdout and would be the only thing a reader
+    # sees; the exit status is the result. `--no-style` is deliberately NOT passed: it silences
+    # the whole stylistic class, and doing that to quiet one cosmetic complaint is how a real
+    # finding gets hidden later. If a style warning turns up, name it here and decide.
+    - name: Ask udevadm to verify the rule file
+      ansible.builtin.command:
+        argv: [udevadm, verify, --no-summary, "{{ _rule_path }}"]
+      register: _verify
+      changed_when: false
+      failed_when: false
+
+    - name: The rule parses, and says what it is supposed to say
+      ansible.builtin.assert:
+        that:
+          - _verify.rc == 0
+          # Non-emptiness before anything else: an empty body would parse perfectly and match
+          # nothing, reporting itself as a flawless result.
+          - _rule_body | length > 0
+          # The identifiers every published guide gets wrong. beef/dead are inputtino's, which
+          # this Sunshine no longer uses -- a rule built from a guide matches nothing, silently,
+          # and the failure looks like a permissions problem.
+          - "'1209' in _rule_body"
+          - "'beef' not in _rule_body | lower"
+          - "'dead' not in _rule_body | lower"
+          # MEASURED on a real container 2026-09-14: a uinput device comes up mode 0600, so
+          # MODE= is what makes group membership mean anything. Without it the compositor sees
+          # the device and cannot open it.
+          - "'MODE=\"0660\"' in _rule_body"
+          - "'GROUP=\"lxc-input\"' in _rule_body"
+        fail_msg: >-
+          udevadm verify rejected the rule (rc={{ _verify.rc }}) or the body is wrong.
+          stdout: {{ _verify.stdout | default('') }}
+          stderr: {{ _verify.stderr | default('') }}
+        success_msg: >-
+          rule parses under {{ _udevadm_version.stdout }} on
+          {{ ansible_facts['architecture'] }}, and carries vendor 1209 with MODE=0660
+
+    # A rule udev would never LOAD is worse than one it rejects: it sits on disk looking
+    # installed. udev globs *.rules, so the suffix is not cosmetic.
+    - name: The file name carries exactly one .rules suffix
+      ansible.builtin.assert:
+        that:
+          - _rule_path | basename is match('^[A-Za-z0-9._-]+\.rules$')
+          - _rule_path | basename is not match('.*\.rules\.rules$')
+        fail_msg: "{{ _rule_path | basename }} is not a name udev would load"
+        success_msg: "{{ _rule_path | basename }} is a loadable rules file name"

@@ -11,7 +11,7 @@ one that can actually fail for the right reason.**
 | --- | --- | --- | --- |
 | Invariant check | `tests/test-*.yml` | nothing (`connection: local`) | facts that must hold repo-wide — inventory, `host_vars`, vault wiring, and rules about the roles' own source |
 | Role fixture test | `roles/<role>/tests/test.yml` | nothing (localhost + tempdir) | a role's decision logic, with its paths pointed at a scratch directory |
-| Container integration | `tests/<subject>/` | throwaway containers | anything whose result depends on a real distro — apt, packages, systemd-free service config |
+| Container integration | `tests/<subject>/` | throwaway containers | anything whose result depends on a real distro — apt, packages, systemd-free service config. Two subjects today: `apt-sources/` and `vdesktop/` |
 | pytest | `roles/<role>/tests/*.py` | nothing (I/O injected) | vendored Python that ships inside a role |
 
 ## Running them
@@ -78,6 +78,21 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
 ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
   .venv/bin/ansible-playbook -i roles/github_release_install/tests/inventory \
   roles/github_release_install/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/sway_headless_wayland_session/tests/inventory \
+  roles/sway_headless_wayland_session/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/udev_rule/tests/inventory \
+  roles/udev_rule/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/udev_shim/tests/inventory \
+  roles/udev_shim/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/sunshine/tests/inventory \
+  roles/sunshine/tests/test.yml
+ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+  .venv/bin/ansible-playbook -i roles/pve_lxc/tests/inventory \
+  roles/pve_lxc/tests/test.yml
 
 # these three fixture tests need the `docker` CLI -- the only ones with an external
 # dependency. None needs a daemon: `docker compose config` renders and exits,
@@ -95,14 +110,22 @@ ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
     -i roles/docker_compose_tdarr/tests/inventory \
     roles/docker_compose_tdarr/tests/test.yml
 
-# container integration — see tests/apt-sources/README.md, and use its wrapper
+# container integration — see each harness's own README.md, and use its wrapper
 tests/apt-sources/run.sh setup.yml verify-fish.yml
+tests/vdesktop/run.sh setup.yml verify-sunshine-repo.yml
+tests/vdesktop/run.sh setup.yml verify-firefox-repo.yml
+tests/vdesktop/run.sh setup.yml verify-wayland-packages.yml
+# self-isolating: it removes the group its own control depends on, so it is correct
+# run twice without setup.yml in between
+tests/vdesktop/run.sh setup.yml verify-udev-rule.yml
+tests/vdesktop/run.sh setup.yml repro.yml
 
 # pytest
 .venv/bin/pytest roles/docker_compose_certbot_asrock_ipmi/tests/ -q
 .venv/bin/pytest roles/pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/textfile_collector_pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/github_release_install/tests/ -q
+.venv/bin/pytest roles/udev_shim/tests/ -q
 ```
 
 ## Role resolution: the thing that bites first

@@ -1,0 +1,110 @@
+---
+# Exercises the apt-source half of the `sunshine` role in throwaway containers.
+#
+#   cd ansible
+#   tests/vdesktop/run.sh setup.yml verify-sunshine-repo.yml
+#
+# Run it TWICE against the same containers -- the second run is what catches
+# non-idempotence, and that has caught real bugs in the sibling harness.
+- name: Verify the sunshine apt source
+  hosts: vdesktop_test
+
+  vars:
+    # Computed here rather than read back from the role: role defaults go out of
+    # scope when include_role returns, and asserting on a path the test derives
+    # independently is the stronger check anyway -- it verifies where the file
+    # really landed, not where the role says it lands.
+    _source_name: lizardbyte
+    _sources_path: /etc/apt/sources.list.d/lizardbyte.sources
+    _keyring_path: /etc/apt/keyrings/lizardbyte.asc
+    _expected_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
+
+  tasks:
+    - name: Apply only the apt-source half of the role
+      ansible.builtin.include_role:
+        name: sunshine
+        tasks_from: apt_repo.yaml
+
+    - name: Read the rendered source
+      ansible.builtin.slurp:
+        src: "{{ _sources_path }}"
+      register: _rendered
+
+    - name: Stat the keyring
+      ansible.builtin.stat:
+        path: "{{ _keyring_path }}"
+      register: _keyring
+
+    - name: The source and keyring exist and are not empty
+      vars:
+        _text: "{{ _rendered.content | b64decode }}"
+      ansible.builtin.assert:
+        that:
+          - _text | length > 0
+          - _keyring.stat.exists
+          - _keyring.stat.size > 0
+        fail_msg: "empty source or keyring at {{ _sources_path }} / {{ _keyring_path }}"
+        success_msg: >-
+          {{ _sources_path }} is {{ _text | length }} bytes,
+          keyring {{ _keyring.stat.size }} bytes
+
+    - name: The source names this host's architecture, not a hardcoded one
+      vars:
+        _text: "{{ _rendered.content | b64decode }}"
+        _arch_line: "{{ _text | regex_search('(?m)^Architectures:.*$') }}"
+        _suite_line: "{{ _text | regex_search('(?m)^Suites:.*$') }}"
+        _uri_line: "{{ _text | regex_search('(?m)^URIs:.*$') }}"
+      ansible.builtin.assert:
+        that:
+          # Non-emptiness first: a regex that matches nothing otherwise reports
+          # itself as a perfect pass.
+          - _arch_line | length > 0
+          - _suite_line | length > 0
+          - _uri_line | length > 0
+          - _expected_arch in _arch_line
+          - ansible_facts['distribution_release'] in _suite_line
+          - "'dl.cloudsmith.io/public/lizardbyte/stable/deb/debian' in _uri_line"
+        fail_msg: "unexpected source content: {{ _arch_line }} / {{ _suite_line }} / {{ _uri_line }}"
+        success_msg: "{{ _arch_line }} | {{ _suite_line }} | {{ _uri_line }}"
+
+    # The file rendering above proves the role wrote something. This proves apt
+    # ACCEPTED it and that the package actually resolves -- the two things a
+    # fixture test cannot answer and the reason this harness exists.
+    - name: Ask apt what it would install
+      ansible.builtin.command:
+        argv: [apt-cache, policy, sunshine]
+      register: _policy
+      changed_when: false
+
+    # Simulated install, not just a candidate. repro.yml CONTROL 1 shows why: a
+    # source hardcoded to the wrong architecture still reports a candidate --
+    # apt happily fetches the foreign index -- and only fails at dependency
+    # resolution. "A candidate exists" therefore proves the repo is reachable
+    # and nothing about the architecture being right.
+    - name: Ask apt to simulate the install
+      ansible.builtin.command:
+        argv: [apt-get, install, --simulate, sunshine]
+      register: _simulate
+      changed_when: false
+      failed_when: false
+
+    - name: sunshine resolves and is actually installable on this architecture
+      vars:
+        _candidate: "{{ _policy.stdout | regex_search('Candidate:\\s*(\\S+)', '\\1') | first | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - _candidate | length > 0
+          - _candidate != '(none)'
+          - "'dl.cloudsmith.io' in _policy.stdout"
+          # No foreign-arch suffix: apt prints `sunshine:amd64:` when the only
+          # candidate comes from an index for an architecture this host is not.
+          - "'sunshine:' ~ _expected_arch ~ ':' not in _policy.stdout"
+          - _simulate.rc == 0
+        fail_msg: >-
+          sunshine did not resolve as installable on
+          {{ ansible_facts['architecture'] }} (simulate rc={{ _simulate.rc }}).
+          policy: {{ _policy.stdout }}
+          simulate: {{ _simulate.stderr }}
+        success_msg: >-
+          sunshine {{ _candidate }} resolves AND simulates clean on
+          {{ _expected_arch }}

@@ -1,0 +1,616 @@
+---
+# vdesktop-01: an unprivileged Debian 13 LXC on vm-host-01 running a persistent headless
+# WAYLAND session -- sway owning the iGPU, one browser as a native Wayland client, streamed to a
+# Mac with Sunshine -> Moonlight using Quick Sync. There is no X server on this host: no Xorg, no
+# Xwayland, no XFCE, no XTest.
+#
+# Input is the part that is not obvious. Wayland has no XTest, so Sunshine injects through
+# /dev/uinput -- and a wlroots compositor only learns about input devices through udev, which an
+# unprivileged container does not get. The udev_shim role synthesises those events. Every claim
+# in that chain is measured rather than assumed; the derivations live in
+# plans/vdesktop-01-wayland-native.md and in each role's README.
+#
+# Container reasoning and the road not taken: plans/pve-lxc-role.md.
+
+# --------------------------------------------------------------------------------------
+# The container itself. This play targets the NODE, not the container -- at this point the
+# container may not exist. `pve_lxc` reaches the PVE API from the controller and uses `pct`
+# here for the two option families PVE restricts to root@pam.
+- name: Create the vdesktop-01 container
+  hosts: vm-host-01
+  become: true
+
+  vars:
+    vdesktop_ctid: 120
+    vdesktop_template: debian-13-standard_13.6-1_amd64.tar.zst
+    vdesktop_template_storage: local
+    # Shared, so the container is not tied to one node's local disk. `pve_pool` carries
+    # `content rootdir,images`, which is what allows a container rootfs on it at all.
+    vdesktop_rootfs_storage: pve_pool
+
+  tasks:
+    - name: Ensure the container template is on the node
+      delegate_to: localhost
+      become: false
+      run_once: true
+      vars:
+        # Same reason as in roles/pve_lxc: a delegated task gets interpreter discovery and
+        # lands on a system python without proxmoxer.
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      community.proxmox.proxmox_template:
+        api_host: "{{ inventory_hostname }}.{{ domain_name }}"
+        api_user: "{{ proxmox_api_user_ansible }}"
+        api_token_id: "{{ proxmox_api_token_id_ansible | regex_replace('^.*!', '') }}"
+        api_token_secret: "{{ proxmox_api_token_secret_ansible }}"
+        node: "{{ inventory_hostname }}"
+        storage: "{{ vdesktop_template_storage }}"
+        template: "{{ vdesktop_template }}"
+        state: present
+
+    # Before pve_lxc, and the ordering is kept -- but NOT for the reason an earlier version of
+    # this comment gave. It claimed /dev/uinput had to exist before PVE could resolve the
+    # `dev[n]` entry. It does exist, always: uinput is a misc device with a STATIC node
+    # (10,223, root:root 0600) present whether or not the module is loaded, so
+    # PVE::LXC::Tools::get_device_mode_and_rdev() succeeds either way. Verified on the node.
+    #
+    # The real reason to load it here is that the module must be live for anything in the
+    # container to OPEN that node, and autoload cannot be relied on from an unprivileged
+    # container: the misc-device alias only fires when something opens it, and nothing on a
+    # headless hypervisor ever does.
+    - name: Load uinput on the node, now and at every boot
+      ansible.builtin.include_role:
+        name: kernel_module
+        apply:
+          tags: [uinput]
+      tags: [uinput]
+      vars:
+        kernel_module_name: uinput
+
+    # --- publishing Sunshine's virtual devices to the container ---------------------------
+    #
+    # The input subsystem is NOT namespaced, so a device the container creates through
+    # /dev/uinput is published by the HOST and appears in the container's bind-mounted
+    # /dev/input owned by raw host ids. Measured: it arrives as uid/gid 65534 (`nobody`) mode
+    # 0600, because the host's `input` group is 997 and that is outside the container's map.
+    # A compositor in the container can see such a node and cannot open it.
+    #
+    # The fix is a host group whose gid maps INSIDE: subgid base 100000 + the container's
+    # `input` gid 996 = 100996. The rule then puts the devices in it, and 0660 makes group
+    # membership mean something -- 0600 is what they come up as, so MODE= is load-bearing here,
+    # not decoration.
+    - name: A host group whose gid maps to the container's `input`
+      ansible.builtin.group:
+        name: lxc-input
+        gid: 100996
+        state: present
+      tags: [udev-input]
+
+    # Vendor 1209, products 0002/0003 are Sunshine's virtual keyboard and mouse, from
+    # libvirtualhid's make_simple_profile(). NOT beef/dead -- those are inputtino's, which this
+    # Sunshine no longer uses, and every published guide has it wrong.
+    #
+    # No device on this node carries vendor 1209, so the rule is a no-op on current hardware by
+    # construction. That matters because writing a rules file IS activating it: udevd reloads on
+    # its own when it notices the change. There is no installed-but-inert window to verify in.
+    - name: Publish the virtual input devices to a group the container can reach
+      tags: [udev-input]
+      ansible.builtin.include_role:
+        name: udev_rule
+        apply:
+          tags: [udev-input]
+      vars:
+        udev_rule_name: 99-lxc-input
+        udev_rule_content: >-
+          SUBSYSTEM=="input", KERNEL=="event*", ATTRS{id/vendor}=="1209",
+          ATTRS{id/product}=="0002|0003", GROUP="lxc-input", MODE="0660"
+
+    - name: Create and converge the container
+      ansible.builtin.include_role:
+        name: pve_lxc
+        apply:
+          tags: [pve_lxc]
+      tags: [pve_lxc]
+      vars:
+        pve_lxc_vmid: "{{ vdesktop_ctid }}"
+        pve_lxc_hostname: vdesktop-01
+        pve_lxc_node: "{{ inventory_hostname }}"
+        pve_lxc_api_host: "{{ inventory_hostname }}.{{ domain_name }}"
+        pve_lxc_api_user: "{{ proxmox_api_user_ansible }}"
+        pve_lxc_api_token_id: "{{ proxmox_api_token_id_ansible | regex_replace('^.*!', '') }}"
+        pve_lxc_api_token_secret: "{{ proxmox_api_token_secret_ansible }}"
+        pve_lxc_state: started
+        pve_lxc_ostemplate: "{{ vdesktop_template_storage }}:vztmpl/{{ vdesktop_template }}"
+        # disk_volume, not storage+disk: PVE 9 reads a bare numeric `disk` as a filesystem
+        # path and refuses it ("Only root can pass arbitrary filesystem paths",
+        # PVE/Storage.pm:651). The module's own docs say the numeric form is for OLDER
+        # Proxmox. disk_volume is mutually exclusive with storage, hence storage is unset.
+        pve_lxc_disk_volume:
+          storage: "{{ vdesktop_rootfs_storage }}"
+          size: 32
+        pve_lxc_cores: 4
+        pve_lxc_memory: 4096
+        pve_lxc_swap: 512
+        # nesting is the only feature flag an API token may set; anything else is root@pam.
+        # It is here for the systemd user session Sunshine runs under.
+        pve_lxc_features:
+          - nesting=1
+        pve_lxc_netif:
+          net0: "name=eth0,bridge=vmbr0,hwaddr={{ vdesktop_01_mac_address }},ip=dhcp"
+        pve_lxc_tags:
+          - vdesktop
+        # root@pam only -- applied with pct, not the API. The group is resolved INSIDE the
+        # container: it is 993 on the node and 992 in a Debian 13 container.
+        # Read from the container's own host_vars rather than duplicated here: this play
+        # targets the NODE, so vdesktop-01's vars are not in scope, and the configure play
+        # below needs the same value for Sunshine's adapter_name. One source, two readers.
+        #
+        # POSITION IN THIS LIST IS THE N IN devN. Reordering it silently renumbers and
+        # rewrites every device -- the role loops with index_var and nothing warns you.
+        # renderD128 is dev0 and must stay first; uinput is dev1.
+        #
+        # PVE mknods a FRESH node inside the container with the mapped gid
+        # (PVE::LXC::create_passthrough_device_node), so this gid is resolved in the
+        # container, and the host node's own ownership is irrelevant. `input` exists there
+        # as gid 996.
+        pve_lxc_devices:
+          - path: "{{ hostvars['vdesktop-01'].vdesktop_render_node }}"
+            group: render
+          - path: /dev/uinput
+            group: input
+            mode: "0660"
+        # Raw lxc.* lines, because `lxc` is not in PVE's $confdesc -- no API property, no pct
+        # flag. Read only when the container STARTS; the role says so and never restarts it.
+        #
+        # Why both, and why dev1 above is not enough: Sunshine creates its virtual keyboard and
+        # mouse through /dev/uinput, and the kernel then publishes them as /dev/input/eventN
+        # with minors allocated at runtime. `dev[n]` emits its own cgroup rule for one EXACT
+        # major:minor (LXC.pm update_lxc_config), so it can cover 10:223 and can never cover
+        # those. Hence the wildcard rule, and the bind mount that makes the nodes visible at
+        # all -- the input subsystem is not namespaced, so they appear on the host.
+        #
+        # `optional` keeps a node with no /dev/input from being unable to boot its desktop.
+        # The cost is that a host with no input devices at all yields a container that sees
+        # none, silently -- so the gate script must check for the devices, never assume them.
+        pve_lxc_raw_config:
+          - key: lxc.cgroup2.devices.allow
+            value: "c 13:* rwm"
+          - key: lxc.mount.entry
+            value: /dev/input dev/input none bind,optional,create=dir 0 0
+        # A container has no cloud-init, so nothing else creates the account Ansible connects
+        # as in the play below.
+        pve_lxc_bootstrap_user: "{{ ansible_user }}"
+        pve_lxc_bootstrap_keys_url: https://github.com/andyattebery.keys
+
+# --------------------------------------------------------------------------------------
+- name: Configure vdesktop-01
+  hosts: vdesktop-01
+  become: true
+
+  vars:
+    # Owned here, not read back from the session role. Role defaults go OUT OF SCOPE when
+    # include_role returns, so referencing the role's own variables further down would
+    # silently be undefined -- ansible/tests/README.md. Every consumer is TOLD the value
+    # rather than one asking another.
+    #
+    # ONE EDIT, THREE READERS: the session role, Sunshine's ordering and the browser unit all
+    # name this, which is the whole reason the variable exists rather than the unit name being
+    # written three times.
+    vdesktop_wayland_unit_name: sway-headless-wayland.service
+
+    # Where the compositor publishes the Wayland socket name it actually got.
+    #
+    # This CANNOT be a literal: sway 1.10.1 loops wayland-1..wayland-32 and takes the first
+    # socket that binds, deliberately skipping wayland-0, and no environment variable or option
+    # sets it. A hardcoded `wayland-1` is right until something else is on the runtime directory
+    # first, at which point capture and the browser both attach to nothing and NEITHER reports
+    # an error. The compositor's wrapper writes the real value here; Sunshine and the browser
+    # read it with systemd's EnvironmentFile=.
+    vdesktop_session_env_file: "/run/user/{{ vdesktop_uid }}/wayland-session.env"
+
+    # The browser's user unit. Named here for the same reason as the compositor's.
+    vdesktop_browser_unit_name: vdesktop-browser.service
+
+    # The helper that resizes the output to whatever Moonlight asked for.
+    #
+    # TWO READERS, WHICH IS WHY IT IS A VARIABLE: the session role renders it, and Sunshine's
+    # global_prep_cmd executes it. Written twice instead, the two drift and the failure is a
+    # stream that does not start -- Sunshine aborts the launch when a prep command is missing.
+    vdesktop_client_mode_script: /usr/local/bin/sway-headless-wayland-set-mode
+    vdesktop_browser_command: /usr/bin/chromium --ozone-platform=wayland
+
+  # No configure_server here, deliberately. That role carries the whole fleet
+  # baseline -- beszel_agent, node_exporter, textfile_collector, fail2ban,
+  # unattended-upgrades, fish, dotfiles, topgrade -- which is right for a server
+  # and wrong for this box: it runs ONE application, and every agent it gains
+  # turns into another row in Beszel and another target in Prometheus for a host
+  # nobody needs to monitor that way.
+  # The account this play connects as is created by pve_lxc's bootstrap, not by
+  # configure_server, so nothing here depends on it.
+
+  tasks:
+    - name: Create the desktop account
+      # No password and no sudo, deliberately -- see host_vars. bash rather than
+      # fish because configure_server sets fish for ansible_user only, and this
+      # account is not that one.
+      ansible.builtin.user:
+        name: "{{ vdesktop_desktop_user }}"
+        shell: /bin/bash
+        create_home: true
+        password: "!"
+        password_lock: true
+
+    # `input` is for the Wayland session: wlroots reaches devices through libinput, which
+    # opens /dev/input/eventN directly, and there is no seat manager here to hand them over
+    # (LIBSEAT_BACKEND=noop). Group membership is what replaces one.
+    - name: Let the desktop account reach the GPU render node and the input devices
+      ansible.builtin.user:
+        name: "{{ vdesktop_desktop_user }}"
+        groups: [render, video, input]
+        append: true
+
+    # RESOLVED, never assumed. XDG_RUNTIME_DIR is /run/user/<uid>, and vdesktop_session_env_file
+    # above is built from it -- a hardcoded uid would be this host's identity written into a
+    # path that three units read. Same lookup roles/sunshine does for the same reason.
+    # `always`, and it is load-bearing rather than defensive. Four later tasks and two roles
+    # build paths from vdesktop_uid -- the shim's ordering against `user@<uid>.service`, the
+    # session env file, and both `systemctl --user` environments. An untagged fact task is
+    # SKIPPED by any `--tags` run, so `--tags session` failed with `'vdesktop_uid' is undefined`
+    # while a full run worked: the tag path was broken and the common path hid it.
+    - name: Look up the desktop account's uid
+      tags: [always]
+      ansible.builtin.getent:
+        database: passwd
+        key: "{{ vdesktop_desktop_user }}"
+
+    - name: Remember the uid
+      tags: [always]
+      ansible.builtin.set_fact:
+        vdesktop_uid: "{{ ansible_facts['getent_passwd'][vdesktop_desktop_user][1] }}"
+
+    # No desktop environment. There is no XFCE, no panel and nothing to click: this host runs a
+    # compositor and one browser window, and everything that used to justify a desktop
+    # (xfce4, xfce4-terminal, dbus-x11, x11vnc, xdg-utils) went with the X11 session.
+    # xdg-utils in particular existed only for Sunshine's tray item, and there is no tray.
+    - name: Install the VA-API driver and Ansible's unprivileged-become dependency
+      ansible.builtin.apt:
+        name:
+          # iHD, the right driver for Gen9+. Debian main, NOT the non-free
+          # variant: main covers AVC (H.264) encode on Coffee Lake, and the
+          # non-free build only adds HEVC/VP9 encode, which needs Ice Lake+ and
+          # this chip cannot do either way.
+          - intel-media-va-driver
+          - vainfo
+          # REQUIRED BY ANSIBLE, not by anything on this host. Every task that does
+          # `become_user:` to an UNPRIVILEGED account -- the compositor's and Sunshine's
+          # `systemctl --user` calls, the browser and wayvnc units -- hands its temp files over
+          # with setfacl. Without /usr/bin/setfacl ansible falls back to a chmod ACL syntax that
+          # does not exist on Linux and the task dies with `chmod: invalid mode:
+          # 'A+user:andy:rx:allow'`, which names neither acl nor become and sends you looking in
+          # entirely the wrong place.
+          #
+          # It is listed here because REMOVING XFCE REMOVED IT. It was never declared; it
+          # arrived through the desktop's dependency chain, and the first Wayland build failed at
+          # the compositor's daemon-reload because of it. Relying on another package's
+          # dependencies for this one's correctness is exactly the trap the session role's
+          # `libegl1` comment describes.
+          - acl
+        state: present
+
+    # A second browser engine, purely to compare Canvas 2D performance against
+    # Firefox -- the game is Canvas 2D on the main thread (49 getContext("2d"),
+    # zero WebGL, zero OffscreenCanvas), so the engine's rasteriser is the thing
+    # under test. See plans/vdesktop-01-hardware-rendering.md.
+    #
+    # Debian's own package from trixie-security, NOT a vendor apt repo: unlike
+    # firefox and sunshine, there is nothing to gain from one. Debian ships
+    # chromium 152 and keeps it current through security updates, whereas its
+    # firefox was 140 against Mozilla's 155, which is why that one needed a repo.
+    #
+    # Tagged so it can be installed on its own:
+    #   ansible-playbook playbook-vdesktop-01.yaml --tags chromium
+    - name: Install Chromium for the browser-engine comparison
+      tags: [chromium]
+      ansible.builtin.apt:
+        name: chromium
+        state: present
+
+    - name: Install a current Firefox from Mozilla's archive
+      ansible.builtin.include_role:
+        name: firefox
+
+    # --- the session chain -------------------------------------------------------------------
+    #
+    # The order in this FILE is not the runtime order. At runtime it is:
+    #
+    #   udev-shim-prime  ->  user@<uid>  ->  compositor  ->  browser, Sunshine, wayvnc
+    #
+    # enforced by the units' own Before=/After=, because a converge run cannot control what
+    # happens at the next boot. Two rules decide the whole shape:
+    #
+    #  1. /run/udev/control must exist before ANY libudev subscriber starts. One that starts
+    #     first binds to no multicast group and is deaf for its whole life -- it does not error
+    #     and cannot be repaired without restarting it. The shim is therefore ordered before the
+    #     user manager, which is how a SYSTEM unit gets ahead of a USER one.
+    #  2. Sunshine chooses its capture backend exactly once, at startup, and never recomputes it.
+    #     A Sunshine that starts before the compositor never captures, however healthy it looks.
+    #
+    # Everything from the compositor down is a USER unit, so those orderings can bind at all:
+    # systemd has no dependencies across the system/user manager boundary.
+    - name: Fake udev inside the container so the compositor can see input devices
+      tags: [session]
+      ansible.builtin.include_role:
+        name: udev_shim
+        apply:
+          tags: [session]
+      vars:
+        # The container's user manager, not the compositor unit: a system-scope unit cannot be
+        # ordered against a user-scope one directly, and getting ahead of the manager gets it
+        # ahead of everything the manager runs.
+        udev_shim_before_units: ["user@{{ vdesktop_uid }}.service"]
+
+    - name: Run a headless Wayland compositor on the iGPU
+      tags: [session]
+      ansible.builtin.include_role:
+        name: sway_headless_wayland_session
+        apply:
+          tags: [session]
+      vars:
+        sway_headless_wayland_session_user: "{{ vdesktop_desktop_user }}"
+        sway_headless_wayland_session_unit_name: "{{ vdesktop_wayland_unit_name }}"
+        sway_headless_wayland_session_width: "{{ vdesktop_width }}"
+        sway_headless_wayland_session_height: "{{ vdesktop_height }}"
+        sway_headless_wayland_session_render_node: "{{ vdesktop_render_node }}"
+        sway_headless_wayland_session_env_file_name: "{{ vdesktop_session_env_file | basename }}"
+        sway_headless_wayland_session_client_mode_script_path: "{{ vdesktop_client_mode_script }}"
+
+    # With no desktop shell there is nothing to click, so an unmanaged compositor shows a blank
+    # output. This is the one window on the machine.
+    #
+    # Restart=on-failure with a burst limit, NOT Restart=always: always fights a deliberate
+    # close, respawning a browser the operator just shut, forever.
+    - name: Run the browser as a Wayland client
+      tags: [session]
+      ansible.builtin.copy:
+        dest: "/home/{{ vdesktop_desktop_user }}/.config/systemd/user/{{ vdesktop_browser_unit_name }}"
+        owner: "{{ vdesktop_desktop_user }}"
+        group: "{{ vdesktop_desktop_user }}"
+        mode: "0644"
+        content: |
+          # Managed by playbook-vdesktop-01.yaml
+          [Unit]
+          Description=Browser session on the headless Wayland compositor
+          # StartLimit* belong in [Unit], NOT [Service]. systemd's own table
+          # (src/core/load-fragment-gperf.gperf.in) declares Unit.StartLimitIntervalSec but only
+          # Service.StartLimitInterval -- the OLD spelling. `StartLimitIntervalSec` under
+          # [Service] is an unknown directive: dropped with a warning, and the interval falls
+          # back to the manager default of ~10s. The burst would then apply over 10 seconds
+          # instead of 120, rate-limiting the browser far sooner than intended.
+          StartLimitBurst=5
+          StartLimitIntervalSec=120
+          After={{ vdesktop_wayland_unit_name }}
+          # Requires=, not Wants=: a browser with no compositor to attach to is not a degraded
+          # session, it is a restart loop with nothing on screen. The compositor unit is
+          # Type=notify, so "after" means after its Wayland socket exists -- not merely after
+          # sway was exec'd.
+          Requires={{ vdesktop_wayland_unit_name }}
+
+          [Service]
+          Type=simple
+          # Written by the compositor's wrapper with the socket name it actually got. No dash
+          # prefix: if this file is missing the unit should FAIL rather than start a browser
+          # that silently connects to nothing.
+          EnvironmentFile={{ vdesktop_session_env_file }}
+          ExecStart={{ vdesktop_browser_command }}
+          Restart=on-failure
+          RestartSec=5s
+
+          [Install]
+          WantedBy=default.target
+      register: vdesktop_browser_unit
+
+    - name: Enable the browser session
+      tags: [session]
+      become: true
+      become_user: "{{ vdesktop_desktop_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ vdesktop_uid }}"
+      ansible.builtin.systemd_service:
+        name: "{{ vdesktop_browser_unit_name }}"
+        scope: user
+        daemon_reload: "{{ vdesktop_browser_unit.changed }}"
+        enabled: true
+        state: started
+
+    - name: Stream that session with Sunshine
+      # `apply` is required: tags on an include_role task gate the include
+      # itself, they do not propagate to the tasks inside the role.
+      tags: [sunshine]
+      ansible.builtin.include_role:
+        name: sunshine
+        apply:
+          tags: [sunshine]
+      vars:
+        sunshine_user: "{{ vdesktop_desktop_user }}"
+        # --- BETA CHANNEL, and this is a dated exception rather than a preference -----------
+        #
+        # Sunshine's `stable` channel is pinned at 2026.906.222525, which has a WLR CAPTURE
+        # REGRESSION: `[wayland] Frame capture failed` on every frame, so Moonlight connects and
+        # shows a black screen. Upstream issue #5671 names that exact version as the one that
+        # introduced it. The fix is PR #5699, "fix(linux): export all Wayland DMA-BUF planes" --
+        # it filters DRM_FORMAT_MOD_INVALID out of the advertised modifiers and exports every
+        # dmabuf plane rather than only the first.
+        #
+        # VERIFIED, not inferred from version numbers: `git compare` puts the beta build 19
+        # commits AHEAD of that merge commit with 0 behind, and its `.gitmodules` still uses
+        # third-party/libvirtualhid -- so the virtual devices keep vendor 1209 and the
+        # hypervisor's udev rule still matches. Downgrading to the last good STABLE
+        # (2026.516.143833) would NOT be safe for that reason: it uses inputtino, whose device
+        # ids are different, and input would silently stop working.
+        #
+        # REVERT TO STABLE once a stable release carries #5699. Both URLs move together; a repo
+        # and a key from different channels make apt refuse every operation with
+        # "Conflicting values set for option Signed-By".
+        sunshine_apt_repo_url: https://dl.cloudsmith.io/public/lizardbyte/beta/deb/debian
+        sunshine_apt_gpg_key_url: https://dl.cloudsmith.io/public/lizardbyte/beta/gpg.key
+        # PINNED TO AN EXACT BUILD, and the version is the point rather than incidental: this is
+        # the first build carrying #5699, verified as 19 commits ahead of that merge with 0
+        # behind. A bare `sunshine` would NOT have upgraded at all -- the role installs with
+        # `state: present`, which is a no-op on an already-installed package, so switching the
+        # channel alone left 2026.906.222525 in place and capture still broken.
+        #
+        # Pinned rather than `latest` so a converge run cannot silently move this host onto
+        # whatever beta happens to be newest that day. Beta is a dated workaround; drop the pin
+        # and both URLs above together when a stable release carries the fix.
+        sunshine_package: sunshine=2026.914.233613-1+debiantrixie
+        # EMPTY, deliberately: this host has no X server at all, so the drop-in renders no
+        # Environment=DISPLAY line. Leaving `:0` set would not break capture -- Sunshine checks
+        # WAYLAND_DISPLAY first and guards the X11 branch on `window_system != WAYLAND` -- but it
+        # logs a warning, and a drop-in naming a display this host does not have is a lie a
+        # later reader has to disprove.
+        sunshine_display: ""
+        # THE only way WAYLAND_DISPLAY can reach Sunshine. The compositor picks its socket name
+        # at runtime, so Ansible cannot know it and no render-time variable can carry it -- the
+        # compositor writes the real value here and systemd reads it at start.
+        sunshine_environment_files: ["{{ vdesktop_session_env_file }}"]
+        # Sunshine chooses its capture backend ONCE, at startup, and never recomputes it. Started
+        # before the compositor it would never capture, while reporting itself active the whole
+        # time. Both are user units, which is the only reason this ordering binds.
+        sunshine_unit_after: ["{{ vdesktop_wayland_unit_name }}"]
+        sunshine_unit_wants: ["{{ vdesktop_wayland_unit_name }}"]
+        sunshine_config:
+          encoder: vaapi
+          adapter_name: "{{ vdesktop_render_node }}"
+          # Pinned, not left on Sunshine's automatic order. Unset, Sunshine tries
+          # nvfbc -> wlr -> kms -> x11 -> portal -> kwin and takes the first that verifies;
+          # with no session up it reaches `portal`, whose PipeWire loop then emits
+          # `pw.thread-loop: iterate error -22` at ~1,250/sec. That produced 1.2 GB of journal
+          # in 46 minutes here and pinned journald at 100% CPU. Naming a method makes Sunshine
+          # attempt ONLY that one (src/platform/linux/misc.cpp), so a broken session fails
+          # quietly instead of flooding.
+          #
+          # `wlr` is the zwlr_screencopy_manager_v1 path, which is what a wlroots compositor
+          # offers. The literal string is checked at misc.cpp:1350.
+          capture: wlr
+          # NOTE there is deliberately no `output_name`. It is a numeric INDEX into enumerated
+          # XRandR outputs and means nothing to `wlr`; carrying it over would be a value that
+          # looks configured and is ignored.
+          #
+          # Default, set explicitly because it is a security boundary and a
+          # silent upstream change to it would widen access: `pc` = localhost,
+          # `lan` = local network, `wan` = unrestricted. The Web UI has to be
+          # reachable from the Mac to pair, so `lan`.
+          origin_web_ui_allowed: lan
+          # Sunshine's CSRF defaults cover only https://localhost,
+          # https://127.0.0.1 and https://[::1] (src/config.cpp), so reaching the
+          # Web UI by ANY name -- which is the only way to reach it from another
+          # machine -- is refused with "CSRF Protection Error" after the login
+          # succeeds. Comma-separated, and every entry must start with https://
+          # or Sunshine logs a warning and drops it.
+          # All three forms, because which one is used depends on how the
+          # operator typed it, and a mismatch fails at PIN submission rather
+          # than at login, which is a confusing place to discover it.
+          csrf_allowed_origins: >-
+            https://{{ inventory_hostname }}:47990,
+            https://{{ inventory_hostname }}.{{ domain_name }}:47990,
+            https://{{ ansible_facts['default_ipv4']['address'] }}:47990
+        # Replaces Sunshine's stock apps.json, which is actively wrong here: its
+        # "Low Res Desktop" entry runs `xrandr --output HDMI-1`, an output this
+        # host does not have, and "Steam Big Picture" needs Steam, which is not
+        # installed. A failing prep-cmd takes the stream launch with it.
+        #
+        # One entry, deliberately. The whole point of this host is a browser
+        # session that is ALREADY running and stays running with the laptop off,
+        # so the client attaches to that desktop rather than launching anything.
+        sunshine_apps:
+          - name: Desktop
+            image-path: desktop.png
+        # THE RESOLUTION IS SET FROM MOONLIGHT, NOT FROM HERE. Sunshine exports the client's
+        # request as SUNSHINE_CLIENT_WIDTH/HEIGHT/FPS to this command, which turns it into a sway
+        # output mode -- so changing the resolution is a client-side setting and needs no playbook
+        # run. vdesktop_width/vdesktop_height below become the BOOT default only.
+        #
+        # Global rather than a prep-cmd on the Desktop app above: the display mode is a property
+        # of this HOST, so a second app added later must not be able to stream at whatever the
+        # last one happened to set.
+        #
+        # `undo` is deliberately EMPTY -- the output keeps the client's mode after the stream ends
+        # rather than snapping back. Chosen by the operator; the cost is that the live mode and
+        # the declared default diverge, and `swaymsg -t get_outputs` is then the only truth.
+        #
+        # The helper takes no arguments ON PURPOSE. Sunshine does not expand $VAR for free -- its
+        # own documented examples wrap commands in `sh -c` -- so reading the environment directly
+        # removes a shell and a layer of quoting from inside this JSON-inside-YAML.
+        sunshine_global_prep_cmd:
+          - do: "{{ vdesktop_client_mode_script }}"
+            undo: ""
+        sunshine_web_username: "{{ vdesktop_sunshine_username }}"
+        sunshine_web_password: "{{ vdesktop_01_sunshine_password }}"
+
+
+    # --- second viewer -------------------------------------------------------------------
+    # Not a hedge: Sunshine pairing is the likeliest thing to break, and ssh gives no eyes on
+    # the session. wayvnc attaches to the SAME compositor rather than starting another, which
+    # is the whole reason it is here and not a second remote-desktop server.
+    #
+    # A UNIX SOCKET, NOT A TCP PORT, and that is a security improvement over the x11vnc it
+    # replaces. wayvnc 0.9.1 has no password-only mode: `enable_auth=true` requires
+    # certificate_file AND private_key_file AND username AND password (wayvnc.scd, CONFIG FILE
+    # KEYWORDS), so turning auth on would mean generating a TLS certificate and storing a
+    # password in PLAINTEXT in ~/.config/wayvnc/config -- wayvnc ships no equivalent of
+    # x11vnc's -storepasswd. That would make this the first role here to hold a secret at rest
+    # in cleartext, to defend a port that is already unreachable.
+    #
+    # Instead there is no port at all. ssh forwards a UNIX socket natively:
+    #
+    #   ssh -L 5900:/run/user/$(ssh vdesktop-01 id -u andy)/wayvnc.sock vdesktop-01
+    #
+    # so the ssh key is the only gate, which is what was already true of x11vnc's loopback
+    # port. Consequence stated rather than hedged: anyone with a shell on this container who
+    # can reach that socket path can watch the session -- the same class of exposure as before,
+    # narrowed by file mode instead of by a password.
+    - name: Install wayvnc
+      tags: [session]
+      ansible.builtin.apt:
+        name: wayvnc
+        state: present
+
+    - name: Run wayvnc on a UNIX socket against the live compositor
+      tags: [session]
+      ansible.builtin.copy:
+        dest: "/home/{{ vdesktop_desktop_user }}/.config/systemd/user/wayvnc.service"
+        owner: "{{ vdesktop_desktop_user }}"
+        group: "{{ vdesktop_desktop_user }}"
+        mode: "0644"
+        content: |
+          # Managed by playbook-vdesktop-01.yaml
+          [Unit]
+          Description=wayvnc on a UNIX socket (no TCP port, no stored password)
+          After={{ vdesktop_wayland_unit_name }}
+          # Wants=, NOT Requires=: this is the fallback way to SEE the session, so it must not
+          # be able to drag the compositor around. Consequence, stated: wayvnc may start with no
+          # compositor and restart-loop until one appears, which Restart=on-failure handles.
+          Wants={{ vdesktop_wayland_unit_name }}
+
+          [Service]
+          Type=simple
+          EnvironmentFile={{ vdesktop_session_env_file }}
+          ExecStart=/usr/bin/wayvnc --unix-socket %t/wayvnc.sock
+          Restart=on-failure
+          RestartSec=5s
+
+          [Install]
+          WantedBy=default.target
+      register: vdesktop_wayvnc_unit
+
+    - name: Enable wayvnc
+      tags: [session]
+      become: true
+      become_user: "{{ vdesktop_desktop_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ vdesktop_uid }}"
+      ansible.builtin.systemd_service:
+        name: wayvnc.service
+        scope: user
+        daemon_reload: "{{ vdesktop_wayvnc_unit.changed }}"
+        enabled: true
+        state: started

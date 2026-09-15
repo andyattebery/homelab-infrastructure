@@ -1,0 +1,59 @@
+---
+# vdesktop-01 is an unprivileged LXC on vm-host-01, not a VM. It exists to keep a
+# browser running when the laptop it is driven from is closed, and to stream that
+# session to a Mac cheaply. See plans/vdesktop-01-desktop.md.
+
+# The account the desktop runs as. Deliberately NOT ansible_user: that account
+# has passwordless sudo everywhere (group_vars/all/vars.yaml,
+# security_sudoers_passwordless), and the browser is this box's entire attack
+# surface. This one has no password and no sudo.
+vdesktop_desktop_user: andy
+
+# THE BOOT DEFAULT ONLY -- NOT what this host is running at now.
+#
+# This was once the whole story ("no monitor to negotiate with, so every client is stuck with
+# it"). It is not any more. Sunshine runs vdesktop_client_mode_script on every connect, which
+# sets the output to whatever MOONLIGHT asked for, and nothing restores it afterwards. So these
+# two decide the mode the compositor comes up as, and the first stream after that overwrites it.
+#
+# Consequence, stated because it is the kind of thing that gets "fixed" by someone trusting this
+# file: these values and the live output can legitimately disagree, and when they do, the file is
+# the stale one. `swaymsg -t get_outputs` is the only truth. To change what you actually stream
+# at, change it in MOONLIGHT -- that is the entire point of the prep command and it needs no
+# playbook run.
+#
+# They still become `output * mode --custom WxH@RHz`, which SWAY PARSES AT RUNTIME: a bad value
+# is not an error at converge time, it is a session that comes up the wrong size with nothing in
+# any log.
+vdesktop_width: 1920
+vdesktop_height: 1080
+
+# The host's iGPU render node, bound into the container as dev0 by roles/pve_lxc.
+# Read by the create play (through hostvars) and by Sunshine's adapter_name below. Quick Sync on an i5-9500T (Coffee Lake) is reachable from an
+# unprivileged container this way; a VM would have needed exclusive passthrough
+# of the host's own primary VGA. Measured 2026-09-12: vainfo reports
+# VAEntrypointEncSliceLP on H264Main/High/ConstrainedBaseline, and no plain
+# VAEntrypointEncSlice at all -- LP is the only H.264 encode path this chip
+# offers, and it is present without GuC/HuC loaded.
+vdesktop_render_node: /dev/dri/renderD128
+
+# NO VNC PASSWORD. x11vnc needed one because it has no key-based auth and had to
+# store something it could read back. wayvnc replaces it and has no password-only
+# mode at all -- enable_auth=true requires a TLS certificate as well -- so instead
+# it listens on a UNIX SOCKET with no TCP port, forwarded over ssh. Filesystem
+# permissions replace the password and the ssh key is the only gate, which is what
+# was already true of x11vnc's loopback port.
+#
+# vault_vdesktop_01_vnc_password is deleted from group_vars/all/vault.yaml.tpl in
+# the same change. The 1Password item it referenced is left orphaned rather than
+# deleted; this repo does not remove 1Password entries.
+
+# Sunshine Web UI login. Seeding this is what keeps the web page off the
+# critical path: without it Sunshine demands first-run setup in a browser
+# before it will do anything, which is not something a playbook can drive.
+vdesktop_sunshine_username: andy
+# default('') so the rest of the playbook stays runnable before this vault
+# entry exists. The role treats an empty password as "do not touch
+# credentials", so the only consequence of forgetting it is that Sunshine
+# still wants first-run setup in its Web UI -- visible, not silent.
+vdesktop_01_sunshine_password: "{{ vault_vdesktop_01_sunshine_password | default('') }}"
