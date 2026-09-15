@@ -1,0 +1,275 @@
+---
+# Exercises udev_shim's rendering against throwaway fixtures. Runs entirely on localhost; touches
+# no systemd, no netlink and no /run/udev.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/udev_shim/tests/inventory \
+#     roles/udev_shim/tests/test.yml
+#
+# The sender's own wire format is covered separately and differently by the pytest beside this
+# file -- whether 40 bytes of header are correct is not a question an Ansible fixture can answer.
+- name: Test udev_shim
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: udev-shim-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+
+        # ---------- 1. the happy path ----------
+        - name: Render with a known configuration
+          vars: &fixture
+            udev_shim_sender_path: "{{ _tmp.path }}/bin/fake-udev-send"
+            udev_shim_unit_directory_path: "{{ _tmp.path }}/systemd"
+            udev_shim_watch_path: /dev/input
+            # A user manager, which is the shape a user-scope compositor is ordered against --
+            # a system unit cannot name a user unit directly.
+            udev_shim_before_units: ["user@1001.service"]
+            udev_shim_file_owner: "{{ ansible_facts['user_id'] }}"
+            udev_shim_file_group: "{{ ansible_facts['user_gid'] }}"
+          ansible.builtin.include_role:
+            name: udev_shim
+            tasks_from: configure.yaml
+
+        - name: Read the three units back
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          register: _units
+          loop:
+            - "{{ _tmp.path }}/systemd/udev-shim-prime.service"
+            - "{{ _tmp.path }}/systemd/udev-shim-announce.service"
+            - "{{ _tmp.path }}/systemd/udev-shim-announce.path"
+
+        - name: The prime unit is ordered before the caller's consumer
+          vars:
+            _prime: "{{ _units.results[0].content | b64decode }}"
+            _directives: >-
+              {{ _prime.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              # Non-emptiness first: an empty render satisfies every `not in` below.
+              - _prime | length > 0
+              - _directives | length > 0
+              - "'Before=user@1001.service' in _directives"
+              - "'RemainAfterExit=yes' in _directives"
+              - "'Type=oneshot' in _directives"
+              - "'WantedBy=multi-user.target' in _directives"
+              - _directives | select('search', '--reconcile') | list | length > 0
+              # Ordering only. Requires= here would take the caller's whole session down when the
+              # shim failed, instead of leaving a desktop an operator can log into and inspect.
+              - _directives | select('match', 'Requires=user@') | list | length == 0
+            fail_msg: "prime unit is wrong. directives: {{ _directives }}"
+            success_msg: "prime unit orders before user@1001.service and reconciles once"
+
+        - name: The announce service is trigger-only and ordered after prime
+          vars:
+            _svc: "{{ _units.results[1].content | b64decode }}"
+            _directives: >-
+              {{ _svc.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              - _svc | length > 0
+              - "'After=udev-shim-prime.service' in _directives"
+              - "'Requires=udev-shim-prime.service' in _directives"
+              - _directives | select('search', '--reconcile') | list | length > 0
+              # THE assertion of this unit. With an [Install] section it could be enabled
+              # directly, which runs it once at boot and never again -- indistinguishable from
+              # working for the first thirty seconds, then silently dead.
+              - _directives | select('match', 'WantedBy=') | list | length == 0
+            fail_msg: >-
+              the announce service must have no [Install]; it is triggered by the path unit.
+              directives: {{ _directives }}
+            success_msg: "announce service is trigger-only, ordered after prime"
+
+        - name: The path unit watches the right directory and triggers the right unit
+          vars:
+            _path: "{{ _units.results[2].content | b64decode }}"
+            _directives: >-
+              {{ _path.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              - _path | length > 0
+              - "'PathChanged=/dev/input' in _directives"
+              - "'Unit=udev-shim-announce.service' in _directives"
+              - "'WantedBy=paths.target' in _directives"
+              # PathModified adds only IN_MODIFY -- writes to file CONTENTS -- which for device
+              # nodes means waking on every write to a device.
+              - _directives | select('match', 'PathModified=') | list | length == 0
+            fail_msg: "path unit is wrong. directives: {{ _directives }}"
+            success_msg: "path unit watches /dev/input via PathChanged and triggers announce"
+
+        - name: The sender is installed executable
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/bin/fake-udev-send"
+          register: _sender_stat
+
+        - name: A sender systemd cannot exec is useless
+          ansible.builtin.assert:
+            that:
+              - _sender_stat.stat.exists
+              - _sender_stat.stat.mode == '0755'
+            fail_msg: >-
+              sender mode is {{ _sender_stat.stat.mode | default('absent') }}, not 0755. A 0644
+              sender installs perfectly and fails only when systemd execs it, and the symptom is
+              a device that never appears rather than a permissions error.
+            success_msg: "sender installed mode {{ _sender_stat.stat.mode }}"
+
+        # ---------- 2. idempotence ----------
+        - name: Render again with the same configuration
+          vars: *fixture
+          ansible.builtin.include_role:
+            name: udev_shim
+            tasks_from: configure.yaml
+
+        - name: The second render changed nothing
+          ansible.builtin.assert:
+            that:
+              - not udev_shim_sender.changed
+              - not udev_shim_prime_unit.changed
+              - not udev_shim_announce_unit.changed
+              - not udev_shim_path_unit.changed
+            fail_msg: "re-rendering reported a change; the role is not idempotent"
+            success_msg: "second render: no changes"
+
+        # ---------- 3. no ordering configured ----------
+        # The default. It must render a VALID unit with no Before= at all, rather than an empty
+        # `Before=` line, which systemd parses as resetting the list.
+        - name: Render with no consumer to order against
+          vars:
+            <<: *fixture
+            udev_shim_unit_directory_path: "{{ _tmp.path }}/systemd-noorder"
+            udev_shim_before_units: []
+          ansible.builtin.include_role:
+            name: udev_shim
+            tasks_from: configure.yaml
+
+        - name: Read the unordered prime unit
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/systemd-noorder/udev-shim-prime.service"
+          register: _prime2
+
+        - name: An empty before-list emits no Before= line at all
+          vars:
+            _p: "{{ _prime2.content | b64decode }}"
+            _directives: >-
+              {{ _p.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              - _p | length > 0
+              - _directives | select('match', 'Before=') | list | length == 0
+              - "'Type=oneshot' in _directives"
+            fail_msg: >-
+              an empty udev_shim_before_units rendered a Before= line: {{ _directives }}.
+              A bare `Before=` RESETS the dependency list rather than doing nothing, so it is not
+              a harmless no-op.
+            success_msg: "no before-units renders no Before= directive"
+
+        # ---------- control 1 ----------
+        # Constructs a broken CALLER, not a broken role.
+        - name: A path unit named .service is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                udev_shim_unit_directory_path: "{{ _tmp.path }}/badsuffix"
+                udev_shim_sender_path: "{{ _tmp.path }}/badsuffix/bin/send"
+                udev_shim_announce_path_unit_name: udev-shim-announce.service
+              ansible.builtin.include_role:
+                name: udev_shim
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a .path unit named .service. systemd derives a unit's TYPE
+                  from its suffix, so it would load as a service with a [Path] section it
+                  ignores entirely -- starting, doing nothing, and reporting itself active.
+          rescue:
+            - name: CONTROL -- a mistyped unit suffix is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/badsuffix"
+              register: _control_1
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_1.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 2 ----------
+        - name: A before-units string instead of a list is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                udev_shim_unit_directory_path: "{{ _tmp.path }}/stringbefore"
+                udev_shim_sender_path: "{{ _tmp.path }}/stringbefore/bin/send"
+                udev_shim_before_units: "user@1001.service"
+              ansible.builtin.include_role:
+                name: udev_shim
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a string for udev_shim_before_units. `join(' ')` over a
+                  string iterates it CHARACTER BY CHARACTER, rendering
+                  `Before=u s e r @ 1 0 0 1 . s e r v i c e` -- which systemd reads as a list of
+                  nonsense unit names and ignores, leaving the ordering silently absent.
+          rescue:
+            - name: CONTROL -- a string before-units is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/stringbefore"
+              register: _control_2
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_2.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 3 ----------
+        - name: A relative watch path is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                udev_shim_unit_directory_path: "{{ _tmp.path }}/relwatch"
+                udev_shim_sender_path: "{{ _tmp.path }}/relwatch/bin/send"
+                udev_shim_watch_path: dev/input
+              ansible.builtin.include_role:
+                name: udev_shim
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a relative PathChanged=. systemd refuses it at unit load,
+                  which surfaces as a watcher that never triggers rather than a config error.
+          rescue:
+            - name: CONTROL -- a relative watch path is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/relwatch"
+              register: _control_3
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_3.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

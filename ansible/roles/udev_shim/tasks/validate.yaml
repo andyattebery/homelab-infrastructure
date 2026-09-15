@@ -1,0 +1,56 @@
+---
+# Input validation only. Touches nothing, so the fixture test reaches every refusal without root
+# and without systemd.
+
+- name: Assert the unit names have the right suffixes
+  ansible.builtin.assert:
+    that:
+      - udev_shim_prime_unit_name | default('') is match('^[A-Za-z0-9._@-]+\.service$')
+      - udev_shim_announce_unit_name | default('') is match('^[A-Za-z0-9._@-]+\.service$')
+      - udev_shim_announce_path_unit_name | default('') is match('^[A-Za-z0-9._@-]+\.path$')
+    fail_msg: >-
+      unit names must carry their type suffix: the two services must end in `.service` and the
+      watcher must end in `.path`. Got
+      '{{ udev_shim_prime_unit_name | default('<unset>') }}',
+      '{{ udev_shim_announce_unit_name | default('<unset>') }}',
+      '{{ udev_shim_announce_path_unit_name | default('<unset>') }}'.
+      systemd derives a unit's TYPE from its suffix, so a `.path` named `.service` is loaded as a
+      service with a [Path] section it ignores entirely -- it starts, does nothing, and reports
+      itself active.
+    quiet: true
+
+- name: Assert the watched path is absolute
+  ansible.builtin.assert:
+    that:
+      - udev_shim_watch_path | default('') is match('^/')
+    fail_msg: >-
+      udev_shim_watch_path must be absolute; got
+      '{{ udev_shim_watch_path | default('<unset>') }}'. systemd refuses a relative PathChanged=
+      at unit load, which surfaces as the watcher never triggering rather than as a config error.
+    quiet: true
+
+- name: Assert the sender and interpreter paths are absolute
+  ansible.builtin.assert:
+    that:
+      - udev_shim_sender_path | default('') is match('^/')
+      - udev_shim_python_path | default('') is match('^/')
+    fail_msg: >-
+      udev_shim_sender_path and udev_shim_python_path must both be absolute. A systemd unit's
+      ExecStart= has no PATH lookup for the first argument, so a relative command is rejected at
+      unit load.
+    quiet: true
+
+# A list, not a string. `Before=` joins on spaces, and a bare string would be iterated CHARACTER
+# BY CHARACTER by the join filter's caller -- producing `Before=u s e r @ 1 0 0 1 ...`, which
+# systemd parses as a list of nonsense unit names and quietly ignores.
+- name: Assert the before-units input is a list
+  ansible.builtin.assert:
+    that:
+      - udev_shim_before_units is defined
+      - udev_shim_before_units is sequence
+      - udev_shim_before_units is not string
+    fail_msg: >-
+      udev_shim_before_units must be a LIST of unit names, not a string. Got
+      '{{ udev_shim_before_units | default('<unset>') }}'
+      ({{ udev_shim_before_units | default('') | type_debug }}).
+    quiet: true

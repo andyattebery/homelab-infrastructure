@@ -1,0 +1,58 @@
+---
+# Validates, installs the sender, and renders the three units. Talks to no service, which is what
+# lets the fixture test import this file alone against a tempdir.
+# tasks/main.yaml is the only place that touches systemd.
+
+- name: Validate the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+- name: Create the directories the files live in
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ udev_shim_file_owner }}"
+    group: "{{ udev_shim_file_group }}"
+    mode: "0755"
+  loop:
+    - "{{ udev_shim_sender_path | dirname }}"
+    - "{{ udev_shim_unit_directory_path }}"
+
+# 0755, and that matters: a 0644 sender installs perfectly and fails only when systemd execs it,
+# at which point the symptom is a device that never appears rather than a permissions error
+# anyone looks for.
+- name: Install the uevent sender
+  ansible.builtin.copy:
+    src: fake_udev_send.py
+    dest: "{{ udev_shim_sender_path }}"
+    owner: "{{ udev_shim_file_owner }}"
+    group: "{{ udev_shim_file_group }}"
+    mode: "0755"
+  register: udev_shim_sender
+
+- name: Render the prime unit
+  ansible.builtin.template:
+    src: prime.service.j2
+    dest: "{{ udev_shim_unit_directory_path }}/{{ udev_shim_prime_unit_name }}"
+    owner: "{{ udev_shim_file_owner }}"
+    group: "{{ udev_shim_file_group }}"
+    mode: "0644"
+  register: udev_shim_prime_unit
+
+- name: Render the announce unit
+  ansible.builtin.template:
+    src: announce.service.j2
+    dest: "{{ udev_shim_unit_directory_path }}/{{ udev_shim_announce_unit_name }}"
+    owner: "{{ udev_shim_file_owner }}"
+    group: "{{ udev_shim_file_group }}"
+    mode: "0644"
+  register: udev_shim_announce_unit
+
+- name: Render the path unit
+  ansible.builtin.template:
+    src: announce.path.j2
+    dest: "{{ udev_shim_unit_directory_path }}/{{ udev_shim_announce_path_unit_name }}"
+    owner: "{{ udev_shim_file_owner }}"
+    group: "{{ udev_shim_file_group }}"
+    mode: "0644"
+  register: udev_shim_path_unit

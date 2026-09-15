@@ -1,0 +1,45 @@
+---
+# The half that needs a real host: systemd. Everything that merely renders a file lives in
+# configure.yaml so it can be tested without either.
+
+- name: Install the sender and render the units
+  ansible.builtin.include_tasks:
+    file: configure.yaml
+
+# No handler, for the reason the (now deleted) X11 session role also gave: a handler fires at end
+# of play, which in a fixture test means a systemd call on a controller that has none -- and it
+# is that split which makes tasks_from: configure.yaml testable.
+- name: Reload systemd if any unit changed  # noqa no-handler
+  when: >-
+    udev_shim_prime_unit.changed or udev_shim_announce_unit.changed
+    or udev_shim_path_unit.changed
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# Enabled and started. Restarting the prime unit is harmless and idempotent -- it creates a file
+# that may already exist and re-announces devices a subscriber de-duplicates -- so unlike a
+# desktop session there is nothing here worth refusing to bounce.
+- name: Enable and start the prime unit
+  ansible.builtin.systemd_service:
+    name: "{{ udev_shim_prime_unit_name }}"
+    enabled: true
+    state: started
+
+# The PATH unit is the one that gets enabled, never the service it triggers. Enabling the
+# announce service instead would run it once at boot and never again, which looks identical for
+# the first thirty seconds and then silently stops working.
+- name: Enable and start the path watcher
+  ansible.builtin.systemd_service:
+    name: "{{ udev_shim_announce_path_unit_name }}"
+    enabled: true
+    state: started
+
+- name: Report when the shim has no ordering against its consumers
+  when: udev_shim_before_units | length == 0
+  ansible.builtin.debug:
+    msg: >-
+      udev_shim_before_units is empty, so nothing orders a libudev subscriber after
+      {{ udev_shim_prime_unit_name }}. A subscriber that starts before /run/udev/control exists
+      binds to no multicast group and never receives an event -- which presents as input that
+      never arrives, with nothing in any log naming the cause. Set it to the consuming unit, or
+      to `user@<uid>.service` for a user-scope one.

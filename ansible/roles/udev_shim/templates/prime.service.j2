@@ -1,0 +1,35 @@
+# {{ ansible_managed }}
+#
+# Runs ONCE, before anything that subscribes to udev events. Two jobs:
+#
+#   1. Create /run/udev/control. A libudev subscriber created while that file is absent binds to
+#      NO multicast group at all and is deaf for its whole life -- systemd v257
+#      src/libsystemd/sd-device/device-monitor.c:158-175. The check runs at monitor creation, so
+#      this MUST complete before the subscriber starts. That is what Before= below is for.
+#   2. Announce every device already present, which also writes /run/udev/data/c<major>:<minor>
+#      for each. Those files are what a subscriber's STARTUP ENUMERATION reads -- libinput skips
+#      any device whose db entry is missing (udev-seat.c:193, is_initialized) -- so priming here
+#      is what makes devices visible to a compositor that starts afterwards.
+#
+# /run is a tmpfs, so all of this is gone at every boot and has to be redone. That is why this is
+# a unit and not a one-time provisioning step.
+[Unit]
+Description=Prime the udev shim: /run/udev/control and an initial device announcement
+Documentation=file://{{ udev_shim_sender_path }}
+DefaultDependencies=no
+After=local-fs.target
+{% if udev_shim_before_units | length > 0 %}
+# Ordering only, deliberately not Requires=: if this fails, the caller's session should still
+# come up so an operator can log in and look, rather than the whole desktop failing to start.
+Before={{ udev_shim_before_units | join(' ') }}
+{% endif %}
+
+[Service]
+Type=oneshot
+# The unit stays "active" after the command exits, so Before= ordering holds for the whole boot
+# and anything with After= on it is ordered against a completed prime, not a running one.
+RemainAfterExit=yes
+ExecStart={{ udev_shim_python_path }} {{ udev_shim_sender_path }} --reconcile
+
+[Install]
+WantedBy=multi-user.target

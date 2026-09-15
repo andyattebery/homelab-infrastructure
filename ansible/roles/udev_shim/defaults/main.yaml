@@ -1,0 +1,45 @@
+---
+# Fakes the two things a container with no udevd lacks: the /run/udev/control file a libudev
+# subscriber checks before it will join the udev multicast group, and the events themselves.
+#
+# Nothing here is required -- every input has a working default, because this role's job does not
+# vary by host. The one a caller almost always sets is udev_shim_before_units.
+
+# The vendored sender, and the interpreter that runs it. Python 3 only; no third-party modules.
+udev_shim_sender_path: /usr/local/bin/fake-udev-send
+udev_shim_python_path: /usr/bin/python3
+
+# Where the units land. An input so the fixture test can point it at a tempdir.
+udev_shim_unit_directory_path: /etc/systemd/system
+
+# Runs ONCE, early, and is the unit a caller orders its compositor after. It creates
+# /run/udev/control and announces every device already present.
+udev_shim_prime_unit_name: udev-shim-prime.service
+
+# Runs on every change to the watched directory. Same command as the prime unit; a separate unit
+# because the prime unit is RemainAfterExit and would not re-run.
+udev_shim_announce_unit_name: udev-shim-announce.service
+udev_shim_announce_path_unit_name: udev-shim-announce.path
+
+# The directory whose changes trigger a re-announce.
+udev_shim_watch_path: /dev/input
+
+# UNITS THAT MUST START AFTER /run/udev/control EXISTS. This is the input that matters.
+#
+# A libudev subscriber created while that file is absent binds to NO multicast group and is deaf
+# for the rest of its life -- systemd v257 src/libsystemd/sd-device/device-monitor.c:158-175,
+# "We do not set a netlink multicast group here, so the socket will not receive any messages."
+# The check runs once, at monitor creation, so creating the file later does not repair a
+# subscriber that already started.
+#
+# Empty by default because a role does not know what its caller is running. Empty means the
+# ordering is NOT enforced and a compositor may well start first -- which presents as input that
+# never arrives, with nothing in any log naming the cause. Callers running a compositor must set
+# this. Note that a user-scope compositor is ordered against by naming its USER MANAGER
+# (`user@<uid>.service`), because a system unit cannot be ordered against a user unit directly.
+udev_shim_before_units: []
+
+# File ownership. Only root is correct on a real host; inputs so a fixture test can render as an
+# unprivileged user.
+udev_shim_file_owner: root
+udev_shim_file_group: root

@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+#
+# Re-announces every input device. Triggered by {{ udev_shim_announce_path_unit_name }}, never
+# enabled directly -- it has no [Install] section for that reason.
+#
+# RE-ANNOUNCING IS SAFE, and this design depends on that rather than on tracking what it has
+# already sent. libinput's device_added() calls filter_duplicates() (libinput 1.28.1
+# src/udev-seat.c:55-73), which ignores a device whose syspath the seat already has. So this can
+# fire as often as the directory changes with no bookkeeping and no double-adds.
+#
+# That matters because a device node appears BEFORE the host's udev has finished setting its
+# ownership -- measured on a real container: one IN_CREATE followed by three IN_ATTRIB. The path
+# unit watches IN_ATTRIB too (systemd v257 src/core/path.c:42), so this runs again after the
+# ownership lands and the later announcement carries the device in its final, openable state.
+[Unit]
+Description=Announce input devices to libudev subscribers
+Documentation=file://{{ udev_shim_sender_path }}
+After={{ udev_shim_prime_unit_name }}
+Requires={{ udev_shim_prime_unit_name }}
+
+[Service]
+Type=oneshot
+ExecStart={{ udev_shim_python_path }} {{ udev_shim_sender_path }} --reconcile

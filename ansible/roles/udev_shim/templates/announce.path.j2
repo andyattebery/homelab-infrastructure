@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+#
+# PathChanged= and not PathModified=: the inotify mask for PathChanged already covers
+# IN_CREATE, IN_DELETE, IN_ATTRIB and the moves (systemd v257 src/core/path.c:42). The only thing
+# PathModified adds is IN_MODIFY -- writes to a file's CONTENTS -- which for a directory full of
+# device nodes means nothing, and would wake this unit on every write to a device.
+#
+# inotify on this path is verified to work through a container bind mount; it is not assumed.
+[Unit]
+Description=Watch {{ udev_shim_watch_path }} for input devices appearing
+After={{ udev_shim_prime_unit_name }}
+Requires={{ udev_shim_prime_unit_name }}
+
+[Path]
+PathChanged={{ udev_shim_watch_path }}
+Unit={{ udev_shim_announce_unit_name }}
+
+[Install]
+WantedBy=paths.target
