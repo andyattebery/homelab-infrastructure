@@ -2,9 +2,8 @@
 # Files under /etc/apt/sources.list.d/ that pve_config will remove on every
 # run, regardless of which sources format the host is using. This is for
 # repos we never want active (enterprise / older installer leftovers).
-# Note: ceph repository management is left to `pveceph install -repository
-# no-subscription` in the pve_node_ceph role — pve_config does not touch
-# ceph.sources or ceph.list.
+# Note: the Ceph repository is owned by pve_node_ceph/tasks/repo.yaml — pve_config
+# does not manage ceph.sources or ceph.list beyond removing the enterprise one.
 pve_config_remove_files_always:
   - pve-enterprise.list
   - pve-enterprise.sources
