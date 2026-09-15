@@ -4,7 +4,9 @@
   become: true
 
   roles:
-    - configure_server
+    - role: configure_server
+      vars:
+        security_ssh_permit_root_login: "prohibit-password"
     - geerlingguy.docker
     - role: artis3n.tailscale.machine
       vars:
