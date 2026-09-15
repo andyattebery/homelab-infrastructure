@@ -1,0 +1,45 @@
+# {{ ansible_managed }}
+#
+# A USER unit. Not a system unit, and that was the load-bearing difference from the X11 version of
+# this role: systemd has no dependencies that cross between the system and user managers
+# (upstream closed the request as not planned), so anything that must be ordered against this
+# compositor -- a browser, a stream host -- can only express that if it lives in the same manager.
+#
+# Consequences of being a user unit, all deliberate:
+#   * no User=            -- the manager already runs as the account.
+#   * no PAMName=login    -- that exists on a SYSTEM unit to obtain XDG_RUNTIME_DIR. A user
+#                            manager supplies /run/user/<uid> natively, so the directive has
+#                            nothing to do here.
+#   * no TTYPath=         -- nothing allocates a tty for this session.
+#   * WantedBy=default.target, not multi-user.target, which does not exist in a user manager.
+#
+# The account needs `loginctl enable-linger` or the manager does not exist while logged out.
+[Unit]
+Description=Headless sway compositor on {{ sway_headless_wayland_session_render_node }}
+Documentation=file://{{ sway_headless_wayland_session_config_path }}
+
+[Service]
+# notify, not simple. With Type=simple the unit is active the moment sway is exec'd -- before the
+# Wayland socket exists -- and every consumer ordered After= it wins a race it should lose. The
+# wrapper sends the readiness notification once the socket is up and the environment file is
+# written; NotifyAccess=all is what lets a process that is not the main one do that.
+Type=notify
+NotifyAccess=all
+TimeoutStartSec={{ sway_headless_wayland_session_start_timeout_seconds }}
+# wlroots takes all of these from the environment and there is NO config-file equivalent for any
+# of them.
+Environment=WLR_BACKENDS={{ sway_headless_wayland_session_wlr_backends }}
+Environment=WLR_RENDERER={{ sway_headless_wayland_session_wlr_renderer }}
+Environment=WLR_RENDER_DRM_DEVICE={{ sway_headless_wayland_session_render_node }}
+Environment=LIBSEAT_BACKEND={{ sway_headless_wayland_session_libseat_backend }}
+{% if sway_headless_wayland_session_no_devices | bool %}
+# Suppresses the startup abort wlroots takes when libinput has zero devices. A compositor whose
+# input devices are created after it starts has zero at boot, every time.
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+{% endif %}
+ExecStart={{ sway_headless_wayland_session_sway_path }} --config {{ sway_headless_wayland_session_config_path }}
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy={{ sway_headless_wayland_session_wanted_by }}

@@ -1,0 +1,60 @@
+#!/bin/sh
+# {{ ansible_managed }}
+#
+# Started by sway's `exec`, so it inherits WAYLAND_DISPLAY, SWAYSOCK and -- because the unit is
+# Type=notify with NotifyAccess=all -- NOTIFY_SOCKET. It has exactly two jobs.
+set -eu
+
+_env_file="${XDG_RUNTIME_DIR}/{{ sway_headless_wayland_session_env_file_name }}"
+
+# 1. PUBLISH THE SOCKET NAME. sway 1.10.1 picks its own: sway/server.c loops wayland-1..wayland-32
+#    and takes the first that binds, skipping wayland-0 entirely. Nothing sets it and nothing
+#    predicts it. A consumer with a hardcoded `wayland-1` is right until something else is on the
+#    runtime directory first, at which point capture and clients attach to nothing and NEITHER
+#    reports an error.
+#
+#    SWAYSOCK goes with it, for the same reason and with a second one. sway picks that path too
+#    (it carries sway's own pid), and a consumer that wants to CHANGE something about the
+#    compositor -- rather than merely draw on it -- needs the IPC socket, not the Wayland one.
+#    The concrete consumer is the client-mode helper below, run by Sunshine as a prep command.
+#    Globbing sway-ipc.*.sock instead is not a substitute: this runtime directory accumulates
+#    stale sockets from previous sessions and a glob happily returns one of those.
+#
+#    Written atomically, BOTH LINES IN ONE FILE. A consumer's EnvironmentFile= reading a
+#    half-written file gets a truncated socket name, which fails in exactly the same silent way --
+#    and a file holding one variable but not yet the other is the same bug with more steps.
+umask 022
+{
+    printf 'WAYLAND_DISPLAY=%s\n' "${WAYLAND_DISPLAY}"
+    # ${SWAYSOCK-} with the dash, and an `if` rather than `[ ... ] && printf`. BOTH matter, and
+    # for the same reason: `set -eu` is on, and this script's failure mode is not "the SWAYSOCK
+    # line is missing" -- it is THE COMPOSITOR NEVER STARTING. An unbound variable aborts the
+    # wrapper before systemd-notify --ready below, so the unit hangs in `activating` until its
+    # start timeout and then fails. A bare `[ -n ... ] && printf` is the same trap wearing a
+    # different hat: as the last command in this group it would make the group exit non-zero
+    # whenever SWAYSOCK is absent, which `set -e` treats identically. A false `if` exits 0.
+    #
+    # That sway exports SWAYSOCK to the children it execs is an ASSUMPTION carried from a comment
+    # above, not something this repo has proved. It must not be able to cost the session.
+    if [ -n "${SWAYSOCK-}" ]; then
+        printf 'SWAYSOCK=%s\n' "${SWAYSOCK}"
+    fi
+} > "${_env_file}.tmp"
+mv -f "${_env_file}.tmp" "${_env_file}"
+
+# 2. REPORT READY. Without this the unit is "active" the instant sway is exec'd -- before the
+#    Wayland socket exists and before the file above is written -- and anything ordered After= it
+#    races both. sway implements no readiness protocol of its own (checked: no sd_notify anywhere
+#    in sway 1.10.1), so the notification comes from here, which systemd accepts because
+#    NotifyAccess=all admits any process in the unit's cgroup.
+#
+#    If this fails the unit hangs in `activating` until its start timeout and then fails loudly.
+#    That is the intended outcome: a visible failure beats a session that is "running" with no
+#    socket.
+{{ sway_headless_wayland_session_systemd_notify_path }} --ready
+
+# No `exec` of a session command, and no desktop. Nothing is started here on purpose: what runs
+# inside this compositor belongs to the caller and to its own units, which order themselves
+# After= this one and read the socket name from the file above. A session command here would
+# make the compositor's lifetime depend on a client's, which is backwards -- the compositor is
+# what everything else attaches to.

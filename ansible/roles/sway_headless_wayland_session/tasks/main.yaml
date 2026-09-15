@@ -1,0 +1,75 @@
+---
+# The half that needs a real host: apt, loginctl and a per-user systemd instance. Everything that
+# merely renders a file lives in configure.yaml so it can be tested without any of them.
+#
+# There is deliberately NO `sway --validate` pre-flight. It looks like a config check and is not
+# one: sway 1.10.1's --validate CREATES A BACKEND, so without WLR_BACKENDS in the environment it
+# reaches for DRM and dies on libseat with "Could not open target tty" -- which reads exactly like
+# a config error.
+
+- name: Install the compositor and the GL stack
+  ansible.builtin.apt:
+    name: "{{ sway_headless_wayland_session_packages }}"
+    state: present
+
+- name: Render the configuration, the wrapper and the unit
+  ansible.builtin.include_tasks:
+    file: configure.yaml
+
+- name: Look up the run user's uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ sway_headless_wayland_session_user }}"
+
+# Resolved, never assumed. XDG_RUNTIME_DIR is /run/user/<uid> and a hardcoded uid is a host's
+# identity baked into a role.
+- name: Remember the uid
+  ansible.builtin.set_fact:
+    sway_headless_wayland_session_uid: "{{ ansible_facts['getent_passwd'][sway_headless_wayland_session_user][1] }}"
+
+# ORDER MATTERS: linger before anything touches the user manager. Without it there is no per-user
+# systemd instance while the account is logged out, so the `systemctl --user` calls below have
+# nothing to talk to -- and, more to the point, the compositor would stop the moment the session
+# ended. On a machine whose whole purpose is to keep running unattended that is the requirement,
+# not a tweak.
+- name: Enable lingering so the user manager exists with nobody logged in
+  ansible.builtin.command:
+    argv: ["{{ sway_headless_wayland_session_loginctl_path }}", enable-linger, "{{ sway_headless_wayland_session_user }}"]
+  changed_when: false
+
+- name: Reload the user manager if the unit changed  # noqa no-handler
+  when: sway_headless_wayland_session_unit.changed
+  become: true
+  become_user: "{{ sway_headless_wayland_session_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ sway_headless_wayland_session_uid }}"
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+
+- name: Enable and start the compositor
+  become: true
+  become_user: "{{ sway_headless_wayland_session_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ sway_headless_wayland_session_uid }}"
+  ansible.builtin.systemd_service:
+    name: "{{ sway_headless_wayland_session_unit_name }}"
+    scope: user
+    enabled: true
+    state: started
+
+# Restarting is deliberately NOT automatic on a config change. This unit IS the live session:
+# bouncing it kills every client attached to it, which on a single-purpose streaming host is the
+# entire point of the machine. The role reports that a restart is owed and leaves the decision to
+# an operator.
+- name: Report that a restart is owed
+  when: >-
+    sway_headless_wayland_session_config.changed
+    or sway_headless_wayland_session_script.changed
+    or sway_headless_wayland_session_unit.changed
+  ansible.builtin.debug:
+    msg: >-
+      {{ sway_headless_wayland_session_unit_name }} configuration changed and the running
+      compositor is still on the OLD settings. Restarting it terminates every client attached to
+      it, so it is not done here. Restart deliberately with:
+      systemctl --user restart {{ sway_headless_wayland_session_unit_name }}

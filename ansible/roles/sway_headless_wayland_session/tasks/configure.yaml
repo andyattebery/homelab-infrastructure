@@ -1,0 +1,83 @@
+---
+# Renders the three files and registers what changed. Talks to no service and installs nothing,
+# which is what lets the fixture test import this file alone with every path pointed at a
+# tempdir. tasks/main.yaml is the only place that touches apt, loginctl or systemd.
+# See ansible/tests/README.md, "Where a new test goes".
+
+- name: Validate the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+- name: Create the directories the rendered files live in
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ sway_headless_wayland_session_file_owner }}"
+    group: "{{ sway_headless_wayland_session_file_group }}"
+    mode: "0755"
+  # `unique`, because the wrapper and the client-mode helper default to the same directory and
+  # without it this loops over /usr/local/bin twice -- harmless, and a reader has to work out
+  # which of two identical lines is which.
+  loop: "{{ [
+      sway_headless_wayland_session_config_path | dirname,
+      sway_headless_wayland_session_script_path | dirname,
+      sway_headless_wayland_session_client_mode_script_path | dirname,
+    ] | unique }}"
+
+# Owned by the ACCOUNT, not by root: it lives under the account's home and its own user manager
+# reads it. `copy`/`template` do not create intermediate directories, and a home made by
+# `user: create_home` has none of this chain -- nothing builds ~/.config/systemd/user until
+# something writes there.
+- name: Create the account's systemd user directory
+  ansible.builtin.file:
+    path: "{{ sway_headless_wayland_session_unit_directory_path }}"
+    state: directory
+    owner: "{{ sway_headless_wayland_session_unit_owner }}"
+    group: "{{ sway_headless_wayland_session_unit_group }}"
+    mode: "0755"
+
+- name: Render the compositor configuration
+  ansible.builtin.template:
+    src: sway.conf.j2
+    dest: "{{ sway_headless_wayland_session_config_path }}"
+    owner: "{{ sway_headless_wayland_session_file_owner }}"
+    group: "{{ sway_headless_wayland_session_file_group }}"
+    mode: "0644"
+  register: sway_headless_wayland_session_config
+
+# 0755, and that matters: a 0644 wrapper renders perfectly and fails only when sway tries to exec
+# it -- at which point the compositor is up, no readiness notification ever arrives, and the unit
+# fails on its start timeout with nothing pointing at a file mode.
+- name: Render the session wrapper
+  ansible.builtin.template:
+    src: session.sh.j2
+    dest: "{{ sway_headless_wayland_session_script_path }}"
+    owner: "{{ sway_headless_wayland_session_file_owner }}"
+    group: "{{ sway_headless_wayland_session_file_group }}"
+    mode: "0755"
+  register: sway_headless_wayland_session_script
+
+# 0755 for the same reason as the wrapper above, and with a worse failure: this one is exec'd by
+# a STREAMING SERVER's prep hook, so a 0644 copy surfaces as a stream that will not start at all
+# -- nowhere near a file mode.
+#
+# Deliberately NOT in the "restart is owed" report in tasks/main.yaml: this script is executed
+# fresh on every invocation, so a changed copy is live immediately. Claiming a restart is owed for
+# it would be a false alarm, and the value of that report is that it is never one.
+- name: Render the client-mode helper
+  ansible.builtin.template:
+    src: set-client-mode.sh.j2
+    dest: "{{ sway_headless_wayland_session_client_mode_script_path }}"
+    owner: "{{ sway_headless_wayland_session_file_owner }}"
+    group: "{{ sway_headless_wayland_session_file_group }}"
+    mode: "0755"
+  register: sway_headless_wayland_session_client_mode_script
+
+- name: Render the systemd user unit
+  ansible.builtin.template:
+    src: sway-headless-wayland.service.j2
+    dest: "{{ sway_headless_wayland_session_unit_directory_path }}/{{ sway_headless_wayland_session_unit_name }}"
+    owner: "{{ sway_headless_wayland_session_unit_owner }}"
+    group: "{{ sway_headless_wayland_session_unit_group }}"
+    mode: "0644"
+  register: sway_headless_wayland_session_unit

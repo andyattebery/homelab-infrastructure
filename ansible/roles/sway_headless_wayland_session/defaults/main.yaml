@@ -1,0 +1,121 @@
+---
+# REQUIRED, asserted in tasks/validate.yaml and deliberately not defaulted:
+#   sway_headless_wayland_session_user -- the account the compositor runs as, and whose USER
+#   MANAGER the unit is installed into. No default: a guessed user starts the session as the
+#   wrong account without failing.
+
+# The headless output's size AT STARTUP. There is no monitor to negotiate with, so this is what
+# the compositor comes up as.
+#
+# It is NOT necessarily what the output is running at now. A caller can ship the client-mode
+# helper below and wire it to a streaming server's connect hook, in which case the mode follows
+# whatever the remote client asks for and is not restored afterwards -- these three become the
+# BOOT default and nothing more. Where that is configured, `swaymsg -t get_outputs` is the only
+# honest answer to "what resolution is this host running at", and a caller doing it should say so
+# where it sets these.
+sway_headless_wayland_session_width: 1920
+sway_headless_wayland_session_height: 1080
+sway_headless_wayland_session_refresh: 60
+
+# The GPU. wlroots 0.18.2 reads this as WLR_RENDER_DRM_DEVICE in render/wlr_renderer.c,
+# open_preferred_drm_fd(). It is NOT WLR_DRM_DEVICES: that one is read only by the DRM/KMS
+# backend, which never loads here, so setting it would have no effect at all.
+sway_headless_wayland_session_render_node: /dev/dri/renderD128
+
+# headless for the output, libinput for INPUT. The X11 role this replaced used `headless`
+# alone, because everything it displayed reached it through Xwayland's XTest. There is no XTest
+# on Wayland, so the compositor has to own real evdev devices and the libinput backend is what
+# opens them.
+sway_headless_wayland_session_wlr_backends: headless,libinput
+
+# gles2 and never pixman. A SAFETY DEVICE, not a preference: wlroots refuses to initialise EGL on
+# a software device unless WLR_RENDERER_ALLOW_SOFTWARE is set ("Software rendering detected,
+# please use the WLR_RENDERER_ALLOW_SOFTWARE environment variable to proceed", render/egl.c). So
+# losing the GPU becomes a compositor that WILL NOT START rather than a desktop that comes up and
+# quietly rasterises on the CPU. Never set that variable.
+sway_headless_wayland_session_wlr_renderer: gles2
+
+# No seat manager. libseat's noop backend plus `input` group membership replaces logind/seatd:
+# there is no seat to be assigned, and nothing to assign it.
+sway_headless_wayland_session_libseat_backend: noop
+
+# MANDATORY, and not a tuning knob. wlroots' libinput backend EXITS if it starts with zero input
+# devices (backend/libinput/backend.c:110-114). A compositor that owns its own virtual devices
+# necessarily starts with none of them -- they are created later, by whatever will inject input
+# -- so without this the compositor loses every cold boot.
+#
+# It suppresses a STARTUP ABORT, not device detection. Enumeration already happened one line
+# earlier, at :109. The variable's name suggests otherwise and every search summary repeats the
+# wrong reading.
+sway_headless_wayland_session_no_devices: true
+
+# The compositor picks its own Wayland socket name: sway 1.10.1 sway/server.c loops
+# wayland-1..wayland-32, takes the first that binds, and deliberately never uses wayland-0. No
+# environment variable or option sets it. So the name cannot be written as a literal anywhere --
+# it is discovered at runtime by the wrapper, which sway execs and which therefore inherits the
+# real value, and written to this file under XDG_RUNTIME_DIR for consumers to read with
+# systemd's EnvironmentFile=.
+#
+# A NAME, not a path: the directory is XDG_RUNTIME_DIR, which is only known at runtime and whose
+# absolute form contains a uid this role must not bake in.
+sway_headless_wayland_session_env_file_name: wayland-session.env
+
+# Paths. All inputs rather than literals so the fixture test can point them at a tempdir -- a
+# role that hardcodes /etc/... cannot be tested that way.
+# NOT /etc/sway/config: that path is a dpkg conffile owned by the sway package, and
+# validate.yaml refuses it.
+sway_headless_wayland_session_config_path: /etc/sway/headless-wayland.conf
+sway_headless_wayland_session_script_path: /usr/local/bin/sway-headless-wayland-session
+
+# A USER unit, so it lives under the account's own systemd directory rather than
+# /etc/systemd/system. That is the whole reason this role differs in shape from the X11 one:
+# ordering against other user units (a browser, a stream host) is only expressible inside one
+# manager, and systemd has no cross-manager dependencies.
+sway_headless_wayland_session_home: "/home/{{ sway_headless_wayland_session_user }}"
+sway_headless_wayland_session_unit_directory_path: "{{ sway_headless_wayland_session_home }}/.config/systemd/user"
+sway_headless_wayland_session_unit_name: sway-headless-wayland.service
+sway_headless_wayland_session_wanted_by: default.target
+
+# How long systemd waits for the wrapper's readiness notification before giving up. A hang costs
+# this long; a crash fails immediately.
+sway_headless_wayland_session_start_timeout_seconds: 30
+
+# A helper that sets the output mode from a streaming client's request, for a caller that wants
+# the resolution driven from the client rather than from here. Rendered ALWAYS -- it is inert
+# unless something invokes it -- because a script that exists and is never called costs a file,
+# while one that is called and does not exist costs the stream.
+#
+# The mode it sets is NOT restored afterwards; see the geometry comment above.
+sway_headless_wayland_session_client_mode_script_path: /usr/local/bin/sway-headless-wayland-set-mode
+
+# CLI paths, so a test can point them at stubs and a caller on another distro is not stuck.
+sway_headless_wayland_session_sway_path: /usr/bin/sway
+# Used by the client-mode helper at RUNTIME, not by Ansible. Both are baked into the rendered
+# script, which is why a fixture test can point them at stubs and assert the exact command.
+sway_headless_wayland_session_swaymsg_path: /usr/bin/swaymsg
+sway_headless_wayland_session_logger_path: /usr/bin/logger
+# Run by the WRAPPER, inside the unit's cgroup, to report readiness. Absolute because a systemd
+# unit's environment has no login $PATH.
+sway_headless_wayland_session_systemd_notify_path: /usr/bin/systemd-notify
+sway_headless_wayland_session_loginctl_path: /usr/bin/loginctl
+
+sway_headless_wayland_session_packages:
+  # Pulls libwlroots-0.18, libseat1 and the rest of the compositor.
+  - sway
+  # NAMED EXPLICITLY even though sway pulls it in transitively: relying on another package's
+  # dependency for this one's correctness is how a silent software-rendering fallback becomes a
+  # mystery six months later.
+  - libegl1
+  # The DRI driver that actually talks to the GPU.
+  - libgl1-mesa-dri
+  # Screenshots. The only way to prove the compositor is producing frames without a client --
+  # it is the zwlr_screencopy_manager_v1 probe that `capture: wlr` needs to work.
+  - grim
+
+# File ownership. The config and wrapper are root-owned system files; the UNIT belongs to the
+# account whose manager runs it. Inputs so a fixture test can render everything as one
+# unprivileged user.
+sway_headless_wayland_session_file_owner: root
+sway_headless_wayland_session_file_group: root
+sway_headless_wayland_session_unit_owner: "{{ sway_headless_wayland_session_user }}"
+sway_headless_wayland_session_unit_group: "{{ sway_headless_wayland_session_user }}"

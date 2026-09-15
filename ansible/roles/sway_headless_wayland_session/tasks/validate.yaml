@@ -1,0 +1,130 @@
+---
+# Input validation only. Every assert runs BEFORE the first file is written, so a refused caller
+# has nothing written for it -- which is what the fixture test's controls assert.
+
+- name: Assert the caller supplied the account the compositor runs as
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_user is defined
+      - sway_headless_wayland_session_user | default('') | length > 0
+    fail_msg: >-
+      sway_headless_wayland_session_user is required and has no default. It is both the account
+      the compositor runs as and the USER MANAGER the unit is installed into; a guessed one
+      installs a unit into a manager nobody is running and reports success.
+    quiet: true
+
+- name: Assert the render node is a render node
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_render_node | default('') is match('^/dev/dri/renderD[0-9]+$')
+    fail_msg: >-
+      sway_headless_wayland_session_render_node must be a /dev/dri/renderD* node --
+      '{{ sway_headless_wayland_session_render_node | default('<unset>') }}' is not. wlroots opens
+      this path and uses it as the GBM device. A card node does not exist at all in an
+      unprivileged container (there is no DRM master), and a colon-separated list is
+      WLR_DRM_DEVICES syntax, which belongs to a backend this role never loads. Both mistakes
+      surface as a compositor that fails to start with an EGL error, a long way from the value
+      that caused it.
+    quiet: true
+
+- name: Assert the renderer is a hardware renderer
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_wlr_renderer | default('') in ['gles2', 'vulkan']
+    fail_msg: >-
+      sway_headless_wayland_session_wlr_renderer must be gles2 or vulkan, not
+      '{{ sway_headless_wayland_session_wlr_renderer | default('<unset>') }}'. pixman is wlroots'
+      SOFTWARE renderer: a session on it starts, looks entirely correct, and rasterises on the
+      CPU -- the exact condition this role exists to remove, reached by setting one variable.
+    quiet: true
+
+# The libinput backend is what opens evdev devices. Without it the compositor has a display and
+# no way to receive input at all, which on a machine whose purpose is remote input is total
+# failure presenting as a working desktop.
+- name: Assert the backend list includes libinput
+  ansible.builtin.assert:
+    that:
+      - "'libinput' in sway_headless_wayland_session_wlr_backends | default('')"
+      - "'headless' in sway_headless_wayland_session_wlr_backends | default('')"
+    fail_msg: >-
+      sway_headless_wayland_session_wlr_backends must include both `headless` and `libinput`; got
+      '{{ sway_headless_wayland_session_wlr_backends | default('<unset>') }}'. headless supplies
+      the output, libinput supplies INPUT -- and there is no XTest on Wayland, so a compositor
+      without the libinput backend can never receive a keystroke. It looks entirely healthy.
+    quiet: true
+
+- name: Assert the sway config path is not the packaged conffile
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_config_path | default('') is not match('^/etc/sway/config$')
+    fail_msg: >-
+      sway_headless_wayland_session_config_path must not be /etc/sway/config. That path is a dpkg
+      conffile shipped by the sway package: writing it with template makes every sway upgrade
+      prompt about local modifications, and puts Ansible and dpkg in a fight neither wins.
+    quiet: true
+
+# This goes into `output * mode --custom WxH@RHz`, parsed by SWAY AT RUNTIME rather than by
+# Ansible at render time. A bad value is not an error here -- it is a desktop that comes up the
+# wrong size with nothing in any log that looks like a failure.
+- name: Assert the screen geometry is positive
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_width | int > 0
+      - sway_headless_wayland_session_height | int > 0
+      - sway_headless_wayland_session_refresh | int > 0
+    fail_msg: >-
+      screen geometry must be positive; got
+      {{ sway_headless_wayland_session_width | default('<unset>') }}x{{ sway_headless_wayland_session_height | default('<unset>') }}@{{ sway_headless_wayland_session_refresh | default('<unset>') }}Hz.
+    quiet: true
+
+# Absolute, because a streaming server's prep hook executes it with no login $PATH and from a
+# working directory nobody here chooses. A relative path renders fine, installs fine, and fails
+# only at the moment a client connects -- as a stream that does not start.
+- name: Assert the client-mode helper path is absolute
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_client_mode_script_path | default('') is match('^/')
+    fail_msg: >-
+      sway_headless_wayland_session_client_mode_script_path must be an absolute path; got
+      '{{ sway_headless_wayland_session_client_mode_script_path | default('<unset>') }}'. It is
+      invoked by whatever hook a caller wires it to, with no login $PATH and from an unknown
+      working directory, so a relative path is only wrong at connect time.
+    quiet: true
+
+# A NAME, not a path. The directory is XDG_RUNTIME_DIR, known only at runtime, and its absolute
+# form carries a uid this role must never bake in.
+- name: Assert the environment file is a bare name
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_env_file_name | default('') | length > 0
+      - sway_headless_wayland_session_env_file_name | default('') is not search('/')
+    fail_msg: >-
+      sway_headless_wayland_session_env_file_name must be a bare file name, not a path -- got
+      '{{ sway_headless_wayland_session_env_file_name | default('<unset>') }}'. The wrapper joins
+      it to $XDG_RUNTIME_DIR at runtime, which is the only place the account's uid is known.
+    quiet: true
+
+- name: Assert the unit name is a service unit
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_unit_name | default('') is match('^[A-Za-z0-9._@-]+\.service$')
+    fail_msg: >-
+      sway_headless_wayland_session_unit_name must end in `.service`; got
+      '{{ sway_headless_wayland_session_unit_name | default('<unset>') }}'. systemd derives a
+      unit's type from its suffix.
+    quiet: true
+
+# multi-user.target does not exist in a user manager. A unit installed WantedBy= it is enabled
+# against a target that never activates, so `systemctl --user is-enabled` says `enabled` and the
+# compositor never starts -- the same trap roles/sunshine documents for graphical-session.target.
+- name: Assert the install target exists in a user manager
+  ansible.builtin.assert:
+    that:
+      - sway_headless_wayland_session_wanted_by | default('') is not match('^multi-user\.target$')
+      - sway_headless_wayland_session_wanted_by | default('') | length > 0
+    fail_msg: >-
+      sway_headless_wayland_session_wanted_by is '{{ sway_headless_wayland_session_wanted_by | default('<unset>') }}'.
+      This is a USER unit and multi-user.target does not exist in a user manager, so the unit
+      would be enabled against a target that never activates: `systemctl --user is-enabled`
+      reports `enabled` and the compositor never runs. Use default.target.
+    quiet: true

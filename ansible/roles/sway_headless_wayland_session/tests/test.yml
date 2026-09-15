@@ -1,0 +1,471 @@
+---
+# Exercises sway_headless_wayland_session against throwaway fixtures. Runs entirely on localhost;
+# touches no remote host, no systemd, no compositor and no GPU.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/sway_headless_wayland_session/tests/inventory \
+#     roles/sway_headless_wayland_session/tests/test.yml
+#
+# Only tasks/configure.yaml is imported. main.yaml installs packages and talks to a user manager,
+# neither of which exists here -- that split is what makes this testable at all.
+- name: Test sway_headless_wayland_session
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: sway-wayland-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+
+        # ---------- 1. the happy path ----------
+        - name: Render with a known configuration
+          vars: &fixture
+            sway_headless_wayland_session_user: someuser
+            sway_headless_wayland_session_width: 1600
+            sway_headless_wayland_session_height: 900
+            sway_headless_wayland_session_refresh: 75
+            # Deliberately NOT the default, so a template that ignored the input would show up.
+            sway_headless_wayland_session_render_node: /dev/dri/renderD129
+            sway_headless_wayland_session_config_path: "{{ _tmp.path }}/sway/headless-wayland.conf"
+            sway_headless_wayland_session_script_path: "{{ _tmp.path }}/bin/session.sh"
+            # NOT optional to override. This defaults to /usr/local/bin/... and the role renders
+            # it unconditionally, so a fixture that leaves it alone writes to the CONTROLLER's
+            # real /usr/local/bin -- this suite runs on localhost.
+            sway_headless_wayland_session_client_mode_script_path: "{{ _tmp.path }}/bin/set-client-mode.sh"
+            # Baked into that script and executed at RUNTIME, never by Ansible. Pointed at names
+            # under the scratch directory so the assertions below can prove the exact command the
+            # helper would run.
+            sway_headless_wayland_session_swaymsg_path: "{{ _tmp.path }}/bin/stub-swaymsg"
+            sway_headless_wayland_session_logger_path: "{{ _tmp.path }}/bin/stub-logger"
+            sway_headless_wayland_session_unit_directory_path: "{{ _tmp.path }}/user-units"
+            sway_headless_wayland_session_file_owner: "{{ ansible_facts['user_id'] }}"
+            sway_headless_wayland_session_file_group: "{{ ansible_facts['user_gid'] }}"
+            sway_headless_wayland_session_unit_owner: "{{ ansible_facts['user_id'] }}"
+            sway_headless_wayland_session_unit_group: "{{ ansible_facts['user_gid'] }}"
+          ansible.builtin.include_role:
+            name: sway_headless_wayland_session
+            tasks_from: configure.yaml
+
+        - name: Read everything back
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          register: _files
+          loop:
+            - "{{ _tmp.path }}/sway/headless-wayland.conf"
+            - "{{ _tmp.path }}/bin/session.sh"
+            - "{{ _tmp.path }}/user-units/sway-headless-wayland.service"
+
+        - name: The unit is a USER unit with a real readiness protocol
+          vars:
+            _unit: "{{ _files.results[2].content | b64decode }}"
+            _directives: >-
+              {{ _unit.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              # Non-emptiness first: an empty render satisfies every `not in` check below and
+              # reports itself as a perfect pass.
+              - _unit | length > 0
+              - _directives | length > 0
+              - "'Environment=WLR_BACKENDS=headless,libinput' in _directives"
+              - "'Environment=WLR_RENDERER=gles2' in _directives"
+              - "'Environment=WLR_RENDER_DRM_DEVICE=/dev/dri/renderD129' in _directives"
+              - "'Environment=LIBSEAT_BACKEND=noop' in _directives"
+              - "'Environment=WLR_LIBINPUT_NO_DEVICES=1' in _directives"
+              - "'WantedBy=default.target' in _directives"
+              # Type=simple would make the unit active before the Wayland socket exists, so
+              # every consumer ordered After= it wins a race it should lose.
+              - "'Type=notify' in _directives"
+              # Without this the wrapper's notification is REFUSED -- systemd only accepts one
+              # from the main process unless told otherwise, and the main process is sway.
+              - "'NotifyAccess=all' in _directives"
+              # The four system-unit directives that must NOT appear. PAMName exists to obtain
+              # XDG_RUNTIME_DIR for a system unit; a user manager supplies it natively.
+              - _directives | select('match', 'User=') | list | length == 0
+              - _directives | select('match', 'PAMName=') | list | length == 0
+              - _directives | select('match', 'TTYPath=') | list | length == 0
+              - _directives | select('match', 'WantedBy=multi-user.target') | list | length == 0
+              # WLR_DRM_DEVICES belongs to the DRM backend, which headless never loads, so
+              # setting it would do nothing at all.
+              - "'WLR_DRM_DEVICES' not in _unit"
+            fail_msg: "unit is wrong. directives: {{ _directives }}"
+            success_msg: "user unit: {{ _directives | length }} directives, Type=notify, no PAMName/User/TTYPath"
+
+        - name: The compositor config sets the mode and binds no keys
+          vars:
+            _conf: "{{ _files.results[0].content | b64decode }}"
+            _lines: >-
+              {{ _conf.splitlines() | reject('match', '^\s*#') | reject('equalto', '') | list }}
+          ansible.builtin.assert:
+            that:
+              - _conf | length > 0
+              - "'1600x900@75Hz' in _conf"
+              - _lines | select('search', _tmp.path ~ '/bin/session.sh') | list | length > 0
+              # There is no Xwayland in this design at all -- a leftover `xwayland` line from the
+              # X11 role would be a copy-paste that changes behaviour.
+              - _lines | select('search', 'xwayland') | list | length == 0
+              # A binding here could only steal input from the thing being streamed.
+              - _lines | select('match', 'bindsym') | list | length == 0
+            fail_msg: "compositor config is wrong: {{ _lines }}"
+            success_msg: "config: mode 1600x900@75Hz, execs the wrapper, no xwayland, no bindings"
+
+        - name: The wrapper publishes the socket name and reports ready
+          vars:
+            _sh: "{{ _files.results[1].content | b64decode }}"
+            # Comments stripped: this assertion is about what the wrapper DOES, and the prose
+            # necessarily mentions the things being asserted against.
+            _code: >-
+              {{ _sh.splitlines() | reject('match', '^\s*#') | join('\n') }}
+          ansible.builtin.assert:
+            that:
+              - _sh | length > 0
+              - "'WAYLAND_DISPLAY' in _code"
+              - "'XDG_RUNTIME_DIR' in _code"
+              - "'wayland-session.env' in _code"
+              - "'--ready' in _code"
+              # Written to a temp name and moved. A consumer's EnvironmentFile= reading a
+              # half-written file gets a truncated socket name and fails silently.
+              - "'mv -f' in _code"
+              # THE trap this file exists to avoid: a literal socket name. sway picks its own
+              # and nothing predicts it.
+              - "'wayland-1' not in _code"
+              # An X11 leftover: there is no session command to exec here, and no DISPLAY.
+              - "'DISPLAY=:' not in _code"
+            fail_msg: "wrapper is wrong: {{ _sh }}"
+            success_msg: "wrapper publishes $WAYLAND_DISPLAY atomically and notifies readiness"
+
+        - name: The wrapper is executable
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/bin/session.sh"
+          register: _script_stat
+
+        - name: A wrapper sway cannot exec is useless
+          ansible.builtin.assert:
+            that:
+              - _script_stat.stat.exists
+              - _script_stat.stat.mode == '0755'
+            fail_msg: >-
+              wrapper mode is {{ _script_stat.stat.mode | default('absent') }}, not 0755. A 0644
+              wrapper renders perfectly and fails only when sway execs it -- the compositor comes
+              up, no readiness notification ever arrives, and the unit fails on its start timeout
+              with nothing pointing at a file mode.
+            success_msg: "wrapper is mode {{ _script_stat.stat.mode }}"
+
+        # ---------- 1b. the client-mode helper, EXECUTED ----------
+        #
+        # Run rather than grepped. The interesting behaviour of this file is what it does with a
+        # bad environment, and "the template contains the string -s" proves none of it. The stubs
+        # record their argv, so each case below asserts the exact command a real swaymsg would
+        # have received -- or that it was never called at all.
+        - name: The helper is executable
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/bin/set-client-mode.sh"
+          register: _helper_stat
+
+        - name: A helper the stream host cannot exec is worse than none
+          ansible.builtin.assert:
+            that:
+              - _helper_stat.stat.exists
+              - _helper_stat.stat.mode == '0755'
+            fail_msg: >-
+              client-mode helper mode is {{ _helper_stat.stat.mode | default('absent') }}, not
+              0755. It is exec'd by Sunshine's prep hook, which treats a failure as a reason to
+              ABORT THE STREAM -- so a 0644 copy surfaces as "Moonlight will not connect", a long
+              way from a file mode.
+            success_msg: "client-mode helper is mode {{ _helper_stat.stat.mode }}"
+
+        # The swaymsg stub REJECTS a `--`-prefixed word before the `--` separator, because the
+        # real swaymsg does: its getopt claims `--custom` for itself and exits with "unrecognized
+        # option". A stub that accepts any argv passes an invocation the host refuses -- which is
+        # exactly what happened, and the bug was found on the live compositor instead of here.
+        - name: Install stubs that record what the helper would have run
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/bin/{{ item }}"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              seen_sep=0
+              for a in "$@"; do
+                  if [ "$a" = "--" ]; then seen_sep=1; continue; fi
+                  if [ "$seen_sep" -eq 0 ]; then
+                      case "$a" in
+                          --*) echo "stub: unrecognized option '$a'" >&2; exit 1 ;;
+                      esac
+                  fi
+              done
+              printf '%s\n' "$*" >> "{{ _tmp.path }}/record-{{ item }}.txt"
+              exit 0
+          loop: [stub-swaymsg, stub-logger]
+
+        # A real socket, because the helper tests `[ -S ]` on every candidate -- a plain file is
+        # rejected, which is the point. `[ -S ]` cannot be satisfied by touch.
+        - name: Create a real unix socket for the helper to find
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_facts['python']['executable'] }}"
+              - -c
+              - |
+                import socket, sys
+                s = socket.socket(socket.AF_UNIX)
+                s.bind(sys.argv[1])
+              - "{{ _tmp.path }}/sway.sock"
+          args:
+            creates: "{{ _tmp.path }}/sway.sock"
+
+        # Tier 2's input: the file the session wrapper publishes. Written by hand rather than by
+        # running the wrapper, because the wrapper needs a live compositor to have a socket name
+        # to publish -- and the point here is the READER, not the writer.
+        # `copy` does not create intermediate directories -- the role's own configure.yaml
+        # documents the same trap for ~/.config/systemd/user.
+        - name: Create the runtime directory the env file lives in
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/xdg"
+            state: directory
+            mode: "0755"
+
+        - name: Publish an env file for the helper to read the socket from
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/xdg/wayland-session.env"
+            mode: "0644"
+            content: |
+              WAYLAND_DISPLAY=wayland-1
+              SWAYSOCK={{ _tmp.path }}/sway.sock
+
+        - name: Run the helper across a valid request and every way it can be wrong
+          ansible.builtin.shell:
+            cmd: >-
+              rm -f '{{ _tmp.path }}/record-stub-swaymsg.txt';
+              env -i PATH="$PATH" {{ item.env }}
+              sh '{{ _tmp.path }}/bin/set-client-mode.sh' >/dev/null 2>&1;
+              echo "rc=$?";
+              cat '{{ _tmp.path }}/record-stub-swaymsg.txt' 2>/dev/null || true
+          register: _helper_runs
+          changed_when: false
+          loop:
+            - name: a valid request reaches swaymsg
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60
+                SWAYSOCK={{ _tmp.path }}/sway.sock
+              expect: "-s {{ _tmp.path }}/sway.sock -- output * mode --custom 3024x1890@60Hz"
+            - name: a non-numeric width is refused
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=abc SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60
+                SWAYSOCK={{ _tmp.path }}/sway.sock
+              expect: ""
+            - name: a missing variable is refused
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_FPS=60
+                SWAYSOCK={{ _tmp.path }}/sway.sock
+              expect: ""
+            - name: zero is refused
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=0 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60
+                SWAYSOCK={{ _tmp.path }}/sway.sock
+              expect: ""
+            - name: a SWAYSOCK that is not a socket is refused
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60
+                SWAYSOCK={{ _tmp.path }}/bin/session.sh
+              expect: ""
+            - name: no socket anywhere is refused
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=3024 SUNSHINE_CLIENT_HEIGHT=1890 SUNSHINE_CLIENT_FPS=60
+              expect: ""
+            - name: the socket is read from the env file when SWAYSOCK is unset
+              env: >-
+                SUNSHINE_CLIENT_WIDTH=2560 SUNSHINE_CLIENT_HEIGHT=1600 SUNSHINE_CLIENT_FPS=120
+                XDG_RUNTIME_DIR={{ _tmp.path }}/xdg
+              expect: "-s {{ _tmp.path }}/sway.sock -- output * mode --custom 2560x1600@120Hz"
+          loop_control:
+            label: "{{ item.name }}"
+
+        - name: Every case ran the command it should have, and none of them failed
+          vars:
+            # Everything after the rc= line is what the stub recorded, or nothing at all.
+            _got: >-
+              {{ _helper_runs.results
+                 | map(attribute='stdout_lines') | map('reject', 'match', '^rc=')
+                 | map('join', ' ') | map('trim') | list }}
+            _rcs: >-
+              {{ _helper_runs.results | map(attribute='stdout_lines')
+                 | map('select', 'match', '^rc=') | map('join', '') | list }}
+          ansible.builtin.assert:
+            that:
+              # Non-emptiness first: an empty results list satisfies every zip below.
+              - _helper_runs.results | length == 7
+              - _got == (_helper_runs.results | map(attribute='item.expect') | map('trim') | list)
+              # EXIT 0 ALWAYS, including every refusal. Sunshine aborts the stream launch on a
+              # non-zero prep command, so a helper that exits 1 when it cannot find a socket
+              # converts "wrong resolution" into "no stream at all".
+              - _rcs | unique == ['rc=0']
+            fail_msg: |-
+              helper behaved differently from the contract.
+              expected: {{ _helper_runs.results | map(attribute='item.expect') | map('trim') | list }}
+              got     : {{ _got }}
+              exit    : {{ _rcs }}
+            success_msg: >-
+              7/7 cases correct, all exit 0: a valid request renders
+              `mode --custom 3024x1890@60Hz`, and 5 bad ones call swaymsg not at all.
+
+        # ---------- 2. idempotence ----------
+        - name: Render again with the same configuration
+          vars: *fixture
+          ansible.builtin.include_role:
+            name: sway_headless_wayland_session
+            tasks_from: configure.yaml
+
+        - name: The second render changed nothing
+          ansible.builtin.assert:
+            that:
+              - not sway_headless_wayland_session_config.changed
+              - not sway_headless_wayland_session_script.changed
+              - not sway_headless_wayland_session_unit.changed
+            fail_msg: "re-rendering reported a change; the role is not idempotent"
+            success_msg: "second render: no changes"
+
+        # ---------- control 1 ----------
+        # Every control constructs a broken CALLER, not a broken role.
+        - name: A caller with no user is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                sway_headless_wayland_session_config_path: "{{ _tmp.path }}/nouser/sway.conf"
+                sway_headless_wayland_session_script_path: "{{ _tmp.path }}/nouser/session.sh"
+                sway_headless_wayland_session_unit_directory_path: "{{ _tmp.path }}/nouser"
+                sway_headless_wayland_session_user: ""
+              ansible.builtin.include_role:
+                name: sway_headless_wayland_session
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role rendered with no run user. The unit would be installed into a user
+                  manager nobody is running, and the run would report success.
+          rescue:
+            - name: CONTROL -- a caller with no user is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/nouser"
+              register: _control_1
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_1.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 2 ----------
+        - name: The software renderer is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                sway_headless_wayland_session_config_path: "{{ _tmp.path }}/pixman/sway.conf"
+                sway_headless_wayland_session_script_path: "{{ _tmp.path }}/pixman/session.sh"
+                sway_headless_wayland_session_unit_directory_path: "{{ _tmp.path }}/pixman"
+                sway_headless_wayland_session_wlr_renderer: pixman
+              ansible.builtin.include_role:
+                name: sway_headless_wayland_session
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  pixman was accepted. It is wlroots' SOFTWARE renderer: the session would start,
+                  look entirely correct, and rasterise on the CPU -- the exact condition this
+                  role exists to remove, reached by setting one variable.
+          rescue:
+            - name: CONTROL -- the software renderer is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/pixman"
+              register: _control_2
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_2.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 3 ----------
+        # The one that separated this role from the X11 one. Dropping libinput leaves a
+        # compositor with a display and NO WAY TO RECEIVE INPUT, which on Wayland is terminal --
+        # there is no XTest to fall back to -- and it looks completely healthy.
+        - name: A backend list without libinput is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                sway_headless_wayland_session_config_path: "{{ _tmp.path }}/nolibinput/sway.conf"
+                sway_headless_wayland_session_script_path: "{{ _tmp.path }}/nolibinput/session.sh"
+                sway_headless_wayland_session_unit_directory_path: "{{ _tmp.path }}/nolibinput"
+                sway_headless_wayland_session_wlr_backends: headless
+              ansible.builtin.include_role:
+                name: sway_headless_wayland_session
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  A backend list without libinput was accepted. The compositor would start, show
+                  an output, and never be able to receive a keystroke -- and there is no XTest on
+                  Wayland to fall back to.
+          rescue:
+            - name: CONTROL -- a backend list without libinput is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/nolibinput"
+              register: _control_3
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_3.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 4 ----------
+        - name: multi-user.target is refused as a user unit's install target
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                sway_headless_wayland_session_config_path: "{{ _tmp.path }}/wrongtarget/sway.conf"
+                sway_headless_wayland_session_script_path: "{{ _tmp.path }}/wrongtarget/session.sh"
+                sway_headless_wayland_session_unit_directory_path: "{{ _tmp.path }}/wrongtarget"
+                sway_headless_wayland_session_wanted_by: multi-user.target
+              ansible.builtin.include_role:
+                name: sway_headless_wayland_session
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  multi-user.target was accepted for a USER unit. That target does not exist in a
+                  user manager, so the unit is enabled against something that never activates --
+                  `systemctl --user is-enabled` cheerfully reports `enabled` while the compositor
+                  never starts.
+          rescue:
+            - name: CONTROL -- multi-user.target is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/wrongtarget"
+              register: _control_4
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_4.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

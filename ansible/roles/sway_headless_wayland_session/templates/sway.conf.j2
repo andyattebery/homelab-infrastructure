@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+#
+# This compositor draws nothing anyone will look at directly. It exists to own the GPU render
+# node, to give native Wayland clients a socket with hardware acceleration behind it, and to hold
+# the input devices that something else will inject through.
+#
+# Deliberately includes NOTHING from /etc/sway/config.d/. The sway package ships
+# 50-systemd-user.conf there, which runs `systemctl --user import-environment` -- pushing
+# WAYLAND_DISPLAY and DISPLAY into the account's systemd user environment, where they would be
+# inherited by every user unit including ones started before this compositor existed. The wrapper
+# publishes the socket name deliberately, to one file, instead.
+
+# The wildcard rather than HEADLESS-1: on a headless-only compositor it addresses exactly the one
+# output, and it cannot be wrong if wlroots ever renames it. --custom because a headless output
+# has no mode list to match against.
+output * mode --custom {{ sway_headless_wayland_session_width }}x{{ sway_headless_wayland_session_height }}@{{ sway_headless_wayland_session_refresh }}Hz
+
+# There is one window and it should fill the output. Borders would shrink it below the configured
+# mode, which a remote viewer sees as a black frame it cannot get rid of.
+default_border none
+default_floating_border none
+
+# No bar, no wallpaper, and NO KEYBINDINGS. Every key and pointer event on this compositor arrives
+# from a virtual input device that exists to be forwarded to a client; a sway binding here could
+# only steal input from the thing being streamed.
+
+exec {{ sway_headless_wayland_session_script_path }}

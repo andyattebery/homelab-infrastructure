@@ -1,0 +1,150 @@
+#!/bin/sh
+# {{ ansible_managed }}
+#
+# Resize the headless output to whatever the streaming client asked for.
+#
+# Run by Sunshine as a `global_prep_cmd` "do" command when a Moonlight client connects. Sunshine
+# puts the client's request in the environment -- SUNSHINE_CLIENT_WIDTH, SUNSHINE_CLIENT_HEIGHT,
+# SUNSHINE_CLIENT_FPS -- and this turns it into a sway output mode.
+#
+# WHY THIS READS ITS ENVIRONMENT INSTEAD OF TAKING ARGUMENTS. Sunshine's own documented examples
+# are written `sh -c "xrandr ... ${SUNSHINE_CLIENT_WIDTH}x..."`, i.e. the caller supplies a shell
+# because Sunshine does not expand $VAR for free. Taking the values from the environment removes
+# that shell, and with it a layer of quoting that would otherwise live inside a JSON string inside
+# a YAML scalar inside an Ansible template. Nothing to escape is nothing to get wrong.
+#
+# THIS SCRIPT ALWAYS EXITS 0. That is deliberate and it is the most important line in the file.
+# Sunshine treats a failing prep command as a reason to ABORT THE STREAM LAUNCH, so any error path
+# that exits non-zero converts "the resolution did not change" into "there is no stream at all".
+# The host exists to be streamed from; degrading to the current mode is always the better outcome.
+# The cost of that choice is that failure is invisible, which is why every path below logs.
+
+set -u
+
+TAG=sway-set-mode
+LOGGER={{ sway_headless_wayland_session_logger_path }}
+SWAYMSG={{ sway_headless_wayland_session_swaymsg_path }}
+ENV_FILE_NAME={{ sway_headless_wayland_session_env_file_name }}
+
+say() {
+    # Journal first, since Sunshine does not reliably surface a prep command's output, and stderr
+    # second so the same line is visible when a human runs this by hand.
+    "$LOGGER" -t "$TAG" -- "$*" 2>/dev/null || true
+    echo "$TAG: $*" >&2
+}
+
+# ---------------------------------------------------------------------------------------------
+# 1. The requested mode.
+#
+# Validated as positive integers, which is NOT a resolution policy -- there is deliberately no
+# upper bound, because the operator owns the only client and asked for none. It is about what
+# reaches a command line: an empty or non-numeric value would otherwise be pasted straight into
+# `mode --custom`, where sway parses it at runtime and a malformed mode is not an error anyone
+# sees. Rejecting it here keeps the output on the mode it already had.
+# ---------------------------------------------------------------------------------------------
+W="${SUNSHINE_CLIENT_WIDTH-}"
+H="${SUNSHINE_CLIENT_HEIGHT-}"
+R="${SUNSHINE_CLIENT_FPS-}"
+
+say "invoked with width='${W}' height='${H}' fps='${R}'"
+
+for v in "$W" "$H" "$R"; do
+    # Empty, or anything that is not a digit. Catches the case that actually happens: the variable
+    # absent entirely, because this build did not export it.
+    case "$v" in
+        ''|*[!0-9]*)
+            say "refusing: '${v}' is not a positive integer; leaving the output mode alone"
+            exit 0
+            ;;
+    esac
+    # All digits by here, so the only remaining bad value is zero -- "0", and also "00". Tested as
+    # a pattern rather than with `[ "$v" -gt 0 ]` because arithmetic on an arbitrarily long digit
+    # string is where a shell starts reporting errors instead of answers. sway accepts `0x0@60Hz`
+    # as syntax and produces nothing from it.
+    case "$v" in
+        *[!0]*) : ;;
+        *)
+            say "refusing: '${v}' is zero; leaving the output mode alone"
+            exit 0
+            ;;
+    esac
+done
+
+# ---------------------------------------------------------------------------------------------
+# 2. The sway IPC socket, in three tiers. Each covers a gap the one before it leaves.
+# ---------------------------------------------------------------------------------------------
+SOCK=""
+
+# Tier 1: the environment. Present once Sunshine's unit reads the compositor's env file, which is
+# where the wrapper publishes SWAYSOCK. UNPROVEN at the time this was written -- that sway exports
+# SWAYSOCK to its exec'd children is an assumption, so the tiers below are not decoration.
+if [ -n "${SWAYSOCK-}" ] && [ -S "${SWAYSOCK}" ]; then
+    SOCK="${SWAYSOCK}"
+    say "socket from \$SWAYSOCK (tier 1): ${SOCK}"
+fi
+
+# Tier 2: the env file directly, so this works for any caller whose unit does not read it.
+if [ -z "$SOCK" ] && [ -n "${XDG_RUNTIME_DIR-}" ] && [ -r "${XDG_RUNTIME_DIR}/${ENV_FILE_NAME}" ]; then
+    _from_file=$(sed -n 's/^SWAYSOCK=//p' "${XDG_RUNTIME_DIR}/${ENV_FILE_NAME}" | tail -1)
+    if [ -n "$_from_file" ] && [ -S "$_from_file" ]; then
+        SOCK="$_from_file"
+        say "socket from ${ENV_FILE_NAME} (tier 2): ${SOCK}"
+    fi
+fi
+
+# Tier 3: derived from the running compositor. This is what makes the helper work BEFORE the
+# compositor has been restarted to pick up a wrapper that publishes SWAYSOCK -- restarting it
+# kills every client attached, including a browser with unsaved state, so "deploy and it works"
+# has to not require that.
+#
+# sway names the socket sway-ipc.<uid>.<pid>.sock. DERIVED, never globbed: this runtime directory
+# accumulates stale sway-ipc.*.sock files from previous sessions, and a glob returns whichever one
+# sorts first -- a socket nothing is listening on, which fails as a timeout rather than as an
+# error.
+if [ -z "$SOCK" ]; then
+    _uid=$(id -u)
+    _pid=$(pgrep -u "$_uid" -x sway | head -1)
+    if [ -n "$_pid" ]; then
+        _derived="${XDG_RUNTIME_DIR:-/run/user/$_uid}/sway-ipc.${_uid}.${_pid}.sock"
+        if [ -S "$_derived" ]; then
+            SOCK="$_derived"
+            say "socket derived from sway pid ${_pid} (tier 3): ${SOCK}"
+        fi
+    fi
+fi
+
+if [ -z "$SOCK" ]; then
+    say "no sway IPC socket found (tried \$SWAYSOCK, ${ENV_FILE_NAME}, and the running pid); leaving the output mode alone"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------------------------
+# 3. Set it.
+#
+# `--` IS LOAD-BEARING AND WAS FOUND THE HARD WAY. Without it swaymsg's own getopt parses
+# `--custom` as a swaymsg option and exits with "unrecognized option '--custom'" -- the message
+# never reaches sway at all. It looks like it should work, because `output * mode --custom WxH`
+# is exactly what the compositor's CONFIG FILE contains; that file is read by sway's config
+# parser, which has no getopt in front of it. Two different parsers, one syntax.
+#
+# This is invisible to a stubbed test: a stub accepts any argv, including argv the real binary
+# refuses. It was caught by running the helper against the live compositor asking for the mode
+# already set -- a no-op by construction. Keep that trick.
+#
+# -s is not optional either: tiers 2 and 3 produce a PATH, and without -s swaymsg discards it and
+# redoes its own discovery, which is the failure this three-tier lookup exists to avoid.
+#
+# '*' quoted so the shell cannot expand it against the working directory. The wildcard is sway's,
+# documented in sway-output(5): "You may also match any output by using the output name *". On a
+# headless compositor it addresses the one output that exists and cannot go stale if wlroots ever
+# renames it.
+# ---------------------------------------------------------------------------------------------
+MODE="${W}x${H}@${R}Hz"
+if OUT=$("$SWAYMSG" -s "$SOCK" -- output '*' mode --custom "$MODE" 2>&1); then
+    say "set output mode to ${MODE}"
+else
+    say "swaymsg refused '${MODE}': ${OUT}; the output keeps its previous mode"
+fi
+
+# Unconditional, and the reason is at the top of this file.
+exit 0
