@@ -1,0 +1,32 @@
+# {{ ansible_managed }}
+#
+# Upstream's unit is [Install] WantedBy=graphical-session.target. That target is created by a
+# user-scope graphical session; when the session comes from somewhere else nothing ever creates
+# it, so the unit sits enabled and never starts. Binding it to default.target instead is what
+# makes `systemctl --user enable` mean anything here.
+[Unit]
+# Empty values RESET the list systemd inherited from the packaged unit, which names
+# graphical-session.target, xdg-desktop-autostart.target and xdg-desktop-portal.service -- none
+# of which exist on a host like this. The entries below are then ADDED to the cleared list.
+After=
+Wants=
+{% for unit in sunshine_unit_after %}
+After={{ unit }}
+{% endfor %}
+{% for unit in sunshine_unit_wants %}
+Wants={{ unit }}
+{% endfor %}
+
+[Service]
+{% for path in sunshine_environment_files %}
+EnvironmentFile={{ path }}
+{% endfor %}
+{% if sunshine_display | length > 0 %}
+Environment=DISPLAY={{ sunshine_display }}
+{% endif %}
+{% for key, value in sunshine_environment | dictsort %}
+Environment={{ key }}={{ value }}
+{% endfor %}
+
+[Install]
+WantedBy={{ sunshine_override_wanted_by }}

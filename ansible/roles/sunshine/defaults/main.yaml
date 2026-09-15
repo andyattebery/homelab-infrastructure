@@ -1,0 +1,137 @@
+---
+# Debian architecture names, keyed by the kernel's. Templated into the source's
+# Architectures: field rather than left to apt's $(ARCH) -- sources.list(5)
+# documents that substitution for suites, not for this field.
+sunshine_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armhf
+
+# Name of the generated source. deb822_repository derives BOTH filenames from
+# it -- /etc/apt/sources.list.d/<slug>.sources and /etc/apt/keyrings/<slug>.asc.
+# Keep it lowercase with only hyphens and digits: the slug rule differs between
+# ansible-core 2.20 and 2.21, and names in that shape are identical under both.
+sunshine_apt_source_name: lizardbyte
+sunshine_apt_repo_url: https://dl.cloudsmith.io/public/lizardbyte/stable/deb/debian
+sunshine_apt_gpg_key_url: https://dl.cloudsmith.io/public/lizardbyte/stable/gpg.key
+
+# LizardByte publishes one suite per Debian codename, so this follows the host
+# rather than naming a release. A host whose codename upstream does not publish
+# gets a valid, signed, empty source and "no candidate" on install -- which is
+# why verify-sunshine-repo.yml asserts a candidate exists rather than stopping
+# at "apt-get update succeeded".
+sunshine_apt_suite: "{{ ansible_facts['distribution_release'] }}"
+sunshine_apt_components: [main]
+
+sunshine_package: sunshine
+
+# --- the half that needs a host -------------------------------------------
+#
+# REQUIRED, asserted by tasks/configure.yaml:
+#   sunshine_user -- the account Sunshine runs as. No default: it must be the
+#   same account that owns the X session being captured, and a guessed one
+#   produces a service that starts and captures nothing.
+
+# Upstream ships ONLY this user unit -- there is no system unit in the package.
+# Named here because the role has to reference it three times and it is not a
+# name anyone remembers.
+sunshine_unit_name: app-dev.lizardbyte.app.Sunshine.service
+
+sunshine_home: "/home/{{ sunshine_user }}"
+sunshine_config_path: "{{ sunshine_home }}/.config/sunshine/sunshine.conf"
+
+# The user-scope drop-in that makes the unit actually start. Upstream's
+# [Install] is WantedBy=graphical-session.target, which nothing creates when X
+# comes from a system unit -- so without this the unit is enabled and never
+# runs. See the README.
+sunshine_override_directory_path: "{{ sunshine_home }}/.config/systemd/user/{{ sunshine_unit_name }}.d"
+sunshine_override_path: "{{ sunshine_override_directory_path }}/override.conf"
+sunshine_override_wanted_by: default.target
+
+# The X display to capture. Must match whatever runs the session.
+#
+# MAY BE EMPTY, and on a Wayland host it should be: an empty value renders no `Environment=DISPLAY`
+# line at all. Setting it alongside a Wayland session is not harmful -- Sunshine checks
+# WAYLAND_DISPLAY first and guards the X11 branch on `window_system != WAYLAND`
+# (src/platform/linux/misc.cpp) -- but it logs a warning, and a drop-in that names a display the
+# host does not have is a lie a later reader has to disprove.
+sunshine_display: ":0"
+
+# Extra Environment=K=V lines in the drop-in, for values known at RENDER time.
+#
+# NOT the place for WAYLAND_DISPLAY on a headless compositor: the socket name is chosen by the
+# compositor at runtime (sway loops wayland-1..wayland-32 and takes the first that binds), so
+# Ansible cannot know it. Use sunshine_environment_files for that.
+sunshine_environment: {}
+
+# EnvironmentFile= paths, for values known only at RUNTIME. This is how WAYLAND_DISPLAY reaches
+# Sunshine: the compositor writes the socket name it actually got to a file under
+# XDG_RUNTIME_DIR, and this reads it.
+#
+# Paths are passed through verbatim, so a caller wanting systemd's "ignore if missing" behaviour
+# prefixes one with `-`. Without the dash a missing file makes the unit FAIL, which on a boot
+# where the compositor has not written the file yet is usually what you want -- it surfaces the
+# ordering problem instead of starting a capture that attaches to nothing.
+sunshine_environment_files: []
+
+# Ordering for the drop-in. The drop-in RESETS upstream's After=/Wants= (which name
+# graphical-session.target and friends that never exist here) and then adds these.
+#
+# Sunshine must start AFTER the compositor it captures: its capture backend is chosen exactly
+# once, at startup, and never recomputed (src/platform/linux/misc.cpp) -- so a Sunshine that
+# started first never captures, however healthy it looks. Both units must be in the same systemd
+# manager for this to bind at all; systemd has no cross-manager dependencies.
+sunshine_unit_after: []
+sunshine_unit_wants: []
+
+# Sunshine settings, rendered as `key = value`. Left almost empty on purpose:
+# what to encode with and which device to use are properties of the host, not of
+# this role. A caller that sets nothing gets Sunshine's own defaults, which
+# means software encoding.
+sunshine_config:
+  encoder: vaapi
+  adapter_name: /dev/dri/renderD128
+
+# Sunshine's application list. Left EMPTY by default, which means the role does
+# not manage apps.json at all and Sunshine's stock file stands. Worth overriding:
+# the stock file ships a "Low Res Desktop" entry whose prep-cmd runs
+# `xrandr --output HDMI-1`, and a "Steam Big Picture" entry -- neither of which
+# is right on a host with a different output name or no Steam, and a prep-cmd
+# that fails takes the stream launch with it.
+# Commands Sunshine runs around EVERY stream, whichever app is launched. A list of
+# {do, undo} mappings; rendered as one line of JSON, so pass real YAML structures and not a
+# hand-written string.
+#
+# The canonical use is making a virtual display match the client: Sunshine puts the request in
+# SUNSHINE_CLIENT_WIDTH, SUNSHINE_CLIENT_HEIGHT and SUNSHINE_CLIENT_FPS, and the `do` command
+# turns it into a mode. `undo` runs when the stream ends; leave it "" to keep the client's mode.
+#
+# A FAILING PREP COMMAND ABORTS THE STREAM LAUNCH. That is upstream behaviour, not this role's,
+# and it is the reason the stock apps.json is worth replacing (its "Low Res Desktop" entry runs
+# xrandr against an output most hosts do not have). Anything put here should end in a deliberate
+# exit 0 unless a failure genuinely should mean "no stream".
+sunshine_global_prep_cmd: []
+
+sunshine_apps: []
+sunshine_apps_env: {}
+sunshine_apps_path: "{{ sunshine_home }}/.config/sunshine/apps.json"
+
+# Web UI credentials. Both empty by default: unset, the role leaves credentials
+# alone and Sunshine demands first-run setup through its own web page. Set them
+# and the UI is needed only for pairing.
+#
+# Sunshine stores these in the same JSON as its PAIRING state -- `credentials_file`
+# defaults to `file_state` (config.cpp) -- so deleting that file to rotate a
+# password also unpairs every client. The role seeds credentials only when they
+# are absent; see README for how to change them deliberately.
+sunshine_web_username: ""
+sunshine_web_password: ""
+sunshine_state_path: "{{ sunshine_home }}/.config/sunshine/sunshine_state.json"
+
+# CLI paths, so a fixture test can point them at stubs.
+sunshine_binary_path: /usr/bin/sunshine
+sunshine_loginctl_path: /usr/bin/loginctl
+sunshine_systemctl_path: /usr/bin/systemctl
+
+sunshine_file_owner: "{{ sunshine_user }}"
+sunshine_file_group: "{{ sunshine_user }}"

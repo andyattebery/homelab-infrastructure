@@ -1,0 +1,89 @@
+---
+# Renders Sunshine's config and the user-unit drop-in, and registers what
+# changed. Talks to no service, installs nothing, and handles no secret -- which
+# is what lets the fixture test import this file alone against a tempdir.
+# tasks/main.yaml is the only place that calls apt, loginctl or systemctl.
+
+- name: Assert the caller supplied the account Sunshine runs as
+  ansible.builtin.assert:
+    that:
+      - sunshine_user is defined
+      - sunshine_user | default('') | length > 0
+    fail_msg: >-
+      sunshine_user is required and has no default. It must be the SAME account
+      that owns the X session being captured -- a different one yields a service
+      that starts cleanly and captures nothing, which is the hardest version of
+      this to debug.
+    quiet: true
+
+# LOAD-BEARING, and confirmed from Sunshine's source rather than assumed. With neither DISPLAY
+# nor WAYLAND_DISPLAY in its environment, `window_system` stays NONE (misc.cpp:1328), verify_wl()
+# returns false (:1165-1166, it requires window_system == WAYLAND), sources.none() is true and
+# platf::init() returns nullptr (:1377-1380) -- which main.cpp:394-396 logs and DELIBERATELY
+# ignores so the web UI stays reachable. Sunshine then runs, serves its UI, answers
+# `systemctl is-active` with `active`, and captures nothing at all.
+#
+# A caller satisfies this three ways: a non-empty sunshine_display, WAYLAND_DISPLAY in
+# sunshine_environment, or an EnvironmentFile that supplies one at runtime. The third is the only
+# option for a headless Wayland compositor, whose socket name does not exist until it starts.
+- name: Assert the drop-in gives Sunshine a display to capture
+  ansible.builtin.assert:
+    that:
+      - >-
+        (sunshine_display | default('') | length > 0)
+        or ('WAYLAND_DISPLAY' in (sunshine_environment | default({})))
+        or (sunshine_environment_files | default([]) | length > 0)
+    fail_msg: >-
+      Sunshine has no display to capture: sunshine_display is empty, sunshine_environment carries
+      no WAYLAND_DISPLAY, and sunshine_environment_files is empty. Sunshine would start, serve its
+      web UI, report itself active, and capture nothing -- there is no error anywhere in that
+      path. Set one of the three.
+    quiet: true
+
+- name: Create the config and drop-in directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ sunshine_file_owner }}"
+    group: "{{ sunshine_file_group }}"
+    mode: "0755"
+  loop:
+    - "{{ sunshine_config_path | dirname }}"
+    - "{{ sunshine_override_directory_path }}"
+
+- name: Render sunshine.conf
+  ansible.builtin.template:
+    src: sunshine.conf.j2
+    dest: "{{ sunshine_config_path }}"
+    owner: "{{ sunshine_file_owner }}"
+    group: "{{ sunshine_file_group }}"
+    mode: "0644"
+  notify: Restart sunshine
+  register: sunshine_conf
+
+- name: Render the user-unit drop-in
+  ansible.builtin.template:
+    src: override.conf.j2
+    dest: "{{ sunshine_override_path }}"
+    owner: "{{ sunshine_file_owner }}"
+    group: "{{ sunshine_file_group }}"
+    mode: "0644"
+  notify: Restart sunshine
+  register: sunshine_override
+
+# Written with to_nice_json rather than a .j2 template on purpose: apps.json is
+# JSON, and hand-templating it invites a trailing comma or an unescaped quote
+# that Sunshine rejects at load with no useful message. Skipped entirely when the
+# caller sets no apps, so Sunshine's stock file is left alone rather than
+# replaced by an empty one -- an empty list is a MEANINGFUL value here (it would
+# leave the host with nothing to stream), so absence and emptiness must differ.
+- name: Render apps.json
+  when: sunshine_apps | length > 0
+  ansible.builtin.copy:
+    dest: "{{ sunshine_apps_path }}"
+    owner: "{{ sunshine_file_owner }}"
+    group: "{{ sunshine_file_group }}"
+    mode: "0644"
+    content: "{{ {'env': sunshine_apps_env, 'apps': sunshine_apps} | to_nice_json }}\n"
+  notify: Restart sunshine
+  register: sunshine_apps_file

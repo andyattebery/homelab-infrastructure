@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+#
+# Sunshine reads this at start. Credentials for its web UI are NOT here -- they
+# are set on first run through that UI and stored separately, which is why this
+# role never handles a secret.
+{% for key, value in sunshine_config | dictsort %}
+{{ key }} = {{ value }}
+{% endfor %}
+{% if sunshine_global_prep_cmd | length > 0 %}
+{# Its own variable rather than a sunshine_config entry, and `to_json` rather than bare
+   interpolation, because the loop above renders `{{ value }}` -- which for a list gives PYTHON'S
+   repr: [{'do': '...'}], single-quoted and not JSON at all. Sunshine parses this value as JSON
+   and would reject it. Verified rather than assumed: json.loads() on the bare rendering raises
+   "Expecting property name enclosed in double quotes". to_json emits double quotes on one line,
+   which is what a key = value config needs. #}
+global_prep_cmd = {{ sunshine_global_prep_cmd | to_json }}
+{% endif %}

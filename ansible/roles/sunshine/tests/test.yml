@@ -1,0 +1,261 @@
+---
+# Exercises the rendering half of the sunshine role against throwaway fixtures.
+# Runs entirely on localhost; installs nothing, contacts no service.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/sunshine/tests/inventory \
+#     roles/sunshine/tests/test.yml
+#
+# The apt half is covered separately, and differently, by the container harness
+# at ansible/tests/vdesktop/ -- whether apt accepts a source is not a question a
+# localhost fixture can answer.
+- name: Test the sunshine role's rendering decisions
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: sunshine-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+        - name: Render with a known configuration
+          vars: &fixture
+            sunshine_user: someuser
+            sunshine_display: ":7"
+            sunshine_home: "{{ _tmp.path }}/home"
+            sunshine_config:
+              encoder: vaapi
+              adapter_name: /dev/dri/renderD128
+            # Passed as real YAML structures, which is the entire reason this is its own variable
+            # rather than a sunshine_config entry -- see the assertion below.
+            sunshine_global_prep_cmd:
+              - do: /usr/local/bin/set-mode
+                undo: ""
+            sunshine_file_owner: "{{ ansible_facts['user_id'] }}"
+            sunshine_file_group: "{{ ansible_facts['user_gid'] }}"
+          ansible.builtin.include_role:
+            name: sunshine
+            tasks_from: configure.yaml
+
+        - name: Read both rendered files
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          register: _files
+          loop:
+            - "{{ _tmp.path }}/home/.config/sunshine/sunshine.conf"
+            - "{{ _tmp.path }}/home/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/override.conf"
+
+        - name: sunshine.conf carries the caller's settings
+          vars:
+            _conf: "{{ _files.results[0].content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _conf | length > 0
+              - "'encoder = vaapi' in _conf"
+              - "'adapter_name = /dev/dri/renderD128' in _conf"
+            fail_msg: "sunshine.conf did not carry the settings: {{ _conf }}"
+            success_msg: "sunshine.conf is {{ _conf | length }} bytes with encoder=vaapi"
+
+        # global_prep_cmd is JSON, and Sunshine parses it as JSON. Asserting on the PARSE rather
+        # than on a substring is the whole test: `{{ value }}` on a list renders Python's repr --
+        # [{'do': '...'}], single-quoted -- which contains every substring you might grep for and
+        # is not JSON at all. Only from_json can tell those two apart.
+        - name: global_prep_cmd renders as JSON Sunshine can actually parse
+          vars:
+            _conf: "{{ _files.results[0].content | b64decode }}"
+            _line: >-
+              {{ _conf.splitlines() | select('match', '^global_prep_cmd = ') | list | first
+                 | default('') | regex_replace('^global_prep_cmd = ', '') }}
+          ansible.builtin.assert:
+            that:
+              - _line | length > 0
+              # One line: this is a `key = value` config, so a pretty-printed array would put
+              # everything after the first newline into keys Sunshine does not know.
+              - "'\n' not in _line"
+              - (_line | from_json) | length == 1
+              - (_line | from_json)[0]['do'] == '/usr/local/bin/set-mode'
+              - (_line | from_json)[0]['undo'] == ''
+              - "'\"do\"' in _line"
+            fail_msg: >-
+              global_prep_cmd did not render as parseable single-line JSON. Got: {{ _line }}
+            success_msg: "global_prep_cmd renders as valid one-line JSON: {{ _line }}"
+
+        # THE assertion of this whole file. Upstream's unit is
+        # WantedBy=graphical-session.target, which nothing creates when X comes
+        # from a system unit -- so the unit would be enabled and never start, and
+        # `systemctl --user is-enabled` would cheerfully say "enabled" while
+        # nothing ran. The drop-in is the only thing preventing that.
+        # Comments are stripped before asserting. The template explains itself,
+        # and that prose necessarily mentions graphical-session.target -- so a
+        # naive `'graphical-session.target' not in file` matches the explanation
+        # rather than the directive and fails on a correct render. Assert on the
+        # DIRECTIVES, which is what systemd reads.
+        - name: The drop-in rebinds the unit to a target that actually exists
+          vars:
+            _ovr: "{{ _files.results[1].content | b64decode }}"
+            _directives: >-
+              {{ _ovr.splitlines()
+                 | select('match', '[A-Za-z][A-Za-z]*=')
+                 | list }}
+          ansible.builtin.assert:
+            that:
+              - _ovr | length > 0
+              - _directives | length > 0
+              - "'WantedBy=default.target' in _directives"
+              - "'Environment=DISPLAY=:7' in _directives"
+              - _directives | select('search', 'graphical-session.target') | list | length == 0
+            fail_msg: >-
+              The drop-in would leave the unit bound to graphical-session.target,
+              which nothing creates here. It would be enabled and never start.
+              Directives were: {{ _directives }}
+            success_msg: "directives: {{ _directives }}"
+
+        # ---------- idempotence ----------
+        - name: Render again with the same configuration
+          vars: *fixture
+          ansible.builtin.include_role:
+            name: sunshine
+            tasks_from: configure.yaml
+
+        - name: The second render changed nothing
+          ansible.builtin.assert:
+            that:
+              - not sunshine_conf.changed
+              - not sunshine_override.changed
+            fail_msg: "re-rendering reported a change; the role is not idempotent"
+            success_msg: "second render: no changes"
+
+        # ---------- a Wayland caller ----------
+        # The shape a headless Wayland host needs: no DISPLAY at all, the socket name supplied at
+        # RUNTIME by an EnvironmentFile the compositor writes, and ordering against that
+        # compositor's unit.
+        - name: Render for a Wayland session
+          vars:
+            <<: *fixture
+            sunshine_home: "{{ _tmp.path }}/wayland"
+            sunshine_display: ""
+            sunshine_environment_files:
+              - /run/user/1001/wayland-session.env
+            sunshine_environment:
+              XDG_SESSION_TYPE: wayland
+            sunshine_unit_after: [sway-headless-wayland.service]
+            sunshine_unit_wants: [sway-headless-wayland.service]
+          ansible.builtin.include_role:
+            name: sunshine
+            tasks_from: configure.yaml
+
+        - name: Read the Wayland drop-in
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/wayland/.config/systemd/user/app-dev.lizardbyte.app.Sunshine.service.d/override.conf"
+          register: _wayland_override
+
+        - name: An empty display renders no DISPLAY line, and the runtime file is read
+          vars:
+            _ovr: "{{ _wayland_override.content | b64decode }}"
+            _directives: >-
+              {{ _ovr.splitlines() | select('match', '[A-Za-z][A-Za-z]*=') | list }}
+          ansible.builtin.assert:
+            that:
+              - _ovr | length > 0
+              - _directives | length > 0
+              # THE change. Before this, override.conf.j2 rendered DISPLAY unconditionally, so
+              # there was no way to produce a drop-in without one -- and a drop-in naming a
+              # display the host does not have is a lie a later reader has to disprove.
+              - _directives | select('match', 'Environment=DISPLAY=') | list | length == 0
+              # WAYLAND_DISPLAY cannot be a render-time value: the compositor picks its socket
+              # name at runtime. This is the only mechanism that can carry it.
+              - "'EnvironmentFile=/run/user/1001/wayland-session.env' in _directives"
+              - "'Environment=XDG_SESSION_TYPE=wayland' in _directives"
+              # Ordering, added AFTER the empty reset so the cleared list is what gets appended to.
+              - "'After=sway-headless-wayland.service' in _directives"
+              - "'Wants=sway-headless-wayland.service' in _directives"
+              # The reset itself must survive, or upstream's graphical-session.target ordering
+              # comes back and the unit waits for a target nothing creates.
+              - "'After=' in _directives"
+              - "'Wants=' in _directives"
+              - _directives | select('search', 'graphical-session.target') | list | length == 0
+            fail_msg: "the Wayland drop-in is wrong. directives: {{ _directives }}"
+            success_msg: "wayland drop-in: {{ _directives }}"
+
+        # ---------- control: no display source at all ----------
+        # Constructs the broken CALLER. This mistake produces a Sunshine that starts, serves its
+        # web UI, reports itself active and captures NOTHING -- main.cpp:394-396 logs the platform
+        # failure and deliberately continues so the UI stays reachable. There is no error anywhere
+        # in that path, which is why the role has to refuse it up front.
+        - name: A caller with no display source is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                <<: *fixture
+                sunshine_home: "{{ _tmp.path }}/nodisplay"
+                sunshine_display: ""
+                sunshine_environment: {}
+                sunshine_environment_files: []
+              ansible.builtin.include_role:
+                name: sunshine
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role rendered a drop-in with neither DISPLAY nor any source of
+                  WAYLAND_DISPLAY. window_system stays NONE, verify_wl() returns false,
+                  platf::init() returns nullptr, and Sunshine runs anyway with no capture.
+          rescue:
+            - name: CONTROL -- a caller with no display source is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/nodisplay"
+              register: _control_display
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_display.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- positive control ----------
+        # Constructs the broken CONDITION rather than breaking the role: a caller
+        # who forgot which account owns the X session. That mistake does not
+        # error at runtime -- Sunshine starts and captures nothing -- so the role
+        # has to refuse it up front, and this proves it does.
+        - name: A caller with no run user is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                sunshine_user: ""
+                sunshine_home: "{{ _tmp.path }}/control"
+                sunshine_file_owner: "{{ ansible_facts['user_id'] }}"
+                sunshine_file_group: "{{ ansible_facts['user_gid'] }}"
+              ansible.builtin.include_role:
+                name: sunshine
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role rendered a configuration with no run user. Sunshine
+                  would start, attach to nothing, and report itself healthy.
+          rescue:
+            - name: CONTROL -- nothing was written for the bad caller
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/control"
+              register: _control_dir
+
+            - name: Refused before writing anything
+              ansible.builtin.assert:
+                that:
+                  - not _control_dir.stat.exists
+                fail_msg: "the assert fired but files were written anyway"
+                success_msg: "refused before writing anything"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

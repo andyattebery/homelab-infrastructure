@@ -1,0 +1,79 @@
+---
+# The half that needs a real host: apt, loginctl and a per-user systemd
+# instance. Everything that merely renders a file lives in configure.yaml.
+
+- name: Configure the apt repository
+  ansible.builtin.include_tasks:
+    file: apt_repo.yaml
+
+- name: Install Sunshine
+  ansible.builtin.apt:
+    name: "{{ sunshine_package }}"
+    state: present
+
+- name: Render the configuration and the drop-in
+  ansible.builtin.include_tasks:
+    file: configure.yaml
+
+- name: Look up the run user's uid
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ sunshine_user }}"
+
+- name: Remember the uid
+  ansible.builtin.set_fact:
+    sunshine_uid: "{{ ansible_facts['getent_passwd'][sunshine_user][1] }}"
+
+# ORDER MATTERS: linger before anything touches the user manager. Without it
+# there is no per-user systemd instance while the account is logged out, so the
+# `systemctl --user` call below has nothing to talk to -- and, more to the point,
+# the service would stop the moment the session ended. On a machine whose whole
+# purpose is to keep running unattended, that is the requirement, not a tweak.
+- name: Enable lingering so the user manager exists with nobody logged in
+  ansible.builtin.command:
+    argv: ["{{ sunshine_loginctl_path }}", enable-linger, "{{ sunshine_user }}"]
+  register: sunshine_linger
+  changed_when: false
+
+- name: Enable and start the user unit
+  become: true
+  become_user: "{{ sunshine_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ sunshine_uid }}"
+  ansible.builtin.systemd_service:
+    name: "{{ sunshine_unit_name }}"
+    scope: user
+    daemon_reload: "{{ sunshine_override.changed }}"
+    enabled: true
+    state: started
+
+# Seeds the Web UI login so the web page is needed only for PAIRING, not for
+# first-run setup. Gated on the credentials not already being present, because
+# Sunshine keeps them in the same JSON as its pairing state: rewriting that file
+# blindly is how you would unpair every client on a routine converge run.
+#
+# To CHANGE the password later, pass -e sunshine_web_force_credentials=true --
+# deleting the state file would work too but takes the pairings with it.
+- name: Check whether Web UI credentials already exist
+  when: sunshine_web_username | length > 0 and sunshine_web_password | length > 0
+  ansible.builtin.command:
+    argv: [/usr/bin/grep, -q, '"username"', "{{ sunshine_state_path }}"]
+  register: sunshine_creds_present
+  changed_when: false
+  failed_when: false
+
+- name: Set the Web UI credentials
+  when:
+    - sunshine_web_username | length > 0
+    - sunshine_web_password | length > 0
+    - sunshine_creds_present.rc | default(1) != 0 or sunshine_web_force_credentials | default(false) | bool
+  become: true
+  become_user: "{{ sunshine_user }}"
+  # The password is in argv for the life of the call, so it is readable from
+  # /proc by anyone on the box for that instant. Same trade-off the x11vnc
+  # password task makes, and the reason for no_log here.
+  no_log: true
+  ansible.builtin.command:
+    argv: ["{{ sunshine_binary_path }}", --creds, "{{ sunshine_web_username }}", "{{ sunshine_web_password }}"]
+  register: sunshine_creds_set
+  changed_when: true

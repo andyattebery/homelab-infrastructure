@@ -1,0 +1,41 @@
+---
+# Apt source only, split out so the container harness can exercise it without
+# installing Sunshine or touching systemd. See ansible/tests/vdesktop/README.md.
+#
+# Sunshine is third-party but IS packaged: LizardByte publish a Cloudsmith apt
+# repository covering trixie, so `apt upgrade` maintains it like anything else.
+# It is deliberately not a github_release_install caller for that reason.
+
+# Removed before the new source is written, not after. Both would describe the
+# same repository while carrying different Signed-By values, which apt rejects
+# outright ("E:Conflicting values set for option Signed-By") -- and in that
+# window every apt operation fails, including this role's own, so an interrupted
+# run could not be repaired by re-running it.
+- name: Remove any predecessor source for the same repository
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ sunshine_apt_source_name }}.list"
+    state: absent
+  register: sunshine_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Add the LizardByte apt repository
+  ansible.builtin.deb822_repository:
+    name: "{{ sunshine_apt_source_name }}"
+    types: [deb]
+    uris: "{{ sunshine_apt_repo_url }}"
+    suites: ["{{ sunshine_apt_suite }}"]
+    components: "{{ sunshine_apt_components }}"
+    architectures:
+      - "{{ sunshine_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+    signed_by: "{{ sunshine_apt_gpg_key_url }}"
+    state: present
+  register: sunshine_apt_source
+
+- name: Refresh apt cache  # noqa no-handler
+  when: sunshine_apt_source.changed or sunshine_legacy_removed.changed
+  ansible.builtin.apt:
+    update_cache: true

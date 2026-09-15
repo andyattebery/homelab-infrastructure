@@ -1,0 +1,21 @@
+---
+# Restarting Sunshine costs an in-flight stream, which reconnects; pairings are
+# kept in sunshine_state.json, not in the process, so they survive.
+#
+# Guarded on sunshine_uid, which only tasks/main.yaml sets. The fixture test
+# imports tasks/configure.yaml ALONE against a tempdir -- it renders the same
+# files, so it notifies this handler, but there is no service on the controller
+# to restart and no uid to address it by. That split is deliberate (see
+# configure.yaml), so the handler has to tolerate being notified with no host
+# behind it. `| default('')` as well as the `when`, because `environment` is
+# templated even for a task that is about to be skipped.
+- name: Restart sunshine
+  when: sunshine_uid is defined
+  become: true
+  become_user: "{{ sunshine_user }}"
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ sunshine_uid | default('') }}"
+  ansible.builtin.systemd_service:
+    name: "{{ sunshine_unit_name }}"
+    scope: user
+    state: restarted
