@@ -1,0 +1,21 @@
+---
+- name: Validate the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+# `persistent` and `state` are independent options: state is the RUNNING kernel, persistent is
+# the boot configuration. Both are driven from one input here, because "loaded now but not
+# after a reboot" is not a state anyone wants on purpose -- it is what a hand-run `modprobe`
+# leaves behind, and it is precisely the failure this role exists to stop.
+#
+# persistent: present writes /etc/modules-load.d/<name>.conf containing the module name
+# (community.general 13.3.0, modprobe.py create_module_file), read at boot by
+# systemd-modules-load.service. Params, when given, go to /etc/modprobe.d/ instead -- a second
+# file, with different semantics, which is why they are a separate input.
+- name: "Manage kernel module {{ kernel_module_name }}"
+  community.general.modprobe:
+    name: "{{ kernel_module_name }}"
+    state: "{{ kernel_module_state }}"
+    persistent: "{{ kernel_module_state }}"
+    params: "{{ kernel_module_params }}"
+  register: kernel_module_result

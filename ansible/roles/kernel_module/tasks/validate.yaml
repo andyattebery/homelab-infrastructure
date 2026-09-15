@@ -1,0 +1,24 @@
+---
+# Input validation only. Touches nothing, so a fixture test can exercise it directly -- which
+# is the whole of this role's testable surface, the rest being one call to a collection module.
+
+- name: Require a module name of the right shape
+  ansible.builtin.assert:
+    that:
+      - kernel_module_name | default('') | length > 0
+      - kernel_module_name | default('') is match('^[a-zA-Z0-9_-]+$')
+    fail_msg: >-
+      kernel_module_name must be a bare module name like `uinput` -- letters, digits, `_` and
+      `-` only. Got '{{ kernel_module_name | default('<unset>') }}'. Not a path, not a file
+      name: `modprobe` resolves the name against the running kernel's module tree, and the
+      persisted file is named after it.
+    quiet: true
+
+- name: Reject a state the role does not implement
+  ansible.builtin.assert:
+    that:
+      - kernel_module_state | default('') in ['present', 'absent']
+    fail_msg: >-
+      kernel_module_state must be `present` or `absent`. Got
+      '{{ kernel_module_state | default('<unset>') }}'.
+    quiet: true

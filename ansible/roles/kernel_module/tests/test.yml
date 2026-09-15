@@ -1,0 +1,100 @@
+---
+# Exercises kernel_module's validation. Runs entirely on localhost and loads nothing.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/kernel_module/tests/inventory \
+#       roles/kernel_module/tests/test.yml
+#
+# Only tasks/validate.yaml is imported. tasks/main.yaml calls community.general.modprobe, whose
+# two write locations are module-level constants (MODULES_LOAD_LOCATION = "/etc/modules-load.d",
+# PARAMETERS_FILES_LOCATION = "/etc/modprobe.d"), so there is no seam to point at a tempfile and
+# no way to run it here without touching the controller's own /etc. See README.
+- name: Test kernel_module
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: A plain module name is accepted
+      ansible.builtin.include_role:
+        name: kernel_module
+        tasks_from: validate.yaml
+      vars:
+        kernel_module_name: uinput
+
+    - name: A name with a hyphen is accepted
+      ansible.builtin.include_role:
+        name: kernel_module
+        tasks_from: validate.yaml
+      vars:
+        # modprobe treats - and _ as interchangeable and plenty of real modules are spelled
+        # with a hyphen, so refusing one would refuse working input.
+        kernel_module_name: nf-conntrack
+
+    - name: An explicit absent is accepted
+      ansible.builtin.include_role:
+        name: kernel_module
+        tasks_from: validate.yaml
+      vars:
+        kernel_module_name: uinput
+        kernel_module_state: absent
+
+    # CONTROL. Constructs the broken caller, not a broken role. An unset name reaches modprobe
+    # as an empty string; the module's own `required: true` catches that one, but only after the
+    # play has already started making changes on the host, and the error names the module rather
+    # than the caller.
+    - name: An unset module name is refused
+      block:
+        - name: This is expected to fail
+          ansible.builtin.include_role:
+            name: kernel_module
+            tasks_from: validate.yaml
+          vars:
+            kernel_module_state: present
+        - name: CONTROL did not fire — an unset name was accepted
+          ansible.builtin.fail:
+            msg: "kernel_module_name is required and has no safe default."
+      rescue:
+        - name: CONTROL — refused
+          ansible.builtin.debug:
+            msg: "unset name refused"
+
+    # CONTROL. The mistake that actually happens: passing the file rather than the module.
+    # `modprobe /lib/modules/.../uinput.ko` is a DIFFERENT operation from `modprobe uinput`,
+    # and the persisted file would be named after the path.
+    - name: A path instead of a module name is refused
+      block:
+        - name: This is expected to fail
+          ansible.builtin.include_role:
+            name: kernel_module
+            tasks_from: validate.yaml
+          vars:
+            kernel_module_name: /lib/modules/6.14.11-4-pve/kernel/drivers/input/misc/uinput.ko
+        - name: CONTROL did not fire — a path was accepted
+          ansible.builtin.fail:
+            msg: "A path is not a module name; modprobe resolves names, not files."
+      rescue:
+        - name: CONTROL — refused
+          ansible.builtin.debug:
+            msg: "path refused"
+
+    # CONTROL. `enabled`, `loaded`, `yes` are all things a caller writes by reflex. Anything
+    # but present/absent would reach community.general.modprobe's own choices list and fail
+    # there -- but `persistent` would have been handed the same bad value, and the message
+    # would be about the collection module rather than about this role's one input.
+    - name: An unsupported state is refused
+      block:
+        - name: This is expected to fail
+          ansible.builtin.include_role:
+            name: kernel_module
+            tasks_from: validate.yaml
+          vars:
+            kernel_module_name: uinput
+            kernel_module_state: loaded
+        - name: CONTROL did not fire — an unsupported state was accepted
+          ansible.builtin.fail:
+            msg: "Only present and absent are implemented."
+      rescue:
+        - name: CONTROL — refused
+          ansible.builtin.debug:
+            msg: "unsupported state refused"

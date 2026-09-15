@@ -1,0 +1,17 @@
+---
+# REQUIRED, asserted in tasks/validate.yaml and deliberately not defaulted: there is no module
+# name that is a safe guess, and a wrong one either does nothing or loads something unrelated.
+kernel_module_name: ""
+
+# present -- loaded now AND on every boot.
+# absent  -- unloaded now AND stopped from loading on boot.
+#
+# `absent` really does unload, and that FAILS LOUDLY if anything is using the module. That is
+# the right outcome, not a flaw: a module still in use is one a running guest or service
+# depends on, and "removed from the boot config, still loaded" is a state that survives until
+# a reboot nobody connects to the change.
+kernel_module_state: present
+
+# Module parameters, e.g. "numdummies=2". Empty means none. Persisted to /etc/modprobe.d by the
+# module when set, which is a different file from the load list -- see README.
+kernel_module_params: ""
