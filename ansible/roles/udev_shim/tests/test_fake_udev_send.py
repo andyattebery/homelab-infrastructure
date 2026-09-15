@@ -12,7 +12,7 @@ error to go looking for. That is why these assertions are this pedantic.
 
 WHAT IT CANNOT PROVE. That a real libudev accepts the message, and that sending to the multicast
 group is permitted in an unprivileged container. Neither is answerable on a laptop: the first
-needs libudev, the second needs an LXC. `scripts/vdesktop-uevent-probe.sh` covers both, on a
+needs libudev, the second needs an LXC. `scripts/vdesktop-01/vdesktop-uevent-probe.sh` covers both, on a
 real container. See ansible/tests/README.md, "Where a new test goes" -- this is the pytest row, and the
 probe is the thing a pytest cannot replace.
 
