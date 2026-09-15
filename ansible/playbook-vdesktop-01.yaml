@@ -296,27 +296,42 @@
           - acl
         state: present
 
-    # A second browser engine, purely to compare Canvas 2D performance against
-    # Firefox -- the game is Canvas 2D on the main thread (49 getContext("2d"),
-    # zero WebGL, zero OffscreenCanvas), so the engine's rasteriser is the thing
-    # under test. See plans/vdesktop-01-hardware-rendering.md.
+    # THE browser. It arrived as the second engine in a Canvas 2D comparison -- the game is
+    # Canvas 2D on the main thread (49 getContext("2d"), zero WebGL, zero OffscreenCanvas), so
+    # the engine's rasteriser was the thing under test -- and it won that comparison decisively
+    # enough to become the only one installed. `vdesktop_browser_command` launches it.
     #
-    # Debian's own package from trixie-security, NOT a vendor apt repo: unlike
-    # firefox and sunshine, there is nothing to gain from one. Debian ships
-    # chromium 152 and keeps it current through security updates, whereas its
-    # firefox was 140 against Mozilla's 155, which is why that one needed a repo.
+    # Debian's own package from trixie-security, NOT a vendor apt repo: unlike sunshine, there is
+    # nothing to gain from one. Debian ships chromium 152 and keeps it current through security
+    # updates. (Debian's firefox was 140 against Mozilla's 155, which is why THAT one needed a
+    # repo -- and is now gone from this host entirely; see below.)
     #
     # Tagged so it can be installed on its own:
     #   ansible-playbook playbook-vdesktop-01.yaml --tags chromium
-    - name: Install Chromium for the browser-engine comparison
+    - name: Install Chromium, the browser this host runs
       tags: [chromium]
       ansible.builtin.apt:
         name: chromium
         state: present
 
-    - name: Install a current Firefox from Mozilla's archive
-      ansible.builtin.include_role:
-        name: firefox
+    # NO FIREFOX HERE, AND DO NOT ADD IT BACK.
+    #
+    # Not because Chromium benchmarked better -- that is the weaker argument and would not on its
+    # own justify dropping a fallback. **There is no way to launch a second browser on this host.**
+    # No desktop shell, no application launcher, no terminal on the session, no tray: the
+    # compositor runs exactly ONE client, the unit below, whose command is
+    # `vdesktop_browser_command`. Reaching an installed Firefox would mean ssh plus a
+    # `systemd-run`, which is the same work as installing it on demand. It had never once been
+    # started -- no ~/.mozilla existed on the rebuilt container.
+    #
+    # `roles/firefox/` still exists and is still tested; it is reusable and not this host's to
+    # delete. Only the call is gone.
+    #
+    # The package, Mozilla's apt source, its signing key and its pin were removed from the live
+    # container on 2026-09-14 by one-time tasks, since deleted -- dropping the call alone would
+    # have left all four in place, because reverting the instruction does not revert the effect.
+    # Verified afterwards: firefox not-installed, no mozilla.sources, `apt-get update` clean.
+    # `docs/vdesktop-01.md` carries the detail.
 
     # --- the session chain -------------------------------------------------------------------
     #
