@@ -24,6 +24,7 @@
 - name: Install packages
   ansible.builtin.package:
     name:
+      - curl
       - git
       - gpg
       - mosh
