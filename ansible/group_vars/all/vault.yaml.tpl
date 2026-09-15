@@ -63,7 +63,7 @@ vault_linkwarden_postgres_user: {{ op://Personal/Linkwarden/config/postgres_user
 vault_linkwarden_postgres_password: {{ op://Personal/Linkwarden/config/postgres_password }}
 vault_linkwarden_nextauth_secret: {{ op://Personal/Linkwarden/config/nextauth_secret }}
 vault_manyfold_db_name: "{{ op://Personal/Manyfold/database/name }}"
-vault_manyfold_db_user: "{{ op://Personal/Manyfold/database/username }}"
+vault_manyfold_db_username: "{{ op://Personal/Manyfold/database/username }}"
 vault_manyfold_db_password: "{{ op://Personal/Manyfold/database/password }}"
 vault_manyfold_secret_key_base: "{{ op://Personal/Manyfold/config/secret key base }}"
 vault_media_sync_manager_jellyfin_api_key: {{ op://Personal/Jellyfin/api keys/media-sync-manager }}
@@ -182,7 +182,7 @@ vault_snapraid_btrfs_runner_to_email: {{ op://Personal/snapraid-btrfs-runner/add
 vault_steamdeck_ssh_public_key: {{op://Personal/wk2jbsx4hmdhpiaqqr2knbn5bq/public key }}
 vault_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible artis3n.tailscale.machine }}
 vault_tailscale_tailnet: {{ op://Personal/Tailscale/qf4y2gsgjg7wvgzywqxhfnxhhu/tailnet }}
-tsdproxy_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible tsdproxy }}
+vault_tsdproxy_tailscale_authkey: {{ op://Personal/Tailscale/auth keys/ansible tsdproxy }}
 vault_tautulli_api_key: {{ op://Personal/Tautulli/anxdbqsd7twkt4ia265e4sv2xe/api key }}
 
 vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}

@@ -65,9 +65,9 @@ nut_client_password: "{{ vault_nut_client_password }}"
 # the role never starts a VM. Topology = root bus + dev.fn chain from
 # `readlink -f /sys/bus/pci/devices/<addr>` with the bus numbers dropped.
 pve_pci_mapping_mappings:
-  - { id: nvidia_rtx_a4000,     topology: "0000:00/01.1/00.0",           pci_id: "10de:24b0", subsystem_id: "1028:14ad" }
-  - { id: intel_arc_b580,       topology: "0000:c0/01.1/00.0/01.0/00.0", pci_id: "8086:e20b", subsystem_id: "1849:6021" }
-  - { id: intel_arc_b580_audio, topology: "0000:c0/01.1/00.0/02.0/00.0", pci_id: "8086:e2f7", subsystem_id: "1849:6021" }
+  - { id: nvidia_rtx_a4000,     topology: "0000:00/03.1/00.0",           pci_id: "10de:24b0", subsystem_id: "1028:14ad" }
+  - { id: intel_arc_b580,       topology: "0000:40/03.1/00.0/01.0/00.0", pci_id: "8086:e20b", subsystem_id: "1849:6021" }
+  - { id: intel_arc_b580_audio, topology: "0000:40/03.1/00.0/02.0/00.0", pci_id: "8086:e2f7", subsystem_id: "1849:6021" }
   - { id: broadcom_9305_24i,    topology: "0000:80/03.1/00.0",           pci_id: "1000:00c4", subsystem_id: "1000:31a0" }
   # Misnamed original (the card is a 24i), deleted 2026-09-09 once VM 200 referenced the new
   # name. Kept declared absent so a stray recreation is removed rather than failing the run as
@@ -78,8 +78,8 @@ pve_pci_mapping_mappings:
   - { id: solidigm_p44_pro_2,   topology: "0000:c0/03.2/00.0",           pci_id: "025e:f1ac", subsystem_id: "025e:f1ac" }
   - { id: samsung_980_pro_1,    topology: "0000:c0/03.3/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
   - { id: samsung_980_pro_2,    topology: "0000:c0/03.4/00.0",           pci_id: "144d:a80a", subsystem_id: "144d:a801" }
-  - { id: intel_p1600x_1,       topology: "0000:40/03.3/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
-  - { id: intel_p1600x_2,       topology: "0000:40/03.4/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+  - { id: intel_p1600x_1,       topology: "0000:00/01.3/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
+  - { id: intel_p1600x_2,       topology: "0000:00/01.4/00.0",           pci_id: "8086:2525", subsystem_id: "8086:380a" }
 
 # The hostpci lines are exactly these keys; an option on the VM that is not declared here is
 # removed. A change on a running VM lands at the next stop/start (pve_vm_hostpci reports it).
@@ -97,8 +97,14 @@ pve_vm_hostpci_vms:
   - vmid: 201   # media-01
     hostpci:
       - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
-      - { index: 1, mapping: intel_arc_b580, pcie: 1 }
-      - { index: 2, mapping: intel_arc_b580_audio, pcie: 1 }
+      # The B580 is faulty as of 2026-09-10: its link trains at 2.5 GT/s with
+      # EqualizationComplete-, and the card drops off the bus as soon as a driver
+      # initialises it. Reproduced in PCIE3 twice and in PCIE4 on a different root
+      # complex, with the same cable that worked before — so it is the card, not the
+      # slot. The mappings are kept and re-pointed so a replacement drops straight in;
+      # set these back to present when a working card is fitted.
+      - { index: 1, mapping: intel_arc_b580, pcie: 1, state: absent }
+      - { index: 2, mapping: intel_arc_b580_audio, pcie: 1, state: absent }
 
 # Block rasdaemon's per-AER-event OEM writes to the BMC event log. This host's two noisy PCIe
 # links generated about 185 of them a day, and together with the BIOS's own PCI PERR entry for
