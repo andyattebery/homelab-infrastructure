@@ -1,0 +1,58 @@
+---
+# The half that needs a real host: udevadm. Everything that merely renders a file lives in
+# configure.yaml so it can be tested without udevd, without root and without a rules directory.
+#
+# This role assumes udevd is RUNNING on the target. That is true of an ordinary host and false
+# of an unprivileged container, which runs no udevd and receives no kernel uevents -- installing
+# a rule there is inert, because nothing would ever evaluate it. A caller that points this role
+# at such a container gets a loud failure from `udevadm control`, which is the right outcome.
+
+- name: Render the rule
+  ansible.builtin.include_tasks:
+    file: configure.yaml
+
+# Gated on a change, so a converge run that alters nothing also asks udevd for nothing.
+#
+# This is NOT what makes the rule live -- udevd notices a changed rules file on its own, when the
+# next event is processed (systemd v257 src/udev/udev-manager.c:590 calls manager_reload() from
+# event_queue_start(); :268 reloads when udev_rules_should_reload()). What this buys is
+# determinism: after this task the running udevd has the new rules, rather than "it will, at the
+# next uevent". There is no installed-but-inert window either way -- writing the file IS
+# activating it, which is why a rule that must not fire on existing hardware has to be written
+# so that it cannot match any, not merely installed carefully.
+- name: Reload the udev rules  # noqa no-handler
+  when:
+    - udev_rule_reload | bool
+    - udev_rule_changed | bool
+  ansible.builtin.command:
+    argv: ["{{ udev_rule_udevadm_path }}", control, --reload-rules]
+  changed_when: true
+
+# Off unless the caller asked. See defaults/main.yaml for what skipping it costs: a rule meant to
+# change an EXISTING device does not take effect until that device is re-added or the host
+# reboots. `--subsystem-match` is required by validate.yaml, because an unrestricted trigger
+# re-runs every rule against every device on the host.
+- name: Re-apply rules to existing devices
+  when:
+    - udev_rule_trigger | bool
+    - udev_rule_changed | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ udev_rule_udevadm_path }}"
+      - trigger
+      - "--subsystem-match={{ udev_rule_trigger_subsystem }}"
+  changed_when: true
+
+# `trigger` only QUEUES the events; without this the play continues while udevd is still applying
+# them, and a later task that checks a device's group can read the old value and report a failure
+# that repairs itself a second later.
+- name: Wait for the triggered events to be processed
+  when:
+    - udev_rule_trigger | bool
+    - udev_rule_changed | bool
+  ansible.builtin.command:
+    argv:
+      - "{{ udev_rule_udevadm_path }}"
+      - settle
+      - "--timeout={{ udev_rule_settle_timeout_seconds }}"
+  changed_when: false

@@ -1,0 +1,63 @@
+---
+# REQUIRED, both asserted in tasks/validate.yaml and deliberately not defaulted:
+#   udev_rule_name     -- the rule's basename WITHOUT the .rules suffix, e.g. `99-lxc-input`.
+#   udev_rule_content  -- the rule body. This role has no opinion about what it matches; the
+#                         match expression belongs to the caller, because a role that knew what
+#                         it was matching would be a role with a host's hardware baked into it.
+udev_rule_name: ""
+udev_rule_content: ""
+
+# present -- the file is written.
+# absent  -- the file is removed. The rule stops applying to devices added AFTER that; devices
+#            already carrying attributes it set keep them until they are re-added or the host
+#            reboots. Removing a rule does not undo what it did.
+udev_rule_state: present
+
+# Where rules live. /etc/udev/rules.d is the ADMIN directory and outranks /usr/lib/udev/rules.d:
+# a file of the same name there masks the packaged one entirely. An input so a fixture test can
+# point it at a tempdir; a role that hardcoded /etc/... could not be tested without root.
+udev_rule_directory_path: /etc/udev/rules.d
+
+# udev reads rule files in lexical order and later rules can override earlier ones, so the
+# numeric prefix in udev_rule_name is a priority, not decoration. See the README.
+
+# CLI path, so a test can point it at a stub and a caller on another distro is not stuck.
+udev_rule_udevadm_path: /usr/bin/udevadm
+
+# Ask udevd to re-read its rules immediately.
+#
+# Skipping it is NOT equivalent to doing it, but the gap is small and worth stating rather than
+# leaving as a shrug: udevd reloads on its own when it notices a rules file changed
+# (systemd v257 src/udev/udev-manager.c:590 calls manager_reload() from event_queue_start(), and
+# :268 reloads when udev_rules_should_reload()). That check runs when the NEXT event is
+# processed. So without this the new rule is live from the next uevent; with it, it is live now.
+# On a host where the next uevent is the thing the rule is for, that difference is the whole
+# point.
+udev_rule_reload: true
+
+# Re-run rules against devices that ALREADY EXIST. Off by default, and that is a decision.
+#
+# A rule written for devices that do not exist yet -- a virtual input device some daemon will
+# create later -- gains nothing from a trigger, because the rule is applied when the device is
+# added. What a trigger DOES do is re-run every matching rule against every matching device on
+# the host right now, which on a production node is a real action with real consequences and no
+# caller asked for it.
+#
+# Consequence of leaving it off, stated: a rule that was meant to change an EXISTING device's
+# group, mode or symlinks will not take effect until that device is re-added or the host
+# reboots. If that is the intent, set this true and name the subsystem below.
+udev_rule_trigger: false
+
+# Which subsystem the trigger is limited to. REQUIRED when udev_rule_trigger is true, and
+# asserted: an unrestricted `udevadm trigger` re-runs rules for every device on the host, which
+# is never what a single rule file needs and is a genuinely bad thing to do to a hypervisor.
+udev_rule_trigger_subsystem: ""
+
+# How long to wait for the triggered events to be processed. Only used when triggering.
+udev_rule_settle_timeout_seconds: 30
+
+# File ownership. Only root is correct on a real host; inputs so a fixture test can render as an
+# unprivileged user.
+udev_rule_file_owner: root
+udev_rule_file_group: root
+udev_rule_file_mode: "0644"

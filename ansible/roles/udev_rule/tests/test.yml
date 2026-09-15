@@ -1,0 +1,301 @@
+---
+# Exercises udev_rule against throwaway fixtures. Runs entirely on localhost; touches no remote
+# host, no udevd, and no real rules directory.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/udev_rule/tests/inventory \
+#     roles/udev_rule/tests/test.yml
+#
+# Only tasks/configure.yaml is imported. main.yaml calls udevadm, which does not exist here and
+# would have nothing to talk to if it did -- that split is what makes this testable.
+- name: Test udev_rule
+  hosts: localhost
+  gather_facts: true
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: udev-rule-tests
+      register: _tmp
+
+    - name: Run the suite
+      block:
+
+        # ---------- 1. the happy path ----------
+        - name: Render with a known configuration
+          vars: &fixture
+            udev_rule_name: 99-probe-input
+            # A real rule body from a calling playbook, not a placeholder. Seeding
+            # `# stale` would prove a file gets written and nothing about whether a rule
+            # survives templating intact -- ansible/tests/README.md, "Seed realistic fixtures".
+            udev_rule_content: >-
+              SUBSYSTEM=="input", KERNEL=="event*", ATTRS{id/vendor}=="1209",
+              ATTRS{id/product}=="0002|0003", GROUP="lxc-input", MODE="0660"
+            udev_rule_directory_path: "{{ _tmp.path }}/rules.d"
+            udev_rule_file_owner: "{{ ansible_facts['user_id'] }}"
+            udev_rule_file_group: "{{ ansible_facts['user_gid'] }}"
+          ansible.builtin.include_role:
+            name: udev_rule
+            tasks_from: configure.yaml
+
+        - name: Read the rule back
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/rules.d/99-probe-input.rules"
+          register: _rule
+
+        - name: The file carries the caller's rule body verbatim
+          vars:
+            _body: "{{ _rule.content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              # Non-emptiness first: an empty render satisfies every `not in` check below and
+              # reports itself as a perfect pass.
+              - _body | length > 0
+              - "'SUBSYSTEM==\"input\"' in _body"
+              - "'ATTRS{id/vendor}==\"1209\"' in _body"
+              - "'GROUP=\"lxc-input\"' in _body"
+              - "'MODE=\"0660\"' in _body"
+              # MEASURED on CT 120 2026-09-14: a uinput device comes up mode 0600, so the
+              # MODE= clause is what makes the device openable at all. If a future edit drops
+              # it, group membership alone is not enough and the symptom is a compositor that
+              # sees the device and cannot open it.
+              - "'0660' in _body"
+              # The inputtino ids every published guide uses. Sunshine 2026.906.222525 does not
+              # use inputtino, so a rule carrying these matches nothing, silently.
+              - "'beef' not in _body | lower"
+              - "'dead' not in _body | lower"
+            fail_msg: "the rule body did not survive templating: {{ _body }}"
+            success_msg: "rule is {{ _body | length }} bytes and carries the caller's match verbatim"
+
+        - name: The rule body is on one line
+          vars:
+            _body: "{{ _rule.content | b64decode }}"
+            # splitlines(), NOT split('\n'). Jinja does not unescape \n inside its own string
+            # literals, so split('\n') in a YAML folded scalar splits on a literal backslash-n,
+            # returns the whole body as one chunk, and the comment filter below then drops it --
+            # reporting "0 lines" for a perfectly good file. Same trap
+            # roles/pve_lxc/tasks/node_config.yaml documents for the write side.
+            _rule_lines: >-
+              {{ _body.splitlines() | reject('match', '^\s*#') | reject('equalto', '') | list }}
+          ansible.builtin.assert:
+            that:
+              - _rule_lines | length == 1
+            fail_msg: >-
+              the rule rendered as {{ _rule_lines | length }} lines: {{ _rule_lines }}.
+              udev parses one rule per line and a continuation needs a trailing backslash, so a
+              body that wraps becomes several INVALID rules rather than one valid one -- and
+              udev logs that as a parse error nobody reads.
+            success_msg: "rule body is a single line, as udev requires"
+
+        - name: The file is named with exactly one .rules suffix
+          ansible.builtin.find:
+            paths: "{{ _tmp.path }}/rules.d"
+            patterns: "*"
+          register: _found
+
+        - name: Exactly one file, suffixed once
+          vars:
+            _names: "{{ _found.files | map(attribute='path') | map('basename') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _names | length == 1
+              - "'99-probe-input.rules' in _names"
+              - "'99-probe-input.rules.rules' not in _names"
+            fail_msg: "unexpected rules directory contents: {{ _names }}"
+            success_msg: "wrote exactly {{ _names }}"
+
+        # ---------- 2. idempotence ----------
+        - name: Render again with the same configuration
+          vars: *fixture
+          ansible.builtin.include_role:
+            name: udev_rule
+            tasks_from: configure.yaml
+
+        - name: The second render changed nothing
+          ansible.builtin.assert:
+            that:
+              - not udev_rule_changed
+            fail_msg: "re-rendering reported a change; the role is not idempotent"
+            success_msg: "second render: no changes"
+
+        # ---------- 3. absent removes the file ----------
+        - name: Remove the rule
+          vars:
+            <<: *fixture
+            udev_rule_state: absent
+          ansible.builtin.include_role:
+            name: udev_rule
+            tasks_from: configure.yaml
+
+        - name: The rule file is gone
+          ansible.builtin.stat:
+            path: "{{ _tmp.path }}/rules.d/99-probe-input.rules"
+          register: _removed
+
+        - name: Removal reported a change and left nothing behind
+          ansible.builtin.assert:
+            that:
+              - not _removed.stat.exists
+              - udev_rule_changed
+            fail_msg: "state=absent did not remove the rule file"
+            success_msg: "state=absent removed the file and reported changed"
+
+        - name: Removing again changes nothing
+          vars:
+            <<: *fixture
+            udev_rule_state: absent
+          ansible.builtin.include_role:
+            name: udev_rule
+            tasks_from: configure.yaml
+
+        - name: The second removal is a no-op
+          ansible.builtin.assert:
+            that:
+              - not udev_rule_changed
+            fail_msg: "removing an absent rule reported a change; the role is not idempotent"
+            success_msg: "second removal: no changes"
+
+        # ---------- control 1 ----------
+        # Every control constructs a broken CALLER, not a broken role. A control that edits the
+        # role stops being runnable the moment the role is fixed.
+        - name: A caller with no rule body is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                udev_rule_name: 99-empty
+                udev_rule_content: ""
+                udev_rule_directory_path: "{{ _tmp.path }}/empty"
+                udev_rule_file_owner: "{{ ansible_facts['user_id'] }}"
+                udev_rule_file_group: "{{ ansible_facts['user_gid'] }}"
+              ansible.builtin.include_role:
+                name: udev_rule
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role wrote a rules file with an empty body. udev loads it, matches
+                  nothing and reports no error, so the failure is a rule that silently never
+                  fires rather than anything that looks broken.
+          rescue:
+            - name: CONTROL -- an empty rule body is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/empty"
+              register: _control_1
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_1.stat.exists
+                fail_msg: "the assert fired but the directory was created anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 2 ----------
+        - name: A name that already ends in .rules is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                udev_rule_name: 99-suffixed.rules
+                udev_rule_content: 'SUBSYSTEM=="input", MODE="0660"'
+                udev_rule_directory_path: "{{ _tmp.path }}/suffixed"
+                udev_rule_file_owner: "{{ ansible_facts['user_id'] }}"
+                udev_rule_file_group: "{{ ansible_facts['user_gid'] }}"
+              ansible.builtin.include_role:
+                name: udev_rule
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a name ending in .rules and would write
+                  99-suffixed.rules.rules. udev loads only *.rules, so that file IS loaded --
+                  but nobody looking for 99-suffixed.rules finds it.
+          rescue:
+            - name: CONTROL -- a doubled .rules suffix is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/suffixed"
+              register: _control_2
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_2.stat.exists
+                fail_msg: "the assert fired but the directory was created anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 3 ----------
+        - name: A name containing a path separator is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                udev_rule_name: ../../../etc/escaped
+                udev_rule_content: 'SUBSYSTEM=="input", MODE="0660"'
+                udev_rule_directory_path: "{{ _tmp.path }}/escape"
+                udev_rule_file_owner: "{{ ansible_facts['user_id'] }}"
+                udev_rule_file_group: "{{ ansible_facts['user_gid'] }}"
+              ansible.builtin.include_role:
+                name: udev_rule
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a name with path separators. It is joined to
+                  udev_rule_directory_path, so this writes outside the rules directory as root,
+                  silently, and udev never loads the result.
+          rescue:
+            - name: CONTROL -- a path separator in the name is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/escape"
+              register: _control_3
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_3.stat.exists
+                fail_msg: "the assert fired but the directory was created anyway"
+                success_msg: "refused before writing anything"
+
+        # ---------- control 4 ----------
+        # The one that stops this role doing something genuinely bad to a hypervisor.
+        - name: A trigger with no subsystem is refused
+          block:
+            - name: This is expected to fail
+              vars:
+                udev_rule_name: 99-untriggered
+                udev_rule_content: 'SUBSYSTEM=="input", MODE="0660"'
+                udev_rule_directory_path: "{{ _tmp.path }}/trigger"
+                udev_rule_file_owner: "{{ ansible_facts['user_id'] }}"
+                udev_rule_file_group: "{{ ansible_facts['user_gid'] }}"
+                udev_rule_trigger: true
+                udev_rule_trigger_subsystem: ""
+              ansible.builtin.include_role:
+                name: udev_rule
+                tasks_from: configure.yaml
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a trigger with no subsystem. `udevadm trigger` with no
+                  --subsystem-match re-runs every rule against every device on the host, which
+                  on a hypervisor running other guests is a real action nobody asked for.
+          rescue:
+            - name: CONTROL -- an unrestricted trigger is refused
+              ansible.builtin.stat:
+                path: "{{ _tmp.path }}/trigger"
+              register: _control_4
+
+            - name: Nothing was written for the bad caller
+              ansible.builtin.assert:
+                that:
+                  - not _control_4.stat.exists
+                fail_msg: "the assert fired but the directory was created anyway"
+                success_msg: "refused before writing anything"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

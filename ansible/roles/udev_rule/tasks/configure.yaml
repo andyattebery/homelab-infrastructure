@@ -1,0 +1,50 @@
+---
+# Validates the inputs and writes (or removes) the rule file. Talks to no service and runs no
+# command, which is what lets the fixture test import this file alone with every path pointed at
+# a tempdir. tasks/main.yaml is the only place that calls udevadm.
+# See ansible/tests/README.md, "Where a new test goes".
+
+- name: Validate the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+# Only when writing. A caller removing a rule should not have this role create
+# /etc/udev/rules.d as a side effect on a host that somehow lacks it -- that would be a role
+# inventing state nobody asked for.
+- name: Create the rules directory
+  when: udev_rule_state == 'present'
+  ansible.builtin.file:
+    path: "{{ udev_rule_directory_path }}"
+    state: directory
+    owner: "{{ udev_rule_file_owner }}"
+    group: "{{ udev_rule_file_group }}"
+    mode: "0755"
+
+# The `.rules` suffix is appended here, in exactly one place, and validate.yaml refuses a name
+# that already carries it. udev loads only files matching *.rules, so a file without the suffix
+# is present on disk, never read, and reports nothing.
+- name: Write the rule file
+  when: udev_rule_state == 'present'
+  ansible.builtin.template:
+    src: rule.j2
+    dest: "{{ udev_rule_directory_path }}/{{ udev_rule_name }}.rules"
+    owner: "{{ udev_rule_file_owner }}"
+    group: "{{ udev_rule_file_group }}"
+    mode: "{{ udev_rule_file_mode }}"
+  register: udev_rule_file
+
+- name: Remove the rule file
+  when: udev_rule_state == 'absent'
+  ansible.builtin.file:
+    path: "{{ udev_rule_directory_path }}/{{ udev_rule_name }}.rules"
+    state: absent
+  register: udev_rule_file_removed
+
+# One fact for main.yaml and for callers to branch on, whichever direction the role ran in.
+# `| default({}, true)` because only one of the two tasks above ran, so the other's register is
+# a skipped result with no `changed` of its own.
+- name: Remember whether the rule changed
+  ansible.builtin.set_fact:
+    udev_rule_changed: >-
+      {{ (udev_rule_file.changed | default(false))
+         or (udev_rule_file_removed.changed | default(false)) }}

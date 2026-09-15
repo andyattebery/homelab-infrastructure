@@ -1,0 +1,74 @@
+---
+# Input validation only. Touches nothing and renders nothing, so the fixture test can exercise
+# every refusal without a tempdir and without root. Same split as roles/kernel_module.
+#
+# Every assert here runs BEFORE configure.yaml writes anything, so a refused caller gets no file
+# -- which is what the fixture test's controls assert.
+
+- name: Assert the caller supplied a rule name and a rule body
+  ansible.builtin.assert:
+    that:
+      - udev_rule_name is defined
+      - udev_rule_name | default('') | length > 0
+      - udev_rule_content is defined
+      - udev_rule_content | default('') | length > 0
+    fail_msg: >-
+      udev_rule_name and udev_rule_content are both required and neither has a default. An empty
+      body writes a valid, empty rules file: udev loads it, matches nothing, and reports no
+      error at all -- so the failure would be a rule that silently never fires rather than
+      anything that looks broken.
+    quiet: true
+
+# A name is a BASENAME. `../` in it would write outside the rules directory as root, and a `/`
+# anywhere in it would write into a subdirectory udev does not read -- both silently, because
+# `template` creates neither an error nor the file where anyone looks for it.
+- name: Assert the rule name is a bare basename
+  ansible.builtin.assert:
+    that:
+      - udev_rule_name | default('') is match('^[A-Za-z0-9._-]+$')
+      - udev_rule_name | default('') is not search('/')
+      - udev_rule_name | default('') not in ['.', '..']
+    fail_msg: >-
+      udev_rule_name must be a bare file name -- letters, digits, `.`, `_` and `-` only. Got
+      '{{ udev_rule_name | default('<unset>') }}'. It is joined to
+      udev_rule_directory_path, so a path separator here writes the file somewhere udev does not
+      read, as root, without failing.
+    quiet: true
+
+# The suffix is added by this role, not by the caller, so that every rule it writes is named the
+# same way. udev reads ONLY files ending in `.rules` (systemd's udev-rules.c globs `*.rules`), so
+# a file without it is inert -- present on disk, never loaded, and nothing says so.
+- name: Assert the rule name does not already carry the .rules suffix
+  ansible.builtin.assert:
+    that:
+      - udev_rule_name | default('') is not match('.*\.rules$')
+    fail_msg: >-
+      udev_rule_name must NOT end in '.rules' -- this role appends it. Got
+      '{{ udev_rule_name | default('<unset>') }}', which would be written as
+      '{{ udev_rule_name | default('') }}.rules'. udev only loads files ending in .rules, so the
+      double suffix produces a file that is present, inert, and indistinguishable from a working
+      one until something that should have matched does not.
+    quiet: true
+
+- name: Reject a state the role does not implement
+  ansible.builtin.assert:
+    that:
+      - udev_rule_state | default('') in ['present', 'absent']
+    fail_msg: >-
+      udev_rule_state must be `present` or `absent`. Got
+      '{{ udev_rule_state | default('<unset>') }}'.
+    quiet: true
+
+# The one that stops this role doing something genuinely bad to a hypervisor. An unrestricted
+# `udevadm trigger` re-runs rules for EVERY device on the host.
+- name: Assert a trigger names the subsystem it is limited to
+  when: udev_rule_trigger | default(false) | bool
+  ansible.builtin.assert:
+    that:
+      - udev_rule_trigger_subsystem | default('') | length > 0
+    fail_msg: >-
+      udev_rule_trigger is true but udev_rule_trigger_subsystem is empty. An unrestricted
+      `udevadm trigger` re-runs every rule against every device on the host -- on a hypervisor
+      running other guests that is a real action with real consequences, and no single rule file
+      ever needs it. Name the subsystem the rule applies to.
+    quiet: true

@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+#
+# udev reads rule files from this directory in LEXICAL order and a later file can override an
+# earlier one, so the numeric prefix on this file's name is a priority. It is the caller's
+# choice, not this role's.
+{{ udev_rule_content }}
