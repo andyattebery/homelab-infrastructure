@@ -38,6 +38,12 @@ collections:
   # now that no bundled copy exists, and unlisted it would be the one unpinned thing here.
   - name: community.library_inventory_filtering_v1
     version: ">=1.1.5,<2.0.0"
+  # LXC lifecycle on the PVE cluster, used by roles/pve_lxc. Not community.general:
+  # its proxmox content is DEPRECATED and disappears in community.general 15.0.0,
+  # having moved here. 2.0.0 is the floor because it is the current stable major --
+  # galaxy also lists a 2.0.0-beta1, which the range below deliberately excludes.
+  - name: community.proxmox
+    version: ">=2.0.0,<3.0.0"
   - name: community.windows
     version: ">=3.3.0,<4.0.0"
   - name: gluster.gluster
