@@ -174,6 +174,9 @@ The PCIE2 Selection Jumpers are set to PE8_SEL = 1_2 and PE16_SEL = 2_3 which co
 - M2_1/SATA_4_7 Enabled
 - OCU1/OCU2 Disabled
 
+**PCIE5 is bifurcated x8+x4+x4 in BIOS** for the splitter card it holds. The bifurcation setting
+belongs to whichever slot the splitter is in — it moved from PCIE4 to PCIE5 with the card.
+
 ### M.2 Slots
 
 #### M2_1
@@ -207,29 +210,44 @@ The end of this had to be trimmed ~0.5 cm to make it fit. I _think_ no traces we
 
 #### PCIE5
 
-##### Nvidia RTX A4000
-
-#### PCIE4
-
-Uses PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and 2x M.2 Slots with:
+Bifurcated x8+x4+x4. Uses PCIe X16 To X8+X4+X4 Splitter Card Adaptor with X8 PCIe slot and
+2x M.2 Slots with:
 
 ##### Mellenox ConnectX-4 Lx
 
 Port 1 is `vmbr0`'s uplink, port 2 is the Ceph cluster network. Both are pinned by
 MAC to `cx4p0` and `cx4p1` so a slot change can't rename them — see
-[host-inventory.md](host-inventory.md#network-interface-names).
+[host-inventory.md](host-inventory.md#network-interface-names). That pinning is what let this
+card move slots without renaming the interfaces.
 
 ##### 2x Intel Optane P1600X - 118 GB
 
-#### PCIE3
+#### PCIE4
 
 ##### Intel Arc B580
 
+**The card is faulty and is not passed to any guest.** Its link trains at 2.5 GT/s with
+`EqualizationComplete-` and the card drops off the bus — config reads return `ffff` — as soon as
+a driver initialises it. Reproduced in PCIE3 twice and here in PCIE4, which is a different root
+complex, on the same power cable that worked beforehand. The slots are not the problem: the
+A4000 trains Gen4 correctly in PCIE2.
+
+Its two mappings are kept and pointed at its current position so a replacement card drops
+straight in. To restore it, set `index: 1` and `index: 2` for VM 201 back to `state: present` in
+`ansible/host_vars/nas-host-01/vars.yaml` and run the playbook with `--tags pci_passthrough`.
+
+#### PCIE3
+
+Empty. The B580 in PCIE4 is dual-slot and occupies this bracket.
+
 #### PCIE2
 
-Configured to be x8.
+Configured to be x8 by the selection jumpers above.
 
-Empty
+##### Nvidia RTX A4000
+
+Runs at Gen4 x8 here rather than x16 — about 15.75 GB/s, which neither transcoding nor
+inference comes close to using.
 
 #### PCIE1
 
@@ -287,8 +305,8 @@ All conventional PCI passthrough — no `pcie=1`.
 | `hostpci0` | `broadcom_9305_24i` (`rombar=0`) | Broadcom/LSI SAS3224 (9305-24i HBA) | — | All SATA HDDs — ZFS tank data + snapraid/mergerfs pool |
 | `hostpci1` | `solidigm_p44_pro_1` | Solidigm P44 Pro 2 TB | `SDC1N403710501322` | ZFS sink pool |
 | `hostpci2` | `solidigm_p44_pro_2` | Solidigm P44 Pro 2 TB | `SJC1N5037101A1H3A` | ZFS sink pool |
-| `hostpci3` | `samsung_980_pro_1` | Samsung 980 Pro 2 TB | `S6B0NU0W400960M` | ZFS sink pool |
-| `hostpci4` | `samsung_980_pro_2` | Samsung 980 Pro 2 TB | `S6B0NU0W402398J` | ZFS sink pool |
+| `hostpci3` | `samsung_980_pro_1` | Samsung 980 Pro 2 TB | `S6B0NU0W402398J` | ZFS sink pool |
+| `hostpci4` | `samsung_980_pro_2` | Samsung 980 Pro 2 TB | `S6B0NU0W400960M` | ZFS sink pool |
 | `hostpci5` | `skhynix_pe6011` | SK hynix PE6011 / HPE VK003840KWWFP 3.84 TB | `KIB4T0001I0204T31` | Staging/temp |
 | `hostpci6` | `intel_p1600x_1` | Intel Optane P1600X 118 GB | `PHOC150200LL118B` | ZFS tank metadata special device |
 | `hostpci7` | `intel_p1600x_2` | Intel Optane P1600X 118 GB | `PHOC150201CU118B` | ZFS tank metadata special device |
@@ -322,16 +340,17 @@ All use `pcie=1` (the VM is `q35`).
 
 | `hostpciN` | Mapping | Device | Role |
 | --- | --- | --- | --- |
-| `hostpci0` | `nvidia_rtx_a4000` | Nvidia RTX A4000 + HDA | Transcoding, AI inference (CUDA) |
-| `hostpci1` | `intel_arc_b580` | Intel Arc B580 | Transcoding (QSV/VA-API) |
-| `hostpci2` | `intel_arc_b580_audio` | Intel Arc B580 HDA | Rides along with the B580 |
+| `hostpci0` | `nvidia_rtx_a4000` | Nvidia RTX A4000 | Transcoding, AI inference (CUDA) |
 
-**The A4000 passes as GPU only.** Its mapping path is `0000:01:00.0` — function-scoped, not
-function-less — so the card's HDA at `0000:01:00.1` is *not* attached and sits unmapped on the
-host. `lspci` inside media-01 shows the A4000 with no NVIDIA audio device.
+**The A4000 passes as GPU only.** Its mapping is function-scoped rather than function-less, so
+the card's HDA on function `.1` is *not* attached and sits unmapped on the host. `lspci` inside
+media-01 shows the A4000 with no NVIDIA audio device.
 
-The B580's GPU and HDA are on different buses with different device IDs, so they cannot share
-one mapping — hence the two separate entries above.
+**The B580 is declared `state: absent` for this VM** because the card is faulty — see
+[PCIE4](#pcie4). Its `intel_arc_b580` and `intel_arc_b580_audio` mappings still exist and are
+resolved on every run, so a replacement needs only those two entries set back to
+`state: present`. The B580's GPU and HDA sit on different buses with different device IDs and
+cannot share one mapping, which is why there are two.
 
 ### Resource mappings
 
@@ -346,17 +365,17 @@ only if the address is empty, and otherwise passes whatever now sits there.
 
 | Mapping | Topology | ID | Subsystem-ID | Consumer |
 | --- | --- | --- | --- | --- |
-| `nvidia_rtx_a4000` | `0000:00/01.1/00.0` | `10de:24b0` | `1028:14ad` | media-01 |
-| `intel_arc_b580` | `0000:c0/01.1/00.0/01.0/00.0` | `8086:e20b` | `1849:6021` | media-01 |
-| `intel_arc_b580_audio` | `0000:c0/01.1/00.0/02.0/00.0` | `8086:e2f7` | `1849:6021` | media-01 |
+| `nvidia_rtx_a4000` | `0000:00/03.1/00.0` | `10de:24b0` | `1028:14ad` | media-01 |
+| `intel_arc_b580` | `0000:40/03.1/00.0/01.0/00.0` | `8086:e20b` | `1849:6021` | media-01 |
+| `intel_arc_b580_audio` | `0000:40/03.1/00.0/02.0/00.0` | `8086:e2f7` | `1849:6021` | media-01 |
 | `broadcom_9305_24i` | `0000:80/03.1/00.0` | `1000:00c4` | `1000:31a0` | nas-01 |
 | `skhynix_pe6011` | `0000:80/01.4/00.0` | `1c5c:2429` | `1590:02d0` | nas-01 |
 | `solidigm_p44_pro_1` | `0000:c0/03.1/00.0` | `025e:f1ac` | `025e:f1ac` | nas-01 |
 | `solidigm_p44_pro_2` | `0000:c0/03.2/00.0` | `025e:f1ac` | `025e:f1ac` | nas-01 |
 | `samsung_980_pro_1` | `0000:c0/03.3/00.0` | `144d:a80a` | `144d:a801` | nas-01 |
 | `samsung_980_pro_2` | `0000:c0/03.4/00.0` | `144d:a80a` | `144d:a801` | nas-01 |
-| `intel_p1600x_1` | `0000:40/03.3/00.0` | `8086:2525` | `8086:380a` | nas-01 |
-| `intel_p1600x_2` | `0000:40/03.4/00.0` | `8086:2525` | `8086:380a` | nas-01 |
+| `intel_p1600x_1` | `0000:00/01.3/00.0` | `8086:2525` | `8086:380a` | nas-01 |
+| `intel_p1600x_2` | `0000:00/01.4/00.0` | `8086:2525` | `8086:380a` | nas-01 |
 
 The PCI address and IOMMU group are deliberately not tabulated: they are what changes, and the
 `pve_pci_mapping` role writes them from the topology on every run. Read the live values with
@@ -366,12 +385,14 @@ tree with bus numbers dropped — `readlink -f /sys/bus/pci/devices/<addr>`, kee
 
 **A mapping does not establish instance identity for the Optanes.** All four P1600X
 report the same `id` and `subsystem-id`; only `iommugroup` differs, and group numbers
-are renumbered by any topology change. Two of the four are the host's `rpool` boot
-mirror, under root ports `00:03.5` and `40:01.1`; the two passed-through ones sit on the PCIE4
-splitter under `40:03.3` and `40:03.4`, so the topology cannot reach an `rpool` drive. Serials
-read by address on 2026-09-09 (drives on the `nvme` driver, VMs stopped): `intel_p1600x_1` =
-`PHOC150200LL118B`, `intel_p1600x_2` = `PHOC150201CU118B`; the Solidigm, Samsung and SK hynix
-serials in the table above also matched.
+are renumbered by any topology change. Two of the four are the host's `rpool` boot mirror in the
+onboard M.2 slots, under root ports `00:03.5` and `40:01.1`; the two passed-through ones sit on
+the PCIE5 splitter under `00:01.3` and `00:01.4`, so the topology cannot reach an `rpool` drive.
+`intel_p1600x_1` is `PHOC150200LL118B` and `intel_p1600x_2` is `PHOC150201CU118B`.
+
+Serials are readable from the host only while the guests are stopped, since the drives are
+otherwise bound to `vfio-pci`. With nas-01 running, read them inside the guest and join to host
+addresses through the live QEMU command line.
 
 Working with mappings:
 
