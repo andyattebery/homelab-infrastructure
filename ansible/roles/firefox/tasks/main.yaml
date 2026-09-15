@@ -1,0 +1,12 @@
+---
+# Everything a container cannot cover is just the install itself -- Firefox
+# needs no service and no configuration from this role.
+
+- name: Configure the apt repository and pin
+  ansible.builtin.include_tasks:
+    file: apt_repo.yaml
+
+- name: Install Firefox
+  ansible.builtin.apt:
+    name: "{{ firefox_package }}"
+    state: present

@@ -1,0 +1,34 @@
+---
+# Debian architecture names, keyed by the kernel's. Templated into the source's
+# Architectures: field rather than left to apt's $(ARCH) -- sources.list(5)
+# documents that substitution for suites, not for this field.
+firefox_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  armv7l: armhf
+
+# deb822_repository derives BOTH /etc/apt/sources.list.d/<slug>.sources and
+# /etc/apt/keyrings/<slug>.asc from this. Lowercase, hyphens and digits only.
+firefox_apt_source_name: mozilla
+firefox_apt_repo_url: https://packages.mozilla.org/apt
+firefox_apt_gpg_key_url: https://packages.mozilla.org/apt/repo-signing-key.gpg
+
+# Mozilla publish ONE distro-agnostic suite literally called `mozilla` -- not a
+# suite per Debian codename. Do not "fix" this to distribution_release.
+firefox_apt_suite: mozilla
+firefox_apt_components: [main]
+
+# The release channel is the caller's choice, not the role's. Mozilla ship each
+# channel as a SEPARATE package name in the same suite -- firefox, firefox-beta,
+# firefox-devedition, firefox-esr, firefox-nightly -- so plain `firefox` is
+# stable and cannot drift onto a nightly.
+firefox_package: firefox
+
+# Pinning is not decoration, and it is not about `firefox`: Debian trixie ships
+# no `firefox` package at all, so nothing contests that name. It is about
+# `firefox-esr`, which BOTH archives ship -- Mozilla's is numerically far ahead
+# of Debian's, so without a pin anything pulling firefox-esr silently migrates
+# to Mozilla's on version alone. The pin makes that a decision instead of an
+# accident. Set priority to a value <= 500 to defer to Debian instead.
+firefox_apt_pin_priority: 1000
+firefox_apt_preferences_path: /etc/apt/preferences.d/mozilla

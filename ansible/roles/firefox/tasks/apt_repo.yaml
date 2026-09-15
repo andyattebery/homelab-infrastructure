@@ -1,0 +1,50 @@
+---
+# Apt source and pin only, split out so the container harness can exercise it
+# without installing a browser. See ansible/tests/vdesktop/README.md.
+
+# Removed before the new source is written, not after -- two sources for the
+# same repository with differing Signed-By values make apt refuse every
+# operation, this role's own included.
+- name: Remove any predecessor source for the same repository
+  ansible.builtin.file:
+    path: "/etc/apt/sources.list.d/{{ firefox_apt_source_name }}.list"
+    state: absent
+  register: firefox_legacy_removed
+
+- name: Ensure python3-debian is present
+  ansible.builtin.apt:
+    name: python3-debian
+    state: present
+
+- name: Add the Mozilla apt repository
+  ansible.builtin.deb822_repository:
+    name: "{{ firefox_apt_source_name }}"
+    types: [deb]
+    uris: "{{ firefox_apt_repo_url }}"
+    suites: ["{{ firefox_apt_suite }}"]
+    components: "{{ firefox_apt_components }}"
+    architectures:
+      - "{{ firefox_arch_map[ansible_facts['architecture']] | default(ansible_facts['architecture']) }}"
+    signed_by: "{{ firefox_apt_gpg_key_url }}"
+    state: present
+  register: firefox_apt_source
+
+# Written after the source, unlike the removal above: a pin naming an origin
+# that has no source yet is inert, not harmful.
+- name: Pin the Mozilla origin
+  ansible.builtin.copy:
+    dest: "{{ firefox_apt_preferences_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the firefox role.
+      Package: *
+      Pin: origin packages.mozilla.org
+      Pin-Priority: {{ firefox_apt_pin_priority }}
+  register: firefox_apt_pin
+
+- name: Refresh apt cache  # noqa no-handler
+  when: firefox_apt_source.changed or firefox_legacy_removed.changed or firefox_apt_pin.changed
+  ansible.builtin.apt:
+    update_cache: true
