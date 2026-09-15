@@ -1,0 +1,27 @@
+---
+# A container id is 100 or greater; PVE reserves below that.
+_pve_lxc_vmid_re: '^[1-9][0-9]{2,}$'
+# Absolute paths only, for both device paths and bind-mount sources/targets. A relative path
+# is accepted by pct and then means something other than what the caller intended.
+_pve_lxc_abspath_re: '^/[^,=]*$'
+
+# Raw `lxc.*` keys. This is PVE's OWN character class, from the line in
+# PVE::LXC::Config::parse_pct_config that recognises a raw key at all:
+#   if ($line =~ m/^(lxc\.[a-z0-9_\-\.]+)(:|\s*=)\s*(.*?)\s*$/) {
+# Deliberately not narrower. A tidier-looking `^lxc\.[a-z0-9]+(\.[a-z0-9_]+)*$` rejects
+# `lxc.hook.pre-start`, which is a real key -- hyphens are legal and the dotted-segment shape
+# is not actually the rule.
+# What this still catches is the caller error that matters: a key that is not an lxc key at all
+# (`rootfs`), or the value accidentally left attached to it (`lxc.mount.entry: /a b none ...`),
+# either of which would be written as a line that overwrites or corrupts a real option.
+# Which lxc keys are ACCEPTED is PVE's business (is_valid_lxc_conf_key) and is checked when the
+# container STARTS -- a key it rejects leaves a container that will not boot, so the specific
+# keys remain the caller's responsibility.
+_pve_lxc_raw_key_re: '^lxc\.[a-z0-9_.-]+$'
+
+# PVE's enumeration for cmode (pct.conf.5). Deliberately excludes community.proxmox's
+# "default" sentinel -- see tasks/validate.yaml.
+_pve_lxc_cmode_choices:
+  - tty
+  - console
+  - shell

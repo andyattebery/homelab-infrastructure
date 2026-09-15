@@ -1,0 +1,643 @@
+---
+# Exercises pve_lxc's root-only half against a stub pct. Runs entirely on localhost; contacts
+# no node and no API.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/pve_lxc/tests/inventory roles/pve_lxc/tests/test.yml
+#
+# Only tasks/node_config.yaml is imported. tasks/main.yaml calls the PVE API, which no fixture
+# can answer; that split is what makes the compare-and-set decision testable at all.
+- name: Test pve_lxc
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    _vmid: 120
+    # The gid the CONTAINER reports. Deliberately NOT the host's, which is 993 on a PVE 9 node
+    # for this same group name -- using the host's is the silent failure this input exists to
+    # prevent, so the fixture makes them differ.
+    _container_render_gid: 992
+    _host_render_gid: 993
+    # A second container for the raw-lxc cases, so their file edits cannot disturb the
+    # device/mount log assertions above and the seeded config can have the exact shape that
+    # matters -- a snapshot section.
+    _raw_vmid: 121
+
+  tasks:
+    - name: Create a scratch directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: pve-lxc-tests
+      register: _tmp
+
+    - name: Run the suite
+      environment:
+        STUB_PCT_DIR: "{{ _tmp.path }}/pct"
+        STUB_PCT_LOG: "{{ _tmp.path }}/calls.log"
+      block:
+        - name: Lay out the stub state
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/pct"
+            state: directory
+            mode: "0755"
+
+        - name: Install the stub as pct
+          ansible.builtin.copy:
+            src: stub-pct.py
+            dest: "{{ _tmp.path }}/stub-pct"
+            mode: "0755"
+
+        - name: The container reports its own group database
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pct/{{ _vmid }}.groups"
+            mode: "0644"
+            content: |
+              render:{{ _container_render_gid }}
+              video:44
+
+        - name: The container is running, so a group can be resolved inside it
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}/pct/{{ _vmid }}.running"
+            state: touch
+            mode: "0644"
+
+        # ---------- 1. a device that is missing gets written, with the CONTAINER's gid ----
+        - name: Seed a config with no device lines
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pct/{{ _vmid }}.conf"
+            mode: "0644"
+            content: |
+              arch: amd64
+              hostname: fixture
+              rootfs: pool:vm-120-disk-0,size=8G
+              unprivileged: 1
+
+        - name: Apply a device declared by group name
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: &dev_fixture
+            pve_lxc_vmid: "{{ _vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_devices:
+              - path: /dev/dri/renderD128
+                group: render
+            pve_lxc_bind_mounts: []
+
+        - name: Read what the stub was asked to do
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/calls.log"
+          register: _log1
+
+        - name: One set, carrying the container's gid and not the host's
+          vars:
+            _lines: "{{ (_log1.content | b64decode).strip().splitlines() }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 1
+              - "'--dev0' in _lines[0]"
+              - "'path=/dev/dri/renderD128' in _lines[0]"
+              - "'gid=' ~ _container_render_gid in _lines[0]"
+              - "'gid=' ~ _host_render_gid not in _lines[0]"
+            fail_msg: >-
+              Expected exactly one `set --dev0` carrying gid={{ _container_render_gid }}.
+              Log was: {{ _lines }}
+            success_msg: "wrote: {{ _lines[0] }}"
+
+        # ---------- 2. the same declaration again changes nothing ----------------------
+        - name: Apply the identical declaration a second time
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: *dev_fixture
+
+        - name: Still exactly one set — the second run was a no-op
+          vars:
+            _lines: "{{ (lookup('file', _tmp.path ~ '/calls.log')).strip().splitlines() }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | length == 1
+            fail_msg: >-
+              The second run wrote again, so the comparison is not matching what PVE stores.
+              Log: {{ _lines }}
+            success_msg: "idempotent: still {{ _lines | length }} call"
+
+        # ---------- 3. bind mounts, same code path, own syntax ------------------------
+        - name: Apply a bind mount
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: &mount_fixture
+            pve_lxc_vmid: "{{ _vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_devices: []
+            pve_lxc_bind_mounts:
+              - host_path: /srv/fixture-source
+                mount_point: /mnt/inside
+                options:
+                  backup: 0
+
+        - name: The mount was written in mp syntax, not dev syntax
+          vars:
+            _lines: "{{ (lookup('file', _tmp.path ~ '/calls.log')).strip().splitlines() }}"
+            _mp: "{{ _lines | select('search', '--mp0') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _mp | length == 1
+              - "'/srv/fixture-source' in _mp[0]"
+              - "'mp=/mnt/inside' in _mp[0]"
+              - "'backup=0' in _mp[0]"
+              - "'path=' not in _mp[0]"
+            fail_msg: "Expected one `set --mp0` in mp syntax. Got: {{ _mp }}"
+            success_msg: "wrote: {{ _mp[0] }}"
+
+        - name: Apply the identical mount again
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: *mount_fixture
+
+        - name: The mount did not get rewritten
+          vars:
+            _mp: "{{ (lookup('file', _tmp.path ~ '/calls.log')).strip().splitlines() | select('search', '--mp0') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _mp | length == 1
+            fail_msg: "Mount rewritten on the second run: {{ _mp }}"
+            success_msg: "idempotent: still {{ _mp | length }} mp call"
+
+        # ---------- 4. control ---------------------------------------------------------
+        # Constructs the broken CONDITION -- a caller naming a group the container does not
+        # have -- rather than breaking the role to see red. Without the guard the role would
+        # render `dev1` with an empty gid, which pct accepts and which produces a device the
+        # container cannot open. Surviving a fix is the point: this stays runnable forever.
+        - name: A group the container does not have is refused
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: node_config.yaml
+              vars:
+                pve_lxc_vmid: "{{ _vmid }}"
+                pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+                pve_lxc_bind_mounts: []
+                pve_lxc_devices:
+                  - path: /dev/net/tun
+                    group: nosuchgroup
+
+            - name: CONTROL did not fire
+              ansible.builtin.fail:
+                msg: >-
+                  The role accepted a group the container does not have. It would write a
+                  device with an empty gid, which pct accepts and the container cannot use.
+
+          rescue:
+            - name: CONTROL — nothing was written for the bad declaration
+              vars:
+                _lines: "{{ (lookup('file', _tmp.path ~ '/calls.log')).strip().splitlines() }}"
+              ansible.builtin.assert:
+                that:
+                  - _lines | select('search', 'dev1') | list | length == 0
+                fail_msg: "The assert fired but a dev1 was written anyway: {{ _lines }}"
+                success_msg: "refused before writing: {{ _lines | length }} calls, none for dev1"
+
+        # ---------- 5. input validation ------------------------------------------------
+        # These rules live in tasks/validate.yaml precisely so a test can reach them. The
+        # storage+disk case below shipped REJECTED once -- an assert that looked tidier than
+        # the module's actual rules and blocked the normal way to size a rootfs.
+        - name: storage together with disk is legal and must be accepted
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: validate.yaml
+          vars: &valid_creds
+            pve_lxc_vmid: 120
+            pve_lxc_hostname: fixture
+            pve_lxc_node: node-a
+            pve_lxc_api_host: node-a.invalid
+            pve_lxc_api_user: someone@pam
+            pve_lxc_api_token_id: sometoken
+            pve_lxc_api_token_secret: notasecret
+            pve_lxc_storage: some_pool
+            pve_lxc_disk: 32
+
+        - name: storage together with mount_volumes is rejected
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                pve_lxc_mount_volumes:
+                  - storage=some_pool,size=8G,mp=/data
+            - name: storage+mount_volumes was not rejected
+              ansible.builtin.fail:
+                msg: "storage and mount_volumes are mutually exclusive per the module docs."
+          rescue:
+            - name: rejected, as documented
+              ansible.builtin.debug:
+                msg: "storage + mount_volumes refused"
+
+        - name: disk together with disk_volume is rejected
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                pve_lxc_storage: ""
+                pve_lxc_disk_volume:
+                  storage: some_pool
+                  size: 32
+            - name: disk+disk_volume was not rejected
+              ansible.builtin.fail:
+                msg: "disk and disk_volume are mutually exclusive per the module docs."
+          rescue:
+            - name: rejected, as documented
+              ansible.builtin.debug:
+                msg: "disk + disk_volume refused"
+
+        - name: An explicit, valid console mode is accepted
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: validate.yaml
+          vars:
+            <<: *valid_creds
+            pve_lxc_cmode: console
+
+        # CONTROL. Constructs the broken condition a caller can actually create rather than
+        # editing the role: community.proxmox's own argspec default. It builds a container
+        # successfully and then 400s on every converge (proxmox.py:969 vs :1169), so nothing
+        # short of a second run against a real host would catch it -- which is the whole
+        # reason the rule exists and the reason this case is here.
+        - name: The module's omit-sentinel is refused
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                pve_lxc_cmode: default
+            - name: CONTROL did not fire — cmode=default was accepted
+              ansible.builtin.fail:
+                msg: >-
+                  pve_lxc_cmode=default is community.proxmox's omit-sentinel. It is honoured
+                  only on create, so accepting it ships a container that cannot converge.
+          rescue:
+            - name: CONTROL — the sentinel was refused
+              ansible.builtin.debug:
+                msg: "cmode=default refused"
+
+        # ---------- 6. raw lxc.* lines land in the CONTAINER, not in the newest snapshot ----
+        # The seeded shape is the real one. PVE::LXC::Config::write_pct_config emits, per
+        # section: the description as `#` comments, the options sorted, then the raw lxc.*
+        # lines -- and then "\n[$name]\n" plus a full copy of all of that for every snapshot.
+        # parse_pct_config reassigns `$conf` on `^\[...\]`, so a line written after that
+        # header configures the SNAPSHOT and the container never gets it. CT 120 has a
+        # `pre-uinput` snapshot, so this fixture has one: an EOF append passes every assertion
+        # about "the line is in the file" and still does nothing to the container.
+        #
+        # The `=` form on lxc.apparmor.profile is not decoration either -- parse_pct_config
+        # matches `(lxc\.[a-z0-9_\-\.]+)(:|\s*=)`, so a config can legitimately hold one, and
+        # a `match` that only looked for `:` would append a second line instead of replacing
+        # it. Both forms then take effect.
+        - name: Seed a container config with a snapshot section and an = -form raw line
+          ansible.builtin.copy:
+            dest: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+            mode: "0644"
+            content: |
+              #a fixture description
+              arch: amd64
+              cores: 6
+              hostname: fixture
+              memory: 4096
+              rootfs: pool:vm-{{ _raw_vmid }}-disk-0,size=8G
+              unprivileged: 1
+              lxc.apparmor.profile = generated
+
+              [pre-uinput]
+              arch: amd64
+              hostname: fixture
+              rootfs: pool:vm-{{ _raw_vmid }}-disk-0,size=8G
+              snaptime: 1757800000
+              unprivileged: 1
+
+        - name: Apply the two raw lines the vdesktop container needs, plus a rewrite of the = form
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: &raw_fixture
+            pve_lxc_vmid: "{{ _raw_vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_conf_path: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+            pve_lxc_devices: []
+            pve_lxc_bind_mounts: []
+            pve_lxc_raw_config:
+              - key: lxc.cgroup2.devices.allow
+                value: "c 13:* rwm"
+              - key: lxc.mount.entry
+                value: "/dev/input dev/input none bind,optional,create=dir 0 0"
+              - key: lxc.apparmor.profile
+                value: generated
+
+        - name: Read the config back
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+          register: _raw_after_first
+
+        # Byte-for-byte, not "the line is present". Presence is exactly what an EOF append
+        # would also satisfy; position relative to `[pre-uinput]` is the whole finding.
+        - name: The raw lines are above the snapshot header and the snapshot is untouched
+          vars:
+            _got: "{{ _raw_after_first.content | b64decode }}"
+            _want: |
+              #a fixture description
+              arch: amd64
+              cores: 6
+              hostname: fixture
+              memory: 4096
+              rootfs: pool:vm-{{ _raw_vmid }}-disk-0,size=8G
+              unprivileged: 1
+              lxc.cgroup2.devices.allow: c 13:* rwm
+              lxc.mount.entry: /dev/input dev/input none bind,optional,create=dir 0 0
+              lxc.apparmor.profile: generated
+
+              [pre-uinput]
+              arch: amd64
+              hostname: fixture
+              rootfs: pool:vm-{{ _raw_vmid }}-disk-0,size=8G
+              snaptime: 1757800000
+              unprivileged: 1
+          ansible.builtin.assert:
+            that:
+              - _got == _want
+            fail_msg: |
+              The container config is not what it should be.
+              --- got ---
+              {{ _got }}
+              --- want ---
+              {{ _want }}
+            success_msg: "3 raw lines in the container section; [pre-uinput] carried through"
+
+        - name: Apply the identical raw declaration a second time
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars: *raw_fixture
+
+        - name: Read the config back again
+          ansible.builtin.slurp:
+            src: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+          register: _raw_after_second
+
+        # Compared as the base64 the slurp returns, so this is byte for byte including the
+        # trailing newline. `lookup('file')` strips that, which would make a file that grew a
+        # newline look identical.
+        - name: The second run rewrote nothing
+          ansible.builtin.assert:
+            that:
+              - _pve_lxc_raw_write is not changed
+              - _raw_after_second.content == _raw_after_first.content
+            fail_msg: >-
+              The raw write is not idempotent, so every converge reports changed and the role
+              keeps claiming a container restart is owed.
+              Now: {{ _raw_after_second.content | b64decode }}
+            success_msg: "idempotent: copy reported unchanged and the bytes are identical"
+
+        # ---------- 6b. two entries sharing a key, told apart by `match` -----------------
+        # The case the vdesktop container actually needs next: /dev/input as a directory and
+        # /dev/uinput as a file are two lxc.mount.entry lines. Without a distinct `match` each
+        # would overwrite the other, which is why validate.yaml refuses that (case 7 below).
+        - name: Two mount entries under one key
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars:
+            pve_lxc_vmid: "{{ _raw_vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_conf_path: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+            pve_lxc_devices: []
+            pve_lxc_bind_mounts: []
+            pve_lxc_raw_config:
+              - key: lxc.mount.entry
+                value: "/dev/input dev/input none bind,optional,create=dir 0 0"
+                match: '^lxc\.mount\.entry(:|\s*=)\s*/dev/input\b'
+              - key: lxc.mount.entry
+                value: "/dev/uinput dev/uinput none bind,optional,create=file 0 0"
+                match: '^lxc\.mount\.entry(:|\s*=)\s*/dev/uinput\b'
+
+        - name: Both mount entries survive, and neither replaced the other
+          vars:
+            _lines: "{{ lookup('file', _tmp.path ~ '/pct/' ~ _raw_vmid ~ '.conf').splitlines() }}"
+            _entries: "{{ _lines | select('match', '^lxc\\.mount\\.entry') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _entries | length == 2
+              - _entries | select('search', '/dev/input dev/input') | list | length == 1
+              - _entries | select('search', '/dev/uinput dev/uinput') | list | length == 1
+              # still above the snapshot
+              - _lines.index('[pre-uinput]') > _lines.index(_entries[1])
+            fail_msg: "Expected two distinct lxc.mount.entry lines above the snapshot. Got: {{ _entries }}"
+            success_msg: "two mount entries kept apart by `match`"
+
+        # ---------- 6c. state: absent removes one and leaves its neighbour ---------------
+        - name: Remove the uinput mount entry
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars:
+            pve_lxc_vmid: "{{ _raw_vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_conf_path: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+            pve_lxc_devices: []
+            pve_lxc_bind_mounts: []
+            pve_lxc_raw_config:
+              - key: lxc.mount.entry
+                value: "/dev/uinput dev/uinput none bind,optional,create=file 0 0"
+                match: '^lxc\.mount\.entry(:|\s*=)\s*/dev/uinput\b'
+                state: absent
+
+        - name: Only the uinput entry went
+          vars:
+            _lines: "{{ lookup('file', _tmp.path ~ '/pct/' ~ _raw_vmid ~ '.conf').splitlines() }}"
+          ansible.builtin.assert:
+            that:
+              - _lines | select('search', '/dev/uinput') | list | length == 0
+              - _lines | select('search', '/dev/input dev/input') | list | length == 1
+              - _lines | select('search', 'lxc.cgroup2.devices.allow') | list | length == 1
+              - "'[pre-uinput]' in _lines"
+            fail_msg: "absent removed the wrong lines: {{ _lines }}"
+            success_msg: "absent removed exactly its own line"
+
+        # ---------- 6d. a pct set in the same run must not lose the raw lines ------------
+        # Ordering inside node_config.yaml: devices go through `pct set`, which makes PVE
+        # rewrite the whole file, and only then are the raw lines folded in. If that order
+        # were reversed -- or if PVE dropped raw lines on rewrite -- this is where it shows.
+        - name: A device and a raw line in one call
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: node_config.yaml
+          vars:
+            pve_lxc_vmid: "{{ _raw_vmid }}"
+            pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+            pve_lxc_conf_path: "{{ _tmp.path }}/pct/{{ _raw_vmid }}.conf"
+            pve_lxc_bind_mounts: []
+            pve_lxc_devices:
+              - path: /dev/uinput
+                gid: 996
+                mode: "0660"
+            pve_lxc_raw_config:
+              - key: lxc.cgroup2.devices.allow
+                value: "c 13:* rwm"
+
+        - name: The device was set and the raw lines are still there, still above the snapshot
+          vars:
+            _lines: "{{ lookup('file', _tmp.path ~ '/pct/' ~ _raw_vmid ~ '.conf').splitlines() }}"
+            _log: "{{ lookup('file', _tmp.path ~ '/calls.log').strip().splitlines() }}"
+            # In vars, not inline in `that`: a plain YAML scalar may not contain ": ", which
+            # turns the conditional into a mapping and fails with "Conditional expressions
+            # must be strings" rather than anything that names the real problem.
+            _dev_re: 'dev0: path=/dev/uinput,'
+            _allow_line: 'lxc.cgroup2.devices.allow: c 13:* rwm'
+          ansible.builtin.assert:
+            that:
+              - _log | select('search', '^set ' ~ _raw_vmid ~ ' ') | select('search', '--dev0') | list | length == 1
+              - _lines | select('search', _dev_re) | list | length == 1
+              - _allow_line in _lines
+              - _lines.index('[pre-uinput]') > _lines.index(_allow_line)
+            fail_msg: "pct set and the raw fold did not coexist. Config: {{ _lines }} Log: {{ _log }}"
+            success_msg: "dev0 written by pct set; raw line intact above the snapshot"
+
+        # ---------- 6e. CONTROL: refuse to rewrite a file that is not a container config --
+        # The write is a whole-file replace, as root, with unsafe_writes. Aimed at the wrong
+        # path it destroys a container. Constructs the broken CALLER -- a conf_path pointing
+        # somewhere else -- rather than breaking the role.
+        - name: A conf_path that is not a container config is refused
+          block:
+            - name: Something that is not a container config
+              ansible.builtin.copy:
+                dest: "{{ _tmp.path }}/not-a-config"
+                mode: "0644"
+                content: |
+                  # notes to self
+                  lxc.mount.entry = whatever
+
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: node_config.yaml
+              vars:
+                pve_lxc_vmid: "{{ _raw_vmid }}"
+                pve_lxc_pct_command: "{{ _tmp.path }}/stub-pct"
+                pve_lxc_conf_path: "{{ _tmp.path }}/not-a-config"
+                pve_lxc_devices: []
+                pve_lxc_bind_mounts: []
+                pve_lxc_raw_config:
+                  - key: lxc.cgroup2.devices.allow
+                    value: "c 13:* rwm"
+
+            - name: CONTROL did not fire — a non-config file was rewritten
+              ansible.builtin.fail:
+                msg: >-
+                  The role rewrote a file with no container option line in it. Pointed at the
+                  wrong path by a typo, that is a destroyed container.
+          rescue:
+            - name: CONTROL — refused, and the file is untouched
+              vars:
+                _still: "{{ lookup('file', _tmp.path ~ '/not-a-config') }}"
+              ansible.builtin.assert:
+                that:
+                  - "'lxc.cgroup2.devices.allow' not in _still"
+                fail_msg: "The assert fired but the file was written anyway: {{ _still }}"
+                success_msg: "refused before writing"
+
+        # ---------- 7. raw lxc.* input validation ----------------------------------------
+        - name: A hyphenated liblxc key is accepted
+          ansible.builtin.include_role:
+            name: pve_lxc
+            tasks_from: validate.yaml
+          vars:
+            <<: *valid_creds
+            # Regression guard. A narrower `^lxc\.[a-z0-9]+(\.[a-z0-9_]+)*$` looks right and
+            # rejects this, which is a real key; PVE's own class is [a-z0-9_\-\.].
+            pve_lxc_raw_config:
+              - key: lxc.hook.pre-start
+                value: /usr/local/bin/hook
+
+        - name: A key that is not an lxc key at all is refused
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                # Not hypothetical: this renders `rootfs: junk` into the config and the
+                # container loses its disk.
+                pve_lxc_raw_config:
+                  - key: rootfs
+                    value: junk
+            - name: CONTROL did not fire — a non-lxc key was accepted
+              ansible.builtin.fail:
+                msg: "A non-lxc key is written as a plain option line and clobbers a real one."
+          rescue:
+            - name: CONTROL — refused
+              ansible.builtin.debug:
+                msg: "non-lxc key refused"
+
+        - name: Two entries sharing a key with no match are refused
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                pve_lxc_raw_config:
+                  - key: lxc.mount.entry
+                    value: "/dev/input dev/input none bind,optional,create=dir 0 0"
+                  - key: lxc.mount.entry
+                    value: "/dev/uinput dev/uinput none bind,optional,create=file 0 0"
+            - name: CONTROL did not fire — a silently collapsing pair was accepted
+              ansible.builtin.fail:
+                msg: >-
+                  Two entries under one key with no `match` collapse to whichever ran last,
+                  and the run reports success.
+          rescue:
+            - name: CONTROL — refused
+              ansible.builtin.debug:
+                msg: "duplicate key without match refused"
+
+        - name: A match that does not select the line it writes is refused
+          block:
+            - name: This is expected to fail
+              ansible.builtin.include_role:
+                name: pve_lxc
+                tasks_from: validate.yaml
+              vars:
+                <<: *valid_creds
+                # Plausible and wrong: the regex describes the value that is already in the
+                # file, not the line about to be written, so the fold deletes nothing, appends,
+                # and appends again on the next run. Nothing ever reports a problem.
+                pve_lxc_raw_config:
+                  - key: lxc.cgroup2.devices.allow
+                    value: "c 13:* rwm"
+                    match: '^lxc\.cgroup2\.devices\.allow:\s*c 226:\* rwm'
+            - name: CONTROL did not fire — a non-selecting match was accepted
+              ansible.builtin.fail:
+                msg: >-
+                  A `match` that does not match `key: value` appends a duplicate on every run,
+                  and both duplicated lines take effect in the container.
+          rescue:
+            - name: CONTROL — refused
+              ansible.builtin.debug:
+                msg: "non-selecting match refused"
+
+      always:
+        - name: Remove the scratch directory
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent

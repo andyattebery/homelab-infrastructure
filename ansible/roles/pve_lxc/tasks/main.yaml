@@ -1,0 +1,98 @@
+---
+# Container lifecycle through the PVE API, plus the two option families the API refuses.
+#
+# Split deliberately: everything here goes through community.proxmox.proxmox with an API
+# token, and node_config.yaml holds only what PVE hardcodes to root@pam. See README.
+
+- name: Validate the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+# Runs on the controller, not the node: proxmoxer is a controller-side dependency
+# (requirements.txt) and the PVE nodes do not have it.
+- name: "Converge container {{ pve_lxc_vmid }} through the API"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  vars:
+      # Delegating to localhost hands the task Ansible's interpreter DISCOVERY, which finds a
+      # system python -- not the venv this repo installs proxmoxer into, so the module fails to
+      # import it. ansible_playbook_python is the interpreter actually running ansible-playbook,
+      # i.e. the venv's. Set here rather than in the inventory so the role does not depend on
+      # how any particular inventory spells localhost.
+      ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  community.proxmox.proxmox:
+    api_host: "{{ pve_lxc_api_host }}"
+    api_user: "{{ pve_lxc_api_user }}"
+    api_token_id: "{{ pve_lxc_api_token_id }}"
+    api_token_secret: "{{ pve_lxc_api_token_secret }}"
+    validate_certs: "{{ pve_lxc_api_validate_certs }}"
+    node: "{{ pve_lxc_node }}"
+    vmid: "{{ pve_lxc_vmid }}"
+    hostname: "{{ pve_lxc_hostname }}"
+    # Always present/absent here. `started` on a container that does not exist yet fails
+    # with "VM with VMID N does not exist in cluster" -- the power state is a SECOND call,
+    # below, once the thing exists.
+    state: "{{ 'absent' if pve_lxc_state == 'absent' else 'present' }}"
+    unprivileged: "{{ pve_lxc_unprivileged }}"
+    onboot: "{{ pve_lxc_onboot }}"
+    # Unconditional, NOT `| default(omit)`: omitting it lets the module supply its own broken
+    # "default" sentinel, which creates fine and 400s on every converge. See defaults/main.yaml.
+    cmode: "{{ pve_lxc_cmode }}"
+    purge: "{{ pve_lxc_purge if pve_lxc_state == 'absent' else omit }}"
+    timeout: "{{ pve_lxc_api_timeout }}"
+    ostemplate: "{{ pve_lxc_ostemplate | default(omit, true) }}"
+    storage: "{{ pve_lxc_storage | default(omit, true) }}"
+    disk: "{{ pve_lxc_disk | default(omit, true) }}"
+    disk_volume: "{{ pve_lxc_disk_volume | default(omit, true) }}"
+    mount_volumes: "{{ pve_lxc_mount_volumes | default(omit, true) }}"
+    cores: "{{ pve_lxc_cores | default(omit, true) }}"
+    memory: "{{ pve_lxc_memory | default(omit, true) }}"
+    swap: "{{ pve_lxc_swap | default(omit, true) }}"
+    netif: "{{ pve_lxc_netif | default(omit, true) }}"
+    features: "{{ pve_lxc_features | default(omit, true) }}"
+    tags: "{{ pve_lxc_tags | default(omit, true) }}"
+    nameserver: "{{ pve_lxc_nameserver | default(omit, true) }}"
+    searchdomain: "{{ pve_lxc_searchdomain | default(omit, true) }}"
+    timezone: "{{ pve_lxc_timezone | default(omit, true) }}"
+    description: "{{ pve_lxc_description | default(omit, true) }}"
+  register: pve_lxc_api_result
+
+- name: "Set container {{ pve_lxc_vmid }} power state to {{ pve_lxc_state }}"
+  when: pve_lxc_state in ['started', 'stopped', 'restarted']
+  delegate_to: localhost
+  become: false
+  run_once: true
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  community.proxmox.proxmox:
+    api_host: "{{ pve_lxc_api_host }}"
+    api_user: "{{ pve_lxc_api_user }}"
+    api_token_id: "{{ pve_lxc_api_token_id }}"
+    api_token_secret: "{{ pve_lxc_api_token_secret }}"
+    validate_certs: "{{ pve_lxc_api_validate_certs }}"
+    node: "{{ pve_lxc_node }}"
+    vmid: "{{ pve_lxc_vmid }}"
+    state: "{{ pve_lxc_state }}"
+    timeout: "{{ pve_lxc_api_timeout }}"
+  register: pve_lxc_power_result
+
+# All three families live in node_config.yaml, so all three have to appear in this guard. A
+# caller that sets ONLY pve_lxc_raw_config got a silent no-op while this listed just the first
+# two -- the run reports success and the container is never configured.
+- name: Apply the options the API will not accept from a token
+  when:
+    - pve_lxc_state != 'absent'
+    - >-
+      (pve_lxc_devices | default([]) | length > 0)
+      or (pve_lxc_bind_mounts | default([]) | length > 0)
+      or (pve_lxc_raw_config | default([]) | length > 0)
+  ansible.builtin.include_tasks:
+    file: node_config.yaml
+
+- name: Bootstrap a login account inside the container
+  when:
+    - pve_lxc_state != 'absent'
+    - pve_lxc_bootstrap_user | default('') | length > 0
+  ansible.builtin.include_tasks:
+    file: bootstrap_user.yaml

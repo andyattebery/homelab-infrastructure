@@ -1,0 +1,311 @@
+---
+# The two option families PVE hardcodes to the literal root@pam user, so they cannot go
+# through the API token at any privilege level:
+#
+#   PVE::LXC::check_ct_modify_config_perm (/usr/share/perl5/PVE/LXC.pm)
+#     dev\d+  -> "configuring device passthrough is only allowed for root@pam"   (unconditional)
+#     mp\d+   -> "mount point type ... is only allowed for root@pam" unless the type is
+#                `volume`, i.e. bind mounts only. Volume-backed mounts go through the module
+#                as pve_lxc_mount_volumes and never reach this file.
+#
+# Both are "read the config, compare, write only on difference", so the logic is here once.
+# Their option strings differ, so each gets its own renderer.
+
+- name: Read the container config
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", config, "{{ pve_lxc_vmid }}"]
+  register: _pve_lxc_config
+  changed_when: false
+
+# devN / mpN -> {N: {key: value}}. Both formats allow the first element to be bare -- the
+# device path and the mount volume respectively -- so a bare part is folded onto its named
+# key. That is what lets the comparison hold whether PVE stored `path=/dev/x` or `/dev/x`.
+- name: Parse the device and mount-point lines
+  ansible.builtin.set_fact:
+    _pve_lxc_current: >-
+      {%- set devs = {} -%}
+      {%- set mps = {} -%}
+      {%- for line in _pve_lxc_config.stdout_lines -%}
+        {%- if line is match('^(dev|mp)[0-9]+:') -%}
+          {%- set key, val = line.split(':', 1) -%}
+          {%- set is_dev = key.startswith('dev') -%}
+          {%- set n = key[3:] if is_dev else key[2:] -%}
+          {%- set bare_key = 'path' if is_dev else 'volume' -%}
+          {%- set d = {} -%}
+          {%- for part in val.strip().split(',') -%}
+            {%- if '=' in part -%}
+              {%- set _ = d.update({part.split('=', 1)[0]: part.split('=', 1)[1]}) -%}
+            {%- elif part | length > 0 -%}
+              {%- set _ = d.update({bare_key: part}) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- set _ = (devs if is_dev else mps).update({n: d}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ {'devices': devs, 'mounts': mps} }}
+
+# --- group -> gid, resolved INSIDE the container ---------------------------
+# The whole reason `group` exists as an input. The same group name routinely has different
+# gids on the host and in the container (render is 993 on a PVE 9 node and 992 in a Debian 13
+# container), and using the host's silently produces a device the container cannot open.
+- name: Check the container is running, since resolving a group needs to run inside it
+  when: pve_lxc_devices | selectattr('group', 'defined') | list | length > 0
+  block:
+    - name: Read container status
+      ansible.builtin.command:
+        argv: ["{{ pve_lxc_pct_command }}", status, "{{ pve_lxc_vmid }}"]
+      register: _pve_lxc_status
+      changed_when: false
+
+    - name: Refuse to guess a gid against a stopped container
+      ansible.builtin.assert:
+        that:
+          - "'running' in _pve_lxc_status.stdout"
+        fail_msg: >-
+          Container {{ pve_lxc_vmid }} is not running ({{ _pve_lxc_status.stdout | trim }}), so
+          a group name cannot be resolved inside it. Either set pve_lxc_state to `started`, or
+          give the device a literal `gid` instead of a `group`.
+        quiet: true
+
+- name: Resolve each requested group inside the container
+  when: pve_lxc_devices | selectattr('group', 'defined') | list | length > 0
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", getent, group, "{{ item }}"]
+  register: _pve_lxc_getent
+  changed_when: false
+  # getent exits non-zero for an unknown group. Left to fail, the task dies with a raw command
+  # error naming a temp path, and the assert below -- which explains what is actually wrong --
+  # never runs. Swallow it here so the diagnosis survives.
+  failed_when: false
+  loop: "{{ pve_lxc_devices | selectattr('group', 'defined') | map(attribute='group') | unique | list }}"
+
+- name: Index the resolved gids
+  ansible.builtin.set_fact:
+    _pve_lxc_gids: >-
+      {%- set m = {} -%}
+      {%- for r in _pve_lxc_getent.results | default([]) -%}
+        {%- set parts = r.stdout | default('') | trim | split(':') -%}
+        {%- if parts | length >= 3 and parts[2] | length > 0 -%}
+          {%- set _ = m.update({r.item: parts[2]}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ m }}
+
+- name: Fail on a group the container does not have
+  vars:
+    _wanted: "{{ pve_lxc_devices | selectattr('group', 'defined') | map(attribute='group') | unique | list }}"
+    _missing: "{{ _wanted | difference(_pve_lxc_gids.keys() | list) }}"
+  when: _wanted | length > 0
+  ansible.builtin.assert:
+    that:
+      - _missing | length == 0
+    fail_msg: >-
+      Container {{ pve_lxc_vmid }} has no group {{ _missing | join(', ') }}. The device would
+      be created owned by a gid that does not exist there. Create the group first, or pass a
+      literal gid. Nothing was written.
+    quiet: true
+
+# --- devices ---------------------------------------------------------------
+- name: Set devices that are missing or differ
+  vars:
+    _n: "{{ idx | string }}"
+    # Spelled out as a branch, not `item.gid | default(_pve_lxc_gids[item.group] | default(''),
+    # true)`. The `default` filter does not short-circuit its argument: Jinja evaluates the
+    # subscript even when item.gid is set, so a device declared with a literal gid and no
+    # group died with "object of type 'dict' has no attribute 'group'" -- a combination
+    # validate.yaml explicitly permits and the README documents.
+    _gid: >-
+      {%- if item.gid is defined -%}{{ item.gid }}
+      {%- elif item.group is defined -%}{{ _pve_lxc_gids[item.group] | default('') }}
+      {%- endif -%}
+    # A caller writing `gid: 996` hands over an int, and `_gid | length` on an int is a hard
+    # task failure, not a falsy result. Everything downstream compares against `pct config`
+    # output, which is strings throughout, so the coercion happens once here.
+    _gid_s: "{{ _gid | string }}"
+    _desired: >-
+      {{ {'path': item.path}
+         | combine({'gid': _gid_s} if _gid_s | length > 0 else {})
+         | combine({'uid': item.uid | string} if item.uid is defined else {})
+         | combine({'mode': item.mode | string} if item.mode is defined else {})
+         | combine({'deny-write': item.deny_write | string} if item.deny_write is defined else {}) }}
+    _value: >-
+      path={{ item.path }}{% if _gid_s | length > 0 %},gid={{ _gid_s }}{% endif %}{% if item.uid is defined %},uid={{ item.uid }}{% endif %}{% if item.mode is defined %},mode={{ item.mode }}{% endif %}{% if item.deny_write is defined %},deny-write={{ item.deny_write }}{% endif %}
+  when:
+    - item.state | default('present') == 'present'
+    - _pve_lxc_current.devices[_n] | default({}) != _desired
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", set, "{{ pve_lxc_vmid }}", "--dev{{ _n }}", "{{ _value | trim }}"]
+  changed_when: true
+  loop: "{{ pve_lxc_devices }}"
+  loop_control:
+    index_var: idx
+    label: "dev{{ idx }} {{ item.path }}"
+
+- name: Delete devices declared absent
+  vars:
+    _n: "{{ idx | string }}"
+  when:
+    - item.state | default('present') == 'absent'
+    - _n in _pve_lxc_current.devices
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", set, "{{ pve_lxc_vmid }}", --delete, "dev{{ _n }}"]
+  changed_when: true
+  loop: "{{ pve_lxc_devices }}"
+  loop_control:
+    index_var: idx
+    label: "dev{{ idx }}"
+
+# --- bind mounts -----------------------------------------------------------
+- name: Set bind mounts that are missing or differ
+  vars:
+    _n: "{{ idx | string }}"
+    _extra: "{{ item.options | default({}, true) }}"
+    # Values are stringified because `pct config` gives every value back as a string, and
+    # `backup: 0` compared against `'0'` is a difference that would rewrite on every run.
+    _desired: >-
+      {%- set d = {'volume': item.host_path, 'mp': item.mount_point} -%}
+      {%- for k, v in _extra.items() -%}
+        {%- set _ = d.update({k: v | string}) -%}
+      {%- endfor -%}
+      {{ d }}
+    _value: >-
+      {{ item.host_path }},mp={{ item.mount_point }}{% for k, v in _extra | dictsort %},{{ k }}={{ v }}{% endfor %}
+  when:
+    - item.state | default('present') == 'present'
+    - _pve_lxc_current.mounts[_n] | default({}) != _desired
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", set, "{{ pve_lxc_vmid }}", "--mp{{ _n }}", "{{ _value | trim }}"]
+  changed_when: true
+  loop: "{{ pve_lxc_bind_mounts }}"
+  loop_control:
+    index_var: idx
+    label: "mp{{ idx }} {{ item.host_path }} -> {{ item.mount_point }}"
+
+- name: Delete bind mounts declared absent
+  vars:
+    _n: "{{ idx | string }}"
+  when:
+    - item.state | default('present') == 'absent'
+    - _n in _pve_lxc_current.mounts
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", set, "{{ pve_lxc_vmid }}", --delete, "mp{{ _n }}"]
+  changed_when: true
+  loop: "{{ pve_lxc_bind_mounts }}"
+  loop_control:
+    index_var: idx
+    label: "mp{{ idx }}"
+
+# --- raw lxc.* lines --------------------------------------------------------
+# Not `pct set`: `lxc` is not in PVE's $confdesc, so there is no API property and no pct flag
+# for these. The config file is the only interface. See defaults/main.yaml for why the colon
+# form is what gets written and why `match` exists.
+- name: Resolve the container config path
+  ansible.builtin.set_fact:
+    _pve_lxc_conf_path: >-
+      {{ pve_lxc_conf_path | default('', true)
+         | ternary(pve_lxc_conf_path, '/etc/pve/lxc/' ~ pve_lxc_vmid ~ '.conf') }}
+
+- name: Apply the raw lxc.* configuration lines
+  when: pve_lxc_raw_config | default([]) | length > 0
+  block:
+    - name: Read the container config file
+      ansible.builtin.slurp:
+        src: "{{ _pve_lxc_conf_path }}"
+      register: _pve_lxc_conf_slurp
+
+    # THE reason this is a whole-file edit and not `lineinfile`.
+    # PVE::LXC::Config::write_pct_config emits, per section: the description as `#` comments,
+    # the options sorted, then the raw `lxc.*` lines -- and then "\n[$name]\n" plus another
+    # full copy of all that for [pve:pending] and for EACH SNAPSHOT.
+    # parse_pct_config reassigns `$conf` on a `^\[...\]` line, so every line after the first
+    # section header belongs to a SNAPSHOT, not to the container. Appending at EOF writes the
+    # setting into the newest snapshot, where it does nothing and the container never gets it
+    # -- and `lineinfile` cannot express "before the first section header", because both
+    # insertbefore and insertafter anchor on the LAST match. Hence the split; only head is
+    # edited and tail is carried through byte for byte.
+    - name: Split the config at the first section header
+      vars:
+        _lines: "{{ (_pve_lxc_conf_slurp.content | b64decode).splitlines() }}"
+        # Blank lines carry no meaning (parse_pct_config skips them) and the only one PVE puts
+        # in the main section is the separator before the first header, which is re-added on
+        # write. Dropping them here is what makes the output byte-stable across runs.
+        _split: >-
+          {%- set head = [] -%}
+          {%- set tail = [] -%}
+          {%- set ns = namespace(in_tail=false) -%}
+          {%- for l in _lines -%}
+            {%- if l is match('^\[') -%}{%- set ns.in_tail = true -%}{%- endif -%}
+            {%- if ns.in_tail -%}
+              {%- set _ = tail.append(l) -%}
+            {%- elif l | trim | length > 0 -%}
+              {%- set _ = head.append(l) -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {{ {'head': head, 'tail': tail} }}
+      ansible.builtin.set_fact:
+        _pve_lxc_head: "{{ _split.head }}"
+        _pve_lxc_tail: "{{ _split.tail }}"
+
+    # The write below replaces the whole file, with unsafe_writes, as root. If the slurp came
+    # back with something that is not a container config, that write destroys the container.
+    # Cheap guard: PVE's own option pattern (parse_pct_config's final elsif) must appear at
+    # least once in the main section, which it does in every real config -- `arch` alone
+    # guarantees it.
+    - name: Refuse to rewrite a file that is not a container config
+      ansible.builtin.assert:
+        that:
+          - _pve_lxc_head | select('match', '^[a-z][a-z_]*[0-9]*:') | list | length > 0
+        fail_msg: >-
+          {{ _pve_lxc_conf_path }} has no `key: value` option line before its first section
+          header, so it is not a container config. Refusing to rewrite it.
+          Read: {{ _pve_lxc_head }}
+        quiet: true
+
+    # Delete every line the entry matches, then append the rendered one at the end of head.
+    # Deleting ALL matches is deliberate: it collapses a duplicate left by a hand edit or by an
+    # older `=`-form line, which is the state `lineinfile` would have created and then never
+    # noticed. It is also why a `match` wider than the caller intended deletes lines they meant
+    # to keep -- validate.yaml checks each `match` against the line it is about to write, which
+    # is the half of that risk a rule can actually catch.
+    - name: Fold each raw lxc.* declaration into the main section
+      vars:
+        _match: "{{ item.match | default('^' ~ (item.key | regex_escape) ~ '(:|\\s*=)') }}"
+        _line: "{{ item.key }}: {{ item.value }}"
+      ansible.builtin.set_fact:
+        _pve_lxc_head: >-
+          {{ (_pve_lxc_head | reject('search', _match) | list)
+             + ([_line] if item.state | default('present') == 'present' else []) }}
+      loop: "{{ pve_lxc_raw_config }}"
+      loop_control:
+        label: "{{ item.key }}{{ '' if item.state | default('present') == 'present' else ' (absent)' }}"
+
+    # unsafe_writes is required, not defensive: /etc/pve is pmxcfs, a FUSE filesystem, and
+    # Ansible's atomic_move creates its temp file in the destination directory and then chmods
+    # it, which pmxcfs does not support. No `mode:` for the same reason -- copy keeps the
+    # destination's mode when none is given, so pmxcfs is never asked to chmod. `copy` compares
+    # checksums, so `changed` is true only when the bytes actually differ.
+    #
+    # _nl exists because the newline has to come from YAML's own escape processing: Jinja does
+    # NOT unescape "\n" inside its string literals here, so `join('\n')` written in a
+    # single-quoted YAML scalar silently joins on a literal backslash-n and writes that into
+    # the container config. Verified on ansible-core 2.21.3, not assumed.
+    - name: Write the container config back
+      vars:
+        _nl: "\n"
+        _sep: "{{ [''] if _pve_lxc_tail | length > 0 else [] }}"
+      ansible.builtin.copy:
+        dest: "{{ _pve_lxc_conf_path }}"
+        content: "{{ (_pve_lxc_head + _sep + _pve_lxc_tail + ['']) | join(_nl) }}"
+        unsafe_writes: true
+      register: _pve_lxc_raw_write
+
+    # A raw line is read by liblxc when the container STARTS. Writing one changes nothing about
+    # a running container, and this role does not restart it -- an unannounced restart of a
+    # desktop session is exactly the failure the rest of this repo avoids. Report the debt.
+    - name: Report that a container restart is owed
+      when: _pve_lxc_raw_write.changed
+      ansible.builtin.debug:
+        msg: >-
+          Raw lxc.* configuration changed for container {{ pve_lxc_vmid }}. These are read only
+          at container start, so the running container is UNCHANGED until it is restarted:
+          pct reboot {{ pve_lxc_vmid }}

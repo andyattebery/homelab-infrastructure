@@ -1,0 +1,113 @@
+---
+# Creates the account Ansible will connect as, from outside the container.
+#
+# This exists because a container has no cloud-init. `pct create` seeds only root -- both
+# --password and --ssh-public-keys are root-only -- so without this the first playbook run
+# against the new host has no account to log in with. Everything here runs via `pct exec` from
+# the node, which needs root there; it is the same ssh path node_config.yaml already needs.
+
+- name: Fetch the public keys to seed
+  delegate_to: localhost
+  become: false
+  run_once: true
+  ansible.builtin.uri:
+    url: "{{ pve_lxc_bootstrap_keys_url }}"
+    return_content: true
+  register: _pve_lxc_keys
+  when: pve_lxc_bootstrap_keys_url | default('') | length > 0
+
+- name: Refuse to create an account with no way into it
+  vars:
+    _keys: "{{ _pve_lxc_keys.content | default('') | trim }}"
+  ansible.builtin.assert:
+    that:
+      - _keys | length > 0
+      - _keys is search('^(ssh|ecdsa)-')
+    fail_msg: >-
+      {{ pve_lxc_bootstrap_keys_url | default('<no url given>') }} returned nothing that looks
+      like an SSH public key. Creating a passwordless account with no authorized_keys leaves a
+      container nothing can log into, so nothing was created.
+    quiet: true
+
+- name: Check whether the account already exists
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", id, "-u", "{{ pve_lxc_bootstrap_user }}"]
+  register: _pve_lxc_user_check
+  changed_when: false
+  failed_when: false
+
+- name: Create the account
+  when: _pve_lxc_user_check.rc != 0
+  ansible.builtin.command:
+    argv:
+      - "{{ pve_lxc_pct_command }}"
+      - exec
+      - "{{ pve_lxc_vmid }}"
+      - "--"
+      - useradd
+      - --create-home
+      - --shell
+      - "{{ pve_lxc_bootstrap_shell }}"
+      - "{{ pve_lxc_bootstrap_user }}"
+  changed_when: true
+
+# The Debian LXC template ships no sudo at all, so /etc/sudoers.d does not exist and writing
+# into it fails with ENOENT. Unconditional because apt is idempotent and a guard here only
+# hides the next missing package.
+- name: Ensure sudo is installed
+  when: pve_lxc_bootstrap_sudo | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", bash, "-lc",
+           "command -v sudo >/dev/null || { apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq sudo; }"]
+  register: _pve_lxc_sudo_install
+  changed_when: "'Setting up sudo' in _pve_lxc_sudo_install.stdout"
+
+# Read-then-compare, like the authorized_keys pair below. An earlier version wrote the file
+# unconditionally and derived changed from `visudo -cf` printing "parsed OK" -- which it does
+# on every valid file, so the task reported changed forever and the role never converged.
+# Validity is not difference.
+- name: Read the sudoers fragment already in place
+  when: pve_lxc_bootstrap_sudo | bool
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", bash, "-lc",
+           "cat /etc/sudoers.d/90-{{ pve_lxc_bootstrap_user }} 2>/dev/null || true"]
+  register: _pve_lxc_current_sudoers
+  changed_when: false
+
+- name: Grant passwordless sudo
+  vars:
+    _sudoers: "{{ pve_lxc_bootstrap_user }} ALL=(ALL) NOPASSWD:ALL"
+  when:
+    - pve_lxc_bootstrap_sudo | bool
+    - (_pve_lxc_current_sudoers.stdout | default('') | trim) != _sudoers
+  # Content arrives on stdin rather than inside the -lc string, so the username is never
+  # interpolated into a shell command. visudo still validates what was written.
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", bash, "-lc",
+           "install -d -m 0755 /etc/sudoers.d && cat > /etc/sudoers.d/90-{{ pve_lxc_bootstrap_user }} && chmod 0440 /etc/sudoers.d/90-{{ pve_lxc_bootstrap_user }} && visudo -cf /etc/sudoers.d/90-{{ pve_lxc_bootstrap_user }}"]
+    stdin: "{{ _sudoers }}\n"
+  changed_when: true
+
+- name: Read the authorized_keys already in place
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", bash, "-lc",
+           "cat /home/{{ pve_lxc_bootstrap_user }}/.ssh/authorized_keys 2>/dev/null || true"]
+  register: _pve_lxc_current_keys
+  changed_when: false
+
+# SEEDS the file, and only when it is empty -- it does not own it. Whatever configures the
+# container afterwards (this repo's configure_server, say) manages that account's
+# authorized_keys as part of its normal job, and if both wrote the file on a difference they
+# would overwrite each other on every run, forever. It converged for exactly as long as
+# nothing else managed the account.
+# The role's job is narrower than it looks: make the container reachable ONCE, so the play
+# that owns the account can connect at all.
+- name: Install the authorized keys
+  vars:
+    _keys: "{{ _pve_lxc_keys.content | default('') | trim }}"
+  when: (_pve_lxc_current_keys.stdout | trim) | length == 0
+  ansible.builtin.command:
+    argv: ["{{ pve_lxc_pct_command }}", exec, "{{ pve_lxc_vmid }}", "--", bash, "-lc",
+           "install -d -m 0700 -o {{ pve_lxc_bootstrap_user }} -g {{ pve_lxc_bootstrap_user }} /home/{{ pve_lxc_bootstrap_user }}/.ssh && cat > /home/{{ pve_lxc_bootstrap_user }}/.ssh/authorized_keys && chown {{ pve_lxc_bootstrap_user }}:{{ pve_lxc_bootstrap_user }} /home/{{ pve_lxc_bootstrap_user }}/.ssh/authorized_keys && chmod 0600 /home/{{ pve_lxc_bootstrap_user }}/.ssh/authorized_keys"]
+    stdin: "{{ _keys }}\n"
+  changed_when: true

@@ -1,0 +1,125 @@
+---
+# Input validation only. Touches nothing and calls nothing, which is what lets the fixture
+# test exercise these rules directly -- they are the role's other real decision, and the
+# exclusivity rule below shipped wrong once because it lived in main.yaml where no test could
+# reach it.
+
+- name: Require the identity and credential inputs
+  ansible.builtin.assert:
+    that:
+      - pve_lxc_vmid | default('') | string is match(_pve_lxc_vmid_re)
+      - pve_lxc_hostname | default('') | length > 0
+      - pve_lxc_node | default('') | length > 0
+      - pve_lxc_api_host | default('') | length > 0
+      - pve_lxc_api_user | default('') | length > 0
+      - pve_lxc_api_token_id | default('') | length > 0
+      - pve_lxc_api_token_secret | default('') | length > 0
+    fail_msg: >-
+      pve_lxc needs vmid (>= 100), hostname, node and the four api_* inputs. None of them are
+      defaulted: a guessed node builds the container in the wrong place and a guessed vmid
+      builds over something else, and neither fails on its own.
+    quiet: true
+
+# Exactly the pairs community.proxmox documents, not a tidier-looking "one of three":
+#   storage      x disk_volume,  storage x mount_volumes
+#   disk         x disk_volume
+# `storage` WITH `disk` is the normal combination -- disk is a size, storage is where to put
+# it. An earlier version of this assert rejected that and blocked the common case.
+- name: Reject mutually exclusive storage and mount inputs
+  vars:
+    _has_storage: "{{ pve_lxc_storage | default('', true) | string | length > 0 }}"
+    _has_disk: "{{ pve_lxc_disk | default('', true) | string | length > 0 }}"
+    _has_disk_volume: "{{ pve_lxc_disk_volume | default({}, true) | length > 0 }}"
+    _has_mount_volumes: "{{ pve_lxc_mount_volumes | default([], true) | length > 0 }}"
+  ansible.builtin.assert:
+    that:
+      - not (_has_storage | bool and _has_disk_volume | bool)
+      - not (_has_storage | bool and _has_mount_volumes | bool)
+      - not (_has_disk | bool and _has_disk_volume | bool)
+    fail_msg: >-
+      community.proxmox documents `storage` as mutually exclusive with `disk_volume` and
+      `mount_volumes`, and `disk` with `disk_volume`. Given:
+      storage={{ pve_lxc_storage | default('<unset>') }},
+      disk={{ pve_lxc_disk | default('<unset>') }},
+      disk_volume={{ pve_lxc_disk_volume | default({}) | length }} key(s),
+      mount_volumes={{ pve_lxc_mount_volumes | default([]) | length }} entry(ies).
+    quiet: true
+
+# `default` is a community.proxmox SENTINEL, not a PVE value, and it is honoured only on
+# create (proxmox.py:1169 vs the update path at :969). A caller who sets it gets a container
+# that builds once and then fails every converge with a 400 -- so reject it here, where a
+# fixture test can reach the rule, rather than discovering it on the second run against a host.
+- name: Reject the console mode the module cannot converge
+  ansible.builtin.assert:
+    that:
+      - pve_lxc_cmode | default('') in _pve_lxc_cmode_choices
+    fail_msg: >-
+      pve_lxc_cmode must be one of {{ _pve_lxc_cmode_choices | join(', ') }} (PVE's own
+      enumeration; its documented default is tty). Got
+      '{{ pve_lxc_cmode | default('<unset>') }}'. In particular 'default' is the module's
+      omit-sentinel and only works on creation.
+    quiet: true
+
+- name: Validate the raw lxc.* declarations
+  vars:
+    _raw: "{{ pve_lxc_raw_config | default([]) }}"
+    _keys_wo_match: "{{ _raw | rejectattr('match', 'defined') | map(attribute='key') | list }}"
+  ansible.builtin.assert:
+    that:
+      - _raw | rejectattr('key', 'defined') | list | length == 0
+      - _raw | rejectattr('value', 'defined') | list | length == 0
+      - _raw | map(attribute='key') | map('regex_search', _pve_lxc_raw_key_re) | select('none') | list | length == 0
+      # Two entries sharing a key and neither giving `match` would silently collapse into one
+      # line, and the loser would be whichever ran last. Caught here instead.
+      - _keys_wo_match | unique | length == _keys_wo_match | length
+    fail_msg: >-
+      Every pve_lxc_raw_config entry needs `key` matching {{ _pve_lxc_raw_key_re }} and a
+      `value`, and entries sharing a `key` must each supply a distinct `match` regex or they
+      overwrite one another. Note PVE validates the key itself at START time: a key it rejects
+      leaves a container that will not boot. Got {{ pve_lxc_raw_config | default([]) }}
+    quiet: true
+
+# Separate from the shape check above so that a missing `key` or `value` fails there, with the
+# message that explains it, rather than blowing up as a template error in this expression.
+#
+# The write folds an entry in by deleting every line `match` selects and appending the rendered
+# line. A `match` that does not select that rendered line therefore appends a second copy on
+# every run -- a config that grows without ever reporting a problem, and for
+# lxc.cgroup2.devices.allow or lxc.mount.entry, duplicated lines that both take effect. Caught
+# here because the run that creates it looks exactly like the run that fixes it.
+- name: Reject a raw match regex that does not select the line it will write
+  vars:
+    _bad: >-
+      {%- set bad = [] -%}
+      {%- for e in pve_lxc_raw_config | default([]) -%}
+        {%- if e.match is defined and e.state | default('present') == 'present'
+               and not ((e.key | default('') ~ ': ' ~ e.value | default('')) is search(e.match)) -%}
+          {%- set _ = bad.append(e.key | default('<no key>') ~ ' / ' ~ e.match) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ bad }}
+  ansible.builtin.assert:
+    that:
+      - _bad | length == 0
+    fail_msg: >-
+      A pve_lxc_raw_config `match` must also match the line the role writes, `key: value`, or
+      the entry is appended again on every run instead of replacing itself. Offending
+      entry/regex pairs: {{ _bad }}
+    quiet: true
+
+- name: Validate the root-only device and bind-mount declarations
+  ansible.builtin.assert:
+    that:
+      - pve_lxc_devices | default([]) | rejectattr('path', 'defined') | list | length == 0
+      - pve_lxc_devices | default([]) | map(attribute='path') | map('regex_search', _pve_lxc_abspath_re) | select('none') | list | length == 0
+      - pve_lxc_devices | default([]) | selectattr('group', 'defined') | selectattr('gid', 'defined') | list | length == 0
+      - pve_lxc_bind_mounts | default([]) | rejectattr('host_path', 'defined') | list | length == 0
+      - pve_lxc_bind_mounts | default([]) | rejectattr('mount_point', 'defined') | list | length == 0
+      - pve_lxc_bind_mounts | default([]) | map(attribute='host_path') | map('regex_search', _pve_lxc_abspath_re) | select('none') | list | length == 0
+      - pve_lxc_bind_mounts | default([]) | map(attribute='mount_point') | map('regex_search', _pve_lxc_abspath_re) | select('none') | list | length == 0
+    fail_msg: >-
+      Every device needs an absolute `path` and at most one of `group`/`gid`; every bind mount
+      needs absolute `host_path` and `mount_point`. Paths may not contain ',' or '=' — pct
+      parses on those and a path containing one silently becomes a different option.
+      devices={{ pve_lxc_devices | default([]) }} bind_mounts={{ pve_lxc_bind_mounts | default([]) }}
+    quiet: true

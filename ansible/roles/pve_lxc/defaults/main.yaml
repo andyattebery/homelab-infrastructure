@@ -1,0 +1,114 @@
+---
+# REQUIRED, all asserted in tasks/main.yaml and deliberately NOT defaulted here. A guessed
+# value for any of them does not fail — it builds the wrong container, or builds it on the
+# wrong node, which is worse than an error:
+#   pve_lxc_vmid, pve_lxc_hostname, pve_lxc_node
+#   pve_lxc_api_host, pve_lxc_api_user, pve_lxc_api_token_id, pve_lxc_api_token_secret
+
+pve_lxc_state: present # present | started | stopped | restarted | absent | template
+
+# Unprivileged unless a caller insists. Note that a PRIVILEGED container cannot have its
+# feature flags changed by anyone but root@pam (PVE::LXC::check_ct_modify_config_perm), so a
+# caller flipping this also gives up token-managed features.
+pve_lxc_unprivileged: true
+pve_lxc_onboot: true
+
+# Console mode, and it must ALWAYS be sent with a real value -- never left to the module.
+# community.proxmox 2.0.0 defaults this argument to the sentinel string "default" meaning
+# "omit it", but only create_lxc_instance() honours the sentinel (proxmox.py:1169-1170).
+# update_lxc_instance() (proxmox.py:969) drops None values and nothing else, so a converge run
+# against an EXISTING container posts cmode=default and the API rejects it:
+#   400 Bad Request ... {'cmode': "value 'default' does not have a value in the enumeration
+#   'shell, console, tty'"}
+# Creation therefore succeeds and every subsequent run fails -- which is why only a second run
+# finds it. `tty` is PVE's own documented default (pct.conf.5: "cmode: <console | shell | tty>
+# (default = tty)"), so sending it explicitly changes nothing about the container.
+pve_lxc_cmode: tty
+
+# state: absent only. Removes the container from backup jobs, replication and HA as well.
+pve_lxc_purge: true
+
+# --- passed straight to community.proxmox.proxmox ---------------------------
+# Empty means "do not send this parameter at all", so PVE's own default applies. Do not
+# replace the empties with PVE's defaults: that turns every default into something this role
+# asserts and has to keep current.
+pve_lxc_ostemplate: ""
+pve_lxc_storage: ""
+pve_lxc_disk: ""
+pve_lxc_disk_volume: {}
+pve_lxc_mount_volumes: []
+pve_lxc_cores: ""
+pve_lxc_memory: ""
+pve_lxc_swap: ""
+pve_lxc_netif: {}
+pve_lxc_nameserver: ""
+pve_lxc_searchdomain: ""
+pve_lxc_timezone: ""
+pve_lxc_description: ""
+pve_lxc_tags: []
+
+# Only `nesting` survives an unprivileged container being configured by a token: PVE raises
+# "changing feature flags (except nesting) is only allowed for root@pam" for anything else.
+# The role does not block the others — the caller may have root — it just cannot make them
+# work through the API credential. See README.
+pve_lxc_features: []
+
+# --- root@pam only, applied with pct rather than the module -----------------
+# Neither of these can go through an API token at any privilege level. See README, "Two things
+# the token cannot do". Both are lists; position in the list is the N in devN / mpN.
+#
+# pve_lxc_devices:    [{path, group|gid, uid, mode, deny_write, state}]
+#   `group` is resolved to a gid INSIDE the container, which is the point: a host gid and a
+#   container gid for the same name are frequently different.
+# pve_lxc_bind_mounts: [{host_path, mount_point, options, state}]
+pve_lxc_devices: []
+pve_lxc_bind_mounts: []
+
+# --- raw lxc.* lines, written straight into the container config ------------
+# `pct set` CANNOT write these: `lxc` is not in PVE's $confdesc, so there is no API property and
+# no pct flag. The config file is the only interface, which is why this family is a file edit
+# rather than a command like the two above.
+#
+# pve_lxc_raw_config: [{key, value, state, match}]
+#   key   -- e.g. lxc.cgroup2.devices.allow
+#   value -- e.g. "c 13:* rwm"
+#   match -- optional regex selecting the line to replace. Defaults to the key in BOTH forms,
+#            `^<key>(:|\s*=)`, which is right until TWO entries share a key (two
+#            lxc.mount.entry lines, say) -- then each needs its own `match` or they overwrite
+#            each other. Asserted, not left to chance; so is the converse, a `match` that does
+#            not select the line being written and so appends a duplicate on every run.
+#
+# WRITTEN in the colon form, READ in both. PVE re-emits every raw line as "$k: $v"
+# (PVE::LXC::Config::write_pct_config), so writing the `=` form would be rewritten behind us
+# and report changed on every run -- but parse_pct_config matches
+# `(lxc\.[a-z0-9_\-\.]+)(:|\s*=)`, so a hand-edited config legitimately holds either and the
+# match has to find both or it appends a duplicate instead of replacing.
+#
+# The line goes ABOVE the first `[section]` header. Everything after one belongs to that
+# snapshot, not to the container -- see README, "Raw `lxc.*` lines are a file edit, and the
+# file has sections". That is why this is a whole-file edit and not a `lineinfile`.
+#
+# These take effect only when the container STARTS. The role reports that a restart is owed and
+# never performs one -- same rule as every other session-owning role here.
+pve_lxc_raw_config: []
+
+# Empty means /etc/pve/lxc/<vmid>.conf. An input purely so a fixture test can point it at a
+# tempfile, exactly like pve_lxc_pct_command points at a stub. NOTHING ELSE SHOULD SET IT: the
+# task it feeds replaces the whole file as root with unsafe_writes, so a wrong path destroys a
+# container. The role refuses to write a file whose main section has no `key: value` option
+# line, which is the only check available to it.
+pve_lxc_conf_path: ""
+
+# --- optional login bootstrap ----------------------------------------------
+# A container has no cloud-init and `pct create` seeds only root, so nothing else will create
+# the account Ansible connects as. Unset skips the whole file.
+pve_lxc_bootstrap_user: ""
+pve_lxc_bootstrap_keys_url: ""
+pve_lxc_bootstrap_shell: /bin/bash
+pve_lxc_bootstrap_sudo: true
+
+# --- knobs the tests need --------------------------------------------------
+# CLI path as an input so a fixture test can point it at a stub that records its argv.
+pve_lxc_pct_command: /usr/sbin/pct
+pve_lxc_api_validate_certs: true
+pve_lxc_api_timeout: 120
