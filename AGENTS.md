@@ -1,3 +1,21 @@
+## This repo is not code. It mutates state.
+
+Everything here changes a real system that people depend on, so the reversibility model of code
+is wrong in every case:
+
+- `git revert` reverts the instruction, never the effect. A role you added and removed has
+  already run.
+- The effect is usually not even on the host. It is in UniFi, AdGuard, Beszel, Prometheus,
+  Grafana, 1Password, a CT log — systems this repo cannot edit.
+- There is therefore no cheap guess-and-check loop. A wrong run is not a failed test. It is
+  damage someone undoes by hand, in each system, if it can be undone at all.
+
+The question before any action is not "is this correct?" but **"what does this change that I
+cannot change back?"** If that has no answer, do not run it. The corollary: never add anything
+to a playbook that was not asked for, however standard it looks.
+
+Every rule below is a specific case of this one.
+
 ## Reading files
 
 When told to read a file, read every line. Do not skim, summarize, or skip sections that look "standard." If the task depends on the contents of a file, produce an artifact (checklist, matrix, line-by-line accounting) that proves every item was seen. "I read it" is not evidence.
