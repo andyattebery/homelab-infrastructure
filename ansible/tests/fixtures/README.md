@@ -10,6 +10,7 @@ test cannot fail, which is the failure mode these tests exist to prevent.
 | `tdarr-updater-stdout-failure.txt` | **Real error line, reconstructed context.** `[ERROR] Tdarr_Updater - Tdarr_Node \| Access is denied. (os error 5)` followed by `Finished!` is what the run that destroyed a production install actually produced, and it exited 0. The surrounding lines are modelled on the real success transcript beside it — including its timestamp format, which an earlier version of this fixture got wrong. It also carries a `[WARN]`, so a detector that keyed on any bracketed level rather than `[ERROR]` could not tell the two files apart. |
 | `tdarr-updater-stdout-success.txt` | **Real.** Captured from `logs\Tdarr_Updater_Log.txt` after the 2026-08-24 bootstrap test, which installed modules 2.86.01 with updater 2.81.01. It replaced a constructed placeholder, and it is a stronger fixture than that was: it contains two `[WARN]` lines on a run that succeeded, so it proves the detector keys on `[ERROR]` and not on any bracketed level. |
 | `github-release-jellyfin-ffmpeg.json` | **Shape is real, values are not.** Trimmed to the fields the role reads, with the four asset names exactly as `andyattebery/jellyfin-ffmpeg` publishes them — that `winarm64-clang-gpl.zip` sits next to `win64-clang-gpl.zip` is the whole reason the role asserts *exactly one* match. Ids and digests are placeholders; `browser_download_url` points at `example.invalid` so a test that accidentally fetches fails loudly. |
+| `github-release-uv.json` | **Shape is real, values are not.** Trimmed to the fields the role reads, with the six asset names exactly as `astral-sh/uv` publishes them for 0.12.10 — three architectures, each with a `.sha256` sidecar. The sidecars are the whole point: they are the near-miss the `gpu_encoder_sweep_node_win` caller's trailing `$` exists to exclude, and they are a *suffix* near-miss where the jellyfin fixture's is a sibling architecture. `tag_name` carries **no leading `v`**, which is also real and differs from every other caller in this repo. Ids and digests are placeholders; `browser_download_url` points at `example.invalid`. |
 | `github-release-no-digest.json` | **Constructed.** A release with no `digest` on its asset, which the live GitHub API no longer produces. Exercises the `id:<n>` fallback — the branch that keeps the stamp meaningful on older responses and cannot be reached with current data. |
 
 Both `github-release-*.json` files now have a second consumer:
@@ -35,6 +36,13 @@ making the mutation and confirming that case — and not a different one — wen
 | C16 | delete the non-empty assert | fails, and names the real cause: "No last item, sequence was empty" |
 | C17 / C18 / C19 | pin the detector to `false` / `true`; drop the empty-stdout clause | each fails |
 | C20 | `to_json(indent=2)` → `indent=4` | fails on content (line count is unchanged) |
+| C6 | point the production pattern at the i686 build (`^uv-i686-…`), which still matches exactly one asset | fails on the asset name, and the message names the wrong asset |
+| C7 | remove the three `.sha256` assets from the uv fixture, so the unanchored pattern matches one | fails alone — C3, C4 and C6 stay green |
+
+C7 has a second, more obvious mutation — relaxing the role's exactly-one assert to `>= 1` — and it is
+**masked**: C3 exercises the same assert against the jellyfin fixture, runs first, and stops the play
+before C7 is reached. That is the C15/C1 shape again, accepted deliberately. The fixture mutation
+above is the one that isolates C7, and it is the one that was verified.
 | W1 / W2 | drop `\| map('string')` from the cast | fails at W1 on `1` vs `'1'`; the run stops there, so W2 shares this control |
 | W3 | make the key assert always pass | fails, and names `transcodeGpuWorkers` — nothing below this assert would have |
 | W4 | make the type assert always pass | fails on the string count |

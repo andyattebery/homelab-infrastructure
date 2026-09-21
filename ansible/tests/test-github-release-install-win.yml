@@ -27,10 +27,15 @@
       {{ lookup('file', playbook_dir ~ '/fixtures/github-release-jellyfin-ffmpeg.json') | from_json }}
     release_no_digest: >-
       {{ lookup('file', playbook_dir ~ '/fixtures/github-release-no-digest.json') | from_json }}
+    release_uv: >-
+      {{ lookup('file', playbook_dir ~ '/fixtures/github-release-uv.json') | from_json }}
 
     # Lifted verbatim from playbook-eta.yaml, which is the point: this is the pattern in production.
     real_patterns:
       x86_64: 'win64-clang-gpl\.zip$'
+    # Also lifted verbatim from playbook-eta.yaml — the second caller on that host.
+    real_uv_patterns:
+      x86_64: '^uv-x86_64-pc-windows-msvc\.zip$'
 
   tasks:
     # C1 - the case the production pattern exists to get right. The fixture carries both
@@ -148,4 +153,63 @@
         fail_msg: >-
           Stamp was '{{ github_release_install_win_stamp_value }}'. With no digest it must fall back
           to id:<n>; a bare tag matches forever and never notices a replaced asset.
+        quiet: true
+
+    # C6 - the uv caller's pattern. Every uv Windows asset has a .sha256 sidecar beside it, so this
+    # release carries six assets where the jellyfin one carries four, and the near-miss is a suffix
+    # rather than a sibling architecture. The trailing $ is the anchor that does the work — C7 drops
+    # it and shows two matches. The leading ^ is not load-bearing against this asset set (dropping it
+    # alone still matches one) and is kept only against a future name that contains this one.
+    - name: C6 setup - match with the real uv pattern
+      ansible.builtin.include_role:
+        name: github_release_install_win
+        tasks_from: select_asset
+      vars:
+        __github_release_install_win_release: "{{ release_uv }}"
+        github_release_install_win_asset_patterns: "{{ real_uv_patterns }}"
+
+    - name: C6 - the pattern selects the x86_64 zip, not its sidecar and not another architecture
+      ansible.builtin.assert:
+        that:
+          - github_release_install_win_matching_assets | length == 1
+          - github_release_install_win_asset_name == 'uv-x86_64-pc-windows-msvc.zip'
+          # The tag carries no leading v, unlike every other caller in this repo. A caller that
+          # pinned 'v0.12.10' would 404 on the release lookup rather than mis-select an asset.
+          - release_uv.tag_name == '0.12.10'
+        fail_msg: >-
+          Matched {{ github_release_install_win_matching_assets }}. Exactly one asset must match:
+          the .sha256 sidecar shares the whole name up to its suffix.
+        quiet: true
+
+    # C7 - the trailing $ is what excludes the sidecar, and dropping it is the realistic mistake:
+    # every other pattern in this repo ends in `\.zip$` with no leading anchor, so the shape looks
+    # complete without it. Two matches must stop the run rather than install a 64-byte text file.
+    - name: C7 setup - the same pattern without its trailing anchor
+      block:
+        - name: C7 setup - match with no trailing anchor
+          ansible.builtin.include_role:
+            name: github_release_install_win
+            tasks_from: select_asset
+          vars:
+            __github_release_install_win_release: "{{ release_uv }}"
+            github_release_install_win_asset_patterns:
+              x86_64: '^uv-x86_64-pc-windows-msvc\.zip'
+        - name: C7 setup - record that the assert did not fire
+          ansible.builtin.set_fact:
+            c7_rejected: false
+      rescue:
+        - name: C7 setup - record which failure fired
+          ansible.builtin.set_fact:
+            c7_rejected: true
+            c7_msg: "{{ ansible_failed_result.msg | default('') }}"
+
+    - name: C7 - without the trailing anchor the sidecar also matches, and the run stops
+      ansible.builtin.assert:
+        that:
+          - c7_rejected
+          - "'Expected exactly one asset matching' in c7_msg"
+        fail_msg: >-
+          Expected the exactly-one assert. Got: {{ c7_msg | default('no failure at all') }}.
+          Without it this installs whichever GitHub listed first — and one of the two is a
+          checksum text file named uv.exe on arrival.
         quiet: true
