@@ -146,6 +146,7 @@ healthchecks_pushover_subscription_url: "{{ vault_healthchecks_pushover_subscrip
 healthchecks_pushover_token: "{{ vault_healthchecks_pushover_token }}"
 healthchecks_server_url: "https://healthchecks.{{ domain_name }}"
 healthchecks_readonly_api_key: "{{ vault_healthchecks_readonly_api_key }}"
+healthchecks_secret_key: "{{ vault_healthchecks_secret_key }}"
 
 homeassistant_access_token: "{{ vault_homeassistant_access_token }}"
 # Raises HuggingFace's download rate limit, which is the binding constraint when pulling

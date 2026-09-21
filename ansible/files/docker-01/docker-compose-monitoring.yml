@@ -72,7 +72,10 @@ services:
       - EMAIL_USE_TLS=${HEALTHCHECKS_EMAIL_USE_TLS}
       - SUPERUSER_EMAIL=${HEALTHCHECKS_SUPERUSER_EMAIL}
       - SUPERUSER_PASSWORD=${HEALTHCHECKS_SUPERUSER_PASSWORD}
-      - REGENERATE_SETTINGS=True #optional
+      # Must be set here. When it is empty AND absent from /config/local_settings.py, the
+      # image's init script generates a random key and appends it to that file — which
+      # hc/settings.py imports last, so it would then outrank everything set in this block.
+      - SECRET_KEY=${HEALTHCHECKS_SECRET_KEY}
       - APPRISE_ENABLED=False #optional
       - PUSHOVER_API_TOKEN=${HEALTHCHECKS_PUSHOVER_API_TOKEN}
       - PUSHOVER_SUBSCRIPTION_URL=${HEALTHCHECKS_PUSHOVER_SUBSCRIPTION_URL}

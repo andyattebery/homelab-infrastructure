@@ -42,6 +42,7 @@ vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
 vault_healthchecks_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/healthchecks }}
 vault_healthchecks_readonly_api_key: {{ op://Personal/Healthchecks/api keys/read only }}
+vault_healthchecks_secret_key: {{ op://Personal/Healthchecks/config/secret key }}
 vault_homeassistant_access_token: {{ op://Home Lab/Home Assistant/access tokens/ansible }}
 vault_hugging_face_access_token: {{ op://Personal/Hugging Face/access tokens/ansible }}
 vault_grafana_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/grafana }}
