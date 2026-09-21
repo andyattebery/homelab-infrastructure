@@ -6,3 +6,14 @@ docker_compose_traefik_enable_host_network: false
 docker_compose_traefik_enable_access_log: false
 docker_compose_traefik_enable_tailscale: false
 docker_compose_traefik_file_provider_path: ""
+
+# How long the websecure entrypoint will spend reading a request, ISO-ish Go duration ("0", "300s").
+#
+# Empty means emit no flag, which leaves Traefik's own default in force -- and that default is the reason
+# this input exists. In v3 `respondingTimeouts.readTimeout` is **60s and covers the entire request
+# INCLUDING THE BODY** (it was 0 in v2), so any single request that streams for longer than a minute is
+# cut off mid-body. A large upload is exactly that shape.
+#
+# Set it only on a host that serves such an endpoint. Raising it weakens a slowloris protection for every
+# router on the entrypoint, which is why it is not simply raised everywhere: six hosts run this role.
+docker_compose_traefik_websecure_read_timeout: ""

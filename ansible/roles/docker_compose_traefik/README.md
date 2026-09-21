@@ -22,6 +22,8 @@ All optional:
 - `docker_compose_traefik_enable_tailscale` — default `false`. Adds a Tailscale entrypoint.
 - `docker_compose_traefik_file_provider_path` — default empty. Path to a dynamic-config
   file for routes that are not Docker containers.
+- `docker_compose_traefik_websecure_read_timeout` — default empty, meaning no flag is emitted and
+  Traefik's own default stands. See *A long upload dies at 60 seconds* below before setting it.
 
 Requires `CERTBOT_EMAIL` and a Cloudflare API token in scope for ACME.
 
@@ -38,6 +40,24 @@ Requires `CERTBOT_EMAIL` and a Cloudflare API token in scope for ACME.
 
 Tags in a `roles:` block propagate to every task in the role. On an `include_role` they do
 not — that needs `apply: { tags: ... }`.
+
+## A long upload dies at 60 seconds
+
+Traefik v3 defaults `entryPoints.<name>.transport.respondingTimeouts.readTimeout` to **60s**, and the
+documentation is explicit that this is *"the maximum duration for reading the entire request, **including
+the body**"*. v2 had no limit, so this is a behaviour change that arrives silently on upgrade: anything
+that streams a request body for more than a minute is cut off part-way.
+
+It surfaces as a transport error at the client, not as a response from the service behind it, which makes
+it easy to misread as the backend failing.
+
+`docker_compose_traefik_websecure_read_timeout` emits the flag for the `websecure` entrypoint;
+`"0"` disables the timeout entirely.
+
+**Set it on a host, not on the role.** The timeout is a slowloris protection and it applies to every
+router on the entrypoint, so raising it for one service raises it for all of them on that host. Six hosts
+run this role and exactly one sets it today — the one serving the gpu-encoder-sweep hub, whose file
+exchange is one streamed `PUT` per file and can legitimately run for minutes.
 
 ## Traefik logs to a file, not stdout
 

@@ -20,6 +20,13 @@ services:
       - --entrypoints.websecure.address=:443
       - --entryPoints.websecure.asDefault=true
       - --entryPoints.websecure.http.tls.certResolver=cloudflare
+{% if docker_compose_traefik_websecure_read_timeout | length > 0 %}
+      # Traefik v3 defaults this to 60s and it covers the WHOLE request, body included, where v2 had no
+      # limit. A request that streams for minutes -- a large upload -- is cut off mid-body without it.
+      # Emitted only when a caller asks, because raising it weakens a slowloris protection for every
+      # router on this entrypoint.
+      - --entryPoints.websecure.transport.respondingTimeouts.readTimeout={{ docker_compose_traefik_websecure_read_timeout }}
+{% endif %}
       - --log=true
       - --log.level=${TRAEFIK_LOG_LEVEL}
       - --log.filePath=/logs/traefik.log
