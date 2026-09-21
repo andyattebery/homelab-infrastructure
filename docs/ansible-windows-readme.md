@@ -9,25 +9,33 @@ literally throughout, so substitute for a second Windows host.
 ## Context
 
 Ansible connects to Windows over **SSH**, not WinRM. Official support for the `ssh` connection plugin
-against Windows landed in ansible-core 2.18; this repo's venv is on 2.20.4. The minimum Win32-OpenSSH
+against Windows landed in ansible-core 2.18; this repo's venv is on 2.21.3. The minimum Win32-OpenSSH
 version is 7.9.0.0, which every Windows 11 build exceeds.
 
 SSH was chosen over WinRM because it is far less to configure in a non-domain environment — no
 listener, no certificate, no CredSSP — and because key auth is already how every other host here is
 reached.
 
-Windows modules (`ansible.windows.*`, `community.windows.*`, `chocolatey.chocolatey.*`,
-`microsoft.ad.*`) are **not** in `ansible/requirements.yaml`. They arrive with the `ansible ~= 13.0`
-pin in `ansible/requirements.txt`, which bundles them. `mise run bootstrap` in `ansible/` installs
-them along with everything else; nothing Windows-specific has to be added. To confirm:
+**Two** Windows collections are available, and they are declared explicitly:
+`ansible.windows` (`ansible/requirements.yaml:22`) and `community.windows` (`:47`).
+`mise run bootstrap` in `ansible/` installs them with everything else.
+
+`chocolatey.chocolatey` and `microsoft.ad` are **not** available. Nothing declares them, and nothing
+bundles them either: `requirements.txt` pins `ansible-core`, not the `ansible` umbrella — its own
+comment explains why, and the umbrella is what would otherwise have carried 93 collections along for
+the ride. A task referencing a module from either fails at module resolution. Add it to
+`requirements.yaml` if one is ever wanted.
+
+To confirm what is actually installed:
 
 ```
 cd /Users/andy/Projects/homelab-infrastructure/ansible
 .venv/bin/ansible-galaxy collection list | grep -iE 'ansible.windows|community.windows|chocolatey'
 ```
 
-Scope on eta today is a **connectivity baseline** — `playbook-eta.yaml` gathers facts and pings.
-Nothing on the host is actually managed yet.
+Scope on eta is no longer a connectivity baseline. `playbook-eta.yaml` installs the
+`andyattebery/jellyfin-ffmpeg` fork build, deploys the Tdarr node, installs `uv`, and deploys the
+gpu-encoder-sweep agent as a boot-triggered scheduled task.
 
 `wsl-01` is a separate inventory entry for the WSL install on the same physical machine, pointed at
 the same `eta.<domain_name>:22`. That install is being retired, and as of 2026-08-21 Windows sshd owns
@@ -189,8 +197,27 @@ POSIX-shaped `x86_64` / `arm64` value. Anything keyed on architecture must use t
 `ansible/roles/github_release_install_win/README.md` has the detail.
 
 **No winget.** winget fails in a non-interactive session any time it has to set up its source, and no
-bundled collection ships a winget module. When package management is wanted, use
-`chocolatey.chocolatey.win_chocolatey` or `community.windows.win_scoop`.
+installed collection ships a winget module. `community.windows.win_scoop` is available and is the one
+to reach for; `chocolatey.chocolatey.win_chocolatey` is **not installed** — see the collections note
+above before writing a task against it. Everything installed from a GitHub release here goes through
+`roles/github_release_install_win/` instead, which is what both callers on eta use.
+
+**Scheduled tasks.** `community.windows.win_scheduled_task` is how a process is made to survive a
+reboot here; there is no service-wrapper tooling in this repo. `roles/gpu_encoder_sweep_node_win/` is
+the first and so far only user, and its README carries the detail. Four things are worth knowing
+before writing a second one:
+
+- **`logon_type: s4u` stores no password**, which is the property worth having — the account's
+  password never enters the vault. The module documents the cost in its own words: "Means no network
+  or encrypted files access." A task that must reach a UNC path therefore needs either a
+  machine-wide `New-SmbGlobalMapping`, or `logon_type: password` and a stored credential.
+- **The account needs `SeBatchLogonRight`.** Registration is the check — the module fails without it
+  — and the fix is a `community.windows.win_user_right` task ahead of it. A member of the local
+  Administrators group normally holds it already.
+- **`execution_time_limit` defaults to three days**, after which the Task Scheduler kills the task
+  mid-run. A long-running task needs `PT0S`.
+- **A boot trigger can fire before the network is up.** Give it a `delay` if the first thing it does
+  needs to resolve a name or fetch anything.
 
 **Backslashes in YAML.** Unquoted and single-quoted scalars pass `\` through untouched; double quotes
 make it an escape character. `C:\Windows\Temp` and `'C:\Windows\Temp'` are correct;
@@ -218,9 +245,9 @@ excluding Windows.
 
 ## Reference
 
-- ansible-core 2.20 — [Windows SSH](https://docs.ansible.com/projects/ansible-core/2.20/os_guide/windows_ssh.html)
-- ansible-core 2.20 — [Managing Windows hosts with Ansible](https://docs.ansible.com/projects/ansible-core/2.20/os_guide/intro_windows.html)
-- ansible-core 2.20 — [Using Ansible and Windows](https://docs.ansible.com/projects/ansible-core/2.20/os_guide/windows_usage.html)
+- ansible-core 2.21 — [Windows SSH](https://docs.ansible.com/projects/ansible-core/2.21/os_guide/windows_ssh.html)
+- ansible-core 2.21 — [Managing Windows hosts with Ansible](https://docs.ansible.com/projects/ansible-core/2.21/os_guide/intro_windows.html)
+- ansible-core 2.21 — [Using Ansible and Windows](https://docs.ansible.com/projects/ansible-core/2.21/os_guide/windows_usage.html)
 - [Win32-OpenSSH](https://github.com/PowerShell/Win32-OpenSSH)
 - [Win32-OpenSSH — Project Scope](https://github.com/PowerShell/Win32-OpenSSH/wiki/Project-Scope) (what does not work on Windows)
 - [OpenSSH Server Configuration for Windows](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh-server-configuration) (`administrators_authorized_keys` permissions)
