@@ -149,6 +149,13 @@
         docker_compose_traefik_enable_dashboard: true
         docker_compose_traefik_enable_tailscale: true
         docker_compose_traefik_log_level: ERROR
+        # This host serves the gpu-encoder-sweep hub, whose exchange is a single streamed PUT per file:
+        # a reference cut or a large encode runs for minutes. Traefik v3 defaults readTimeout to 60s
+        # covering the entire request body, so without this every such upload dies at one minute --
+        # and it dies as a transport error, not as a refusal that says what to do.
+        #
+        # Only nas-01 sets it. The other five hosts running this role keep the 60s default.
+        docker_compose_traefik_websecure_read_timeout: "0"
       tags: traefik
     # - role: docker_compose_tsdproxy
     - role: docker_compose_dashboard_services_manager_provider
@@ -417,6 +424,51 @@
                 syncoid_destination_dataset: backups/sink
                 syncoid_destination_dataset_mountpoint: /mnt/backups/sink
                 syncoid_healthchecks_uuid: e79fc71c-6322-484a-93ef-74f63c6e6ef9
+    # The hub's exchange directory. Created here rather than by the role because it is a host path,
+    # and BEFORE the role because Docker creates a missing bind source itself, as root.
+    #
+    # Owned by the DEPLOYING user, not the SMB identity it used to carry. No node mounts this
+    # directory any more — the exchange moved onto the hub's HTTPS API, so the hub is its only
+    # writer and nothing reaches it over SMB. Matching the uid the hub container runs as is what
+    # lets an operator remove a file by hand, which is what the hub's refusal text tells them to do
+    # when a republish differs.
+    - name: Create the gpu-encoder-sweep exchange directory
+      tags: gpu_encoder_sweep
+      ansible.builtin.file:
+        path: /mnt/storage/temp/gpu-encoder-sweep
+        state: directory
+        owner: "{{ ansible_non_become_user_id }}"
+        group: "{{ ansible_non_become_user_gid }}"
+        mode: "0775"
+
+    # In tasks: rather than roles: so it runs after the directory above — every role in roles: runs
+    # first. The traefik network it joins is created by docker_compose_traefik in that list.
+    #
+    # `apply` is required: tags on an include_role task gate the include itself, they do not
+    # propagate to the tasks inside the role.
+    #
+    # The tag is pinned for the M2 smoke. The hub hands a run only to an agent whose reported
+    # artifact matches the one the run was planned for, so a floating tag changes the artifact under
+    # already-planned runs and every claim then answers 409 until they are re-planned.
+    #
+    # The operator token and the agent tokens come from group_vars/all/vars.yaml.
+    - name: Deploy the gpu-encoder-sweep hub
+      tags: gpu_encoder_sweep
+      ansible.builtin.include_role:
+        name: docker_compose_gpu_encoder_sweep_hub
+        apply:
+          tags: gpu_encoder_sweep
+      vars:
+        docker_compose_gpu_encoder_sweep_hub_image_tag: sha-9e238d5
+        # This host's own row in the catalogue, and the bearer its agent presents. The hub runs an
+        # agent beside itself because `sweep inventory` executes on the hub's runtime and nowhere
+        # else — this is the host with the library mounted.
+        docker_compose_gpu_encoder_sweep_hub_host: nas-01
+        docker_compose_gpu_encoder_sweep_hub_agent_token: "{{ gpu_encoder_sweep_agent_tokens['nas-01'] }}"
+        # The whole media pool, read-only. ⚠ The CONTAINER path is recorded in every title row
+        # permanently, so /library is chosen once and does not move.
+        docker_compose_gpu_encoder_sweep_hub_library_path: /mnt/storage
+
     # - name: Configure nfs
     #   vars:
     #     nfs_exports:

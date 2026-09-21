@@ -104,6 +104,42 @@ freshrss_username: "{{ vault_freshrss_username }}"
 freshrss_password: "{{ vault_freshrss_password }}"
 freshrss_api_password: "{{ vault_freshrss_api_password }}"
 
+# gpu-encoder-sweep. Keyed on the HOST ROW name the hub knows each agent by, which is not always
+# the inventory name: `media-01-score` is a second row on the media host, and `eta-wsl` is the WSL
+# scorer on eta's machine — named for the machine it shares, because the hub's quiet-box rule keys
+# on `machine` to stop two rows measuring at the same time. A key that does not match the row name
+# earns that agent a 401 on every call and no heartbeat, which reads like a network problem.
+#
+# Assembled from one vault scalar each because this repo has no dict-valued vault variables — the
+# same shape as remote_power_control_profile_offsite below. The 1Password fields are named by
+# component (`eta encode`, `wsl-01 score`) and the mapping to row names happens here.
+gpu_encoder_sweep_agent_tokens:
+  media-01: "{{ vault_gpu_encoder_sweep_agent_token_media_01 }}"
+  media-01-score: "{{ vault_gpu_encoder_sweep_agent_token_media_01_score }}"
+  eta: "{{ vault_gpu_encoder_sweep_agent_token_eta }}"
+  eta-wsl: "{{ vault_gpu_encoder_sweep_agent_token_eta_wsl }}"
+  htpc-01: "{{ vault_gpu_encoder_sweep_agent_token_htpc_01 }}"
+  # The hub's own runtime, which runs an agent too: `sweep inventory` executes on the hub's host and
+  # nowhere else, because that is the host with the library mounted. Its token is presented by the
+  # hub's agent container AND held in the tokens file the hub checks against -- one value, two places,
+  # which the hub role asserts rather than trusts.
+  nas-01: "{{ vault_gpu_encoder_sweep_agent_token_nas_01 }}"
+
+# The operator's own bearer — what the laptop CLI presents, not any agent's. The hub enables its
+# auth middleware when either token set is non-empty, so an empty value here does not open the hub,
+# it locks the operator out of it.
+docker_compose_gpu_encoder_sweep_hub_operator_token: "{{ vault_gpu_encoder_sweep_operator_token }}"
+docker_compose_gpu_encoder_sweep_hub_agent_tokens: "{{ gpu_encoder_sweep_agent_tokens }}"
+
+# eta's dedicated Windows service account. Generated, not a person's login, and the only credential
+# Ansible holds for that host.
+#
+# It exists because a boot-triggered task needs a password at registration whatever the identity:
+# win_scheduled_task refuses `logon_type: s4u` without one (win_scheduled_task.ps1:739-741), and the
+# only genuinely passwordless logon type is restricted to SYSTEM / LOCAL SERVICE / NETWORK SERVICE,
+# none of which can start eta's WSL distro. So the choice was never "password or not" but "whose".
+eta_service_account_password: "{{ vault_eta_service_account_password }}"
+
 healthchecks_superuser_email: "{{ vault_healthchecks_superuser_email }}"
 healthchecks_superuser_password: "{{ vault_healthchecks_superuser_password }}"
 healthchecks_pushover_subscription_url: "{{ vault_healthchecks_pushover_subscription_url }}"

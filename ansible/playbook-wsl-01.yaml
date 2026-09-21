@@ -152,3 +152,41 @@
           - src_file_path: files/wsl-01/tabbyapi-config.yml
             dst_relative_file_path: tabbyapi/config.yml
             service_name_to_restart: tabbyapi
+
+    # The gpu-encoder-sweep scorer for eta's cells. This host is the WSL install on eta's machine,
+    # so it sees eta's D:\sweep at /mnt/d/sweep and scores in place — eta's cells never leave the
+    # machine to be scored, which is the whole point of splitting the two.
+    #
+    # The local view is mounted read-WRITE because scoring unlinks the encode it scored. The role
+    # stats it and refuses if it is not there rather than letting Docker create it root-owned and
+    # empty, which would leave this scorer silently fetching every cell over the share instead — a
+    # different measurement that nothing announces. That assert is also this host's reachability
+    # gate: it has not answered reliably since Windows sshd took port 22 on the shared name.
+    #
+    # nvidia_gpu_wsl needs nvidia_gpu, and the role asserts the pair: the WSL userspace bind without
+    # the runtime is a silent no-GPU that still publishes timings.
+    - name: Deploy the gpu-encoder-sweep score node
+      tags: gpu_encoder_sweep
+      ansible.builtin.include_role:
+        name: docker_compose_gpu_encoder_sweep_node
+        # `apply` is required: tags on an include_role task gate the include itself, they do not
+        # propagate to the tasks inside the role.
+        apply:
+          tags: gpu_encoder_sweep
+      vars:
+        docker_compose_gpu_encoder_sweep_node_component: score
+        # The host ROW name, not this host's inventory name: the row is named for the machine it
+        # shares with eta, because the hub's quiet-box rule keys on `machine` to stop the encoder and
+        # the scorer measuring at the same time.
+        docker_compose_gpu_encoder_sweep_node_host: eta-wsl
+        docker_compose_gpu_encoder_sweep_node_token: "{{ gpu_encoder_sweep_agent_tokens['eta-wsl'] }}"
+        docker_compose_gpu_encoder_sweep_node_hub_url: "https://ges-hub.{{ domain_name }}"
+        docker_compose_gpu_encoder_sweep_node_work_root: "{{ docker_compose_dst_data_directory_path }}/gpu-encoder-sweep/work"
+        # eta's work root (`D:\gpu-encoder-sweep-encode`) as this container sees it through DrvFs.
+        # It MUST equal that value or the scorer resolves a path that does not exist — and it fails
+        # by reading nothing rather than by refusing, so a drift here is silent. If eta's work root
+        # moves, this moves in the same commit.
+        docker_compose_gpu_encoder_sweep_node_local_view: /mnt/d/gpu-encoder-sweep-encode
+        docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+        docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl: true
+        docker_compose_gpu_encoder_sweep_node_image_tag: sha-9e238d5

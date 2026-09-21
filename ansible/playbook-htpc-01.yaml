@@ -636,6 +636,55 @@
         # freshly provisioned host the node does not start until gpu-mode has run once.
         podman_quadlet_tdarr_install_wanted_by: ""
 
+    # The gpu-encoder-sweep encode agent. Same card as the Tdarr node above, same secret problem,
+    # same arbitration — and three deliberate divergences from it, all in the role's README: no
+    # AutoUpdate (an image that moves under already-planned runs makes every claim 409), no ffmpeg
+    # bind mount (the image's pinned build IS the measurement instrument, where the Tdarr node's base
+    # ships one too old to use), and it mounts nothing itself.
+    #
+    # The share is one more entry in htpc_nas_01_cifs_mounts, so the systemd_cifs_mount call earlier
+    # in this play has already mounted it. The role asserts that, and asserts the mount is owned by
+    # the PUID: this agent PUBLISHES, so a mount owned by someone else is an agent that reads the
+    # pool and cannot write to it.
+    #
+    # ⚠ Deploying this before its host row exists in the hub leaves a FAILED unit, not a crashloop.
+    # systemd stops retrying after 5 starts in 300 s. Author the catalogue first, or expect to run
+    # `systemctl reset-failed gpu-encoder-sweep-node.service && systemctl start` afterwards.
+    - name: Deploy the gpu-encoder-sweep node
+      tags: gpu_encoder_sweep
+      ansible.builtin.include_role:
+        name: podman_quadlet_gpu_encoder_sweep_node
+        # `apply` is required: tags on an include_role task gate the include itself, they do not
+        # propagate to the tasks inside the role.
+        apply:
+          tags: gpu_encoder_sweep
+      vars:
+        podman_quadlet_gpu_encoder_sweep_node_hub_url: "https://ges-hub.{{ domain_name }}"
+        podman_quadlet_gpu_encoder_sweep_node_host: htpc-01
+        podman_quadlet_gpu_encoder_sweep_node_token: "{{ gpu_encoder_sweep_agent_tokens['htpc-01'] }}"
+        # Dedicated to the harness, and deliberately not `/sweep` — that holds the retired M4
+        # campaign's stage cuts, which the harness neither reads nor should be able to delete.
+        podman_quadlet_gpu_encoder_sweep_node_work_root: "{{ htpc_data_mount_path }}/gpu-encoder-sweep-encode"
+        # Owns the work root. podman_quadlet creates the bind source, so without this it would be
+        # root-owned and the agent could not write its runs. There is no share input any more: a file
+        # crosses machines through the hub's HTTPS API, so this node mounts no CIFS share at all.
+        podman_quadlet_gpu_encoder_sweep_node_puid: "{{ smb_nas_01_uid }}"
+
+        # AMD_DEBUG=noefc, exactly as the Tdarr node above sets it and for the same reason: EFC is
+        # unstable in upstream Mesa. It is a first-class input on this role rather than an extra_env
+        # entry, so overriding extra_env cannot silently drop it.
+
+        # Empty on purpose: boot policy for the GPU containers here belongs to gpu-mode, which adds
+        # and removes a <unit>.container.d/50-gpu-mode.conf drop-in. Same reason tdarr-node.container,
+        # comfyui.container and llama-swap.container carry no [Install]. Consequence: on a freshly
+        # provisioned host this agent does not start until gpu-mode has run once.
+        podman_quadlet_gpu_encoder_sweep_node_install_wanted_by: ""
+
+        # Pinned for the M2 smoke. The default image is the mesarc build, not the plain encode one:
+        # the stock node image's Mesa silently ignores -compression_level, which is the vaapi preset
+        # ladder, so every rung of a sweep would produce identical output and report success.
+        podman_quadlet_gpu_encoder_sweep_node_image_tag: sha-9e238d5
+
     # Self-healing for the nas-01 CIFS mounts. A failed .mount has no way back on its own:
     # Restart= is not a mount-unit option, and a consumer whose RequiresMountsFor= dependency
     # failed never runs its own Restart= either. When nas-01 rebooted on 2026-09-10 that left
@@ -661,6 +710,10 @@
         systemd_unit_watchdog_units:
           - tdarr-node.service
           - comfyui.service
+          # The sweep agent no longer consumes a share -- it reaches the hub over HTTPS -- but it is
+          # still worth guarding: it is a quadlet with no [Install], so nothing else restarts it, and
+          # a StartLimitBurst it has hit stays failed until something clears it.
+          - gpu-encoder-sweep-node.service
 
     # Manual GPU arbitration. ComfyUI, llama-server, the Tdarr node and gaming cannot share
     # the 16 GB card — measured: the same 8k prompt took >900 s with ComfyUI resident vs

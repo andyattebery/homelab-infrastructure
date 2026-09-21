@@ -23,6 +23,17 @@
     # and the card enumerated on the PCI bus with no DRM node at all.
     media_intel_render_device: /dev/dri/by-path/pci-0000:02:00.0-render
 
+    # The two gpu-encoder-sweep work roots on this host. Defined here, once, because the scorer's
+    # local_view MUST equal the encoder's work_root — that is what lets it score in place instead of
+    # pulling every cell back through the hub, and two spellings of the same path could drift.
+    #
+    # Both are dedicated to the harness and neither reuses /mnt/data/sweep, which holds the retired
+    # M4 campaign's stage cuts. That separation is deliberate: the harness shares no tree with data
+    # it does not own, so a cleanup of one cannot take the other. The role creates either if absent
+    # and never touches the owner or mode of one that is already there.
+    media_sweep_work_root: /mnt/data/gpu-encoder-sweep-encode
+    media_sweep_score_work_root: /mnt/data/gpu-encoder-sweep-score
+
   pre_tasks:
     # Tagged so the kernel can be installed on its own with `--tags kernel` and its DKMS build
     # checked before the reboot that activates it. `--tags` runs only tagged tasks, so nothing
@@ -266,6 +277,33 @@
         # Share comfyui's model store rather than keeping a second copy.
         kohya_ss_models_path: "{{ docker_compose_dst_data_directory_path }}/comfyui/models"
       tags: kohya_ss
+
+    # The gpu-encoder-sweep encode agent. One container reaching BOTH cards: the Arc through the
+    # whole /dev/dri and the A4000 through the NVIDIA runtime, because which card a run uses comes
+    # from the encoder_unit row the hub planned it against, not from the mount.
+    #
+    # The scorer is a second invocation of this role, in `tasks:` below — see the comment there.
+    #
+    # The image tag is pinned for the M2 smoke: a floating tag changes the reported artifact under
+    # already-planned runs and every claim then answers 409 until they are re-planned.
+    - role: docker_compose_gpu_encoder_sweep_node
+      vars:
+        docker_compose_gpu_encoder_sweep_node_component: encode
+        docker_compose_gpu_encoder_sweep_node_host: media-01
+        docker_compose_gpu_encoder_sweep_node_token: "{{ gpu_encoder_sweep_agent_tokens['media-01'] }}"
+        docker_compose_gpu_encoder_sweep_node_hub_url: "https://ges-hub.{{ domain_name }}"
+        docker_compose_gpu_encoder_sweep_node_work_root: "{{ media_sweep_work_root }}"
+        docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+        # The Arc is NOT wired, and that is not an oversight: the B580 is declared
+        # `state: absent` for this VM because the card is faulty — hardware/nas-host-01.md:349.
+        # Measured 2026-09-15: lspci shows only the bochs VGA and the A4000, neither xe nor i915 is
+        # loaded, and /dev/dri/by-path holds one render node (the A4000's). So there is no
+        # pci-0000:02:00.0-render to name, the catalogue carries no Intel encoder_unit, and setting
+        # _intel_gpu: true here would advertise a lane that cannot be measured. Flip it back to true
+        # when a working card is passed through again.
+        docker_compose_gpu_encoder_sweep_node_intel_gpu: false
+        docker_compose_gpu_encoder_sweep_node_image_tag: sha-9e238d5
+      tags: gpu_encoder_sweep
     - role: docker_compose
       tags: media
       vars:
@@ -341,3 +379,33 @@
         #   docker_compose_tdarr_hardlink_disks — set in host_vars/media-01/vars.yaml from
         #     storage_media_data_disks, and inherited here. Passing it would make it a role var
         #     outranking the host var, the same reason the server invocation does not repeat it.
+
+    # The gpu-encoder-sweep scorer — a second deployment of docker_compose_gpu_encoder_sweep_node
+    # against the same host as the encoder above, and here for exactly the reason the A4000 Tdarr
+    # node is: the role has no meta/main.yml, so a role listed twice under `roles:` runs ONCE and the
+    # second entry is skipped silently. `apply:` is equally load-bearing — include_role does not pass
+    # this task's tags down, so under `--tags gpu_encoder_sweep` the include would run and everything
+    # inside it would be filtered out, deploying nothing while reporting success.
+    #
+    # It is a SEPARATE host row (media-01-score), sharing the `machine` field with the encoder so the
+    # hub's quiet-box rule keeps the two from measuring at the same time. It reads the encoder's work
+    # root as its local_view, read-WRITE, because scoring unlinks the encode it scored — and both
+    # invocations converge on one CIFS volume for the share, which is what lets an encode published
+    # here be visible to the scorer beside it.
+    #
+    # No Intel wiring: scoring is CUDA (libvmaf_cuda), so only the A4000 matters here.
+    - name: Deploy the gpu-encoder-sweep score node
+      tags: gpu_encoder_sweep
+      ansible.builtin.include_role:
+        name: docker_compose_gpu_encoder_sweep_node
+        apply:
+          tags: gpu_encoder_sweep
+      vars:
+        docker_compose_gpu_encoder_sweep_node_component: score
+        docker_compose_gpu_encoder_sweep_node_host: media-01-score
+        docker_compose_gpu_encoder_sweep_node_token: "{{ gpu_encoder_sweep_agent_tokens['media-01-score'] }}"
+        docker_compose_gpu_encoder_sweep_node_hub_url: "https://ges-hub.{{ domain_name }}"
+        docker_compose_gpu_encoder_sweep_node_work_root: "{{ media_sweep_score_work_root }}"
+        docker_compose_gpu_encoder_sweep_node_local_view: "{{ media_sweep_work_root }}"
+        docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+        docker_compose_gpu_encoder_sweep_node_image_tag: sha-9e238d5

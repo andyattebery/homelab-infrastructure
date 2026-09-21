@@ -2,21 +2,28 @@
 #
 # gpu-mode — give exactly one consumer the GPU.
 #
-# The RX 9070 XT has 16 GB and four consumers that each want most of it: ComfyUI,
-# llama-server (via llama-swap), the Tdarr transcode node, and gaming (Steam/gamescope).
-# They cannot share. Measured: the same 8k-token prompt took >900 s with ComfyUI resident
-# vs 45 s without, with EVICTED_TIME going 772,000 ms -> 52 ms. It is not a throughput
-# problem — the amdgpu driver thrashes allocations between VRAM and GTT once free VRAM
-# approaches zero.
+# The RX 9070 XT has 16 GB and five consumers that each want most of it: ComfyUI,
+# llama-server (via llama-swap), the Tdarr transcode node, the gpu-encoder-sweep agent, and
+# gaming (Steam/gamescope). They cannot share. Measured: the same 8k-token prompt took >900 s
+# with ComfyUI resident vs 45 s without, with EVICTED_TIME going 772,000 ms -> 52 ms. It is not
+# a throughput problem — the amdgpu driver thrashes allocations between VRAM and GTT once free
+# VRAM approaches zero.
 #
 # This stops the llama-swap CONTAINER rather than just unloading the model, because
 # Onyx can trigger a load at any time and would otherwise pull ~10 GiB back onto the
 # card mid-game.
 #
-# Tdarr is the one consumer whose work is LOST rather than deferred when it is stopped:
-# an in-flight transcode dies and its partial output in /temp is wasted. The server
-# re-queues the file, so nothing is corrupted — but a mode switch mid-batch throws away
-# however far that one file had got.
+# Tdarr and the sweep agent are the two consumers whose work is LOST rather than deferred
+# when they are stopped. An in-flight Tdarr transcode dies and its partial output in /temp is
+# wasted; the server re-queues the file, so nothing is corrupted, but a mode switch mid-batch
+# throws away however far that one file had got.
+#
+# The sweep agent is worse in one respect and better in another: the run it was executing fails
+# at the hub's 90 s heartbeat TTL and the queue entry waits for the agent to come back, so
+# nothing needs re-planning — but a sweep measures TIMINGS, so a cell interrupted by a mode
+# switch would be a wrong number rather than a missing one if it were ever counted. It is not:
+# the hub fails the whole run. Prefer wrapping a campaign in `sleep-inhibit run`, and switching
+# modes between campaigns rather than inside one.
 #
 # Managed by Ansible: ansible/files/htpc-01/gpu-mode.sh
 # Background: research/local-llm/docs/llm-tuning.md
@@ -31,6 +38,7 @@ set -euo pipefail
 COMFY_UNIT=comfyui.service
 LLM_UNIT=llama-swap.service
 TDARR_UNIT=tdarr-node.service
+SWEEP_UNIT=gpu-encoder-sweep-node.service
 
 # Free-VRAM floor to reach before starting the next consumer. The desktop and
 # compositor hold ~1.3 GB at idle, so this is "the previous consumer has let go",
@@ -203,6 +211,8 @@ status() {
     "$(boot_enabled $LLM_UNIT && echo yes || echo no)"
   printf 'Tdarr:      %-10s boot=%s\n' "$(systemctl is-active $TDARR_UNIT)" \
     "$(boot_enabled $TDARR_UNIT && echo yes || echo no)"
+  printf 'Sweep:      %-10s boot=%s\n' "$(systemctl is-active $SWEEP_UNIT)" \
+    "$(boot_enabled $SWEEP_UNIT && echo yes || echo no)"
   if is_active "$LLM_UNIT"; then
     local running
     running="$(podman exec llama-swap curl -sf --max-time 5 localhost:8080/running 2>/dev/null || true)"
@@ -215,11 +225,13 @@ status() {
   if is_active "$COMFY_UNIT"; then active=$((active + 1)); fi
   if is_active "$LLM_UNIT";   then active=$((active + 1)); fi
   if is_active "$TDARR_UNIT"; then active=$((active + 1)); fi
+  if is_active "$SWEEP_UNIT"; then active=$((active + 1)); fi
   if [ "$active" -gt 1 ]; then
     echo "mode:       CONTENDED — $active consumers running, expect VRAM thrashing"
   elif is_active "$COMFY_UNIT"; then echo "mode:       comfy"
   elif is_active "$LLM_UNIT"; then   echo "mode:       llm"
   elif is_active "$TDARR_UNIT"; then echo "mode:       tdarr"
+  elif is_active "$SWEEP_UNIT"; then echo "mode:       sweep"
   else echo "mode:       game (no container is running)"
   fi
 }
@@ -227,6 +239,7 @@ status() {
 case "${1:-}" in
   game)
     echo "gpu-mode: game — releasing the GPU entirely"
+    stop_unit "$SWEEP_UNIT"
     stop_unit "$TDARR_UNIT"
     stop_unit "$LLM_UNIT"
     stop_unit "$COMFY_UNIT"
@@ -234,6 +247,7 @@ case "${1:-}" in
     ;;
   comfy)
     echo "gpu-mode: comfy"
+    stop_unit "$SWEEP_UNIT"
     stop_unit "$TDARR_UNIT"
     stop_unit "$LLM_UNIT"
     wait_for_release
@@ -241,6 +255,7 @@ case "${1:-}" in
     ;;
   llm)
     echo "gpu-mode: llm"
+    stop_unit "$SWEEP_UNIT"
     stop_unit "$TDARR_UNIT"
     stop_unit "$COMFY_UNIT"
     wait_for_release
@@ -250,12 +265,23 @@ case "${1:-}" in
     ;;
   tdarr)
     echo "gpu-mode: tdarr"
+    stop_unit "$SWEEP_UNIT"
     stop_unit "$COMFY_UNIT"
     stop_unit "$LLM_UNIT"
     wait_for_release
     start_unit "$TDARR_UNIT"
-    # Unlike the other two this starts working immediately, as soon as the server has
+    # Unlike ComfyUI and llama-swap this starts working immediately, as soon as the server has
     # a queued file to hand it.
+    ;;
+  sweep)
+    echo "gpu-mode: sweep"
+    stop_unit "$TDARR_UNIT"
+    stop_unit "$COMFY_UNIT"
+    stop_unit "$LLM_UNIT"
+    wait_for_release
+    start_unit "$SWEEP_UNIT"
+    # Starts claiming as soon as the hub has a queued entry for this host — and a claimed cell
+    # is a timed measurement, so leave the card to it until the campaign is done.
     ;;
   card)
     # Selection only, no unit state: this is the one subcommand that needs neither root nor
@@ -269,12 +295,13 @@ case "${1:-}" in
     ;;
   *)
     cat >&2 <<'USAGE'
-Usage: gpu-mode {game|comfy|llm|tdarr|status|card}
+Usage: gpu-mode {game|comfy|llm|tdarr|sweep|status|card}
 
-  game    stop all three containers, leaving the card to Steam/gamescope
-  comfy   stop llama-swap and Tdarr, start ComfyUI
-  llm     stop ComfyUI and Tdarr, start llama-swap
-  tdarr   stop ComfyUI and llama-swap, start the Tdarr transcode node
+  game    stop all four containers, leaving the card to Steam/gamescope
+  comfy   stop llama-swap, Tdarr and the sweep agent, start ComfyUI
+  llm     stop ComfyUI, Tdarr and the sweep agent, start llama-swap
+  tdarr   stop ComfyUI, llama-swap and the sweep agent, start the Tdarr transcode node
+  sweep   stop the other three, start the gpu-encoder-sweep encode agent
   status  show VRAM, unit states and any loaded model
   card    print which GPU this script is driving, and nothing else
 
@@ -290,10 +317,14 @@ Switching away from 'tdarr' kills any in-flight transcode. The server re-queues 
 file, so nothing is lost permanently, but the partial output in /temp is wasted work.
 Prefer switching between batches.
 
+Switching away from 'sweep' fails whatever run the agent was executing — the hub notices at
+the 90 s heartbeat TTL and the queue entry waits for the agent to return, so nothing needs
+re-planning. But a sweep measures timings, so switch between campaigns, not inside one.
+
 The selected mode survives reboots: it is stored as a Quadlet [Install] drop-in per
 container, which is what decides whether that container starts at boot.
 
-None of the three GPU containers has an [Install] of its own, so on a freshly
+None of the four GPU containers has an [Install] of its own, so on a freshly
 provisioned host none starts at boot until gpu-mode has been run once.
 USAGE
     exit 1

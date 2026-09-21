@@ -19,6 +19,51 @@ eta_windows_path_sep: "\\"
 # (BtbN)`; neither is managed here.
 eta_ffmpeg_dir: 'C:\Program Files\jellyfin-ffmpeg\bin'
 
+# --- uv -----------------------------------------------------------------------------------------
+# Where github_release_install_win puts uv.exe and uvx.exe. The role does not create its own
+# destination, so playbook-eta.yaml creates this directory before installing into it — the same
+# shape as eta_ffmpeg_dir above. Its own directory, not shared with ffmpeg's, because that role's
+# release stamp defaults to <dest_dir>\.release-tag and two callers sharing one destination would
+# fight over it.
+eta_uv_dir: 'C:\Program Files\uv'
+
+# --- gpu-encoder-sweep --------------------------------------------------------------------------
+# The native agent's work root. Exists already and holds this machine's stage cuts, which is why
+# gpu_encoder_sweep_node_win creates it if absent but never touches its owner or mode. It is also
+# the scheduled task's working directory and where the agent's log is written, because the launcher
+# lives under Program Files where the task's account has read and execute only.
+#
+# The WSL scorer sees this same directory as /mnt/d/sweep and scores in place, which is why eta's
+# cells never leave the machine.
+# The local service account the sweep agent's boot task runs as -- not the connecting user. The name
+# is deliberately redundant: `svc-` is the conventional Windows marker for a service identity, and
+# this one is denied interactive and remote-interactive logon, so the name states a contract that
+# win_user_right actually enforces.
+#
+# Wherever this is handed to win_user_right or win_acl it must carry the `.\` prefix; the module's own
+# documentation recommends it so a local name is never sent to a domain controller for lookup.
+eta_service_account: svc-services
+
+# The sweep role's own directory on this host, named here rather than left to the role default so it
+# sits beside the host's other paths. The role breaks inheritance on it and grants exactly three ACEs,
+# which is why it is not shared with any other role's install directory.
+eta_sweep_install_dir: 'C:\Program Files\gpu-encoder-sweep'
+
+# Dedicated to the harness, and deliberately NOT D:\sweep — that holds the retired M4 campaign's
+# stage cuts, which the harness neither reads nor should be able to delete. Two consumers: the ACE
+# the play grants the service account, and the role's own work root.
+#
+# D: rather than C: is forced: C: is the 280 GB Optane and holds Windows. Encodes land here, on a
+# Storage Space shared with the games library and Tdarr's transcode cache, so a timing run on this
+# host is not measuring an idle disk. Recorded rather than designed around.
+eta_sweep_work_root: 'D:\gpu-encoder-sweep-encode'
+
+# ffmpeg.exe for the launcher's one-frame NVENC probe at boot. Derived from eta_ffmpeg_dir so the
+# probe and the Tdarr node can never test different builds; a separate var rather than reusing
+# tdarr_node_win_ffmpeg_path, because one role reaching into another role's namespace is how a
+# rename turns into a silent breakage.
+eta_sweep_ffmpeg_path: '{{ eta_ffmpeg_dir }}{{ eta_windows_path_sep }}ffmpeg.exe'
+
 # --- Tdarr ------------------------------------------------------------------------------------
 # Where Tdarr is installed. tdarr_node_win puts Tdarr_Updater.exe here and merges the node config
 # under configs\. It bootstraps only a host with no Tdarr_Node\ directory; eta has one, so it

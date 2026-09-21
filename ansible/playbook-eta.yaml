@@ -69,3 +69,164 @@
           {{ eta_tdarr_media_raw_translators
              + [{'server': '/media', 'node': eta_tdarr_storage_unc},
                 {'server': '/temp', 'node': eta_tdarr_transcode_cache}] }}
+
+    # --- gpu-encoder-sweep ------------------------------------------------------------------------
+    # The role does not create its destination — ACLs on it are the caller's business, the same as
+    # for jellyfin-ffmpeg above. Its own directory, not shared with ffmpeg's: that role's release
+    # stamp defaults to <dest_dir>\.release-tag, and two callers sharing one destination fight over
+    # it.
+    - name: Create uv directory
+      tags: [gpu_encoder_sweep, uv]
+      ansible.windows.win_file:
+        path: "{{ eta_uv_dir }}"
+        state: directory
+
+    # uv, for uvx — which is how the sweep agent runs here: one command that resolves the
+    # interpreter, the dependencies and the entry point, with no interpreter to install first.
+    - name: Install uv
+      tags: [gpu_encoder_sweep, uv]
+      ansible.builtin.include_role:
+        name: github_release_install_win
+        # `apply` is required: tags on an include_role task gate the include itself, they do
+        # not propagate to the tasks inside the role.
+        apply:
+          tags: [gpu_encoder_sweep, uv]
+      vars:
+        github_release_install_win_repo: astral-sh/uv
+        # uv publishes aarch64, i686 and x86_64 Windows zips, each with a .sha256 sidecar, and the
+        # role fails the run on anything but exactly one match. Measured against the 0.12.10 asset
+        # list: this matches 1, dropping the trailing $ matches 2 (the sidecar), and
+        # `pc-windows-msvc\.zip$` alone matches 3. The leading ^ is belt-and-braces — dropping it
+        # alone still matches 1 — and is there so a future asset whose name merely contains this one
+        # cannot match.
+        github_release_install_win_asset_patterns:
+          x86_64: '^uv-x86_64-pc-windows-msvc\.zip$'
+        github_release_install_win_files_in_archive: [uv.exe, uvx.exe]
+        github_release_install_win_dest_dir: "{{ eta_uv_dir }}"
+        # A hard pin, not the `echo latest` trap the Linux caller check guards: uv is the runtime the
+        # measured agent runs under, so it moves deliberately or not at all.
+        github_release_install_win_release_tag: "0.12.10"
+
+    # --- the service account the sweep agent runs as ---------------------------------------------
+    # A dedicated local account, not andya. A boot-triggered task runs with nobody logged in, so it
+    # needs a stored password whatever the identity (win_scheduled_task refuses s4u without one), and
+    # the only passwordless logon type is restricted to SYSTEM / LOCAL SERVICE / NETWORK SERVICE. So
+    # the choice was never "password or not" but "whose" -- and a generated service credential is
+    # rotatable and contained where a person's login is neither.
+    #
+    # These live here rather than in the role because they are host state: the role deploys one
+    # application, it does not own the machine's accounts or its security policy.
+    - name: Create the sweep service account
+      tags: [gpu_encoder_sweep, svc_account]
+      no_log: true
+      ansible.windows.win_user:
+        name: "{{ eta_service_account }}"
+        password: "{{ eta_service_account_password }}"
+        password_never_expires: true
+        description: Runs the gpu-encoder-sweep node agent's boot task. Managed by Ansible.
+        state: present
+
+    # ⚠ action: add on all three, never the module default.
+    #
+    # ansible.windows.win_user_right defaults to `action: set`, which REPLACES the users on a right.
+    # On SeBatchLogonRight that would strip Administrators and Backup Operators and take andya's
+    # ability to run any scheduled task with them -- a silent, host-wide security-policy change that
+    # nothing else here would surface.
+    #
+    # The `.\` prefix is the module's own recommendation, so a local name is never sent to a domain
+    # controller for lookup. win_scheduled_task and win_acl resolve a bare name fine, which is why the
+    # role takes it bare and only these calls prefix it.
+    - name: Allow the sweep service account to log on as a batch job
+      tags: [gpu_encoder_sweep, svc_account]
+      ansible.windows.win_user_right:
+        name: SeBatchLogonRight
+        users: ['.\{{ eta_service_account }}']
+        action: add
+
+    # The account's name asserts no interactive login; these are what make that true rather than
+    # decorative. Neither denies a batch logon, so the task is unaffected.
+    - name: Deny the sweep service account interactive logon
+      tags: [gpu_encoder_sweep, svc_account]
+      ansible.windows.win_user_right:
+        name: "{{ item }}"
+        users: ['.\{{ eta_service_account }}']
+        action: add
+      loop:
+        - SeDenyInteractiveLogonRight
+        - SeDenyRemoteInteractiveLogonRight
+
+    # Two grants, both additive, because this account inherits nothing useful.
+    #
+    # The work root is CREATED here first, and that is not belt-and-braces: `win_acl` fails outright
+    # on a path that does not exist, and the role that would create it runs later in this play. While
+    # the work root was a pre-existing directory this was invisible; the moment it moved to a new,
+    # dedicated path the grant failed with "file or directory does not exist" and the play stopped
+    # before the agent was deployed. The role keeps its own creation -- both are idempotent and
+    # neither asserts ownership, so whichever runs first is correct and the other is a no-op.
+    #
+    # Ownership is deliberately left alone on both.
+    #
+    # The uv directory: the launcher executes uvx.exe from under Program Files, which hands read and
+    # execute down through BUILTIN\Users. Nothing establishes that a win_user-created account lands in
+    # Users, and for an account deliberately restricted it would be wrong to rely on that even if it
+    # did. Without this the first boot fails with an access-denied that reads like a uv problem.
+    - name: Create the sweep work root so the grant below has a path to act on
+      tags: [gpu_encoder_sweep, svc_account]
+      ansible.windows.win_file:
+        path: "{{ eta_sweep_work_root }}"
+        state: directory
+
+    - name: Grant the sweep service account access to its work root and to uv
+      tags: [gpu_encoder_sweep, svc_account]
+      ansible.windows.win_acl:
+        path: "{{ item.path }}"
+        user: "{{ eta_service_account }}"
+        rights: "{{ item.rights }}"
+        type: allow
+        state: present
+      loop:
+        - path: "{{ eta_sweep_work_root }}"
+          rights: Modify
+        - path: "{{ eta_uv_dir }}"
+          rights: ReadAndExecute
+      loop_control:
+        label: "{{ item.path }} {{ item.rights }}"
+
+    # The native encode agent. Native because a WSL2 container has no GPU Vulkan, so the encoder has
+    # to run on Windows itself; the scoring half of this machine is the container on wsl-01, which
+    # reads this host's work root through its own local_view.
+    #
+    # The task runs as the dedicated account created above, with a batch logon. Two things the
+    # launcher writes to its log at every boot, because a boot task is the only context that can
+    # answer them: which identity actually ran, and whether NVENC initialises from a session-0 batch
+    # token. Read that log after the first start. (There was a third, a share probe; it went with the
+    # share -- a file crosses machines through the hub's HTTPS API now.)
+    - name: Deploy the gpu-encoder-sweep node agent
+      tags: gpu_encoder_sweep
+      ansible.builtin.include_role:
+        name: gpu_encoder_sweep_node_win
+        apply:
+          tags: gpu_encoder_sweep
+      vars:
+        gpu_encoder_sweep_node_win_hub_url: "https://ges-hub.{{ domain_name }}"
+        # The host ROW name. This machine also carries the eta-wsl row, for the scorer on wsl-01.
+        gpu_encoder_sweep_node_win_host: eta
+        gpu_encoder_sweep_node_win_token: "{{ gpu_encoder_sweep_agent_tokens['eta'] }}"
+        gpu_encoder_sweep_node_win_work_root: "{{ eta_sweep_work_root }}"
+        gpu_encoder_sweep_node_win_uv_dir: "{{ eta_uv_dir }}"
+        gpu_encoder_sweep_node_win_install_dir: "{{ eta_sweep_install_dir }}"
+        gpu_encoder_sweep_node_win_owner: "{{ eta_service_account }}"
+        gpu_encoder_sweep_node_win_password: "{{ eta_service_account_password }}"
+        # For the boot-time NVENC probe. Proven green from a session-0 logon on this host before it
+        # was wired in: av1_nvenc encoded a frame and exited 0.
+        gpu_encoder_sweep_node_win_ffmpeg_path: "{{ eta_sweep_ffmpeg_path }}"
+        # Pinned for the M2 smoke. This host reports `uvx:<version>` as its artifact — there is no
+        # stamped /etc/sweep-artifact outside the container images — so this value is the only thing
+        # that distinguishes one build from another in the record.
+        #
+        # ⚠ A GIT REF, not a container tag. The three container roles pin `sha-<short>` because that
+        # is what CI tags the images; uvx resolves `git+<url>@<ref>` against the repository, which has
+        # NO tags at all — `git tag` returns nothing — so a `sha-`-prefixed value here resolves to
+        # nothing and the agent fails at its first boot. Use the bare commit sha, a branch, or a real
+        # tag if one is ever cut.
+        gpu_encoder_sweep_node_win_package_version: "9e238d5"

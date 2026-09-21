@@ -29,6 +29,14 @@ vault_freshrss_api_password: {{ op://Personal/FreshRSS/add more/api password }}
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
 vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}
+vault_gpu_encoder_sweep_operator_token: {{ op://Personal/gpu-encoder-sweep/tokens/nas-01 operator }}
+vault_gpu_encoder_sweep_agent_token_media_01: {{ op://Personal/gpu-encoder-sweep/tokens/media-01 encode }}
+vault_gpu_encoder_sweep_agent_token_media_01_score: {{ op://Personal/gpu-encoder-sweep/tokens/media-01 score }}
+vault_gpu_encoder_sweep_agent_token_eta: {{ op://Personal/gpu-encoder-sweep/tokens/eta encode }}
+vault_gpu_encoder_sweep_agent_token_eta_wsl: {{ op://Personal/gpu-encoder-sweep/tokens/wsl-01 score }}
+vault_gpu_encoder_sweep_agent_token_htpc_01: {{ op://Personal/gpu-encoder-sweep/tokens/htpc-01 encode }}
+vault_gpu_encoder_sweep_agent_token_nas_01: {{ op://Personal/gpu-encoder-sweep/tokens/nas-01 agent }}
+vault_eta_service_account_password: {{ op://Home Lab/eta/svc-services/password }}
 vault_healthchecks_superuser_email: {{ op://Personal/Healthchecks/username }}
 vault_healthchecks_superuser_password: {{ op://Personal/Healthchecks/password }}
 vault_healthchecks_pushover_subscription_url: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/subscription urls/healthchecks }}
