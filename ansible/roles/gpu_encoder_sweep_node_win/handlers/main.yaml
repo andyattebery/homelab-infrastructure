@@ -1,0 +1,21 @@
+---
+# The launcher carries the token, the hub URL and the package version, so a change to any of them
+# only takes effect when the agent is restarted. Restarting is stop-then-start rather than a
+# `state: restarted`, which the module does not have.
+#
+# It is deliberately NOT started when it was already stopped: this host's agent is started by a boot
+# trigger, and an operator who stopped it (to game, to encode by hand, to take the GPU) did that on
+# purpose. `win_shell` with schtasks rather than win_scheduled_task, because the module manages the
+# task's definition, not its running state.
+- name: Restart the sweep node scheduled task
+  ansible.windows.win_powershell:
+    parameters:
+      Name: "{{ gpu_encoder_sweep_node_win_task_name }}"
+    script: |
+      param([String]$Name)
+      $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+      if (-not $task) { $Ansible.Changed = $false; "not registered yet"; return }
+      if ($task.State -ne 'Running') { $Ansible.Changed = $false; "not running; leaving it stopped"; return }
+      Stop-ScheduledTask -TaskName $Name
+      Start-ScheduledTask -TaskName $Name
+      "restarted"

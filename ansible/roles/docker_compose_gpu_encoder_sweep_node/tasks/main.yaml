@@ -1,0 +1,131 @@
+---
+# One invocation deploys one component. A host running both invokes this role twice — the second
+# time through `ansible.builtin.include_role` in `tasks:`, never a second `roles:` entry, because no
+# docker_compose_* role here has a meta/ and without one the duplicate is silently skipped.
+
+- name: Assert the sweep node component is set
+  ansible.builtin.assert:
+    that: docker_compose_gpu_encoder_sweep_node_component in ['encode', 'score']
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_node_component must be "encode" or "score"; got
+      "{{ docker_compose_gpu_encoder_sweep_node_component }}". It selects the image, the service
+      name, the deployed file name and the .env suffix, so an empty value renders a service called
+      gpu_encoder_sweep_ and pulls an image called gpu-encoder-sweep-node-.
+
+# Length test on the token only, so no credential reaches the play output on failure.
+- name: Assert the sweep node hub, token and host are set
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_node_hub_url | length > 0
+      - docker_compose_gpu_encoder_sweep_node_token | string | length > 0
+      - docker_compose_gpu_encoder_sweep_node_host | length > 0
+    fail_msg: >-
+      Set docker_compose_gpu_encoder_sweep_node_hub_url, _token and _host. They are the only three
+      variables the agent reads (sweep/node/config.py:6) and it refuses at start if any is empty, so
+      the cost of missing one is a container that crashloops until someone reads its log. _host is
+      the host ROW name the hub knows this agent by, which is not always the inventory name — one
+      machine can carry both an encode row and a score row.
+
+- name: Assert the sweep node work root is absolute
+  ansible.builtin.assert:
+    that: docker_compose_gpu_encoder_sweep_node_work_root is match('^/')
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_node_work_root must be an absolute path; got
+      "{{ docker_compose_gpu_encoder_sweep_node_work_root }}". It is mounted at the same path inside
+      and out, and the agent reports its free space at start — when it is not a directory the agent
+      silently reports the free bytes of its own working directory instead, so a wrong value here
+      does not fail, it produces a wrong measurement.
+
+- name: Assert the sweep node local view is a scorer's, and absolute
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_node_local_view | length == 0
+        or docker_compose_gpu_encoder_sweep_node_component == 'score'
+      - docker_compose_gpu_encoder_sweep_node_local_view | length == 0
+        or docker_compose_gpu_encoder_sweep_node_local_view is match('^/')
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_node_local_view is another runtime's work root as THIS host
+      sees it, so it only means anything on a scorer, and it must be absolute. An encode agent has
+      no use for one. Leaving it empty on a scorer is legitimate — that scorer pulls each cell from
+      the hub instead — so it is not required, only constrained.
+
+- name: Assert the sweep node WSL flag is paired with the NVIDIA runtime
+  ansible.builtin.assert:
+    that:
+      - not docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl
+        or docker_compose_gpu_encoder_sweep_node_nvidia_gpu
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl needs
+      docker_compose_gpu_encoder_sweep_node_nvidia_gpu as well. On its own it binds the WSL
+      userspace and sets LD_LIBRARY_PATH without asking for the runtime or the device, which starts
+      cleanly and runs every encode on the CPU — a silent no-GPU, and the timings still get
+      published. docker_compose_tdarr leaves these two as independent flags; this role does not,
+      because nothing downstream would notice.
+
+# Created here rather than assumed, because the agent does not fail when it is missing: it reports
+# the free space of its own working directory instead, and the run proceeds with a wrong number.
+#
+# NOTHING ELSE is set. No owner, no group, no mode — deliberately. A work root can already exist and
+# hold the campaign's stage cuts, owned by whichever account put them there, and a role that asserts
+# ownership on a directory it did not fill would chown that out from under the runtime that owns it
+# on the next apply. So: create it if it is absent, touch nothing if it is present.
+#
+# Everything BELOW the work root is the agent's own: it makes runs/<run_id>/{tmp,records,progress}
+# with mkdir(parents=True). Those end up root-owned, because no image sets a USER — expected, and
+# why cleaning up after a campaign needs sudo.
+- name: Create the sweep node work root
+  ansible.builtin.file:
+    path: "{{ docker_compose_gpu_encoder_sweep_node_work_root }}"
+    state: directory
+
+# The local view is another runtime's directory, so this role must not create it: an absent path
+# would be created by Docker at container start, root-owned and empty, and the scorer would find no
+# encodes there and fall back to pulling every cell from the hub over HTTPS. That is slower, it is a
+# different measurement, and nothing announces it.
+- name: Check the sweep node local view exists
+  when: docker_compose_gpu_encoder_sweep_node_local_view | length > 0
+  block:
+    - name: Stat the local view
+      ansible.builtin.stat:
+        path: "{{ docker_compose_gpu_encoder_sweep_node_local_view }}"
+      register: _local_view_stat
+
+    - name: Assert the local view is a directory that already exists
+      ansible.builtin.assert:
+        that:
+          - _local_view_stat.stat.exists
+          - _local_view_stat.stat.isdir
+        fail_msg: >-
+          {{ docker_compose_gpu_encoder_sweep_node_local_view }} does not exist as a directory on
+          this host. It belongs to the runtime whose encodes this scorer reads, so this role will
+          not create it — deploy that runtime first, or clear
+          docker_compose_gpu_encoder_sweep_node_local_view and let this scorer pull from the hub.
+
+- name: "Configure the gpu-encoder-sweep {{ docker_compose_gpu_encoder_sweep_node_component }} node"
+  vars:
+    _sfx: "{{ docker_compose_gpu_encoder_sweep_node_env_suffix }}"
+    docker_compose_src_file_path: templates/docker-compose-gpu-encoder-sweep-node.yaml.j2
+    # The base role does not strip .j2 from the destination name, and files/dc globs
+    # docker-compose*.y*ml, so this must be set explicitly or dc/dcup cannot see the stack.
+    docker_compose_dst_file_name: "docker-compose-gpu-encoder-sweep-node-{{ docker_compose_gpu_encoder_sweep_node_component }}.yaml"
+    # Keys are built with `~` so the suffix lands in the NAME, not the value. `.env` is a host-global
+    # namespace, merged rather than rewritten and never pruned, so two invocations on one host must
+    # not write the same names.
+    #
+    # Only the token is here. Everything else this stack needs is a literal in the compose file:
+    # each component gets its own file, so there is nothing to collide, and a name written to .env
+    # is permanent whether or not anything still reads it.
+    #
+    # SMB_STORAGE_* used to be written here too, unsuffixed, so every role on a host converged on one
+    # credential set. This role no longer needs it: no node mounts the share. The write is dropped
+    # rather than kept "just in case" -- docker_compose_tdarr and docker_compose_comfyui write the
+    # same four names, and tdarr is deployed on both hosts this role runs on, so the names still
+    # reach .env for whatever reads them. (.env is never pruned, so values already there stay.)
+    docker_compose_envs: >-
+      {{
+        {
+          'GES_NODE_SWEEP_TOKEN' ~ _sfx: docker_compose_gpu_encoder_sweep_node_token
+        }
+      }}
+  ansible.builtin.include_role:
+    name: docker_compose

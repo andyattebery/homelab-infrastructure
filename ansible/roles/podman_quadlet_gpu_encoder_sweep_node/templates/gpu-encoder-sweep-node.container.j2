@@ -1,0 +1,73 @@
+[Unit]
+Description=gpu-encoder-sweep node agent
+{# The one bind-mount source, so the unit orders itself after the mount holding it. There used to be
+   a second -- the pool's CIFS mount -- along with a mountpoint assert and an ownership assert in
+   tasks/main.yaml. All three are gone: this agent mounts no share. A file crosses machines through
+   the hub's HTTPS API now, so there is no CIFS mount to order against, own, or silently mkdir past. #}
+RequiresMountsFor={{ podman_quadlet_gpu_encoder_sweep_node_work_root }}
+
+{# systemd gives up where Docker would not. An agent whose host row does not exist yet exits at
+   start, hits this burst in seconds, and STAYS failed — `restart: unless-stopped` has no equivalent
+   limit. Author the catalogue before applying this role, or plan on `systemctl reset-failed`. #}
+StartLimitIntervalSec={{ podman_quadlet_gpu_encoder_sweep_node_start_limit_interval_sec }}
+StartLimitBurst={{ podman_quadlet_gpu_encoder_sweep_node_start_limit_burst }}
+
+[Container]
+Image={{ podman_quadlet_gpu_encoder_sweep_node_image_registry }}/{{ podman_quadlet_gpu_encoder_sweep_node_image_name }}:{{ podman_quadlet_gpu_encoder_sweep_node_image_tag }}
+ContainerName=gpu-encoder-sweep-node
+{# NO AutoUpdate=, deliberately, and this is the sharpest divergence from the tdarr node beside it.
+   The hub hands a run only to an agent whose reported artifact matches the one the run was planned
+   for, so an image that moves under already-planned runs makes every claim answer 409 until they are
+   re-planned. `pqup` runs auto-update across the host; this unit must not participate. #}
+{% for device in podman_quadlet_gpu_encoder_sweep_node_devices %}
+AddDevice={{ device }}
+{% endfor %}
+{% for group in podman_quadlet_gpu_encoder_sweep_node_group_add %}
+GroupAdd={{ group }}
+{% endfor %}
+{# Matches the production node on this card. Without it, SELinux denies the bind mounts below. #}
+SecurityLabelDisable=true
+
+{# SWEEP_TOKEN only, at 0600 — this unit file is world-readable at 0644. #}
+EnvironmentFile={{ podman_quadlet_gpu_encoder_sweep_node_config_dir }}/gpu-encoder-sweep-node.env
+
+{# The other two of the three the agent reads. Everything else it needs — the work root and the argv
+   for every run — comes from the hub's host row, which is why this unit is so much shorter than the
+   tdarr node's. #}
+Environment=TZ={{ podman_quadlet_gpu_encoder_sweep_node_timezone }}
+Environment=SWEEP_HUB={{ podman_quadlet_gpu_encoder_sweep_node_hub_url }}
+Environment=SWEEP_HOST={{ podman_quadlet_gpu_encoder_sweep_node_host }}
+{% if podman_quadlet_gpu_encoder_sweep_node_amd_debug | length > 0 %}
+{# For the ffmpeg the agent spawns as a child, which inherits this environment — the harness builds
+   an argv and cannot set it. EFC is unstable in upstream Mesa and jellyfin disables it for the same
+   reason; without this, encodes on an AMD card are unstable AND diverge from production. #}
+Environment=AMD_DEBUG={{ podman_quadlet_gpu_encoder_sweep_node_amd_debug }}
+{% endif %}
+{% for name, value in (podman_quadlet_gpu_encoder_sweep_node_extra_env | dictsort) %}
+Environment={{ name }}={{ value }}
+{% endfor %}
+
+{# The work root is mounted at the SAME PATH inside and out, because the hub composes every argv from
+   the host row's work_root and the agent runs it inside the container — so a path in a record or a
+   log resolves on the host too. It is the only Volume= here: the agent PUTs what it encoded to the
+   hub over HTTPS and pulls the same way, so there is no share to mount.
+
+   No ffmpeg bind mount either, and that is the second divergence from the tdarr node: that one mounts
+   a host build over the image's because its base ships an ffmpeg too old to use. Here the image's
+   pinned build IS the measurement instrument, and a host that measured with a different one is not
+   comparable with the others. #}
+Volume={{ podman_quadlet_gpu_encoder_sweep_node_work_root }}:{{ podman_quadlet_gpu_encoder_sweep_node_work_root }}
+
+[Service]
+Restart=always
+TimeoutStartSec=120
+{% if podman_quadlet_gpu_encoder_sweep_node_install_wanted_by | length > 0 %}
+
+[Install]
+WantedBy={{ podman_quadlet_gpu_encoder_sweep_node_install_wanted_by }}
+{% else %}
+
+{# No [Install] section: _install_wanted_by is empty, so boot policy is owned by something outside
+   this role — typically a drop-in written by a GPU-arbitration script. Consequence: on a freshly
+   provisioned host this agent does not start at boot until that something has run once. #}
+{% endif %}

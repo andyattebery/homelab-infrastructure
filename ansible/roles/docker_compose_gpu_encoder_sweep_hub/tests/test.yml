@@ -1,0 +1,588 @@
+---
+# Exercises docker_compose_gpu_encoder_sweep_hub against throwaway directories. Runs entirely on
+# localhost, starts no container, contacts no host, and needs no Docker daemon -- only the docker
+# CLI, because `docker compose config` renders and exits.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/docker_compose_gpu_encoder_sweep_hub/tests/inventory \
+#       roles/docker_compose_gpu_encoder_sweep_hub/tests/test.yml
+#
+# What it is actually for. This stack has four failure modes that all deploy cleanly and then
+# misbehave quietly, and a real Compose parse is the only thing that separates them from a working
+# one:
+#
+#   1. SWEEP_REDIS naming a service the document does not define. The hub builds a RedisQueue from
+#      whatever URL it is given and fails later, at first use, not at start -- and if the variable
+#      is dropped entirely it builds an in-memory FakeQueue instead, agents claim nothing, and
+#      nothing logs a complaint. Case B is the positive control for that check.
+#   2. The operator's bearer token reaching the 0644 compose file instead of the 0600 .env.
+#   3. /share mounted read-only, which stops the hub writing the exchange it now owns.
+#   4. A Traefik-enabled service with no explicit router rule. The defaultRule derives the host
+#      from the compose service name, and every service here has underscores in it, so the router
+#      would advertise a hostname no certificate covers.
+- name: Test docker_compose_gpu_encoder_sweep_hub
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # group_vars/all is not loaded under `-i <file>`, and these four are what docker_compose
+    # writes into every .env. Literals: no vault, no real domain.
+    timezone: America/Chicago
+    domain_name: example.test
+    lang_two_letter: en
+    language_region_with_underscore: en_US
+
+    # Play vars, which outrank role defaults. Each one turns off a docker_compose step that would
+    # otherwise need root, a docker group, or a daemon:
+    #   uid/gid        skips the ansible_non_become_user_facts include
+    #   docker_gid     skips `getent group docker`, which asserts -- no such group on a Mac
+    #   render_gid     skips the sibling getent. This stack references neither, but copy_env
+    #                  templates the name into every .env regardless
+    #   should_pull    would contact ghcr.io
+    #   should_run_up  would start the containers
+    #   copy_scripts   would install dc/dcup into /usr/local/bin, which needs root
+    docker_compose_uid: "{{ ansible_facts['user_uid'] }}"
+    docker_compose_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_docker_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_render_gid: "989"
+    docker_compose_should_pull: false
+    docker_compose_should_run_up: false
+    docker_compose_copy_scripts: false
+
+    # Fixture credentials -- no vault, nothing real.
+    _fixture_operator_token: fixture-operator-token
+    # Five rows because the fleet has five agents, but the names are fixtures: the role must not
+    # care what a host row is called, only that every key reaches the file with a non-empty value.
+    _fixture_agent_tokens:
+      fixture-encode: fixture-agent-encode
+      fixture-encode-score: fixture-agent-encode-score
+      fixture-native: fixture-agent-native
+      fixture-native-wsl: fixture-agent-native-wsl
+      fixture-vaapi: fixture-agent-vaapi
+      # The hub's own runtime. It runs an agent beside itself, so it authenticates like any node and
+      # needs an entry here as well as the token the agent service presents.
+      fixture-hub: fixture-agent-hub
+
+    # Single-quoted so YAML leaves the backslashes alone and the regex sees literal dots.
+    _rule_re: '^traefik\.http\.routers\..+\.rule$'
+
+    # Everything case A puts on disk, in the order the A2 stats compare them.
+    _written_paths:
+      - "{{ _d.hub }}/docker-compose-gpu-encoder-sweep-hub.yaml"
+      - "{{ _d.hub }}/.env"
+      - "{{ _d.hub }}/data/gpu-encoder-sweep/data/agent-tokens.json"
+      - "{{ _d.hub }}/data/gpu-encoder-sweep/redis"
+
+  tasks:
+    - name: Create scratch directories
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: "ges-hub-tests-{{ item }}"
+      register: _tmps
+      loop: [hub, control, asserts, stub]
+
+    - name: Name the scratch directories
+      ansible.builtin.set_fact:
+        _d: "{{ dict(_tmps.results | map(attribute='item') | zip(_tmps.results | map(attribute='path'))) }}"
+
+    - name: Run the suite
+      block:
+        # ---------- 0. the docker CLI is present ----------
+        # Asserted up front so a missing binary reads as that, rather than as a confusing failure
+        # several tasks later. `compose version` is client-side; no daemon needed.
+        - name: Check the docker CLI is available
+          ansible.builtin.command:
+            cmd: docker compose version
+          register: _docker_version
+          changed_when: false
+
+        - name: docker compose CLI reported a version
+          ansible.builtin.assert:
+            that:
+              - _docker_version.stdout | length > 0
+            success_msg: "{{ _docker_version.stdout }}"
+
+        # This role delivers agent-tokens.json with a service_name_to_restart, so a first run --
+        # where the file is created and therefore changed -- reaches restart_container.yaml, whose
+        # `docker ps` needs a daemon. Nothing else in the role calls docker once should_pull,
+        # should_run_up and should_prune are false, so a stub that prints nothing makes that task's
+        # `when` false and keeps this file daemon-free. It is on PATH only for the role invocations
+        # below; the renders further down use the real CLI.
+        - name: Write a docker stub for the role's restart path
+          ansible.builtin.copy:
+            dest: "{{ _d.stub }}/docker"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              echo "$@" >> "$(dirname "$0")/calls"
+              exit 0
+
+        # ---------- A. the deployed hub ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks the vars
+        # on an import_role task -- so pointing a later case at a different directory takes another
+        # set_fact, not a task var.
+        - name: Point the role at the scratch directory for the hub case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.hub }}"
+
+        - name: Deploy case A -- the hub and its redis
+          environment:
+            PATH: "{{ _d.stub }}:{{ ansible_env.PATH }}"
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.hub }}/data"
+            docker_compose_gpu_encoder_sweep_hub_operator_token: "{{ _fixture_operator_token }}"
+            docker_compose_gpu_encoder_sweep_hub_agent_tokens: "{{ _fixture_agent_tokens }}"
+            docker_compose_gpu_encoder_sweep_hub_share_path: "{{ _d.hub }}/share"
+            docker_compose_gpu_encoder_sweep_hub_host: fixture-hub
+            docker_compose_gpu_encoder_sweep_hub_agent_token: "{{ _fixture_agent_tokens['fixture-hub'] }}"
+            docker_compose_gpu_encoder_sweep_hub_library_path: "{{ _d.hub }}/library"
+            docker_compose_gpu_encoder_sweep_hub_image_tag: sha-fixture
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_hub
+
+        # The destination filename, not the rendered content. `.j2` is not stripped by
+        # docker_compose, so this is the assertion that keeps the file visible to files/dc.
+        - name: Stat the deployed file, and the .j2 name that must not exist
+          ansible.builtin.stat:
+            path: "{{ _d.hub }}/{{ item }}"
+          register: _stats
+          loop:
+            - docker-compose-gpu-encoder-sweep-hub.yaml
+            - docker-compose-gpu-encoder-sweep-hub.yaml.j2
+
+        - name: Case A deployed under a name files/dc can glob
+          ansible.builtin.assert:
+            that:
+              - _stats.results[0].stat.exists
+              - not _stats.results[1].stat.exists
+            success_msg: "{{ _d.hub }}/docker-compose-gpu-encoder-sweep-hub.yaml"
+
+        - name: Render case A
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.hub }}/.env
+              --file {{ _d.hub }}/docker-compose-gpu-encoder-sweep-hub.yaml config --format json
+          register: _render_a
+          changed_when: false
+
+        # The authoritative name check, and it comes first on purpose: every later case in this
+        # section looks a service up by name, so a rename has to fail HERE, with an assertion, and
+        # stop the play. Nothing in this task -- including success_msg, which Ansible renders while
+        # finalizing the args, before the assertion runs -- may dereference a service by name, or a
+        # rename reports itself as a templating error instead.
+        - name: Case A is exactly the three services, both hub and agent on ONE image tag
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _names: "{{ _cfg.services.keys() | sort | list }}"
+            _images: "{{ _cfg.services.values() | map(attribute='image', default='') | list }}"
+            _restarts: "{{ _cfg.services.values() | map(attribute='restart', default='') | list }}"
+            _hub_images: "{{ _images | select('search', 'gpu-encoder-sweep-hub') | unique | list }}"
+          ansible.builtin.assert:
+            that:
+              - _names == ['gpu_encoder_sweep_hub', 'gpu_encoder_sweep_hub_agent', 'gpu_encoder_sweep_redis']
+              # The agent is the SAME image as the hub, overriding its entrypoint. Asserted as a
+              # unique list of one so the two can never drift onto different tags -- an agent on a
+              # different build than the hub is exactly the artifact mismatch that 409s every claim.
+              - _hub_images == ['ghcr.io/andyattebery/gpu-encoder-sweep-hub:sha-fixture']
+              - _restarts | unique == ['unless-stopped']
+            success_msg: >-
+              {{ _names | join(', ') }};
+              one hub image across hub and agent: {{ _hub_images | join(' ') }};
+              restart={{ _restarts | unique | join(', ') }}
+
+        # An UNSET variable is only a warning to Compose -- it substitutes a blank and carries on --
+        # so a name dropped from docker_compose_envs would silently blank rather than fail. Only an
+        # assertion on the rendered value catches that.
+        - name: Case A resolved the operator token through the .env name
+          vars:
+            _env: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_hub.environment }}"
+          ansible.builtin.assert:
+            that:
+              - "'SWEEP_TOKEN' in _env"
+              - _env['SWEEP_TOKEN'] == _fixture_operator_token
+              - _env['SWEEP_AGENT_TOKENS'] == '/data/agent-tokens.json'
+            success_msg: "SWEEP_TOKEN resolved; SWEEP_AGENT_TOKENS={{ _env['SWEEP_AGENT_TOKENS'] }}"
+
+        # The image sets SWEEP_STORE, SWEEP_SHARE, SWEEP_FRAMES and SWEEP_BIND, and the code
+        # defaults behind them are wrong for a container. Setting any of them here would be a
+        # second source of truth for a value nobody looks at until it is wrong.
+        - name: Case A leaves the image's own paths alone
+          vars:
+            _env: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_hub.environment }}"
+          ansible.builtin.assert:
+            that:
+              - "'SWEEP_STORE' not in _env"
+              - "'SWEEP_SHARE' not in _env"
+              - "'SWEEP_FRAMES' not in _env"
+              - "'SWEEP_BIND' not in _env"
+            success_msg: "hub environment: {{ _env.keys() | sort | join(', ') }}"
+
+        - name: Case A mounts /data and /share BOTH read-write
+          vars:
+            _vols: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_hub.volumes }}"
+            _data: "{{ _vols | selectattr('target', 'eq', '/data') | list }}"
+            _share: "{{ _vols | selectattr('target', 'eq', '/share') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length == 2
+              - _data | length == 1
+              - _share | length == 1
+              - _data[0].source == _d.hub ~ '/data/gpu-encoder-sweep/data'
+              - not (_data[0].read_only | default(false))
+              - _share[0].source == _d.hub ~ '/share'
+              # ⚠ INVERTED from what this used to assert. The hub is now the only writer of the
+              # exchange -- agents PUT to its API instead of mounting the directory -- so a read-only
+              # mount stops it writing what it owns. Kept rather than deleted: the mount mode is still
+              # worth pinning, only the direction changed.
+              - not (_share[0].read_only | default(false))
+            success_msg: >-
+              /data={{ _data[0].source }} (rw), /share={{ _share[0].source }} (rw)
+
+        # The check that stands in for "the queue actually works", which no rendered-config test can
+        # prove: the host in the URL has to be a service key this same document defines. Case B is
+        # the positive control -- it renders a document where it is not, and shows this expression
+        # reporting the difference.
+        - name: Case A points SWEEP_REDIS at a service this document defines
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _env: "{{ _cfg.services.gpu_encoder_sweep_hub.environment }}"
+            _redis_host: "{{ _env['SWEEP_REDIS'] | default('') | regex_replace('^redis://', '') | regex_replace(':.*$', '') }}"
+          ansible.builtin.assert:
+            that:
+              - "'SWEEP_REDIS' in _env"
+              - _env['SWEEP_REDIS'] | length > 0
+              - _redis_host | length > 0
+              - _redis_host in _cfg.services
+            success_msg: "SWEEP_REDIS={{ _env['SWEEP_REDIS'] }} -> service {{ _redis_host }}"
+
+        - name: Case A gives the hub an explicit router rule on a valid hostname
+          vars:
+            _labels: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_hub.labels }}"
+          ansible.builtin.assert:
+            that:
+              - _labels['traefik.enable'] == 'true'
+              - _labels['traefik.http.routers.gpu_encoder_sweep_hub.rule'] == 'Host(`ges-hub.example.test`)'
+              - _labels['traefik.http.routers.gpu_encoder_sweep_hub.service'] == 'gpu_encoder_sweep_hub'
+              - _labels['traefik.http.services.gpu_encoder_sweep_hub.loadbalancer.server.port'] == '8000'
+            success_msg: "{{ _labels['traefik.http.routers.gpu_encoder_sweep_hub.rule'] }}"
+
+        # The universal form of the rule above, over every service in the document rather than the
+        # one this test happens to name. The case-set size is asserted first: a loop over an empty
+        # or half-rendered services map would report a perfect result.
+        - name: Case A -- the service count the next task loops over
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+          ansible.builtin.assert:
+            that:
+              - _cfg.services | length == 3
+            success_msg: "{{ _cfg.services.keys() | sort | join(', ') }}"
+
+        - name: Case A -- every Traefik-enabled service overrides the defaultRule
+          vars:
+            _labels: "{{ item.value.labels | default({}) }}"
+            _rules: "{{ _labels | dict2items | selectattr('key', 'match', _rule_re) | list }}"
+          ansible.builtin.assert:
+            that:
+              - "'traefik.enable' not in _labels or _labels['traefik.enable'] != 'true' or _rules | length > 0"
+            success_msg: >-
+              {{ item.key }}: {{ _rules | map(attribute='value') | join(' ') | default('no traefik labels', true) }}
+          loop: "{{ (_render_a.stdout | from_json).services | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Slurp the deployed compose file and the .env
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          register: _slurps
+          loop:
+            - "{{ _d.hub }}/docker-compose-gpu-encoder-sweep-hub.yaml"
+            - "{{ _d.hub }}/.env"
+
+        # The whole reason the token goes through .env. The compose file is written 0644 and the
+        # .env 0600, so the token must appear in the second and not the first.
+        # The hub cannot know which catalogue row is itself without this, and `sweep inventory` runs
+        # on the hub's runtime and nowhere else -- so an unset SWEEP_HOST does not degrade inventory,
+        # it removes it. Asserted on both services: they must name the SAME row.
+        - name: Case A gives the hub and its agent the same SWEEP_HOST
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _hub_env: "{{ _cfg.services.gpu_encoder_sweep_hub.environment }}"
+            _agent_env: "{{ _cfg.services.gpu_encoder_sweep_hub_agent.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _hub_env.SWEEP_HOST | default('') | length > 0
+              - _hub_env.SWEEP_HOST == 'fixture-hub'
+              - _agent_env.SWEEP_HOST == _hub_env.SWEEP_HOST
+            success_msg: "hub and agent both SWEEP_HOST={{ _hub_env.SWEEP_HOST }}"
+
+        # The agent serves nothing. A traefik label would hand it a router derived from a service key
+        # containing underscores -- not a valid hostname for any certificate -- which is the same trap
+        # the hub's explicit rule exists for. And it must reach the hub over the stack network, not
+        # back out through traefik, so the entrypoint timeouts never apply to the hub's own agent.
+        - name: Case A -- the agent has no router, no traefik network, and a loopback hub URL
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _agent: "{{ _cfg.services.gpu_encoder_sweep_hub_agent }}"
+            _nets: "{{ _agent.networks.keys() | list if _agent.networks is mapping else _agent.networks }}"
+          ansible.builtin.assert:
+            that:
+              - _agent.labels | default({}) | length == 0
+              - "'traefik' not in _nets"
+              - _agent.environment.SWEEP_HUB == 'http://gpu_encoder_sweep_hub:8000'
+              - _agent.entrypoint | join(' ') == 'sweep-node' or _agent.entrypoint == 'sweep-node'
+            success_msg: >-
+              agent networks={{ _nets | join(',') }}; labels={{ _agent.labels | default({}) | length }};
+              hub={{ _agent.environment.SWEEP_HUB }}
+
+        - name: Case A keeps the operator token out of the 0644 compose file
+          vars:
+            _compose_text: "{{ _slurps.results[0].content | b64decode }}"
+            _env_text: "{{ _slurps.results[1].content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _fixture_operator_token not in _compose_text
+              - '"${GES_HUB_SWEEP_TOKEN}" in _compose_text'
+              - "'GES_HUB_SWEEP_TOKEN=' ~ _fixture_operator_token in _env_text"
+            success_msg: >-
+              compose file references ${GES_HUB_SWEEP_TOKEN}; the value is only in .env
+
+        - name: Stat what the role wrote under the data directory
+          ansible.builtin.stat:
+            path: "{{ _d.hub }}/data/gpu-encoder-sweep/{{ item }}"
+          register: _data_stats
+          loop:
+            - data/agent-tokens.json
+            - redis
+
+        - name: Case A wrote the tokens file 0600 and created the redis directory
+          ansible.builtin.assert:
+            that:
+              - _data_stats.results[0].stat.exists
+              - _data_stats.results[0].stat.mode == '0600'
+              - _data_stats.results[1].stat.exists
+              - _data_stats.results[1].stat.isdir
+            success_msg: >-
+              agent-tokens.json mode={{ _data_stats.results[0].stat.mode }};
+              redis/ isdir={{ _data_stats.results[1].stat.isdir }}
+
+        - name: Read the tokens file
+          ansible.builtin.slurp:
+            src: "{{ _d.hub }}/data/gpu-encoder-sweep/data/agent-tokens.json"
+          register: _tokens_slurp
+
+        # The hub reads this as {host: token} and refuses at start if the file is missing; a key
+        # that is not a host row name is not an error there, it is an agent that gets 401 forever.
+        - name: Case A rendered every agent row, keyed on the host row name
+          vars:
+            _tokens: "{{ _tokens_slurp.content | b64decode | from_json }}"
+          ansible.builtin.assert:
+            that:
+              # Derived from the fixture, not hardcoded. A literal count here went stale the moment
+              # the hub's own row was added, and a stale count fails the test for the wrong reason.
+              - _tokens | length == _fixture_agent_tokens | length
+              - _tokens | length > 0
+              - _tokens.keys() | sort == _fixture_agent_tokens.keys() | sort
+              - _tokens == _fixture_agent_tokens
+              # The hub's own agent authenticates like any node, so its row must be here too -- the
+              # token it presents and the token the hub checks are one value written twice.
+              - _tokens['fixture-hub'] == 'fixture-agent-hub'
+            success_msg: "{{ _tokens.keys() | sort | join(', ') }}"
+
+        # The premise of this whole file -- that it needs no daemon -- is only true if the stub is
+        # what answered. If PATH had not reached the role's tasks, the real CLI would have run and
+        # this test would pass on a machine with Docker Desktop up and fail on one without.
+        - name: Read the stub's call log
+          ansible.builtin.slurp:
+            src: "{{ _d.stub }}/calls"
+          register: _stub_calls
+
+        - name: The role's only docker call went to the stub, not to a daemon
+          vars:
+            _calls: "{{ _stub_calls.content | b64decode | trim | split('\n') }}"
+          ansible.builtin.assert:
+            that:
+              - _calls | length > 0
+              - _calls | select('match', '^ps ') | list | length == _calls | length
+            success_msg: "stub answered: {{ _calls | join(' | ') }}"
+
+        # ---------- A2. a second run writes nothing ----------
+        # The role runs on every playbook apply, so anything it rewrites or chowns each time is
+        # churn on a live host -- and for the redis directory it would be a fight with the
+        # container, which is why the compose file runs redis as ${PUID}:${PGID} rather than letting
+        # the image's entrypoint take ownership. ctime is the assertion that catches a chown; mtime
+        # alone would not.
+        - name: Stat everything the role wrote, before the second run
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: _before
+          loop: "{{ _written_paths }}"
+
+        - name: Deploy case A again, unchanged
+          environment:
+            PATH: "{{ _d.stub }}:{{ ansible_env.PATH }}"
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.hub }}/data"
+            docker_compose_gpu_encoder_sweep_hub_operator_token: "{{ _fixture_operator_token }}"
+            docker_compose_gpu_encoder_sweep_hub_agent_tokens: "{{ _fixture_agent_tokens }}"
+            docker_compose_gpu_encoder_sweep_hub_share_path: "{{ _d.hub }}/share"
+            docker_compose_gpu_encoder_sweep_hub_host: fixture-hub
+            docker_compose_gpu_encoder_sweep_hub_agent_token: "{{ _fixture_agent_tokens['fixture-hub'] }}"
+            docker_compose_gpu_encoder_sweep_hub_library_path: "{{ _d.hub }}/library"
+            docker_compose_gpu_encoder_sweep_hub_image_tag: sha-fixture
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_hub
+
+        - name: Stat everything again
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          register: _after
+          loop: "{{ _written_paths }}"
+
+        - name: Case A2 -- the second run rewrote and chowned nothing
+          ansible.builtin.assert:
+            that:
+              - _before.results | length == _written_paths | length
+              - _after.results | map(attribute='stat.mtime') | list
+                == _before.results | map(attribute='stat.mtime') | list
+              - _after.results | map(attribute='stat.ctime') | list
+                == _before.results | map(attribute='stat.ctime') | list
+            success_msg: >-
+              {{ _written_paths | length }} paths unchanged:
+              {{ _written_paths | map('basename') | join(', ') }}
+
+        # ---------- B. the positive control for the SWEEP_REDIS check ----------
+        # A hand-written document standing in for the failure the check exists to catch: the queue
+        # URL still parses, still names a plausible host, and the service it names is not in the
+        # file -- what a rename of the redis service leaves behind. The extraction from case A is
+        # repeated verbatim; only the verdict flips.
+        - name: Control -- a document whose SWEEP_REDIS names a service it does not define
+          ansible.builtin.copy:
+            dest: "{{ _d.control }}/docker-compose-control.yaml"
+            mode: "0644"
+            content: |
+              ---
+              services:
+                gpu_encoder_sweep_hub:
+                  image: busybox
+                  environment:
+                    - SWEEP_REDIS=redis://redis:6379
+                gpu_encoder_sweep_redis:
+                  image: busybox
+
+        - name: Control -- render it
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --file {{ _d.control }}/docker-compose-control.yaml
+              config --format json
+          register: _render_ctl
+          changed_when: false
+
+        - name: Control reproduces the stale-service-name failure the check catches
+          vars:
+            _cfg: "{{ _render_ctl.stdout | from_json }}"
+            _env: "{{ _cfg.services.gpu_encoder_sweep_hub.environment }}"
+            _redis_host: "{{ _env['SWEEP_REDIS'] | default('') | regex_replace('^redis://', '') | regex_replace(':.*$', '') }}"
+          ansible.builtin.assert:
+            that:
+              - _env['SWEEP_REDIS'] | length > 0
+              - _redis_host | length > 0
+              - _redis_host not in _cfg.services
+            success_msg: >-
+              control reproduced: SWEEP_REDIS={{ _env['SWEEP_REDIS'] }} names "{{ _redis_host }}",
+              which this document does not define ({{ _cfg.services.keys() | sort | join(', ') }}).
+              Case A shows the same expression passing.
+
+        # ---------- C. the asserts ----------
+        - name: Point the role at the scratch directory for the assert cases
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.asserts }}"
+
+        - name: Case C1 -- an empty operator token is rejected
+          block:
+            - name: Deploy with an empty operator token
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_hub_operator_token: ""
+                docker_compose_gpu_encoder_sweep_hub_agent_tokens: "{{ _fixture_agent_tokens }}"
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_hub
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _c1_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _c1_fired: true
+
+        - name: Case C1 -- empty operator token was rejected
+          ansible.builtin.assert:
+            that:
+              - _c1_fired
+            success_msg: >-
+              empty operator token rejected, rather than deploying a hub whose operator routes
+              answer 401 to every bearer
+
+        # The subtler of the two: an empty HELD token matches a request that sends "Bearer " and
+        # nothing else (sweep/hub/auth.py:22-30), so a blank in this dict is an open door for one
+        # host rather than a missing entry.
+        - name: Case C2 -- an empty agent token value is rejected
+          block:
+            - name: Deploy with one blank agent token
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_hub_operator_token: "{{ _fixture_operator_token }}"
+                docker_compose_gpu_encoder_sweep_hub_agent_tokens:
+                  fixture-encode: fixture-agent-encode
+                  fixture-native: ""
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_hub
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _c2_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _c2_fired: true
+
+        - name: Case C2 -- blank agent token was rejected
+          ansible.builtin.assert:
+            that:
+              - _c2_fired
+            success_msg: >-
+              blank agent token rejected, rather than writing a tokens file where an empty bearer
+              authenticates as that host
+
+        - name: Case C3 -- a relative share path is rejected
+          block:
+            - name: Deploy with a relative share path
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_hub_operator_token: "{{ _fixture_operator_token }}"
+                docker_compose_gpu_encoder_sweep_hub_agent_tokens: "{{ _fixture_agent_tokens }}"
+                docker_compose_gpu_encoder_sweep_hub_share_path: share
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_hub
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _c3_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _c3_fired: true
+
+        - name: Case C3 -- relative share path was rejected
+          ansible.builtin.assert:
+            that:
+              - _c3_fired
+            success_msg: >-
+              relative share path rejected, rather than deploying a hub whose /share is an empty
+              named volume
+
+      always:
+        - name: Remove the scratch directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: "{{ _tmps.results | map(attribute='path') | list }}"

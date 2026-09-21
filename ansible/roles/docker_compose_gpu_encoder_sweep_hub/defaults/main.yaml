@@ -1,0 +1,79 @@
+---
+# The hub image. Registry and tag are separate so a caller can move the tag without restating
+# the repository.
+#
+# The tag defaults to `main` and that is deliberate, but `main` is the wrong thing to be running
+# DURING a campaign. The hub hands a run only to an agent whose reported artifact matches the one
+# the run was planned for, so a floating tag changes the artifact under already-planned runs and
+# every claim then answers 409 until the runs are re-planned. Pin a `sha-<short>` in the playbook
+# before planning anything.
+docker_compose_gpu_encoder_sweep_hub_image_registry: ghcr.io/andyattebery
+docker_compose_gpu_encoder_sweep_hub_image_name: gpu-encoder-sweep-hub
+docker_compose_gpu_encoder_sweep_hub_image_tag: main
+
+# Redis is the hub's queue, not a cache: it holds queued and pending entries. `--appendonly yes`
+# is a departure from this repo's only other appendonly setting (docker_compose_onyx sets it to
+# `no`, deliberately ephemeral) and the reason is in the README — without persistence a restart
+# drops every queued entry and the affected runs need `sweep abandon` and a re-plan.
+docker_compose_gpu_encoder_sweep_hub_redis_image: redis:8-alpine
+
+# The label before the domain in the Traefik route: `ges-hub` gives ges-hub.<domain_name>. The
+# template appends `.$DOMAIN_NAME` from the host's .env, which is how every other route in this
+# repo is spelled (podsync, calibre, media_sync_manager).
+#
+# It must be a VALID hostname, which is the whole reason the route is not derived from the compose
+# service name: that is `gpu_encoder_sweep_hub`, and an underscore label is not a hostname any
+# public certificate covers. See "Why the router rule is explicit" in the README.
+docker_compose_gpu_encoder_sweep_hub_web_hostname: ges-hub
+
+# Subdirectory under docker_compose_dst_data_directory_path holding `data/` (the SQLite store and
+# the per-frame values) and `redis/`.
+docker_compose_gpu_encoder_sweep_hub_data_subdirectory: gpu-encoder-sweep
+
+# The exchange directory: where the hub lands every file an agent sends it. A host-shaped path,
+# allowed here only, where a caller can override it.
+#
+# Mounted READ-WRITE, and it did not used to be. The hub is now the ONLY writer of the exchange: an
+# agent PUTs a file to the hub's HTTPS API, the hub streams it to a temporary file beside the target,
+# hashes it as it goes, renames it into place and records it. No node mounts this directory or reaches
+# it over SMB any more, which is why it needs no CIFS volume, no SMB credential, and no ownership that
+# a Samba client would recognise.
+#
+# A differing republish is still refused — by the record, not by the mount.
+docker_compose_gpu_encoder_sweep_hub_share_path: /mnt/storage/temp/gpu-encoder-sweep
+
+# REQUIRED. The hub's OWN host row name, for SWEEP_HOST.
+#
+# The hub reads this to know which runtime it is, and it is not optional: `sweep inventory` runs on the
+# hub's own runtime and nowhere else, and refuses by name when SWEEP_HOST is unset. No default, because
+# a host row name is host configuration and this role must not carry one.
+docker_compose_gpu_encoder_sweep_hub_host: ""
+
+# REQUIRED. The bearer token the hub's own agent presents, which is the value of
+# _agent_tokens[_host] — the same token, in two places, because the agent is a separate process that
+# authenticates like any other. A mismatch is a 401 on every call the hub's agent makes.
+docker_compose_gpu_encoder_sweep_hub_agent_token: ""
+
+# The media library the hub's agent inventories, and where it appears inside the container.
+#
+# ⚠ The CONTAINER path is recorded in every title row, permanently. Choose it once: changing it later
+# does not move what is already recorded, it just makes new rows disagree with old ones. The host path
+# is host-shaped and overridable; the container path should not move without a reason.
+#
+# Read-only: inventory probes files, it never writes them.
+docker_compose_gpu_encoder_sweep_hub_library_path: /mnt/storage
+docker_compose_gpu_encoder_sweep_hub_library_container_path: /library
+
+# Where the hub's agent keeps its work root, inside the container. A subdirectory of /data rather than
+# /data itself, so `runs/` does not land beside hub.sqlite. It must match the work_root the catalogue
+# names for _host, or the agent writes somewhere the hub does not expect.
+docker_compose_gpu_encoder_sweep_hub_work_container_path: /data/work
+
+# REQUIRED. The operator's bearer token — what the laptop CLI presents. Asserted non-empty by
+# length only, so no credential reaches the play output on failure.
+docker_compose_gpu_encoder_sweep_hub_operator_token: ""
+
+# REQUIRED. {host: token} for every agent, keyed on the SWEEP_HOST row name. Rendered to
+# agent-tokens.json at 0600 and named by SWEEP_AGENT_TOKENS. A named file that does not exist
+# makes the hub refuse at start; an agent whose key is missing gets 401 on every call.
+docker_compose_gpu_encoder_sweep_hub_agent_tokens: {}

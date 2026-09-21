@@ -1,0 +1,117 @@
+---
+# REQUIRED. The three variables the agent reads (sweep/node/config.py:6); it refuses at start if any
+# is empty, and everything else it needs comes from the hub.
+#
+#   _hub_url   SWEEP_HUB, e.g. "https://ges-hub.{{ domain_name }}"
+#   _token     SWEEP_TOKEN, this host's token — the one the hub holds for it, not the operator's
+#   _host      SWEEP_HOST, the host ROW name, which is not the inventory name here: this machine
+#              carries a second row for the scorer that reads its work root
+gpu_encoder_sweep_node_win_hub_url: ""
+gpu_encoder_sweep_node_win_token: ""
+gpu_encoder_sweep_node_win_host: ""
+
+# REQUIRED. The agent's work root, as a Windows path (e.g. 'D:\sweep'). Single-quote it in YAML:
+# double quotes make the backslash an escape character.
+#
+# It is also the scheduled task's working directory and the directory the agent's log is written
+# into, because it is the one path in this deployment that the task's own account can write to —
+# the script lives under Program Files, which it cannot.
+gpu_encoder_sweep_node_win_work_root: ""
+
+# There is no share input, and there used to be one. This agent reaches the pool through the hub's
+# HTTPS API — it PUTs what it encoded with the sha and size declared, and pulls the same way, under
+# the bearer token it already holds. `host.share_root` no longer exists in the hub's schema.
+#
+# That removed the whole SMB problem on this runtime, which was the worst of any: a boot task's token
+# cannot authenticate to SMB, Windows refuses unauthenticated guest SMB by default, and there was no
+# supported way to give the task's identity a credential that a network logon could not also reach.
+
+# REQUIRED. The directory holding uv.exe and uvx.exe. This role does not install uv — the play does,
+# through github_release_install_win, the same way it installs jellyfin-ffmpeg — because that role
+# does not create its own destination and the ACLs on it are the caller's business. This role stats
+# uvx.exe and refuses if it is missing, so a forgotten prerequisite fails here rather than at the
+# first boot after a reboot nobody was watching.
+gpu_encoder_sweep_node_win_uv_dir: ""
+
+# Where the launcher script goes. Its OWN directory, not shared with Tdarr's install directory:
+# this role rewrites the whole ACL on it, which would be a hostile thing to do to a directory
+# another role is managing. A host-shaped path, so it belongs here where a caller can override it.
+gpu_encoder_sweep_node_win_install_dir: 'C:\Program Files\gpu-encoder-sweep'
+
+# The package uvx installs, and the version of it. Split so a caller can move the version without
+# restating the repository — the same shape as the image tag on the three container roles.
+#
+# The default is `main` and that is deliberate, but `main` is the wrong thing to be running DURING a
+# campaign: the hub hands a run only to an agent whose reported artifact matches the one the run was
+# planned for, so a floating version changes the artifact under already-planned runs and every claim
+# then answers 409 until the runs are re-planned. Pin a sha or tag in the playbook before planning.
+#
+# Note this host reports `uvx:<version>` as its artifact rather than a stamped one, because there is
+# no /etc/sweep-artifact outside the images — so the version here is the only thing distinguishing
+# one build from another in the record.
+gpu_encoder_sweep_node_win_package_repo_url: https://github.com/andyattebery/gpu-encoder-sweep
+gpu_encoder_sweep_node_win_package_version: main
+
+# REQUIRED. The account the scheduled task runs as, as a bare name -- the role adds the `.\` prefix
+# where a module needs it.
+#
+# No default, and deliberately NOT the connecting user any more. A boot task runs with nobody logged
+# in, so it needs a stored password whatever the identity; making that a person's own login is the
+# one option with no upside, and SYSTEM cannot start this machine's WSL distro (it is registered in
+# a user hive). So the caller names a dedicated service account and supplies its password below.
+gpu_encoder_sweep_node_win_owner: ""
+
+# The scheduled task's name and the launcher's file name. Both appear in Task Scheduler, so keep
+# them recognisable.
+gpu_encoder_sweep_node_win_task_name: gpu-encoder-sweep-node
+gpu_encoder_sweep_node_win_script_name: gpu-encoder-sweep-node.ps1
+
+# How the task authenticates, and there is effectively one answer for a boot task.
+#
+# `s4u` was the original choice, for the property that no password is stored. It does not work and it
+# is not merely inert: the module REFUSES to register an s4u task without a password anyway
+# (win_scheduled_task.ps1:739-741) -- Windows takes it once at RegisterTaskDefinition -- so the
+# property was never achievable this way. Worse, an S4U task firing before a logon is documented to
+# trigger credential loading early and leave lsass with the empty-string hash, wiping that account's
+# Credential Manager. The role no longer accepts it.
+#
+# `password` performs a batch logon with the stored credential. Note what that implies and the README
+# spells out: a batch logon is session 0, so anything needing the interactive desktop is not there.
+gpu_encoder_sweep_node_win_logon_type: password
+
+# REQUIRED when _logon_type is `password`, which is the only supported value. The service account's
+# password, from the vault. Passed with no_log, so it does not reach play output.
+gpu_encoder_sweep_node_win_password: ""
+
+# Whether to re-send the password on every run. `false` deliberately: the module documents that a set
+# password "will always result in a change unless update_password is set to no and no other changes
+# are required", so leaving this true makes the task report changed on every single apply and
+# re-register for no reason.
+gpu_encoder_sweep_node_win_update_password: false
+
+# Delay between boot and the agent starting, ISO 8601. The first run of a pinned version resolves
+# and downloads the package from GitHub, so it needs the network to be up; a boot trigger on its own
+# can fire before that. One minute is a guess that has to be somewhere — lower it if the host is
+# fast, raise it if the first boot log shows a resolution failure.
+gpu_encoder_sweep_node_win_boot_delay: PT1M
+
+# The real analogue of `restart: unless-stopped`, and it replaces the restart_count/_interval pair
+# this role used to carry.
+#
+# That pair supervised only a FAILED task and gave up after a bounded number of tries. A repetition
+# on the boot trigger is unconditional and unbounded: with `duration` unset the module documents it
+# as repeating indefinitely, and `multiple_instances: 2` (IgnoreNew) makes each firing a no-op while
+# the agent is already running. So the task starts at boot and restarts within this interval however
+# it stopped -- crash, manual stop, a host row that did not exist yet.
+#
+# The cost of a shorter interval is one process launch that exits immediately; there is no thundering
+# herd to worry about with a single agent.
+gpu_encoder_sweep_node_win_relaunch_interval: PT5M
+
+# REQUIRED. Full path to ffmpeg.exe on this host, for the launcher's one-frame NVENC probe at boot.
+#
+# The probe exists because `logon_type: password` is a batch logon in session 0, and whether NVENC
+# initialises there has never been measured on this hardware. It is the only context that can answer
+# it -- an Ansible session has a different token and a different session. A failure is logged, not
+# fatal.
+gpu_encoder_sweep_node_win_ffmpeg_path: ""

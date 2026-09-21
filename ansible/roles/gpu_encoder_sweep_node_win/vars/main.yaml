@@ -1,0 +1,22 @@
+---
+# A single backslash. Defined in YAML, where the escaping is unambiguous, because it cannot be
+# written as a Jinja string literal at all: `"\"` is a parse error (the lexer takes it as escaping
+# the closing quote) and `"\\"` stays two characters, since Ansible does not unescape a backslash
+# inside a Jinja literal. host_vars/eta/vars.yaml carries the same constant for the same reason.
+#
+# In vars/ rather than defaults/ because none of these is a knob: a caller overriding the separator
+# would break every path this role builds, and the three derived paths must stay derived or the
+# launcher, its ACL check and the task's action can name different files.
+gpu_encoder_sweep_node_win_path_separator: "\\"
+
+gpu_encoder_sweep_node_win_uvx_path: >-
+  {{ gpu_encoder_sweep_node_win_uv_dir }}{{ gpu_encoder_sweep_node_win_path_separator }}uvx.exe
+
+gpu_encoder_sweep_node_win_script_path: >-
+  {{ gpu_encoder_sweep_node_win_install_dir }}{{ gpu_encoder_sweep_node_win_path_separator }}{{
+     gpu_encoder_sweep_node_win_script_name }}
+
+# In the work root because it is the one path in this deployment the task's own account can write
+# to: the launcher lives under Program Files, where it has read and execute and nothing more.
+gpu_encoder_sweep_node_win_log_path: >-
+  {{ gpu_encoder_sweep_node_win_work_root }}{{ gpu_encoder_sweep_node_win_path_separator }}node-agent.log

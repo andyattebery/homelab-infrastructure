@@ -1,0 +1,88 @@
+---
+# The node image, split so a caller can move the tag without restating the repository.
+#
+# The default is the mesarc build, not the plain encode one, and that is not interchangeable: the
+# stock node image carries a Mesa old enough that the encoder silently ignores -compression_level —
+# which IS the vaapi preset ladder — so every rung of a sweep would produce identical output while
+# reporting success. The mesarc image is the same tdarr layer with Mesa replaced, so the rig still
+# matches production.
+#
+# The tag defaults to `main` and that is deliberate, but `main` is the wrong thing to be running
+# DURING a campaign: the hub hands a run only to an agent whose reported artifact matches the one the
+# run was planned for, so a floating tag changes the artifact under already-planned runs and every
+# claim then answers 409 until the runs are re-planned. Pin a `sha-<short>` before planning anything.
+podman_quadlet_gpu_encoder_sweep_node_image_registry: ghcr.io/andyattebery
+podman_quadlet_gpu_encoder_sweep_node_image_name: gpu-encoder-sweep-node-encode-mesarc
+podman_quadlet_gpu_encoder_sweep_node_image_tag: main
+
+# REQUIRED. The three variables the agent reads (sweep/node/config.py:6); it refuses at start if any
+# is empty. SWEEP_TOKEN is the exception to them being Environment= lines — see _config_dir.
+podman_quadlet_gpu_encoder_sweep_node_hub_url: ""
+podman_quadlet_gpu_encoder_sweep_node_token: ""
+podman_quadlet_gpu_encoder_sweep_node_host: ""
+
+# REQUIRED. The agent's work root, mounted at the SAME PATH inside and out, because the hub composes
+# every argv from the host row's work_root and the agent runs it inside the container.
+#
+# podman_quadlet creates every Volume= bind source, so this directory does not need a task of its own.
+podman_quadlet_gpu_encoder_sweep_node_work_root: ""
+
+# There are no share inputs, and there used to be three: _share_mount_point, _share_container_path
+# and _puid. The agent mounts no share — a file crosses machines through the hub's HTTPS API, so
+# `host.share_root` no longer exists in the hub's schema. That also removed the mountpoint guard, the
+# ownership assert, and this role's only reason to care about a CIFS mount at all.
+#
+# The caller's systemd_cifs_mount entry for the sweep share goes with them: nothing mounts it now.
+
+# REQUIRED. The uid that owns the work root, passed to podman_quadlet as the volume owner so the
+# directory it creates for the bind source belongs to the agent rather than to root.
+podman_quadlet_gpu_encoder_sweep_node_puid: ""
+
+# Holds the environment file carrying SWEEP_TOKEN. A quadlet unit file is written world-readable at
+# 0644, so the token cannot be an Environment= line; this file is 0600 and systemd reads it as root
+# before the container starts, which is why it lives outside every mount rather than in the work
+# root. A host-shaped path, allowed here where a caller can override it.
+podman_quadlet_gpu_encoder_sweep_node_config_dir: /etc/gpu-encoder-sweep
+
+# Passed through as AddDevice= lines. /dev/dri whole, never a renderD* node: the schema behind the
+# catalogue refuses an encoder_unit whose device contains renderD, because a render node's number
+# moves when a reboot renumbers them. /dev/kfd is the ROCm compute path, carried for parity with the
+# production node on the same card.
+podman_quadlet_gpu_encoder_sweep_node_devices:
+  - /dev/dri
+  - /dev/kfd
+
+# Passed through as GroupAdd= lines. `keep-groups` is what the production node on this card passes,
+# and that role's own comment flags it as "probably inert here" — carried for parity, and worth
+# dropping from both at once if it is ever shown to be unnecessary.
+podman_quadlet_gpu_encoder_sweep_node_group_add:
+  - keep-groups
+
+# AMD_DEBUG, as its own input rather than an entry in _extra_env, so that overriding _extra_env for
+# something else cannot silently drop it.
+#
+# `noefc` disables EFC, which is unstable in upstream Mesa — jellyfin disables it for the same
+# reason. It has to be a container-level variable because ffmpeg inherits it; the harness builds an
+# argv and cannot set it. Emptying this gives unstable encodes on an AMD card AND divergence from
+# what production runs on the same hardware. Empty is correct on a host with no AMD GPU.
+podman_quadlet_gpu_encoder_sweep_node_amd_debug: noefc
+
+# Extra Environment= lines for the ffmpeg the agent spawns as a child, which inherits this
+# environment. Sorted on render, so reordering the dict does not churn the unit file.
+podman_quadlet_gpu_encoder_sweep_node_extra_env: {}
+
+podman_quadlet_gpu_encoder_sweep_node_timezone: "{{ timezone }}"
+
+# Boot policy. multi-user.target is the ordinary answer; pass "" on a host where an arbiter script
+# owns which GPU container may start — it writes a <unit>.container.d/ drop-in that supplies the
+# WantedBy, and a unit with its own [Install] would fight it. With "" the unit exists and nothing
+# starts it at boot until that script has run once.
+podman_quadlet_gpu_encoder_sweep_node_install_wanted_by: multi-user.target
+
+# systemd gives up where Docker would not: a unit that exits this many times in this window stops
+# retrying, and `restart: unless-stopped` has no equivalent limit. An agent deployed before its host
+# row exists exits immediately, hits the burst in seconds, and stays failed — which is why the
+# catalogue is authored before this role is applied. Raising the burst is the alternative to that
+# ordering, not a replacement for it.
+podman_quadlet_gpu_encoder_sweep_node_start_limit_interval_sec: 300
+podman_quadlet_gpu_encoder_sweep_node_start_limit_burst: 5

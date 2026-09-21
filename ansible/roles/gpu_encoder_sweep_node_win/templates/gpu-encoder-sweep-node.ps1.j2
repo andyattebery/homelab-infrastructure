@@ -1,0 +1,82 @@
+# gpu-encoder-sweep node agent launcher.
+#
+# WRITTEN BY ANSIBLE (gpu_encoder_sweep_node_win). Edits here are overwritten on the next apply.
+#
+# This file holds SWEEP_TOKEN, which is why the role authors the whole ACL on its directory rather
+# than relying on what C:\Program Files hands down — `mode:` does nothing on Windows, and the
+# inherited ACL grants BUILTIN\Users read.
+#
+# Started by the scheduled task "{{ gpu_encoder_sweep_node_win_task_name }}" at boot. Its working
+# directory is the work root, and everything it and the agent print lands in the log below, because
+# a scheduled task's output otherwise goes nowhere and a failure at boot leaves nothing to read.
+
+$ErrorActionPreference = 'Stop'
+
+$Log = '{{ gpu_encoder_sweep_node_win_log_path }}'
+
+function Write-Log([string]$Message) {
+    "$(Get-Date -Format o) $Message" | Out-File -FilePath $Log -Append -Encoding utf8
+}
+
+Write-Log '--- launcher starting ---'
+
+# Who actually ran, and in which session. Both are here because neither can be learned from an Ansible
+# session on the operator's behalf: the task runs under a different account and a different token, and
+# the session number is what decides whether the GPU is reachable at all.
+Write-Log "identity: $(whoami) session=$((Get-Process -Id $PID).SessionId)"
+
+# The three the agent reads. It refuses at start if any is empty, and it takes everything else --
+# the work root, the share root, the argv for every run -- from the hub's host row.
+$env:SWEEP_HUB = '{{ gpu_encoder_sweep_node_win_hub_url }}'
+$env:SWEEP_TOKEN = '{{ gpu_encoder_sweep_node_win_token | replace("'", "''") }}'
+$env:SWEEP_HOST = '{{ gpu_encoder_sweep_node_win_host }}'
+
+Write-Log "host=$env:SWEEP_HOST hub=$env:SWEEP_HUB"
+
+# ⚠ Everything below runs native commands, and PowerShell turns a native command's stderr into a
+# TERMINATING error when $ErrorActionPreference is 'Stop' and the stream is merged with 2>&1 or *>&1
+# -- FullyQualifiedErrorId NativeCommandError. uv writes its resolution and download progress to
+# stderr, so with 'Stop' still in force this script aborted on uv's FIRST progress line: task exit 1,
+# nothing logged after the `exec:` line, and an agent that never started. Measured on this host, not
+# reasoned about. Do not restore 'Stop' below this point.
+$ErrorActionPreference = 'Continue'
+
+# The NVENC probe. `logon_type: password` performs a BATCH logon, which lands in session 0, and the
+# session-0 NVENC failures people report are D3D11 device creation with no interactive desktop --
+# ffmpeg's *_nvenc takes the CUDA path instead. Measured green from a session-0 ssh logon on this host
+# before this was wired in, so this line is a per-boot confirmation under the real token rather than an
+# open question.
+#
+# One frame, discarded. `color` rather than `nullsrc`: nullsrc emits frames with no data and is meant
+# for filter graphs, so it is not an encode.
+#
+# Logged, never fatal. If this fails the agent still starts and still heartbeats -- which is the point:
+# a runtime that cannot encode should be visible as a bad probe line and a failing run, not as a host
+# that silently never appeared.
+$Ffmpeg = '{{ gpu_encoder_sweep_node_win_ffmpeg_path }}'
+try {
+    $probe = & $Ffmpeg -hide_banner -loglevel error -f lavfi -i color=c=black:s=1280x720:d=1 `
+        -frames:v 1 -c:v av1_nvenc -f null - 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Log 'nvenc probe OK: av1_nvenc encoded one frame from this token'
+    }
+    else {
+        Write-Log "NVENC PROBE FAILED (exit $LASTEXITCODE): $(($probe | Out-String).Trim())"
+    }
+}
+catch {
+    Write-Log "NVENC PROBE ERRORED: $($_.Exception.Message)"
+}
+
+# uvx resolves the package and its dependencies on first run and caches them in this account's
+# profile, so the first boot after a version change needs the network and takes noticeably longer.
+$Uvx = '{{ gpu_encoder_sweep_node_win_uvx_path }}'
+$Spec = 'gpu-encoder-sweep[node] @ git+{{ gpu_encoder_sweep_node_win_package_repo_url }}@{{ gpu_encoder_sweep_node_win_package_version }}'
+
+Write-Log "exec: $Uvx --from `"$Spec`" sweep-node serve"
+
+& $Uvx --from $Spec sweep-node serve *>&1 | Out-File -FilePath $Log -Append -Encoding utf8
+$code = $LASTEXITCODE
+
+Write-Log "agent exited with $code"
+exit $code

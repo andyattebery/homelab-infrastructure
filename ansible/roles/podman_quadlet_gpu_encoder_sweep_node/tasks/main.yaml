@@ -1,0 +1,38 @@
+---
+# Deploys the sweep agent as a rootful podman quadlet, for a host that runs quadlets rather than
+# docker compose. It wraps podman_quadlet the same way podman_quadlet_tdarr does, and it deliberately
+# diverges from that role in three places — see the README: no AutoUpdate, no ffmpeg bind mount, and
+# it mounts nothing.
+
+- name: Assert the sweep node inputs
+  ansible.builtin.import_tasks: assert.yaml
+
+# podman_quadlet templates config files to an absolute dest but does not create the directory holding
+# them, so this is the role's job. Root-owned and 0700: the file inside carries the bearer token, and
+# systemd reads it as root before the container starts.
+- name: Create the sweep node config directory
+  ansible.builtin.file:
+    path: "{{ podman_quadlet_gpu_encoder_sweep_node_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Deploy the sweep node quadlet
+  vars:
+    # Resolved against THIS role's directory, not podman_quadlet's — both the template module and
+    # lookup('ansible.builtin.template', ...) search the calling role when one role includes another.
+    podman_quadlet_src: templates/gpu-encoder-sweep-node.container.j2
+    # The PUID, not root. podman_quadlet chowns every Volume= bind source with one owner: on the
+    # share that is a no-op, because a CIFS mount's ownership comes from its mount options, and on
+    # the work root it is exactly right — the agent writes there as that user.
+    podman_quadlet_volume_owner: "{{ podman_quadlet_gpu_encoder_sweep_node_puid }}"
+    podman_quadlet_volume_group: "{{ podman_quadlet_gpu_encoder_sweep_node_puid }}"
+    podman_quadlet_config_files:
+      - src: templates/gpu-encoder-sweep-node.env.j2
+        dest: "{{ podman_quadlet_gpu_encoder_sweep_node_config_dir }}/gpu-encoder-sweep-node.env"
+        mode: "0600" # the bearer token; the unit file beside it is 0644
+        # Read once at container start, so a changed token does nothing until a restart.
+        restart_service: true
+  ansible.builtin.include_role:
+    name: podman_quadlet

@@ -1,0 +1,243 @@
+---
+# Exercises the two parts of podman_quadlet_gpu_encoder_sweep_node that do not need the real host:
+# the input asserts, and the rendered quadlet unit. The rest — `podman pull`, systemd — needs a real
+# machine, and is covered by the live checklist in the README.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/podman_quadlet_gpu_encoder_sweep_node/tests/inventory \
+#       roles/podman_quadlet_gpu_encoder_sweep_node/tests/test.yml
+#
+# This is the first test of any podman_quadlet* role in this repo. There is no `podman generate`
+# equivalent of `docker compose config` to parse a unit file into a structure, so the assertions are
+# on the rendered text — which is what systemd reads anyway.
+#
+# What it is actually for. Four properties of this unit are invisible until they matter:
+#
+#   1. The bearer token must be in the 0600 environment file and NOWHERE in the unit, which quadlet
+#      writes world-readable at 0644.
+#   2. AMD_DEBUG=noefc must survive. It is a separate input precisely so that overriding _extra_env
+#      cannot silently drop it, and without it encodes on this card are unstable AND diverge from
+#      what production runs on the same hardware.
+#   3. With an empty _install_wanted_by there must be NO [Install] section, because boot policy on
+#      that host belongs to an arbitration script that writes the WantedBy in a drop-in.
+#   4. No renderD node anywhere. The catalogue's schema refuses such a device, so a unit that names
+#      one deploys cleanly and fails much later.
+- name: Test podman_quadlet_gpu_encoder_sweep_node
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    timezone: America/Chicago
+
+    # A full, valid input set. Fixtures: no vault, no real host.
+    podman_quadlet_gpu_encoder_sweep_node_hub_url: https://hub.example.test
+    podman_quadlet_gpu_encoder_sweep_node_token: fixture-token
+    podman_quadlet_gpu_encoder_sweep_node_host: fixture-vaapi
+    podman_quadlet_gpu_encoder_sweep_node_work_root: /fixture/data/sweep
+    podman_quadlet_gpu_encoder_sweep_node_puid: "1000"
+    podman_quadlet_gpu_encoder_sweep_node_image_tag: sha-fixture
+
+    # The rest from the role's own defaults, as PLAY vars so the cases below can override one on
+    # their `import_role` task — set_fact would outrank a task var and make the override vanish.
+    podman_quadlet_gpu_encoder_sweep_node_image_registry: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_image_registry }}"
+    podman_quadlet_gpu_encoder_sweep_node_image_name: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_image_name }}"
+    podman_quadlet_gpu_encoder_sweep_node_config_dir: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_config_dir }}"
+    podman_quadlet_gpu_encoder_sweep_node_devices: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_devices }}"
+    podman_quadlet_gpu_encoder_sweep_node_group_add: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_group_add }}"
+    podman_quadlet_gpu_encoder_sweep_node_amd_debug: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_amd_debug }}"
+    podman_quadlet_gpu_encoder_sweep_node_extra_env: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_extra_env }}"
+    podman_quadlet_gpu_encoder_sweep_node_timezone: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_timezone }}"
+    podman_quadlet_gpu_encoder_sweep_node_install_wanted_by: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_install_wanted_by }}"
+    podman_quadlet_gpu_encoder_sweep_node_start_limit_interval_sec: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_start_limit_interval_sec }}"
+    podman_quadlet_gpu_encoder_sweep_node_start_limit_burst: "{{ _defaults.podman_quadlet_gpu_encoder_sweep_node_start_limit_burst }}"
+
+    _unit: ../templates/gpu-encoder-sweep-node.container.j2
+    _envfile: ../templates/gpu-encoder-sweep-node.env.j2
+
+  tasks:
+    - name: Load the role's defaults
+      ansible.builtin.include_vars:
+        file: ../defaults/main.yaml
+        name: _defaults
+
+    # ---------- A. a full, valid input set passes the asserts ----------
+    - name: Case A -- the asserts accept a complete input set
+      ansible.builtin.import_role:
+        name: podman_quadlet_gpu_encoder_sweep_node
+        tasks_from: assert
+
+    # ---------- B. the rendered unit, with boot policy left to the arbiter ----------
+    - name: Render the unit with an empty install_wanted_by
+      vars:
+        podman_quadlet_gpu_encoder_sweep_node_install_wanted_by: ""
+      ansible.builtin.set_fact:
+        _arbitrated: "{{ lookup('template', _unit) }}"
+
+    - name: Case B -- the unit names the image, the container and the three agent variables
+      ansible.builtin.assert:
+        that:
+          - _arbitrated | length > 0
+          - "'Image=ghcr.io/andyattebery/gpu-encoder-sweep-node-encode-mesarc:sha-fixture' in _arbitrated"
+          - "'ContainerName=gpu-encoder-sweep-node' in _arbitrated"
+          - "'Environment=SWEEP_HUB=https://hub.example.test' in _arbitrated"
+          - "'Environment=SWEEP_HOST=fixture-vaapi' in _arbitrated"
+        success_msg: "{{ _arbitrated | length }} bytes rendered; image and both Environment= lines present"
+
+    # The whole reason the token is not an Environment= line: quadlet writes this file 0644.
+    - name: Case B -- the token is in the 0600 environment file and nowhere in the unit
+      vars:
+        _env_rendered: "{{ lookup('template', _envfile) }}"
+      ansible.builtin.assert:
+        that:
+          - "'fixture-token' not in _arbitrated"
+          - "'SWEEP_TOKEN' not in _arbitrated | regex_replace('EnvironmentFile=[^\\n]*', '')"
+          - "'EnvironmentFile=/etc/gpu-encoder-sweep/gpu-encoder-sweep-node.env' in _arbitrated"
+          - "'SWEEP_TOKEN=fixture-token' in _env_rendered"
+        success_msg: "unit references the EnvironmentFile; the token is only in the env file"
+
+    - name: Case B -- both devices, the group, and no render node anywhere
+      ansible.builtin.assert:
+        that:
+          - "'AddDevice=/dev/dri' in _arbitrated"
+          - "'AddDevice=/dev/kfd' in _arbitrated"
+          - "'GroupAdd=keep-groups' in _arbitrated"
+          - "'renderD' not in _arbitrated"
+        success_msg: "AddDevice=/dev/dri and /dev/kfd, GroupAdd=keep-groups, no renderD"
+
+    - name: Case B -- AMD_DEBUG survives as its own line
+      ansible.builtin.assert:
+        that:
+          - "'Environment=AMD_DEBUG=noefc' in _arbitrated"
+        success_msg: "Environment=AMD_DEBUG=noefc"
+
+    # RequiresMountsFor must name the ONE bind source so the unit orders itself after its mount, and
+    # must name nothing else -- not an ffmpeg directory (this role has no such input: the image's
+    # pinned ffmpeg is the measurement instrument) and no longer a share, which does not exist.
+    - name: Case B -- RequiresMountsFor names the work root and nothing else
+      vars:
+        _line: "{{ _arbitrated | regex_search('^RequiresMountsFor=.*$', multiline=True) }}"
+        _paths: "{{ _line | regex_replace('^RequiresMountsFor=', '') | trim | split(' ') }}"
+      ansible.builtin.assert:
+        that:
+          - _line | length > 0
+          - _paths == ['/fixture/data/sweep']
+          - "'ffmpeg' not in _line"
+          - "'share' not in _line"
+        success_msg: "{{ _line }}"
+
+    - name: Case B -- the work root is the only Volume, at the same path both sides
+      vars:
+        _volumes: "{{ _arbitrated | regex_findall('^Volume=(.*)$', multiline=True) }}"
+      ansible.builtin.assert:
+        that:
+          # ⚠ One, not two. The /share Volume went with the CIFS mount: the agent PUTs what it
+          # encoded to the hub over HTTPS and pulls the same way. A stray share bind here would be
+          # a directory podman_quadlet silently creates and the agent writes into for nobody.
+          - _volumes | length == 1
+          - "'/fixture/data/sweep:/fixture/data/sweep' in _volumes"
+          - "'/share' not in (_volumes | join(' '))"
+        success_msg: "{{ _volumes | join(' | ') }}"
+
+    # The gpu-mode contract: an arbiter script supplies the WantedBy in a drop-in, and a unit with
+    # its own [Install] would fight it.
+    - name: Case B -- an empty install_wanted_by leaves no [Install] section at all
+      ansible.builtin.assert:
+        that:
+          - "'[Install]' not in _arbitrated"
+          - "'WantedBy=' not in _arbitrated"
+          - "'[Service]' in _arbitrated"
+        success_msg: "no [Install]; boot policy left to the arbiter's drop-in"
+
+    # ---------- C. the ordinary boot policy ----------
+    - name: Render the unit with the default install_wanted_by
+      ansible.builtin.set_fact:
+        _installed: "{{ lookup('template', _unit) }}"
+
+    - name: Case C -- a non-empty install_wanted_by does emit the section
+      ansible.builtin.assert:
+        that:
+          - "'[Install]' in _installed"
+          - "'WantedBy=multi-user.target' in _installed"
+        success_msg: "[Install] WantedBy=multi-user.target"
+
+    # ---------- D. AutoUpdate must not appear ----------
+    # The sharpest divergence from the tdarr node beside it on the same host: `pqup` runs auto-update
+    # across the host, and an image that moves under already-planned runs makes every claim 409.
+    - name: Case D -- the unit opts out of auto-update by carrying no AutoUpdate line
+      ansible.builtin.assert:
+        that:
+          - "'AutoUpdate' not in _installed"
+          - "'Image=' in _installed"
+        success_msg: "no AutoUpdate=; the image stays where the playbook pinned it"
+
+    # ---------- E. the asserts ----------
+    - name: Case E1 -- a relative work root is rejected
+      block:
+        - name: Assert with a relative work root
+          vars:
+            podman_quadlet_gpu_encoder_sweep_node_work_root: data/sweep
+          ansible.builtin.import_role:
+            name: podman_quadlet_gpu_encoder_sweep_node
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e1_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e1_fired: true
+
+    - name: Case E1 -- the relative work root was rejected
+      ansible.builtin.assert:
+        that:
+          - _e1_fired
+        success_msg: >-
+          a relative work root was rejected, rather than letting podman_quadlet create a bind source
+          somewhere arbitrary
+
+    - name: Case E2 -- a render node in the device list is rejected
+      block:
+        - name: Assert with a renderD device
+          vars:
+            podman_quadlet_gpu_encoder_sweep_node_devices:
+              - /dev/dri/renderD128
+          ansible.builtin.import_role:
+            name: podman_quadlet_gpu_encoder_sweep_node
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e2_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e2_fired: true
+
+    - name: Case E2 -- the render node was rejected
+      ansible.builtin.assert:
+        that:
+          - _e2_fired
+        success_msg: "a renderD device was rejected before it could reach the catalogue"
+
+    - name: Case E3 -- a missing PUID is rejected
+      block:
+        - name: Assert with no PUID
+          vars:
+            podman_quadlet_gpu_encoder_sweep_node_puid: ""
+          ansible.builtin.import_role:
+            name: podman_quadlet_gpu_encoder_sweep_node
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e3_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e3_fired: true
+
+    - name: Case E3 -- the missing PUID was rejected
+      ansible.builtin.assert:
+        that:
+          - _e3_fired
+        success_msg: "a missing PUID was rejected, so the work root cannot end up root-owned"

@@ -1,0 +1,98 @@
+---
+{#
+  One template for both node components. Each render emits exactly ONE service, chosen by
+  docker_compose_gpu_encoder_sweep_node_component, and the role is invoked once per component —
+  the same shape as docker_compose_tdarr, and for the same reason: every compose file in the
+  destination directory is already one Compose project, so two files buy no isolation, only the
+  duplication that merging removes.
+
+  The two components differ in less than tdarr's two do. What actually varies is the image name,
+  the service name, the .env suffix, and whether a local_view is mounted; the GPU blocks are keyed
+  on the caller's flags, not on the component, because a scorer needs CUDA exactly as much as an
+  encoder needs its encoder.
+
+  Only the token goes through .env. Everything else is a literal here: each component gets its own
+  file, so there is nothing to collide within one, and a name written to the host-global .env is
+  permanent whether or not anything still reads it.
+#}
+{% set _component = docker_compose_gpu_encoder_sweep_node_component %}
+{% set _sfx = docker_compose_gpu_encoder_sweep_node_env_suffix %}
+services:
+  gpu_encoder_sweep_{{ _component }}:
+    container_name: gpu_encoder_sweep_{{ _component }}
+    image: {{ docker_compose_gpu_encoder_sweep_node_image_registry }}/{{ docker_compose_gpu_encoder_sweep_node_image_name }}:{{ docker_compose_gpu_encoder_sweep_node_image_tag }}
+{# An agent whose host row does not exist yet exits at start, so this is what lets the catalogue be
+   authored after the roles are applied: the container crashloops harmlessly and comes up on its own
+   once the row lands, with no redeploy. The systemd and scheduled-task runtimes have no equivalent,
+   which is why the deployment order matters more for them. #}
+    restart: unless-stopped
+{% if docker_compose_gpu_encoder_sweep_node_nvidia_gpu %}
+    runtime: nvidia
+{% endif %}
+    environment:
+{# The three the agent reads (sweep/node/config.py:6); it refuses at start if any is empty. The
+   token comes from .env, which is 0600, because this file is 0644. #}
+      - SWEEP_HUB={{ docker_compose_gpu_encoder_sweep_node_hub_url }}
+      - SWEEP_TOKEN=${GES_NODE_SWEEP_TOKEN{{ _sfx }}}
+      - SWEEP_HOST={{ docker_compose_gpu_encoder_sweep_node_host }}
+      - TZ=${TZ}
+{% if docker_compose_gpu_encoder_sweep_node_nvidia_gpu %}
+{# BOTH, and the first is load-bearing rather than belt-and-braces: Dockerfile.node-encode sets only
+   the capabilities, so without NVIDIA_VISIBLE_DEVICES an encode node sees no NVIDIA card at all.
+   Dockerfile.node-score does set both, and setting them again costs nothing and keeps one shape.
+   Note the value is NOT tdarr's `all`: the harness asks for what it uses. #}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+{% endif %}
+{% if docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl %}
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib:/usr/lib/x86_64-linux-gnu
+{% endif %}
+    volumes:
+{# Mounted at the SAME PATH inside and out. The hub composes every argv from the host row's
+   work_root and the agent runs it inside the container, so a path in a record or a log resolves on
+   the host too.
+   This container mounts NO share. A file crosses machines through the hub's HTTPS API now -- the
+   agent PUTs it with its sha and size declared and pulls the same way -- so no node holds an SMB
+   credential or a CIFS volume, and host.share_root no longer exists in the hub's schema. #}
+      - {{ docker_compose_gpu_encoder_sweep_node_work_root }}:{{ docker_compose_gpu_encoder_sweep_node_work_root }}
+{% if docker_compose_gpu_encoder_sweep_node_local_view | length > 0 %}
+{# READ-WRITE, and that is not an oversight: scoring unlinks the encode it scored. Mounted read-only
+   the scorer works and the other runtime's work root fills up until it stops encoding. #}
+      - {{ docker_compose_gpu_encoder_sweep_node_local_view }}:{{ docker_compose_gpu_encoder_sweep_node_local_view }}
+{% endif %}
+{% if docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl %}
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+{% endif %}
+{% if docker_compose_gpu_encoder_sweep_node_intel_gpu %}
+      # The WHOLE /dev/dri, bind-mounted, rather than a `devices:` entry naming one node.
+      #
+      # iHD requires a node's NAME to match its MINOR: presenting the Intel card's renderD129
+      # as /dev/dri/renderD128 fails with "Failed to a DRM display" however it is passed. So
+      # the container has to see the real names, which means the whole directory. And a
+      # `devices:` entry is resolved to a major:minor at container CREATE time and reused on
+      # restart, so it goes stale the first time a reboot renumbers the nodes; a directory
+      # bind mount is re-established at START, so the names always match the host.
+      #
+      # Nothing here names a renderD* node, and nothing may: the hub's schema refuses an
+      # encoder_unit whose device contains "renderD", for this same reason. Which card a run
+      # uses comes from the unit row, not from the mount.
+      - type: bind
+        source: /dev/dri
+        target: /dev/dri
+{% endif %}
+{% if docker_compose_gpu_encoder_sweep_node_intel_gpu %}
+    # Access by DRM major with a wildcard minor — no minor to go stale here either.
+    device_cgroup_rules:
+      - 'c 226:* rmw'
+    group_add:
+      - "${RENDER_GID}"
+{% endif %}
+{% if docker_compose_gpu_encoder_sweep_node_nvidia_gpu %}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+{% endif %}

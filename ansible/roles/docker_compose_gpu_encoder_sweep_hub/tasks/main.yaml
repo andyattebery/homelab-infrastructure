@@ -1,0 +1,141 @@
+---
+# One hub per fleet, so this role is invoked once per host and its `.env` names carry no
+# per-invocation suffix — unlike docker_compose_tdarr, where one host can run two components.
+#
+# `.env` is a host-global namespace that is merged and never pruned, so both names written here are
+# prefixed GES_ (the same family as the ges-hub route) while the container-side names they feed are
+# SWEEP_*. Reading `- SWEEP_TOKEN=${GES_HUB_SWEEP_TOKEN}` in the compose file then says which side
+# of that boundary each name lives on.
+
+# Length tests only, so no credential reaches the play output on failure.
+- name: Assert the sweep hub operator token is set
+  ansible.builtin.assert:
+    that: docker_compose_gpu_encoder_sweep_hub_operator_token | string | length > 0
+    fail_msg: >-
+      Set docker_compose_gpu_encoder_sweep_hub_operator_token to the bearer token the operator CLI
+      presents. The hub turns its auth middleware on when EITHER token set is non-empty
+      (sweep/hub/app.py:48) and this role always writes the agent tokens file — so an empty
+      operator token does not leave the hub open, it locks the operator out: no bearer can ever
+      match, every operator route answers 401, and the agents carry on working.
+
+- name: Assert the sweep hub agent tokens are set
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_hub_agent_tokens | length > 0
+      - docker_compose_gpu_encoder_sweep_hub_agent_tokens.values()
+        | map('string') | select('equalto', '') | list | length == 0
+    fail_msg: >-
+      Set docker_compose_gpu_encoder_sweep_hub_agent_tokens to {host: token} for every agent, keyed
+      on the host row name each agent reports as SWEEP_HOST — which is not always its inventory
+      name. An agent whose key is missing gets 401 on every call and never heartbeats.
+      An EMPTY value is worse than a missing one: sweep/hub/auth.py:27-29 compares the presented
+      bearer against each held token, so an empty held token matches a request that sends
+      "Bearer " and nothing else.
+
+- name: Assert the sweep hub host row and its agent token are set
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_hub_host | length > 0
+      - docker_compose_gpu_encoder_sweep_hub_agent_token | string | length > 0
+    fail_msg: >-
+      Set docker_compose_gpu_encoder_sweep_hub_host to the hub's OWN host row name, and
+      _agent_token to that row's bearer. The hub reads SWEEP_HOST to know which runtime it is and
+      refuses by name without it — `sweep inventory` runs on the hub's runtime and nowhere else, so
+      an unset host row takes inventory away entirely rather than degrading it.
+
+# The agent authenticates like any node, so its token must ALSO be in the tokens file the hub reads.
+# Two places, one value: checked here because a mismatch is a 401 on every call the hub's own agent
+# makes, and the symptom is a runtime that never heartbeats while the hub itself looks healthy.
+- name: Assert the sweep hub agent token matches its entry in the tokens file
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_hub_host in docker_compose_gpu_encoder_sweep_hub_agent_tokens
+      - docker_compose_gpu_encoder_sweep_hub_agent_tokens[docker_compose_gpu_encoder_sweep_hub_host]
+        | string == docker_compose_gpu_encoder_sweep_hub_agent_token | string
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_hub_agent_tokens must contain a key
+      "{{ docker_compose_gpu_encoder_sweep_hub_host }}" whose value equals
+      _agent_token. The hub's agent presents _agent_token; the hub checks it against the tokens
+      file. They are the same credential written twice, and nothing else notices when they drift.
+
+- name: Assert the sweep hub library and work paths are absolute
+  ansible.builtin.assert:
+    that:
+      - docker_compose_gpu_encoder_sweep_hub_library_path is match('^/')
+      - docker_compose_gpu_encoder_sweep_hub_library_container_path is match('^/')
+      - docker_compose_gpu_encoder_sweep_hub_work_container_path is match('^/')
+    fail_msg: >-
+      _library_path, _library_container_path and _work_container_path must all be absolute.
+      Compose reads a bind source with no leading / as a NAMED VOLUME, so a relative library path
+      mounts an empty volume and inventory finds nothing. The CONTAINER library path is recorded in
+      every title row permanently — changing it later does not move what is already recorded.
+
+- name: Assert the sweep hub share path is absolute
+  ansible.builtin.assert:
+    that: docker_compose_gpu_encoder_sweep_hub_share_path is match('^/')
+    fail_msg: >-
+      docker_compose_gpu_encoder_sweep_hub_share_path must be an absolute path on the host; got
+      "{{ docker_compose_gpu_encoder_sweep_hub_share_path }}". Compose reads a bind source with no
+      leading / as a NAMED VOLUME (and an empty one as an invalid mapping), so the hub would come
+      up with an empty /share, find nothing any agent published, and refuse every claim.
+
+# Docker creates a missing bind source as root-owned. The compose file runs redis as ${PUID}:${PGID}
+# precisely so this directory can be created once, here, with the right owner and left alone —
+# rather than the container chowning it on start and Ansible chowning it back on the next run.
+#
+# `| default(...)` on all three is load-bearing, not decorative: these are defaults of the
+# docker_compose role, and role defaults are only in scope inside their own role. Before the
+# include below runs, they are defined here only if some earlier docker_compose invocation in this
+# play set_fact-ed them.
+#
+# `data/` is deliberately NOT created here. copy_config_files.yaml:2-11 creates the parent
+# directory of every config file (0755, docker_compose_uid) and agent-tokens.json lives in it. Two
+# tasks creating one directory flip its ownership on every run.
+- name: Create the sweep hub redis data directory
+  vars:
+    _data_directory: "{{ docker_compose_dst_data_directory_path | default('/opt/docker-compose') }}"
+  ansible.builtin.file:
+    path: "{{ _data_directory }}/{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/redis"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+
+# Same reasoning, and one more: the agent does not FAIL on a work root it cannot write. identity.py
+# reports the free space of its own working directory instead, so the run proceeds and the number is
+# wrong. A directory Docker created as root would do exactly that.
+#
+# `data/work`, not `data/`: copy_config_files.yaml creates the parent of agent-tokens.json, and two
+# tasks creating one directory flip its ownership every run. A subdirectory of it is ours to make.
+- name: Create the sweep hub agent work root
+  vars:
+    _data_directory: "{{ docker_compose_dst_data_directory_path | default('/opt/docker-compose') }}"
+  ansible.builtin.file:
+    path: "{{ _data_directory }}/{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/data/work"
+    state: directory
+    owner: "{{ docker_compose_uid | default('1000') }}"
+    group: "{{ docker_compose_gid | default('1000') }}"
+    mode: "0755"
+
+- name: Configure the gpu-encoder-sweep hub
+  vars:
+    docker_compose_src_file_path: templates/docker-compose-gpu-encoder-sweep-hub.yaml.j2
+    # The base role does not strip .j2 from the destination name, and files/dc globs
+    # docker-compose*.y*ml, so this must be set explicitly or dc/dcup cannot see the stack.
+    docker_compose_dst_file_name: docker-compose-gpu-encoder-sweep-hub.yaml
+    # The two secrets in the stack, and the only names this role adds to the host-global .env. They
+    # are here rather than in the compose file because the compose file is written 0644 and .env is
+    # written 0600 (docker_compose/tasks/copy_env.yaml:33).
+    #
+    # .env is never pruned, so these names are permanent on this host: GES_ for the family, matching
+    # the ges-hub route, while the container-side names they feed are SWEEP_*.
+    docker_compose_envs:
+      GES_HUB_SWEEP_TOKEN: "{{ docker_compose_gpu_encoder_sweep_hub_operator_token }}"
+      GES_HUB_AGENT_SWEEP_TOKEN: "{{ docker_compose_gpu_encoder_sweep_hub_agent_token }}"
+    docker_compose_src_config_files:
+      - src_file_path: templates/agent-tokens.json.j2
+        dst_relative_file_path: "{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/data/agent-tokens.json"
+        mode: "0600" # every agent's bearer token, in the clear
+        service_name_to_restart: gpu_encoder_sweep_hub
+  ansible.builtin.include_role:
+    name: docker_compose

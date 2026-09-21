@@ -1,0 +1,187 @@
+---
+# Deploys the native Windows agent: uv's uvx runs the package straight from git, a templated
+# launcher carries the three variables the agent reads, and a boot-triggered scheduled task starts
+# it. Nothing here is a service — there is no service wrapper in this repo and the harness does not
+# ship one — so the task IS the supervision, such as it is.
+#
+# Everything below the asserts is a win_* module, which is why the asserts live in their own file:
+# tests/test.yml imports that file alone and runs it on the controller.
+
+- name: Assert the sweep node inputs
+  ansible.builtin.import_tasks: assert.yaml
+
+# The role installs nothing. github_release_install_win puts uv where the play told it to, exactly
+# as it does jellyfin-ffmpeg, and this stat is what turns a forgotten prerequisite into a failure
+# here rather than a task that runs once at the next boot and exits.
+- name: Stat uvx.exe
+  ansible.windows.win_stat:
+    path: "{{ gpu_encoder_sweep_node_win_uvx_path }}"
+    get_checksum: false
+  register: _uvx_stat
+
+- name: Assert uvx.exe is installed
+  ansible.builtin.assert:
+    that: _uvx_stat.stat.exists
+    fail_msg: >-
+      {{ gpu_encoder_sweep_node_win_uvx_path }} is not there. This role does not install uv: the
+      play does, through github_release_install_win with
+      _asset_patterns.x86_64 = '^uv-x86_64-pc-windows-msvc\.zip$' and
+      _files_in_archive = [uv.exe, uvx.exe], into a directory the play creates itself — that role
+      does not create its destination. Add those tasks before this one.
+
+- name: Create the sweep node install directory
+  ansible.windows.win_file:
+    path: "{{ gpu_encoder_sweep_node_win_install_dir }}"
+    state: directory
+
+# The launcher holds SWEEP_TOKEN, and `mode:` does nothing on Windows. Under C:\Program Files a new
+# directory inherits an ACL that grants BUILTIN\Users read, so the bearer token would be readable by
+# every local account.
+#
+# The whole ACL is authored rather than the Users ACE surgically removed, and that is deliberate.
+# ansible.windows.win_acl matches an existing rule on identity AND rights AND type AND inheritance
+# AND both flag sets before it will remove anything (win_acl.ps1:227-238); anything short of an
+# exact match is a silent no-op that reports changed=false, which here would mean reporting success
+# while leaving the token world-readable. Three ACEs we wrote are checkable; one removal we hope
+# matched is not.
+#
+# reorganize: false drops the inherited ACEs rather than copying them down, so between this task and
+# the three below the directory has an empty DACL and only its owner can reach it. That window is
+# three tasks long and this directory belongs to no other role — but if a run dies inside it, an
+# administrator has to take ownership to recover.
+- name: Break ACL inheritance on the sweep node install directory
+  ansible.windows.win_acl_inheritance:
+    path: "{{ gpu_encoder_sweep_node_win_install_dir }}"
+    state: absent
+    reorganize: false
+
+# `inherit` is left at the module default, documented as `ContainerInherit, ObjectInherit` for a
+# directory. That is relied on deliberately: the launcher is templated AFTER these, so it inherits
+# exactly these three and nothing else.
+- name: Grant the sweep node install directory its three ACEs
+  ansible.windows.win_acl:
+    path: "{{ gpu_encoder_sweep_node_win_install_dir }}"
+    user: "{{ item.user }}"
+    rights: "{{ item.rights }}"
+    type: allow
+    state: present
+  loop:
+    - user: BUILTIN\Administrators
+      rights: FullControl
+    - user: NT AUTHORITY\SYSTEM
+      rights: FullControl
+    # Read and execute only. The task account runs the launcher; it never writes here — its log goes
+    # to the work root, which is the one path in this deployment it can write to.
+    - user: "{{ gpu_encoder_sweep_node_win_owner }}"
+      rights: ReadAndExecute
+  loop_control:
+    label: "{{ item.user }} {{ item.rights }}"
+
+# Created rather than assumed, because the agent does not fail when it is missing: it reports the
+# free space of its own working directory instead, and the run proceeds with a wrong number. No ACL
+# is set on it — it can already hold this machine's stage cuts, and a role that asserted ownership
+# over a directory it did not fill would take it away from whatever put them there.
+- name: Create the sweep node work root
+  ansible.windows.win_file:
+    path: "{{ gpu_encoder_sweep_node_win_work_root }}"
+    state: directory
+
+# ansible.windows ships no win_template, and ansible.builtin.template is documented as one of the
+# core modules that works against a Windows host.
+- name: Deploy the sweep node launcher
+  ansible.builtin.template:
+    src: gpu-encoder-sweep-node.ps1.j2
+    dest: "{{ gpu_encoder_sweep_node_win_script_path }}"
+    # No mode: it is inert on Windows. The ACL above is what protects this file.
+  notify: Restart the sweep node scheduled task
+
+# The check that makes the ACL work above a claim rather than an intention. Done in PowerShell
+# against the resolved identity rather than by matching strings in Ansible, because the identity
+# comes back as an account name that a Jinja regex would need backslash escaping to match.
+- name: Assert BUILTIN\Users cannot read the sweep node launcher
+  ansible.windows.win_powershell:
+    parameters:
+      Path: "{{ gpu_encoder_sweep_node_win_script_path }}"
+    script: |
+      param([String]$Path)
+      $Ansible.Changed = $false
+      $acl = Get-Acl -LiteralPath $Path
+      $bad = $acl.Access | Where-Object { $_.IdentityReference -eq 'BUILTIN\Users' }
+      if ($bad) {
+        throw "BUILTIN\Users still has $($bad.FileSystemRights) on $Path -- the bearer token is readable by every local account"
+      }
+      "ACL: " + (($acl.Access | ForEach-Object { "$($_.IdentityReference)=$($_.FileSystemRights)" }) -join '; ')
+  register: _script_acl
+
+- name: Show the launcher's effective ACL
+  ansible.builtin.debug:
+    msg: "{{ _script_acl.output }}"
+
+# A scheduled task, not a Startup shortcut. A shortcut fires only on interactive logon, so after a
+# reboot with nobody logged in the agent is simply absent and the hub shows a dead runtime — fine
+# for a tray app, not for a measurement runtime.
+#
+# The account needs SeBatchLogonRight to run a task at all. It is a dedicated service account, so it
+# is NOT in Administrators and does not hold that right by default: the calling play grants it with
+# ansible.windows.win_user_right BEFORE this role runs. Registration is the backstop — the module
+# fails here if it is missing.
+#
+# no_log, because `password` is not marked no_log anywhere in the module (there is no such directive
+# in win_scheduled_task.py, and a Get-AnsibleParam module has no argspec to carry one), so without
+# this the credential lands in -vvv output and in any callback log.
+- name: Register the sweep node scheduled task
+  no_log: true
+  community.windows.win_scheduled_task:
+    name: "{{ gpu_encoder_sweep_node_win_task_name }}"
+    description: >-
+      gpu-encoder-sweep node agent. Deployed by Ansible (gpu_encoder_sweep_node_win); the launcher
+      is {{ gpu_encoder_sweep_node_win_script_path }} and its log is
+      {{ gpu_encoder_sweep_node_win_log_path }}.
+    actions:
+      - path: powershell.exe
+        # -NoProfile so the agent's environment does not depend on a profile script nobody is
+        # reading, and -ExecutionPolicy Bypass because the launcher is unsigned and the machine
+        # policy is not this role's to change.
+        arguments: >-
+          -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+          "{{ gpu_encoder_sweep_node_win_script_path }}"
+        working_directory: "{{ gpu_encoder_sweep_node_win_work_root }}"
+    triggers:
+      - type: boot
+        # The first run of a pinned version resolves and downloads from GitHub, so the network has
+        # to be up. A boot trigger on its own can fire before it is.
+        delay: "{{ gpu_encoder_sweep_node_win_boot_delay }}"
+        # This is what makes the task a supervisor rather than a one-shot. `duration` is deliberately
+        # unset: the module documents an unset duration as repeating indefinitely, so the trigger
+        # re-fires forever at this interval. Paired with multiple_instances below, each firing is a
+        # no-op while the agent is already running, and a restart when it is not — however it
+        # stopped. It replaces a restart_count/_interval pair that only ever supervised a FAILED task
+        # and gave up after three tries.
+        repetition:
+          interval: "{{ gpu_encoder_sweep_node_win_relaunch_interval }}"
+    # A bare local account name. Convert-ToSID handles `.\name` too, but the `.\` prefix is only
+    # actually recommended for win_user_right, which is where the play uses it.
+    username: "{{ gpu_encoder_sweep_node_win_owner }}"
+    logon_type: "{{ gpu_encoder_sweep_node_win_logon_type }}"
+    password: "{{ gpu_encoder_sweep_node_win_password | default(omit, true) }}"
+    # Without this the module re-registers the task on every single apply: its own docs say a set
+    # password "will always result in a change unless update_password is set to no and no other
+    # changes are required".
+    update_password: "{{ gpu_encoder_sweep_node_win_update_password }}"
+    # Limited, not highest: the agent reads its work root and talks to the hub. Nothing it does
+    # needs an elevated token, and an elevated one would make everything it writes harder to clean
+    # up afterwards.
+    run_level: limited
+    # 2 = do not start a new instance while one is running. Two agents for one host row would both
+    # heartbeat and both claim, and the hub would hand the same runs to what it thinks is one agent.
+    multiple_instances: 2
+    # The task is meant to run forever; the default is a three-day limit, after which the Task
+    # Scheduler kills it mid-run. PT0S is the module's spelling of "no limit".
+    execution_time_limit: PT0S
+    # This machine is a desktop that sleeps; a measurement agent that stops at the first unplugged
+    # moment is worse than one that keeps its heartbeat.
+    disallow_start_if_on_batteries: false
+    stop_if_going_on_batteries: false
+    start_when_available: true
+    state: present
+    enabled: true

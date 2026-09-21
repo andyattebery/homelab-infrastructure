@@ -1,0 +1,306 @@
+---
+# Exercises the two parts of gpu_encoder_sweep_node_win that do not need a Windows host: the input
+# asserts, and the launcher template. Everything else in the role is a win_* module, so there is no
+# fixture for it -- this repo has no CI and no Windows runner, and the live checklist in the role
+# README is what covers the rest.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/gpu_encoder_sweep_node_win/tests/inventory \
+#       roles/gpu_encoder_sweep_node_win/tests/test.yml
+#
+# What it is actually for. The launcher is the only file in this role with logic in it, and it is
+# the one that carries the bearer token. Three things about it are worth a real render:
+#
+#   1. The uvx spec. It is assembled from two variables and a literal, and a wrong one installs a
+#      different version of the harness on the one host whose artifact is not stamped by an image --
+#      this agent reports `uvx:<version>` and nothing else, so the record would not show the drift.
+#   2. The paths. They are built by concatenating a separator that cannot be written as a Jinja
+#      literal, so a change to how they are derived is exactly the kind of thing that silently
+#      yields `D:sweep` or `D:\\sweep`.
+#   3. The token quoting. It goes into a single-quoted PowerShell literal, where an apostrophe in the
+#      value would end the string and turn the rest of the line into code.
+- name: Test gpu_encoder_sweep_node_win
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # A full, valid input set. Fixtures: no vault, no real host, no real domain.
+    gpu_encoder_sweep_node_win_hub_url: https://hub.example.test
+    gpu_encoder_sweep_node_win_token: fixture-token
+    gpu_encoder_sweep_node_win_host: fixture-native
+    gpu_encoder_sweep_node_win_work_root: 'D:\sweep'
+    gpu_encoder_sweep_node_win_uv_dir: 'C:\Program Files\uv'
+    gpu_encoder_sweep_node_win_owner: fixture-user
+    gpu_encoder_sweep_node_win_package_version: sha-fixture
+    # Explicit, not from defaults: _logon_type defaults to `password`, and _password defaults to
+    # empty, so a "complete input set" taken wholly from defaults would fail its own Case A.
+    gpu_encoder_sweep_node_win_password: fixture-password
+    gpu_encoder_sweep_node_win_ffmpeg_path: 'C:\Program Files\jellyfin-ffmpeg\bin\ffmpeg.exe'
+
+    # The rest of the role's inputs, taken from its own defaults file rather than copied here, so a
+    # changed default cannot leave this test asserting against a value the role no longer has.
+    #
+    # They are PLAY vars, and that matters: play vars sit below task vars in precedence, so the E
+    # cases below can override one on their `import_role` task. An earlier draft set_fact-ed them
+    # instead -- set_fact outranks task vars, so the overrides were silently ignored and two of the
+    # assert cases reported that the assert had not fired. They are needed at play level at all
+    # because `lookup('template', ...)` renders in the play's scope, where role defaults are not.
+    gpu_encoder_sweep_node_win_install_dir: "{{ _defaults.gpu_encoder_sweep_node_win_install_dir }}"
+    gpu_encoder_sweep_node_win_script_name: "{{ _defaults.gpu_encoder_sweep_node_win_script_name }}"
+    gpu_encoder_sweep_node_win_task_name: "{{ _defaults.gpu_encoder_sweep_node_win_task_name }}"
+    gpu_encoder_sweep_node_win_package_repo_url: "{{ _defaults.gpu_encoder_sweep_node_win_package_repo_url }}"
+    gpu_encoder_sweep_node_win_logon_type: "{{ _defaults.gpu_encoder_sweep_node_win_logon_type }}"
+    gpu_encoder_sweep_node_win_relaunch_interval: "{{ _defaults.gpu_encoder_sweep_node_win_relaunch_interval }}"
+
+    _template: ../templates/gpu-encoder-sweep-node.ps1.j2
+
+  tasks:
+    # The role's vars/ hold the three derived paths. Loading the real file means the test exercises
+    # the actual derivation rather than a copy of it that can drift.
+    - name: Load the role's derived paths
+      ansible.builtin.include_vars:
+        file: ../vars/main.yaml
+
+    - name: Load the role's defaults for anything the play did not set
+      ansible.builtin.include_vars:
+        file: ../defaults/main.yaml
+        name: _defaults
+
+    # ---------- A. a full, valid input set passes the asserts ----------
+    - name: Case A -- the asserts accept a complete input set
+      ansible.builtin.import_role:
+        name: gpu_encoder_sweep_node_win
+        tasks_from: assert
+
+    # ---------- B. the derived paths ----------
+    # A single backslash between each part, and no doubled one. These are built by concatenating a
+    # separator defined in YAML precisely because a backslash cannot be written as a Jinja literal.
+    - name: Case B -- the derived paths are single-backslash Windows paths
+      vars:
+        _sep: "{{ gpu_encoder_sweep_node_win_path_separator }}"
+      ansible.builtin.assert:
+        that:
+          - gpu_encoder_sweep_node_win_uvx_path == 'C:' ~ _sep ~ 'Program Files' ~ _sep ~ 'uv' ~ _sep ~ 'uvx.exe'
+          - gpu_encoder_sweep_node_win_script_path == 'C:' ~ _sep ~ 'Program Files' ~ _sep ~ 'gpu-encoder-sweep' ~ _sep ~ 'gpu-encoder-sweep-node.ps1'
+          - gpu_encoder_sweep_node_win_log_path == 'D:' ~ _sep ~ 'sweep' ~ _sep ~ 'node-agent.log'
+          - _sep ~ _sep not in gpu_encoder_sweep_node_win_script_path
+        success_msg: >-
+          uvx={{ gpu_encoder_sweep_node_win_uvx_path }};
+          script={{ gpu_encoder_sweep_node_win_script_path }};
+          log={{ gpu_encoder_sweep_node_win_log_path }}
+
+    # ---------- C. the rendered launcher ----------
+    - name: Render the launcher
+      ansible.builtin.set_fact:
+        _ps1: "{{ lookup('template', _template) }}"
+
+    - name: Case C -- the launcher carries the three variables the agent reads
+      ansible.builtin.assert:
+        that:
+          - _ps1 | length > 0
+          - "\"$env:SWEEP_HUB = 'https://hub.example.test'\" in _ps1"
+          - "\"$env:SWEEP_TOKEN = 'fixture-token'\" in _ps1"
+          - "\"$env:SWEEP_HOST = 'fixture-native'\" in _ps1"
+        success_msg: "{{ _ps1 | length }} bytes rendered, all three assignments present"
+
+    # The spec is the whole version pin on this host. `[node]` is the extra that brings httpx; drop
+    # it and uvx installs the package with no dependencies and the agent fails on its first import.
+    - name: Case C -- the uvx spec names the package, the extra, the repo and the version
+      vars:
+        _spec: "gpu-encoder-sweep[node] @ git+https://github.com/andyattebery/gpu-encoder-sweep@sha-fixture"
+      ansible.builtin.assert:
+        that:
+          - "'$Spec = ' ~ \"'\" ~ _spec ~ \"'\" in _ps1"
+          - "'sweep-node serve' in _ps1"
+        success_msg: "{{ _spec }}"
+
+    - name: Case C -- the launcher points at the derived paths, not at anything it rebuilt
+      ansible.builtin.assert:
+        that:
+          - "'$Uvx = ' ~ \"'\" ~ gpu_encoder_sweep_node_win_uvx_path ~ \"'\" in _ps1"
+          - "'$Log = ' ~ \"'\" ~ gpu_encoder_sweep_node_win_log_path ~ \"'\" in _ps1"
+          # No $Share. The share probe is gone with the share itself -- this agent reaches the pool
+          # through the hub over HTTPS -- so a $Share here would be a leftover pointing at nothing.
+          - "'$Share' not in _ps1"
+        success_msg: "launcher references the derived paths verbatim, and no share"
+
+    # A template that failed to render a variable leaves the braces in place, and PowerShell would
+    # run the result without complaint until it hit one.
+    - name: Case C -- nothing was left unrendered
+      ansible.builtin.assert:
+        that:
+          # The needles are assembled from single characters: writing the delimiter literally would
+          # put it in an expression the template engine evaluates before the assertion runs, and the
+          # task fails as a syntax error instead of testing anything.
+          - ('{' ~ '{') not in _ps1
+          - ('{' ~ '%') not in _ps1
+        success_msg: "no Jinja delimiters survive in the rendered launcher"
+
+    # ---------- D. the token-quoting control ----------
+    # The token goes into a single-quoted PowerShell literal. An apostrophe in the value would end
+    # that string and turn the rest of the line into code, so the template doubles it -- PowerShell's
+    # own escape. This renders a token that contains one and checks the doubling really happened.
+    - name: Control -- render with a token containing an apostrophe
+      vars:
+        gpu_encoder_sweep_node_win_token: "fix'ture"
+      ansible.builtin.set_fact:
+        _ps1_quoted: "{{ lookup('template', _template) }}"
+
+    - name: Control -- the apostrophe is doubled, so the literal still closes where it should
+      ansible.builtin.assert:
+        that:
+          - "\"$env:SWEEP_TOKEN = 'fix''ture'\" in _ps1_quoted"
+          - "\"$env:SWEEP_TOKEN = 'fix'ture'\" not in _ps1_quoted"
+        success_msg: "apostrophe doubled in the PowerShell literal"
+
+    # ---------- E. the asserts ----------
+    # Regression guard for a defect that cost a silent boot failure. PowerShell turns a native
+    # command's stderr into a TERMINATING error when $ErrorActionPreference is 'Stop' and the stream
+    # is merged with 2>&1 or *>&1. uv writes progress to stderr, so with 'Stop' still in force the
+    # launcher aborted on uv's first progress line: exit 1, nothing logged past `exec:`, no agent.
+    #
+    # Asserted by position, not just presence: 'Continue' has to come BEFORE the uvx invocation, and
+    # nothing may set it back to 'Stop' afterwards.
+    - name: Case D -- native stderr cannot terminate the launcher
+      vars:
+        _continue_at: "{{ _ps1.find(\"$ErrorActionPreference = 'Continue'\") }}"
+        _uvx_at: "{{ _ps1.find('& $Uvx') }}"
+        _stop_after: "{{ _ps1[(_ps1.find(\"$ErrorActionPreference = 'Continue'\")):].find(\"$ErrorActionPreference = 'Stop'\") }}"
+      ansible.builtin.assert:
+        that:
+          - _continue_at | int > 0
+          - _uvx_at | int > 0
+          - _continue_at | int < _uvx_at | int
+          - _stop_after | int == -1
+        success_msg: >-
+          ErrorActionPreference is Continue at offset {{ _continue_at }}, before the uvx call at
+          {{ _uvx_at }}, and never set back to Stop
+        fail_msg: >-
+          The launcher must set $ErrorActionPreference to 'Continue' before invoking uvx and must not
+          set it back to 'Stop'. Found Continue at {{ _continue_at }}, uvx at {{ _uvx_at }}, and a
+          later Stop at relative offset {{ _stop_after }}. With Stop in force, uv's first stderr
+          progress line raises NativeCommandError and the agent never starts.
+
+    - name: Case E1 -- a work root with no drive letter is rejected
+      block:
+        - name: Assert with a Unix-shaped work root
+          vars:
+            gpu_encoder_sweep_node_win_work_root: /sweep
+          ansible.builtin.import_role:
+            name: gpu_encoder_sweep_node_win
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e1_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e1_fired: true
+
+    - name: Case E1 -- the Unix-shaped work root was rejected
+      ansible.builtin.assert:
+        that:
+          - _e1_fired
+        success_msg: "a work root with no drive letter was rejected"
+
+    # `password` is the only supported logon type, so the password is not optional. Caught here
+    # rather than as a raw COM error out of RegisterTaskDefinition, which says nothing about what is
+    # missing.
+    - name: Case E3 -- logon_type password without a password is rejected
+      block:
+        - name: Assert with password logon and no password
+          vars:
+            gpu_encoder_sweep_node_win_logon_type: password
+            gpu_encoder_sweep_node_win_password: ""
+          ansible.builtin.import_role:
+            name: gpu_encoder_sweep_node_win
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e3_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e3_fired: true
+
+    - name: Case E3 -- password logon with no password was rejected
+      ansible.builtin.assert:
+        that:
+          - _e3_fired
+        success_msg: "password logon with no password was rejected"
+
+    # The behaviour change this rework is built on. s4u was the role's default until it was found to
+    # be unregisterable (the module requires a password for it anyway) and destructive (an S4U task
+    # firing before a logon can wipe the account's Credential Manager). Rejecting it is the point, so
+    # it gets a case.
+    - name: Case E4 -- logon_type s4u is rejected
+      block:
+        - name: Assert with s4u
+          vars:
+            gpu_encoder_sweep_node_win_logon_type: s4u
+          ansible.builtin.import_role:
+            name: gpu_encoder_sweep_node_win
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e4_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e4_fired: true
+
+    - name: Case E4 -- s4u was rejected
+      ansible.builtin.assert:
+        that:
+          - _e4_fired
+        success_msg: "logon_type s4u was rejected, so it cannot be reached by a stale playbook"
+
+    # An empty relaunch interval is the difference between a supervisor and a one-shot at boot: the
+    # trigger would fire once and the agent would never come back if it stopped.
+    - name: Case E5 -- an empty relaunch interval is rejected
+      block:
+        - name: Assert with no relaunch interval
+          vars:
+            gpu_encoder_sweep_node_win_relaunch_interval: ""
+          ansible.builtin.import_role:
+            name: gpu_encoder_sweep_node_win
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e5_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e5_fired: true
+
+    - name: Case E5 -- the empty relaunch interval was rejected
+      ansible.builtin.assert:
+        that:
+          - _e5_fired
+        success_msg: "an empty relaunch interval was rejected, so the task cannot silently become a one-shot"
+
+    # The NVENC probe is the only measurement of whether a session-0 batch logon can reach the card.
+    # A probe pointed at nothing answers nothing, and would read as a session-0 failure.
+    - name: Case E6 -- an ffmpeg path with no drive letter is rejected
+      block:
+        - name: Assert with a Unix-shaped ffmpeg path
+          vars:
+            gpu_encoder_sweep_node_win_ffmpeg_path: /usr/bin/ffmpeg
+          ansible.builtin.import_role:
+            name: gpu_encoder_sweep_node_win
+            tasks_from: assert
+        - name: Record that the assert did not fire
+          ansible.builtin.set_fact:
+            _e6_fired: false
+      rescue:
+        - name: Record that the assert fired
+          ansible.builtin.set_fact:
+            _e6_fired: true
+
+    - name: Case E6 -- the Unix-shaped ffmpeg path was rejected
+      ansible.builtin.assert:
+        that:
+          - _e6_fired
+        success_msg: "an ffmpeg path with no drive letter was rejected"

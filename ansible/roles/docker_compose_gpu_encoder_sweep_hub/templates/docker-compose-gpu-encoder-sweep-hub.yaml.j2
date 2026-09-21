@@ -1,0 +1,119 @@
+---
+services:
+  gpu_encoder_sweep_hub:
+    image: {{ docker_compose_gpu_encoder_sweep_hub_image_registry }}/{{ docker_compose_gpu_encoder_sweep_hub_image_name }}:{{ docker_compose_gpu_encoder_sweep_hub_image_tag }}
+    container_name: gpu_encoder_sweep_hub
+    environment:
+      # The operator's bearer token, from .env (0600). This file is written 0644.
+      - SWEEP_TOKEN=${GES_HUB_SWEEP_TOKEN}
+      # The loud half of the auth config: a named file that does not exist makes the hub refuse at
+      # start (sweep/hub/auth.py:40-42) rather than come up unauthenticated. Delivered at 0600.
+      - SWEEP_AGENT_TOKENS=/data/agent-tokens.json
+      # The silent half: unset or empty and sweep/hub/app.py:91 builds an in-memory FakeQueue
+      # instead of a RedisQueue, agents claim nothing, and nothing logs a complaint. The host in
+      # this URL is the compose service key below -- the two only work if they stay identical.
+      - SWEEP_REDIS=redis://gpu_encoder_sweep_redis:6379
+      # The hub's OWN host row. `sweep inventory` runs on the hub's runtime and nowhere else, and the
+      # hub refuses by name when this is unset -- it has no other way to know which row is itself.
+      - SWEEP_HOST={{ docker_compose_gpu_encoder_sweep_hub_host }}
+      - TZ=${TZ}
+      # SWEEP_STORE, SWEEP_SHARE, SWEEP_FRAMES and SWEEP_BIND are deliberately absent. The image
+      # sets all four (docker/Dockerfile.hub:16) and the code defaults behind them are wrong for a
+      # container: SWEEP_BIND would be 127.0.0.1:8000, which nothing outside the container can
+      # reach, and SWEEP_STORE a relative hub.sqlite. Do not "tidy" them in with other values.
+    # Not root. The hub needs no device, no privileged port and no capability: it serves HTTP on 8000
+    # and writes /data and the exchange. Running as the deploying user means an operator can remove an
+    # exchange file by hand, which is exactly what the hub's own refusal text tells them to do when a
+    # republish differs. Same shape as redis below.
+    user: ${PUID}:${PGID}
+    networks:
+      - traefik
+      - gpu_encoder_sweep
+    depends_on:
+      gpu_encoder_sweep_redis:
+        condition: service_healthy
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/data:/data
+      # READ-WRITE, and it was deliberately read-only until the exchange moved onto the hub's API. The
+      # hub is now the only writer: an agent PUTs a file, the hub streams it to a temporary file beside
+      # the target, hashing as it goes, renames it into place and records it. Nothing else mounts this
+      # directory -- no node reaches it over SMB any more.
+      #
+      # A differing republish is still refused. By the record, not by the mount.
+      - {{ docker_compose_gpu_encoder_sweep_hub_share_path }}:/share
+    restart: unless-stopped
+    labels:
+      # Mandatory: traefik runs with --providers.docker.exposedbydefault=false.
+      - traefik.enable=true
+      # EXPLICIT rule, and it has to be one. Traefik's defaultRule derives the host from the compose
+      # service name, and this service is gpu_encoder_sweep_hub -- an underscore label is not a
+      # valid hostname and no public certificate covers it. See the README.
+      - traefik.http.routers.gpu_encoder_sweep_hub.rule=Host(`{{ docker_compose_gpu_encoder_sweep_hub_web_hostname }}.$DOMAIN_NAME`)
+      - traefik.http.routers.gpu_encoder_sweep_hub.service=gpu_encoder_sweep_hub
+      - traefik.http.services.gpu_encoder_sweep_hub.loadbalancer.server.port=8000
+      # No certresolver label: --entryPoints.websecure.asDefault=true plus
+      # --entryPoints.websecure.http.tls.certResolver=cloudflare supply it for every router.
+
+  # The hub's own agent, from the SAME image: that image's entrypoint is sweep-hub, so this overrides
+  # it. It exists because `sweep inventory` runs on the hub's runtime and nowhere else -- the hub host
+  # is the one with the library mounted.
+  #
+  # An ordinary agent in every other respect: it authenticates with a bearer token like any node, and
+  # that token must also appear in agent-tokens.json under the same host key.
+  gpu_encoder_sweep_hub_agent:
+    image: {{ docker_compose_gpu_encoder_sweep_hub_image_registry }}/{{ docker_compose_gpu_encoder_sweep_hub_image_name }}:{{ docker_compose_gpu_encoder_sweep_hub_image_tag }}
+    container_name: gpu_encoder_sweep_hub_agent
+    entrypoint: sweep-node
+    command: serve
+    user: ${PUID}:${PGID}
+    environment:
+      # Straight to the hub over the stack network: no traefik hop, no TLS, no public hostname, and
+      # none of the entrypoint timeouts that apply to traffic arriving from outside. The host here is
+      # the compose service key above -- the two only work if they stay identical.
+      - SWEEP_HUB=http://gpu_encoder_sweep_hub:8000
+      - SWEEP_HOST={{ docker_compose_gpu_encoder_sweep_hub_host }}
+      - SWEEP_TOKEN=${GES_HUB_AGENT_SWEEP_TOKEN}
+      - TZ=${TZ}
+    networks:
+      - gpu_encoder_sweep
+    depends_on:
+      - gpu_encoder_sweep_hub
+    volumes:
+      # The library, read-only: inventory probes files and never writes them. The CONTAINER path is
+      # recorded in every title row permanently, which is why it is an input and not a literal.
+      - {{ docker_compose_gpu_encoder_sweep_hub_library_path }}:{{ docker_compose_gpu_encoder_sweep_hub_library_container_path }}:ro
+      # Its work root, a subdirectory of the data directory so runs/ does not land beside hub.sqlite.
+      - ${DOCKER_DATA_DIRECTORY}/{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/data/work:{{ docker_compose_gpu_encoder_sweep_hub_work_container_path }}
+    # No traefik labels and not on the traefik network: it serves nothing and must not get a router.
+    restart: unless-stopped
+
+  gpu_encoder_sweep_redis:
+    image: {{ docker_compose_gpu_encoder_sweep_hub_redis_image }}
+    container_name: gpu_encoder_sweep_redis
+    # The queue holds queued and pending entries, not a cache. Without persistence a restart drops
+    # them and every affected run needs `sweep abandon` and a re-plan.
+    command: redis-server --appendonly yes
+    # Runs as the deploying user so the data directory the role created is writable as-is. The
+    # alternative -- letting the image's entrypoint chown /data on every start while Ansible chowns
+    # it back on every run -- is the ownership flip this repo avoids elsewhere. Same shape as
+    # docker_compose_metrics, which runs grafana, influxdb and prometheus this way.
+    user: ${PUID}:${PGID}
+    environment:
+      - TZ=${TZ}
+    # Not on the traefik network: nothing routes to it, and the hub reaches it over the internal
+    # network below. A service that declares ANY network is not attached to the project default, so
+    # without that network the two containers could not resolve each other at all.
+    networks:
+      - gpu_encoder_sweep
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/{{ docker_compose_gpu_encoder_sweep_hub_data_subdirectory }}/redis:/data
+    healthcheck:
+      test: redis-cli ping || exit 1
+    restart: unless-stopped
+
+networks:
+  gpu_encoder_sweep:
+    name: gpu_encoder_sweep
+  traefik:
+    name: traefik
+    external: true

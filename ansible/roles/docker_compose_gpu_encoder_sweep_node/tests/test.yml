@@ -1,0 +1,546 @@
+---
+# Exercises docker_compose_gpu_encoder_sweep_node against throwaway directories. Runs entirely on
+# localhost, starts no container, contacts no host, and needs no Docker daemon -- only the docker
+# CLI, because `docker compose config` renders and exits. This role makes no docker call of its own:
+# with should_pull, should_run_up and should_prune false, and no config files to deliver, nothing in
+# it reaches the CLI at all.
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook \
+#       -i roles/docker_compose_gpu_encoder_sweep_node/tests/inventory \
+#       roles/docker_compose_gpu_encoder_sweep_node/tests/test.yml
+#
+# What it is actually for. One template emits either an encoder or a scorer, and three independent
+# GPU shapes layer on top of both. Every way of getting that wrong produces a document that deploys
+# and then misbehaves quietly:
+#
+#   1. NVIDIA_VISIBLE_DEVICES dropped. The encode image sets only NVIDIA_DRIVER_CAPABILITIES, so the
+#      container starts, sees no NVIDIA card, and encodes on the CPU. The timings still publish.
+#   2. A renderD* node named anywhere. It works until a reboot renumbers the nodes, and the hub's
+#      schema refuses such a device outright -- so a role that emits one fails late and confusingly.
+#   3. The local view mounted read-only, or not at all. Scoring unlinks the encode it scored, so
+#      read-only fills the other runtime's work root until it stops encoding; absent, the scorer
+#      silently pulls every cell from the hub instead, which is a different measurement.
+#   4. Two invocations sharing one .env name. `.env` is host-global, merged and never pruned, so the
+#      second silently redefines the first's token. Case D-CONTROL reproduces exactly that.
+- name: Test docker_compose_gpu_encoder_sweep_node
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    # group_vars/all is not loaded under `-i <file>`, and these four are what docker_compose
+    # writes into every .env. Literals: no vault, no real domain.
+    timezone: America/Chicago
+    domain_name: example.test
+    lang_two_letter: en
+    language_region_with_underscore: en_US
+
+    # Play vars, which outrank role defaults. Each one turns off a docker_compose step that would
+    # otherwise need root, a docker group, or a daemon:
+    #   uid/gid        skips the ansible_non_become_user_facts include
+    #   docker_gid     skips `getent group docker`, which asserts -- no such group on a Mac
+    #   render_gid     skips the sibling getent. A real-looking value, not "", because the Intel
+    #                  case renders `group_add: ["${RENDER_GID}"]` and an empty entry is a
+    #                  different document
+    #   should_pull    would contact ghcr.io
+    #   should_run_up  would start the container
+    #   copy_scripts   would install dc/dcup into /usr/local/bin, which needs root
+    docker_compose_uid: "{{ ansible_facts['user_uid'] }}"
+    docker_compose_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_docker_gid: "{{ ansible_facts['user_gid'] }}"
+    docker_compose_render_gid: "989"
+    docker_compose_should_pull: false
+    docker_compose_should_run_up: false
+    docker_compose_copy_scripts: false
+
+    # Fixture credentials and names -- no vault, nothing real.
+    docker_compose_gpu_encoder_sweep_node_hub_url: https://hub.example.test
+
+    _encode_token: fixture-token-encode
+    _score_token: fixture-token-score
+
+  tasks:
+    - name: Create scratch directories
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: "ges-node-tests-{{ item }}"
+      register: _tmps
+      loop: [both, wsl, control, asserts]
+
+    - name: Name the scratch directories
+      ansible.builtin.set_fact:
+        _d: "{{ dict(_tmps.results | map(attribute='item') | zip(_tmps.results | map(attribute='path'))) }}"
+
+    - name: Run the suite
+      block:
+        # ---------- 0. the docker CLI is present ----------
+        - name: Check the docker CLI is available
+          ansible.builtin.command:
+            cmd: docker compose version
+          register: _docker_version
+          changed_when: false
+
+        - name: docker compose CLI reported a version
+          ansible.builtin.assert:
+            that:
+              - _docker_version.stdout | length > 0
+            success_msg: "{{ _docker_version.stdout }}"
+
+        # ---------- A. the encode component, with both GPU shapes at once ----------
+        # docker_compose set_facts docker_compose_dst_directory_path, and a fact outranks the vars
+        # on an import_role task -- so pointing a later case at a different directory takes another
+        # set_fact, not a task var.
+        - name: Point the role at the scratch directory for the two-component case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.both }}"
+
+        - name: Deploy case A -- encode, NVIDIA and Intel together
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.both }}/data"
+            docker_compose_gpu_encoder_sweep_node_component: encode
+            docker_compose_gpu_encoder_sweep_node_token: "{{ _encode_token }}"
+            docker_compose_gpu_encoder_sweep_node_host: fixture-encode
+            docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.both }}/work-encode"
+            docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+            docker_compose_gpu_encoder_sweep_node_intel_gpu: true
+            docker_compose_gpu_encoder_sweep_node_image_tag: sha-fixture
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_node
+
+        # The destination filename, not the rendered content. `.j2` is not stripped by
+        # docker_compose, so this is the assertion that keeps the file visible to files/dc.
+        - name: Stat the deployed encode file, and the .j2 name that must not exist
+          ansible.builtin.stat:
+            path: "{{ _d.both }}/{{ item }}"
+          register: _stats
+          loop:
+            - docker-compose-gpu-encoder-sweep-node-encode.yaml
+            - docker-compose-gpu-encoder-sweep-node-encode.yaml.j2
+            - docker-compose-gpu-encoder-sweep-node.yaml.j2
+
+        - name: Case A deployed under a name files/dc can glob
+          ansible.builtin.assert:
+            that:
+              - _stats.results[0].stat.exists
+              - not _stats.results[1].stat.exists
+              - not _stats.results[2].stat.exists
+            success_msg: "{{ _d.both }}/docker-compose-gpu-encoder-sweep-node-encode.yaml"
+
+        - name: The role created the encode work root
+          ansible.builtin.stat:
+            path: "{{ _d.both }}/work-encode"
+          register: _work_root_stat
+
+        - name: Case A created the work root, which the agent does not fail without
+          ansible.builtin.assert:
+            that:
+              - _work_root_stat.stat.exists
+              - _work_root_stat.stat.isdir
+            success_msg: "{{ _d.both }}/work-encode created"
+
+        - name: Render case A
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-gpu-encoder-sweep-node-encode.yaml config --format json
+          register: _render_a
+          changed_when: false
+
+        # The authoritative name check, first on purpose: every later case looks the service up by
+        # name, so a rename has to fail HERE, with an assertion. Nothing in this task -- success_msg
+        # included, since Ansible renders task args before running the assertion -- may dereference
+        # a service by name.
+        - name: Case A is the encode service alone
+          vars:
+            _cfg: "{{ _render_a.stdout | from_json }}"
+            _names: "{{ _cfg.services.keys() | sort | list }}"
+            _images: "{{ _cfg.services.values() | map(attribute='image', default='') | list }}"
+            _restarts: "{{ _cfg.services.values() | map(attribute='restart', default='') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _names == ['gpu_encoder_sweep_encode']
+              - _images == ['ghcr.io/andyattebery/gpu-encoder-sweep-node-encode:sha-fixture']
+              - _restarts == ['unless-stopped']
+            success_msg: "{{ _names | join(', ') }} = {{ _images | join(', ') }} ({{ _restarts | join(', ') }})"
+
+        # An UNSET variable is only a warning to Compose -- it substitutes a blank and carries on --
+        # so a name dropped from docker_compose_envs would silently blank rather than fail. Only an
+        # assertion on the rendered value catches that.
+        - name: Case A carries the three variables the agent reads, and both NVIDIA flags
+          vars:
+            _env: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_encode.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _env['SWEEP_HUB'] == 'https://hub.example.test'
+              - _env['SWEEP_TOKEN'] == _encode_token
+              - _env['SWEEP_HOST'] == 'fixture-encode'
+              - _env['NVIDIA_VISIBLE_DEVICES'] == 'all'
+              - _env['NVIDIA_DRIVER_CAPABILITIES'] == 'compute,utility,video'
+              - "'LD_LIBRARY_PATH' not in _env"
+            success_msg: >-
+              SWEEP_HOST={{ _env['SWEEP_HOST'] }};
+              NVIDIA_VISIBLE_DEVICES={{ _env['NVIDIA_VISIBLE_DEVICES'] }};
+              NVIDIA_DRIVER_CAPABILITIES={{ _env['NVIDIA_DRIVER_CAPABILITIES'] }}
+
+        - name: Case A asks for the NVIDIA runtime and the Intel DRM access together
+          vars:
+            _svc: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_encode }}"
+          ansible.builtin.assert:
+            that:
+              - _svc.runtime == 'nvidia'
+              - _svc.deploy.resources.reservations.devices | length == 1
+              - _svc.deploy.resources.reservations.devices[0].driver == 'nvidia'
+              - _svc.deploy.resources.reservations.devices[0].capabilities == ['gpu']
+              - _svc.device_cgroup_rules == ['c 226:* rmw']
+              - _svc.group_add == ['989']
+            success_msg: >-
+              runtime={{ _svc.runtime }}; cgroup={{ _svc.device_cgroup_rules }};
+              group_add={{ _svc.group_add }}
+
+        - name: Case A mounts the work root at the same path both sides, /dev/dri whole, no local view
+          vars:
+            _vols: "{{ (_render_a.stdout | from_json).services.gpu_encoder_sweep_encode.volumes }}"
+            _work: "{{ _vols | selectattr('target', 'eq', _d.both ~ '/work-encode') | list }}"
+            _dri: "{{ _vols | selectattr('target', 'eq', '/dev/dri') | list }}"
+            _share: "{{ _vols | selectattr('target', 'eq', '/share') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _vols | length == 2
+              - _work | length == 1
+              - _work[0].source == _work[0].target
+              - not (_work[0].read_only | default(false))
+              - _dri | length == 1
+              - _dri[0].source == '/dev/dri'
+              # ⚠ INVERTED: there must now be NO /share mount. A file crosses machines through the
+              # hub's HTTPS API, so a node that still mounts the pool is carrying a credential and a
+              # CIFS volume it has no use for -- and on one runtime could not authenticate at all.
+              - _share | length == 0
+            success_msg: >-
+              {{ _vols | map(attribute='target') | join(', ') }}
+
+        # The hub's schema refuses an encoder_unit whose device contains "renderD", because a render
+        # node's number moves when a reboot renumbers them. A role that names one anywhere fails
+        # late, at the database, long after the document looked fine.
+        - name: Case A names no renderD node anywhere in the document
+          vars:
+            _text: "{{ _render_a.stdout }}"
+          ansible.builtin.assert:
+            that:
+              - _text | length > 0
+              - "'/dev/dri' in _text"
+              - "'renderD' not in _text"
+            success_msg: "no renderD in {{ _text | length }} rendered bytes, and /dev/dri is present"
+
+        # ---------- B. the score component, same host, same directory ----------
+        - name: Create the directory case B will use as its local view
+          ansible.builtin.file:
+            path: "{{ _d.both }}/work-encode/cells"
+            state: directory
+            mode: "0755"
+
+        - name: Deploy case B -- score, NVIDIA, with a local view of A's work root
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.both }}/data"
+            docker_compose_gpu_encoder_sweep_node_component: score
+            docker_compose_gpu_encoder_sweep_node_token: "{{ _score_token }}"
+            docker_compose_gpu_encoder_sweep_node_host: fixture-encode-score
+            docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.both }}/work-score"
+            docker_compose_gpu_encoder_sweep_node_local_view: "{{ _d.both }}/work-encode"
+            docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+            docker_compose_gpu_encoder_sweep_node_image_tag: sha-fixture
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_node
+
+        - name: Render case B
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.both }}/.env
+              --file {{ _d.both }}/docker-compose-gpu-encoder-sweep-node-score.yaml config --format json
+          register: _render_b
+          changed_when: false
+
+        - name: Case B is the score service alone, on its own image
+          vars:
+            _cfg: "{{ _render_b.stdout | from_json }}"
+            _names: "{{ _cfg.services.keys() | sort | list }}"
+            _images: "{{ _cfg.services.values() | map(attribute='image', default='') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _names == ['gpu_encoder_sweep_score']
+              - _images == ['ghcr.io/andyattebery/gpu-encoder-sweep-node-score:sha-fixture']
+            success_msg: "{{ _names | join(', ') }} = {{ _images | join(', ') }}"
+
+        - name: Case B mounts the local view read-write, at the same path both sides
+          vars:
+            _svc: "{{ (_render_b.stdout | from_json).services.gpu_encoder_sweep_score }}"
+            _view: "{{ _svc.volumes | selectattr('target', 'eq', _d.both ~ '/work-encode') | list }}"
+            _work: "{{ _svc.volumes | selectattr('target', 'eq', _d.both ~ '/work-score') | list }}"
+          ansible.builtin.assert:
+            that:
+              # Two, not three: work root and local view. The /share mount is gone with the CIFS
+              # volume -- a scorer reaches the hub over HTTPS for anything its local view lacks.
+              - _svc.volumes | length == 2
+              - _view | length == 1
+              - _view[0].source == _view[0].target
+              - not (_view[0].read_only | default(false))
+              - _work | length == 1
+              - _work[0].source == _work[0].target
+              - "'/dev/dri' not in (_svc.volumes | map(attribute='target') | join(' '))"
+              - "'/share' not in (_svc.volumes | map(attribute='target') | join(' '))"
+            success_msg: >-
+              local_view={{ _view[0].target }} (rw); work_root={{ _work[0].target }}
+
+        # The whole reason the token goes through .env, and the reason the .env NAME carries the
+        # component. Two invocations, one host-global .env: both tokens must survive, under
+        # different names, and neither may appear in a 0644 compose file.
+        - name: Slurp the two compose files and the shared .env
+          ansible.builtin.slurp:
+            src: "{{ item }}"
+          register: _slurps
+          loop:
+            - "{{ _d.both }}/docker-compose-gpu-encoder-sweep-node-encode.yaml"
+            - "{{ _d.both }}/docker-compose-gpu-encoder-sweep-node-score.yaml"
+            - "{{ _d.both }}/.env"
+
+        - name: Two invocations keep both tokens, under different .env names, out of both compose files
+          vars:
+            _encode_text: "{{ _slurps.results[0].content | b64decode }}"
+            _score_text: "{{ _slurps.results[1].content | b64decode }}"
+            _env_text: "{{ _slurps.results[2].content | b64decode }}"
+          ansible.builtin.assert:
+            that:
+              - _encode_token not in _encode_text
+              - _score_token not in _score_text
+              - _encode_token not in _score_text
+              - "'GES_NODE_SWEEP_TOKEN_ENCODE=' ~ _encode_token in _env_text"
+              - "'GES_NODE_SWEEP_TOKEN_SCORE=' ~ _score_token in _env_text"
+              - "'${GES_NODE_SWEEP_TOKEN_ENCODE}' in _encode_text"
+              - "'${GES_NODE_SWEEP_TOKEN_SCORE}' in _score_text"
+              # This role no longer writes SMB_STORAGE_*. Asserted absent rather than simply dropped
+              # from the check, because .env is host-global and never pruned: a stale write here
+              # would look harmless and would keep a credential on disk for nothing to read.
+              - "'SMB_STORAGE_USERNAME' not in _env_text"
+            success_msg: >-
+              .env holds GES_NODE_SWEEP_TOKEN_ENCODE and _SCORE separately, and no SMB_STORAGE_*
+
+        # ---------- C. the WSL score shape ----------
+        - name: Point the role at the scratch directory for the WSL case
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.wsl }}"
+
+        - name: Create the directory case C will use as its local view
+          ansible.builtin.file:
+            path: "{{ _d.wsl }}/windows-work-root"
+            state: directory
+            mode: "0755"
+
+        - name: Deploy case C -- score under WSL
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.wsl }}/data"
+            docker_compose_gpu_encoder_sweep_node_component: score
+            docker_compose_gpu_encoder_sweep_node_token: fixture-token-wsl
+            docker_compose_gpu_encoder_sweep_node_host: fixture-native-wsl
+            docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.wsl }}/work"
+            docker_compose_gpu_encoder_sweep_node_local_view: "{{ _d.wsl }}/windows-work-root"
+            docker_compose_gpu_encoder_sweep_node_nvidia_gpu: true
+            docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl: true
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_node
+
+        - name: Render case C
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.wsl }}/.env
+              --file {{ _d.wsl }}/docker-compose-gpu-encoder-sweep-node-score.yaml config --format json
+          register: _render_c
+          changed_when: false
+
+        # The bind and the variable are one mechanism: the userspace libraries are useless without
+        # LD_LIBRARY_PATH pointing at them, and LD_LIBRARY_PATH is useless without the bind.
+        - name: Case C pairs the WSL userspace bind with LD_LIBRARY_PATH, and still asks for the runtime
+          vars:
+            _svc: "{{ (_render_c.stdout | from_json).services.gpu_encoder_sweep_score }}"
+            _wsl: "{{ _svc.volumes | selectattr('target', 'eq', '/usr/lib/wsl/lib') | list }}"
+          ansible.builtin.assert:
+            that:
+              - _svc.environment['LD_LIBRARY_PATH'] == '/usr/lib/wsl/lib:/usr/lib/x86_64-linux-gnu'
+              - _wsl | length == 1
+              - _wsl[0].source == '/usr/lib/wsl/lib'
+              - _wsl[0].read_only
+              - _svc.runtime == 'nvidia'
+              - _svc.image == 'ghcr.io/andyattebery/gpu-encoder-sweep-node-score:main'
+            success_msg: >-
+              LD_LIBRARY_PATH={{ _svc.environment['LD_LIBRARY_PATH'] }};
+              bind={{ _wsl[0].source }} ro={{ _wsl[0].read_only }};
+              image={{ _svc.image }} (the `main` default, unpinned)
+
+        # ---------- D-CONTROL. two invocations sharing one .env name ----------
+        # The positive control for the suffix, built from a legal setting -- the suffix is an input,
+        # so this keeps working after the fix rather than needing an unmodified copy of the role.
+        # The encode token must come back holding the SCORE token's value.
+        - name: Point the role at the scratch directory for the control
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.control }}"
+
+        - name: Control -- deploy encode with a hand-set suffix
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.control }}/data"
+            docker_compose_gpu_encoder_sweep_node_component: encode
+            docker_compose_gpu_encoder_sweep_node_env_suffix: _SHARED
+            docker_compose_gpu_encoder_sweep_node_token: "{{ _encode_token }}"
+            docker_compose_gpu_encoder_sweep_node_host: fixture-encode
+            docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.control }}/work-encode"
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_node
+
+        - name: Control -- deploy score with the same suffix, same directory
+          vars:
+            docker_compose_dst_data_directory_path: "{{ _d.control }}/data"
+            docker_compose_gpu_encoder_sweep_node_component: score
+            docker_compose_gpu_encoder_sweep_node_env_suffix: _SHARED
+            docker_compose_gpu_encoder_sweep_node_token: "{{ _score_token }}"
+            docker_compose_gpu_encoder_sweep_node_host: fixture-encode-score
+            docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.control }}/work-score"
+          ansible.builtin.import_role:
+            name: docker_compose_gpu_encoder_sweep_node
+
+        - name: Control -- re-render the encode component
+          ansible.builtin.command:
+            cmd: >-
+              docker compose --env-file {{ _d.control }}/.env
+              --file {{ _d.control }}/docker-compose-gpu-encoder-sweep-node-encode.yaml config --format json
+          register: _render_ctl
+          changed_when: false
+
+        - name: Control reproduces the .env collision the component-derived suffix prevents
+          vars:
+            _env: "{{ (_render_ctl.stdout | from_json).services.gpu_encoder_sweep_encode.environment }}"
+          ansible.builtin.assert:
+            that:
+              - _env['SWEEP_TOKEN'] == _score_token
+              - _env['SWEEP_HOST'] == 'fixture-encode'
+            success_msg: >-
+              collision reproduced: the encode agent renders the SCORE token while still claiming to
+              be host {{ _env['SWEEP_HOST'] }} -- it would authenticate as the wrong host and every
+              call would 401. Cases A and B show the default suffix preventing exactly this.
+
+        # ---------- E. the asserts ----------
+        - name: Point the role at the scratch directory for the assert cases
+          ansible.builtin.set_fact:
+            docker_compose_dst_directory_path: "{{ _d.asserts }}"
+
+        - name: Case E1 -- an unknown component is rejected
+          block:
+            - name: Deploy with no component
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_node_component: ""
+                docker_compose_gpu_encoder_sweep_node_token: fixture
+                docker_compose_gpu_encoder_sweep_node_host: fixture-encode
+                docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.asserts }}/work"
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_node
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _e1_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _e1_fired: true
+
+        - name: Case E1 -- empty component was rejected
+          ansible.builtin.assert:
+            that:
+              - _e1_fired
+            success_msg: "empty component rejected, rather than deploying a service named gpu_encoder_sweep_"
+
+        - name: Case E2 -- the WSL flag without the NVIDIA runtime is rejected
+          block:
+            - name: Deploy WSL without NVIDIA
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_node_component: score
+                docker_compose_gpu_encoder_sweep_node_token: fixture
+                docker_compose_gpu_encoder_sweep_node_host: fixture-native-wsl
+                docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.asserts }}/work"
+                docker_compose_gpu_encoder_sweep_node_nvidia_gpu: false
+                docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl: true
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_node
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _e2_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _e2_fired: true
+
+        - name: Case E2 -- the unpaired WSL flag was rejected
+          ansible.builtin.assert:
+            that:
+              - _e2_fired
+            success_msg: >-
+              unpaired WSL flag rejected, rather than deploying an agent that starts cleanly and
+              encodes every cell on the CPU
+
+        - name: Case E3 -- a local view on an encode agent is rejected
+          block:
+            - name: Deploy encode with a local view
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_node_component: encode
+                docker_compose_gpu_encoder_sweep_node_token: fixture
+                docker_compose_gpu_encoder_sweep_node_host: fixture-encode
+                docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.asserts }}/work"
+                docker_compose_gpu_encoder_sweep_node_local_view: "{{ _d.asserts }}/work"
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_node
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _e3_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _e3_fired: true
+
+        - name: Case E3 -- the misplaced local view was rejected
+          ansible.builtin.assert:
+            that:
+              - _e3_fired
+            success_msg: "local view on an encode agent rejected"
+
+        - name: Case E4 -- a local view that does not exist is rejected
+          block:
+            - name: Deploy score with a local view that is not there
+              vars:
+                docker_compose_dst_data_directory_path: "{{ _d.asserts }}/data"
+                docker_compose_gpu_encoder_sweep_node_component: score
+                docker_compose_gpu_encoder_sweep_node_token: fixture
+                docker_compose_gpu_encoder_sweep_node_host: fixture-encode-score
+                docker_compose_gpu_encoder_sweep_node_work_root: "{{ _d.asserts }}/work"
+                docker_compose_gpu_encoder_sweep_node_local_view: "{{ _d.asserts }}/not-there"
+              ansible.builtin.import_role:
+                name: docker_compose_gpu_encoder_sweep_node
+            - name: Record that the assert did not fire
+              ansible.builtin.set_fact:
+                _e4_fired: false
+          rescue:
+            - name: Record that the assert fired
+              ansible.builtin.set_fact:
+                _e4_fired: true
+
+        - name: Case E4 -- the absent local view was rejected
+          ansible.builtin.assert:
+            that:
+              - _e4_fired
+            success_msg: >-
+              absent local view rejected, rather than letting Docker create it root-owned and empty
+              and the scorer silently pull every cell from the hub instead
+
+      always:
+        - name: Remove the scratch directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: "{{ _tmps.results | map(attribute='path') | list }}"

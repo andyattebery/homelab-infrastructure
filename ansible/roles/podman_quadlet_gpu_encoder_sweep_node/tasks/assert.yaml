@@ -1,0 +1,69 @@
+---
+# Split out of main.yaml so it can be imported on its own: every task here is ansible.builtin, so
+# tests/test.yml runs them on the controller, while the rest of main.yaml needs a real host with
+# podman, systemd and the mounts already in place.
+
+# Length test on the token only, so no credential reaches the play output on failure.
+- name: Assert the sweep node hub, token and host are set
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_gpu_encoder_sweep_node_hub_url | length > 0
+      - podman_quadlet_gpu_encoder_sweep_node_token | string | length > 0
+      - podman_quadlet_gpu_encoder_sweep_node_host | length > 0
+    fail_msg: >-
+      Set podman_quadlet_gpu_encoder_sweep_node_hub_url, _token and _host. They are the only three
+      variables the agent reads (sweep/node/config.py:6) and it refuses at start if any is empty.
+      On this runtime that is worse than a crashloop: systemd stops retrying after
+      {{ podman_quadlet_gpu_encoder_sweep_node_start_limit_burst }} starts in
+      {{ podman_quadlet_gpu_encoder_sweep_node_start_limit_interval_sec }} s, so the unit ends up
+      failed and stays there until someone runs `systemctl reset-failed`. _host is the host ROW
+      name the hub knows this agent by, not the inventory name.
+
+- name: Assert the sweep node paths are absolute
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_gpu_encoder_sweep_node_work_root is match('^/')
+      - podman_quadlet_gpu_encoder_sweep_node_config_dir is match('^/')
+    fail_msg: >-
+      podman_quadlet_gpu_encoder_sweep_node_work_root and _config_dir must both be absolute paths.
+      The first becomes a Volume= bind source, and podman_quadlet creates every bind source it finds
+      — so a relative or empty value does not fail, it creates a directory somewhere arbitrary and
+      the agent runs against it.
+
+- name: Assert the sweep node PUID is set
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_gpu_encoder_sweep_node_puid | string | length > 0
+      - podman_quadlet_gpu_encoder_sweep_node_puid | string | int >= 0
+    fail_msg: >-
+      Set podman_quadlet_gpu_encoder_sweep_node_puid to the uid the share mount is owned by. The
+      agent publishes to the share, so the role checks that ownership rather than only that
+      something is mounted: a mount owned by someone else is an agent that reads the pool and
+      cannot write to it, which surfaces as a failed claim long after this play succeeded.
+
+- name: Assert the sweep node image is fully specified
+  ansible.builtin.assert:
+    that:
+      - podman_quadlet_gpu_encoder_sweep_node_image_registry | length > 0
+      - podman_quadlet_gpu_encoder_sweep_node_image_name | length > 0
+      - podman_quadlet_gpu_encoder_sweep_node_image_tag | length > 0
+    fail_msg: >-
+      Set podman_quadlet_gpu_encoder_sweep_node_image_registry, _image_name and _image_tag. The
+      default image name is the mesarc build on purpose and is not interchangeable with the plain
+      encode one: the stock node image's Mesa silently ignores -compression_level, which is the
+      vaapi preset ladder, so every rung of a sweep would produce identical output and report
+      success.
+
+# The role's own device list is the last place a renderD node can be introduced before the
+# catalogue refuses it, and the failure there is late and confusing.
+- name: Assert the sweep node names no render node
+  vars:
+    _render_nodes: >-
+      {{ podman_quadlet_gpu_encoder_sweep_node_devices | select('search', 'renderD') | list }}
+  ansible.builtin.assert:
+    that: _render_nodes | length == 0
+    fail_msg: >-
+      podman_quadlet_gpu_encoder_sweep_node_devices names a render node: {{ _render_nodes | join(', ') }}.
+      Pass the whole /dev/dri instead. A render node's number moves when a reboot renumbers the
+      nodes, and the schema behind the catalogue refuses an encoder_unit whose device contains
+      renderD for that reason — so this would deploy cleanly and fail at the database later.

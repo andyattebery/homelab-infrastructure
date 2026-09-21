@@ -1,0 +1,73 @@
+---
+# REQUIRED. "encode" or "score". One invocation deploys one component, from one template, to its own
+# compose file — a host running both invokes this role twice. There is no default: an empty value
+# would render a file named docker-compose-gpu-encoder-sweep-node-.yaml and a service named
+# gpu_encoder_sweep_.
+docker_compose_gpu_encoder_sweep_node_component: ""
+
+# The suffix appended to this role's .env NAMES, so two invocations on one host cannot overwrite
+# each other's values. Derived from the component, which is what makes that collision impossible by
+# construction rather than by the caller remembering — unlike docker_compose_tdarr, where the
+# suffix is the caller's to choose and defaults to empty.
+docker_compose_gpu_encoder_sweep_node_env_suffix: "_{{ docker_compose_gpu_encoder_sweep_node_component | upper }}"
+
+# The node image. One image per component, named for it. The tag defaults to `main` and that is
+# deliberate, but `main` is the wrong thing to be running DURING a campaign: the hub hands a run
+# only to an agent whose reported artifact matches the one the run was planned for, so a floating
+# tag changes the artifact under already-planned runs and every claim then answers 409 until the
+# runs are re-planned. Pin a `sha-<short>` in the playbook before planning anything.
+docker_compose_gpu_encoder_sweep_node_image_registry: ghcr.io/andyattebery
+docker_compose_gpu_encoder_sweep_node_image_name: "gpu-encoder-sweep-node-{{ docker_compose_gpu_encoder_sweep_node_component }}"
+docker_compose_gpu_encoder_sweep_node_image_tag: main
+
+# REQUIRED. The three variables the agent actually reads (sweep/node/config.py:6); it refuses at
+# start if any is empty, and everything else it needs comes from the hub.
+#
+#   _hub_url   SWEEP_HUB, e.g. "https://ges-hub.{{ domain_name }}" — no default, because a default
+#              here would silently couple this role to the hub role's hostname default
+#   _token     SWEEP_TOKEN, this host's token — the one the hub holds for it, not the operator's
+#   _host      SWEEP_HOST, the host ROW name, which is not always the inventory name: one machine
+#              can carry two rows (an encode row and a score row)
+docker_compose_gpu_encoder_sweep_node_hub_url: ""
+docker_compose_gpu_encoder_sweep_node_token: ""
+docker_compose_gpu_encoder_sweep_node_host: ""
+
+# REQUIRED. The agent's work root, mounted at the SAME PATH inside and out. That is not tidiness:
+# the hub composes every argv from the host row's work_root and the agent runs it inside the
+# container, so a path in a record or a log has to resolve on the host too.
+#
+# The role creates it if it is missing, and deliberately does not touch its owner or mode if it is
+# not — see tasks/main.yaml.
+docker_compose_gpu_encoder_sweep_node_work_root: ""
+
+# Optional, and only meaningful for a scorer: another runtime's work root, visible on this host,
+# which lets the scorer read that runtime's encodes without moving them through the hub. Mounted
+# at the same path inside and out, and READ-WRITE, because scoring unlinks the encode it scored.
+#
+# Empty means this agent has no local view, which is a legitimate configuration — the scorer then
+# pulls each cell from the hub over HTTPS instead. Slower, and a different measurement, but valid.
+# Set on an encode agent it is meaningless, and rejected.
+docker_compose_gpu_encoder_sweep_node_local_view: ""
+
+# There are no share or SMB inputs, and there used to be six: _storage_host, _share_subpath,
+# _share_volume_name and four _smb_*. They are gone because no node mounts the pool any more.
+#
+# A file crosses machines through the hub's HTTPS API: the agent PUTs it with its sha and size
+# declared, and pulls the same way, under the bearer token it already holds. `host.share_root` no
+# longer exists in the hub's schema. That removed a CIFS volume, four credentials in the host-global
+# .env, and — on the Windows runtime — an entire class of problem, since a boot task's token could
+# not authenticate to SMB at all.
+
+# GPU shapes, all off by default. See the README for what each emits and why.
+#
+#   _nvidia_gpu      `runtime: nvidia`, the deploy reservation, and BOTH NVIDIA_* variables. The
+#                    encode image sets only NVIDIA_DRIVER_CAPABILITIES, so NVIDIA_VISIBLE_DEVICES
+#                    is load-bearing there rather than belt-and-braces.
+#   _nvidia_gpu_wsl  the WSL userspace bind and LD_LIBRARY_PATH. Requires _nvidia_gpu: the bind
+#                    without the runtime is a silent no-GPU, so the role asserts the pair.
+#   _intel_gpu       the whole /dev/dri as a bind, the DRM cgroup rule, and ${RENDER_GID}. On a host
+#                    with no `render` group RENDER_GID is empty and `group_add` renders [""], which
+#                    fails at `up`.
+docker_compose_gpu_encoder_sweep_node_nvidia_gpu: false
+docker_compose_gpu_encoder_sweep_node_nvidia_gpu_wsl: false
+docker_compose_gpu_encoder_sweep_node_intel_gpu: false

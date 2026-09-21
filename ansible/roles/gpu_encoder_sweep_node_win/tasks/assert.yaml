@@ -1,0 +1,118 @@
+---
+# Split out of main.yaml so it can be imported on its own: every task here is ansible.builtin, so
+# tests/test.yml runs them on the controller, while everything in main.yaml is a win_* module that
+# needs a Windows host. `import_role ... tasks_from: assert` is the whole fixture.
+
+# Length test on the token only, so no credential reaches the play output on failure.
+- name: Assert the sweep node hub, token and host are set
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_hub_url | length > 0
+      - gpu_encoder_sweep_node_win_token | string | length > 0
+      - gpu_encoder_sweep_node_win_host | length > 0
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_hub_url, _token and _host. They are the only three variables
+      the agent reads (sweep/node/config.py:6) and it refuses at start if any is empty — which on
+      this runtime means a scheduled task that runs once at boot, exits, and leaves nothing on
+      screen. _host is the host ROW name the hub knows this agent by, not the inventory name.
+
+# Index tests rather than a regex, deliberately: a backslash cannot be written safely in a Jinja
+# string literal here (Ansible does not unescape it), so `is match('^[A-Za-z]:\\')` would compile
+# to a pattern with a trailing backslash or a doubled one depending on the quoting. Checking that
+# the second character is a colon says "drive-letter path" with no escaping at all.
+- name: Assert the sweep node work root is a drive-letter path
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_work_root | length > 2
+      - gpu_encoder_sweep_node_win_work_root[1] == ':'
+    fail_msg: >-
+      gpu_encoder_sweep_node_win_work_root must be an absolute Windows path such as 'D:\sweep'; got
+      "{{ gpu_encoder_sweep_node_win_work_root }}". Single-quote it in YAML — in double quotes the
+      backslash is an escape character, so "D:\sweep" is D:, a tab, and "weep". It is also the
+      task's working directory and where the agent's log is written, so a wrong value here costs
+      the log as well as the run.
+
+- name: Assert the sweep node uv directory and install directory are drive-letter paths
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_uv_dir | length > 2
+      - gpu_encoder_sweep_node_win_uv_dir[1] == ':'
+      - gpu_encoder_sweep_node_win_install_dir | length > 2
+      - gpu_encoder_sweep_node_win_install_dir[1] == ':'
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_uv_dir to the directory holding uvx.exe, and
+      gpu_encoder_sweep_node_win_install_dir to this role's own directory. Both must be absolute
+      Windows paths. This role does not install uv — the play does, through
+      github_release_install_win — and it does not share its install directory with another role,
+      because it rewrites the whole ACL on it.
+
+- name: Assert the sweep node package source is set
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_package_repo_url | length > 0
+      - gpu_encoder_sweep_node_win_package_version | length > 0
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_package_repo_url and _package_version. Together they are the
+      uvx `--from` spec, and the version is the only thing that distinguishes one build from another
+      in the record on this host: there is no stamped artifact outside the container images, so this
+      agent reports `uvx:<version>` and nothing else.
+
+- name: Assert the sweep node task identity is set
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_owner | length > 0
+      - gpu_encoder_sweep_node_win_task_name | length > 0
+      - gpu_encoder_sweep_node_win_script_name | length > 0
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_owner (the account the task runs as — it should own the work
+      root and the uvx cache), _task_name and _script_name.
+
+# `password` is the only value this role accepts, and s4u is rejected rather than merely discouraged.
+# It cannot register (win_scheduled_task.ps1:739-741 requires a password for it anyway, so it never
+# delivered the no-stored-password property it was chosen for), and an S4U task that fires before a
+# logon is documented to wipe the account's Credential Manager. A silently-accepted s4u would fail at
+# registration at best and destroy a credential at worst.
+- name: Assert the sweep node logon type is one the role supports
+  ansible.builtin.assert:
+    that: gpu_encoder_sweep_node_win_logon_type == 'password'
+    fail_msg: >-
+      gpu_encoder_sweep_node_win_logon_type must be "password"; got
+      "{{ gpu_encoder_sweep_node_win_logon_type }}". s4u is not supported: the module refuses to
+      register it without a password (win_scheduled_task.ps1:739-741), so it never avoided storing
+      one, and firing before a logon can wipe the account's Credential Manager. A boot task's only
+      passwordless option is logon_type service_account, restricted to SYSTEM / LOCAL SERVICE /
+      NETWORK SERVICE — none of which can start this machine's WSL distro.
+
+# Split from the check above so the message says which half failed: "must be password; got password"
+# is a contradiction to read at 2am.
+- name: Assert a password logon has a password
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_logon_type != 'password'
+        or gpu_encoder_sweep_node_win_password | string | length > 0
+    fail_msg: >-
+      gpu_encoder_sweep_node_win_logon_type is "password", so gpu_encoder_sweep_node_win_password
+      must be set as well. Without it the failure is a raw COM error out of RegisterTaskDefinition,
+      which says nothing about what is missing. This is the account's own credential, so it belongs
+      to a dedicated service identity rather than to a person.
+
+- name: Assert the sweep node relaunch interval is set
+  ansible.builtin.assert:
+    that: gpu_encoder_sweep_node_win_relaunch_interval | length > 0
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_relaunch_interval to an ISO 8601 duration such as PT5M. It is
+      the repetition on the boot trigger, and with multiple_instances IgnoreNew it is what makes this
+      task the equivalent of `restart: unless-stopped` rather than a one-shot at boot. Empty means
+      the agent starts once and never comes back if it stops.
+
+- name: Assert the sweep node ffmpeg path is a drive-letter path
+  ansible.builtin.assert:
+    that:
+      - gpu_encoder_sweep_node_win_ffmpeg_path | length > 2
+      - gpu_encoder_sweep_node_win_ffmpeg_path[1] == ':'
+    fail_msg: >-
+      Set gpu_encoder_sweep_node_win_ffmpeg_path to ffmpeg.exe's full path, e.g.
+      'C:\Program Files\jellyfin-ffmpeg\bin\ffmpeg.exe'; got
+      "{{ gpu_encoder_sweep_node_win_ffmpeg_path }}". The launcher runs a one-frame NVENC encode with
+      it at boot and logs the result, which is the only way to learn whether a session-0 batch logon
+      can reach this card. Single-quote it in YAML.
