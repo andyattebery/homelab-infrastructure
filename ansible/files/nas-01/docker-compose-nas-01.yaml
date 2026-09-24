@@ -69,31 +69,6 @@ services:
       - traefik
     labels:
       - traefik.enable=true
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    restart: unless-stopped
-    command:
-      ['server', '/data', '--address', '0.0.0.0:9000', '--console-address', '0.0.0.0:9001']
-    environment:
-      - MINIO_ROOT_USER=${MINIO_USERNAME}
-      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
-    volumes:
-      - /mnt/tank/minio:/data
-    networks:
-      - traefik
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.minio-s3.rule=Host(`s3.$DOMAIN_NAME`)
-      - traefik.http.routers.minio-s3.service=minio-s3
-      - traefik.http.services.minio-s3.loadbalancer.server.port=9000
-      - traefik.http.routers.minio.rule=Host(`minio.$DOMAIN_NAME`)
-      - traefik.http.routers.minio.service=minio
-      - traefik.http.services.minio.loadbalancer.server.port=9001
-      # Two routers on one container, so dashboard-services-manager has to pick
-      # which host it advertises. Without this it picks nondeterministically and
-      # minio.$DOMAIN_NAME flaps in and out of DNS. See netbootxyz below.
-      - dsm.traefik.router=minio
   netbootxyz:
     image: ghcr.io/netbootxyz/netbootxyz
     container_name: netbootxyz
@@ -135,6 +110,36 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.services.resilio-sync.loadbalancer.server.port=8888
+  silo:
+    # MinIO no longer publishes images; Silo is its maintained fork. It keeps MinIO's MINIO_*
+    # variables and on-disk format, so the minio-named variables and data path below are correct.
+    image: pgsty/silo:latest
+    container_name: silo
+    restart: unless-stopped
+    command:
+      ['server', '/data', '--address', '0.0.0.0:9000', '--console-address', '0.0.0.0:9001']
+    environment:
+      - MINIO_ROOT_USER=${MINIO_USERNAME}
+      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
+    volumes:
+      - /mnt/tank/minio:/data
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.silo-s3.rule=Host(`s3.$DOMAIN_NAME`)
+      - traefik.http.routers.silo-s3.service=silo-s3
+      - traefik.http.services.silo-s3.loadbalancer.server.port=9000
+      - traefik.http.routers.silo.rule=Host(`silo.$DOMAIN_NAME`)
+      - traefik.http.routers.silo.service=silo
+      - traefik.http.services.silo.loadbalancer.server.port=9001
+      # The console's name from before the rename to silo, kept so existing links still work.
+      - traefik.http.routers.minio.rule=Host(`minio.$DOMAIN_NAME`)
+      - traefik.http.routers.minio.service=silo
+      # Three routers on one container, and dashboard-services-manager advertises one host per
+      # container. minio.$DOMAIN_NAME stays in DNS through its static entry in
+      # network-inventory/network_hosts_inventory.yaml.tpl. Same pattern as netbootxyz.
+      - dsm.traefik.router=silo
   syncthing:
     image: lscr.io/linuxserver/syncthing:latest
     container_name: syncthing

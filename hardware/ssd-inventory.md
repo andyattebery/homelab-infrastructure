@@ -67,7 +67,7 @@ All NVMe devices and the SAS HBA are PCIe-passed-through from nas-host-01.
 M.2, previously `sdr` and unused. It is absent from both `lsblk` and `/dev/disk/by-id`. `sdr`
 is now a WD80EMAZ — another reason not to trust a device node across time.
 
-Note: `tank` carries Immich, Nextcloud, Paperless, Forgejo, Linkwarden, Minio, Syncthing, Frigate, Shinobi, and all their postgres DBs. It has a P1600X metadata special vdev but **no SLOG** — sync writes land on the 8TB HDDs.
+Note: `tank` carries Immich, Nextcloud, Paperless, Forgejo, Linkwarden, Silo, Syncthing, Frigate, Shinobi, and all their postgres DBs. It has a P1600X metadata special vdev but **no SLOG** — sync writes land on the 8TB HDDs.
 
 ## vm-host-01 (Proxmox — Dell OptiPlex Micro 5070)
 

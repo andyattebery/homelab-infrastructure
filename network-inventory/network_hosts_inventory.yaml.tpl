@@ -170,6 +170,10 @@ services:
     hostname: docker-01
   loki:
     hostname: docker-01
+  # silo's console under its name from before the rename. dashboard-services-manager advertises
+  # one router per container, and silo's is pinned to silo.<domain_name>.
+  minio:
+    hostname: nas-01
   netbootxyz-assets:
     hostname: nas-01
   obico-ml:

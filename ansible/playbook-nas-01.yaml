@@ -230,19 +230,20 @@
     #   vars:
     #     scrutiny_shoutrrr_notify_urls:
     #       - "pushover://shoutrrr:{{ scrutiny_pushover_token }}@{{ pushover_user_key }}"
-    # - role: docker_compose
-    #   vars:
-    #     docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
-    #     docker_compose_copy_scripts: true
-    #     docker_compose_envs:
-    #       MINIO_USERNAME: "{{ minio_username }}"
-    #       MINIO_PASSWORD: "{{ minio_password }}"
-    #       LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
-    #       LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
-    #       LINKWARDEN_POSTGRES_DB: "linkwarden"
-    #       LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
-    #       LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
-    #       LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+    - role: docker_compose
+      vars:
+        docker_compose_src_file_path: files/nas-01/docker-compose-nas-01.yaml
+        docker_compose_copy_scripts: true
+        docker_compose_envs:
+          MINIO_USERNAME: "{{ minio_username }}"
+          MINIO_PASSWORD: "{{ minio_password }}"
+          LINKDING_SUPERUSER_NAME: "{{ linkding_superuser_name }}"
+          LINKDING_SUPERUSER_PASSWORD: "{{ linkding_superuser_password }}"
+          LINKWARDEN_POSTGRES_DB: "linkwarden"
+          LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
+          LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
+          LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+      tags: docker_compose_nas_01
     # - role: rtsp_recorder
     #   vars:
     #     rtsp_stream_name: pi-camera-cam1
