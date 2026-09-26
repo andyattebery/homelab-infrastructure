@@ -119,6 +119,20 @@
     packages.aarch64-linux.deploy-rs = deployPkgs.aarch64-linux.deploy-rs.deploy-rs;
     packages.aarch64-darwin.deploy-rs = deployPkgs.aarch64-darwin.deploy-rs.deploy-rs;
 
+    # pi-rack's own configuration as a flashable disk image (FIRMWARE + NIXOS_SD, the labels
+    # modules/rpi4.nix mounts), written to the CM4's eMMC via rpiboot. It is not the deploy
+    # target: sd-image adds expand-on-boot and a /boot/firmware automount, and the first
+    # deploy-host.sh replaces it. ZFS is forced off because sd-image imports
+    # profiles/base.nix, which enables it, and the kernel's zfs module (nixos-raspberrypi's
+    # nixpkgs) and our zfs userland differ -- an eval-time assertion.
+    packages.aarch64-linux.pi-rack-image =
+      (self.nixosConfigurations.pi-rack.extendModules {
+        modules = [
+          nixos-raspberrypi.nixosModules.sd-image
+          { boot.supportedFilesystems.zfs = lib.mkForce false; }
+        ];
+      }).config.system.build.sdImage;
+
     # checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };
 }
