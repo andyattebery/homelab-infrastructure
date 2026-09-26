@@ -169,6 +169,8 @@ nix/scripts/nix-shell.sh flake update      # update dependencies
 nix/scripts/nix-shell.sh flake show        # show outputs
 nix/scripts/nix-shell.sh --x86 build ...   # x86 build (slow, QEMU emulation)
 nix/scripts/nix-shell.sh --ssh run ...     # run with SSH agent forwarding (for deploy-rs)
+nix/scripts/nix-shell.sh --sandbox build ... # sandboxed build in a --privileged container
+                                             # (whole-system builds; used by build-image.sh)
 ```
 
 The `nixos/nix` image is **pinned** in `scripts/nix-image` (tracked in git, so the Nix version

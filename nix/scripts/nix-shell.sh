@@ -15,8 +15,8 @@ SSH_FLAGS=""
 
 # Config goes through NIX_CONFIG, not /etc/nix/nix.conf: the image ships that file as a
 # read-only symlink into the store, so it can't be appended to. This is the set verified
-# to build in this container (flakes on; build as root since there's no build-users setup;
-# no sandbox in the minimal container).
+# to build in this container: flakes on, builds run as root rather than as the image's
+# nixbld users, and no sandbox unless --sandbox is passed.
 # nixos-raspberrypi's cache is declared in its flake's nixConfig, but that is NOT honoured
 # automatically: accept-flake-config defaults to false and nix prompts instead. This wrapper
 # ends in a non-interactive `sh -c`, so the prompt can't be answered and the substituter is
@@ -42,6 +42,21 @@ filter-syscalls = false"
       ;;
     --ssh)
       SSH_FLAGS="-v $HOME/.ssh:/root/.ssh:ro -v /run/host-services/ssh-auth.sock:/agent.sock -e SSH_AUTH_SOCK=/agent.sock"
+      shift
+      ;;
+    --sandbox)
+      # Sandboxed builds, for whole-system builds such as build-image.sh. Unsandboxed, builds
+      # run as root, so a builder that writes to $HOME creates /homeless-shelter and Nix then
+      # refuses every later build in the run (NixOS/nix#8313). Everyday commands have not hit
+      # that: their only local builds so far were deploy-rs and nh. The nixos/nix image
+      # documents --privileged + sandbox = true for sandboxing; builds then run as its nixbld
+      # users (the image ships 32). sandbox-fallback defaults to true, which would quietly
+      # build unsandboxed if the sandbox cannot be set up -- off, so that fails instead.
+      EXTRA_DOCKER_FLAGS="$EXTRA_DOCKER_FLAGS --privileged"
+      NIX_CONFIG_LINES="$NIX_CONFIG_LINES
+sandbox = true
+sandbox-fallback = false
+build-users-group = nixbld"
       shift
       ;;
     *) break ;;

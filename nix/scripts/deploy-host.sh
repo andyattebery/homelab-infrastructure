@@ -101,7 +101,7 @@ echo "Building $HOSTNAME without activating..."
 # returning a plausible-looking string. No line-position guessing either.
 #
 # </dev/null because nix-shell.sh adds `docker run -it` when stdin is a TTY
-# (nix-shell.sh:51). A data capture should not vary with how the script was invoked.
+# (nix-shell.sh:66). A data capture should not vary with how the script was invoked.
 #
 # --no-link is deliberate: per the nix manual the result symlink is what registers a GC
 # root, so omitting it means "only looking, do not pin this on the host". If the deploy
