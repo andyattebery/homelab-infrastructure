@@ -12,6 +12,9 @@
   network-02 = {
     adguardhomeUsername = "{{ op://Personal/adguardhome-02/username }}";
     adguardhomePasswordHash = "{{ op://Personal/adguardhome-02/config/password bcrypt hash }}";
+    # pi-rack's on-board NIC, pinned by MAC in hosts/pi-rack. The same field NIM uses for
+    # pi-rack's DHCP reservation, so a board swap updates both.
+    nicMacAddress = "{{ op://Home Lab/pi-rack/hardware/mac address }}";
   };
 
   network-03 = {

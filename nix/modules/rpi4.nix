@@ -27,5 +27,6 @@
     options = [ "nofail" ];
   };
 
-  swapDevices = [{ device = "/swapfile"; size = 4096; }];
+  # No swap here. A swapfile on a flash root (SD/eMMC) is pure wear; a host that needs swap
+  # sets it itself (zramSwap, or a swapfile on real SSD storage).
 }

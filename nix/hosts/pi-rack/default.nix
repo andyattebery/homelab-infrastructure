@@ -1,7 +1,10 @@
-{ config, vars, nixos-raspberrypi, ... }: {
+{ pkgs, vars, nixos-raspberrypi, ... }: {
   imports = [
-    # hardware -- nixos-raspberrypi supplies the bootloader, kernel and firmware;
-    # rpi4.nix supplies the on-disk layout, which that flake deliberately omits.
+    # hardware -- a Compute Module 4 (8 GB RAM, 32 GB eMMC) on a Waveshare CM4-IO-BASE, root
+    # on the eMMC. raspberry-pi-4.base covers the CM4 (same BCM2711; its nvme initrd module
+    # and [cm4] config.txt section come from there). nixos-raspberrypi supplies the
+    # bootloader, kernel and firmware; rpi4.nix supplies the on-disk layout, which that flake
+    # deliberately omits.
     #
     # nixos-hardware.nixosModules.raspberry-pi-4 must NOT be added alongside these: both
     # set boot.kernelPackages with mkDefault to different values, which is a
@@ -28,18 +31,29 @@
   # this host runs NixOS, so the default is overridden deliberately.
   boot.loader.raspberry-pi.bootloader = "kernel";
 
-  # PoE+ HAT fan curve, in millidegrees. This is the config.txt route -- the same
-  # dtparam= lines the Ansible role writes into /boot/firmware/config.txt today.
-  # Not nixos-hardware's hardware.raspberry-pi."4".poe-plus-hat: that works via
-  # hardware.deviceTree.overlays, which nixos-hardware is itself removing (its issue
-  # #1946). The firmware auto-loads the HAT overlay from the HAT EEPROM; these only
-  # tune its trip points (defaults are 40000/45000/50000/55000).
-  hardware.raspberry-pi.config.all.base-dt-params = {
-    poe_fan_temp0 = { enable = true; value = 50000; };
-    poe_fan_temp1 = { enable = true; value = 60000; };
-    poe_fan_temp2 = { enable = true; value = 70000; };
-    poe_fan_temp3 = { enable = true; value = 80000; };
+  # Pin the on-board NIC's name to its MAC, the way pve_pin_network_interface does on the
+  # Proxmox nodes (<controller>p<port>; the CM4's NIC is the SoC's GENET controller), so
+  # keepalived.interface below can't be broken by a naming change. Unpinned, systemd >=
+  # v252 names it end0 from the ethernet0 device-tree alias (bcm2711-rpi.dtsi), while
+  # Ubuntu called it eth0. The name avoids the kernel's eth/en* prefixes, which systemd.link
+  # warns race with the kernel's own assignment. MAC from 1Password via vars.nix.tpl.
+  systemd.network.links."10-genetp0" = {
+    matchConfig.MACAddress = vars.network-02.nicMacAddress;
+    linkConfig.Name = "genetp0";
   };
+
+  # Flash-write reduction for the eMMC. Size caps don't reduce wear -- bytes written do.
+  # /tmp in RAM keeps temp files off the eMMC; the host has 8 GB.
+  boot.tmp.useTmpfs = true;
+  # Keep AdGuard's query log in memory only. On this backup DNS node it is low-value, and
+  # file_enabled would write every query to the eMMC. network.nix is shared by all three DNS
+  # nodes, so this is set here; it merges with network.nix's querylog.interval.
+  services.adguardhome.settings.querylog.file_enabled = false;
+
+  # No services.scrutiny.collector: eMMC has no SMART, and the collector force-enables
+  # smartd, which fails with nothing to watch. Watch wear instead with
+  # `mmc extcsd read /dev/mmcblk0` (DEVICE_LIFE_TIME_EST_TYP_A/B, PRE_EOL_INFO).
+  environment.systemPackages = [ pkgs.mmc-utils ];
 
   homelab.network = {
     enable = true;
@@ -49,17 +63,9 @@
       passwordHash = vars.network-02.adguardhomePasswordHash;
     };
     keepalived = {
-      interface = "eth0";
+      interface = "genetp0";
       priority = 150;
       isMaster = false;
-    };
-  };
-
-  services.scrutiny.collector = {
-    enable = true;
-    settings = {
-      host.id = config.networking.hostName;
-      api.endpoint = "https://scrutiny.${vars.domainName}";
     };
   };
 }
