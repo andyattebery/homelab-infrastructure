@@ -3,11 +3,15 @@
 Research and decisions for running NixOS on Raspberry Pi hardware in this homelab. Written
 2026-08-07 against nixpkgs `nixos-26.05`.
 
-**Status.** The repo-side work is done and verified: `pi-rack`'s NixOS config is built on this flake,
-`nix flake check` passes, and `nix build --dry-run` confirms the kernel is fetched from the cache
-rather than compiled. **Nothing is deployed** — `pi-rack` still runs Ubuntu, and the config stays
-inert until `deploy-host.sh pi-rack` is run. See `plans/pi-rack-nixos-migration.md` for the remaining
-hardware phases and why they are deferred.
+**Status.** **Deployed 2026-09-25.** `pi-rack` runs this flake's config on a Compute Module 4
+(8 GB RAM, 32 GB eMMC) on a Waveshare CM4-IO-BASE, with root on the eMMC, deployed with
+`deploy-host.sh`.
+- Its Pi 4 died on 2026-09-24 when its USB-SATA enclosure failed; see
+  `research/pi-rack-boot-drive/`.
+- `nix/scripts/build-image.sh pi-rack` builds the image that was written to the eMMC, from
+  `packages.aarch64-linux.pi-rack-image`. The first deploy replaces the image's system.
+- `bootloader = "kernel"` boots on the CM4.
+- The kernel comes from the nixos-raspberrypi cache rather than being compiled.
 
 ## Decision
 
@@ -240,6 +244,9 @@ bare `dtoverlay=` terminator).
 
 ### PoE+ HAT fan
 
+pi-rack no longer uses this: the CM4 build has no PoE HAT (2026-09-25). It stays as the reference
+for a Pi 4 with the PoE+ HAT.
+
 There is no PoE module in this flake. Use `config.txt`, which is also what the Ansible role does
 today:
 
@@ -292,6 +299,30 @@ firmware partition — check that `/boot/firmware` is mounted.
    option and a missing script; nothing imports it and the flake does not export it. Do not import it.
 6. **`kernelboot` is deprecated** and emits a build warning. Irrelevant on Pi 4, which defaults to
    `uboot`.
+7. **Predictable interface names rename the on-board NIC to `end0`.**
+   - The Pi device trees alias the NIC as `ethernet0` (`bcm2711-rpi.dtsi:15`; on Pi 5, the RP1
+     NIC via `bcm2712-rpi.dtsi:127`).
+   - systemd ≥ v252 names a NIC with a DT alias `end<N>`. With NixOS's default
+     `usePredictableInterfaceNames = true`, it comes up `end0`, and anything configured for
+     `eth0` (keepalived here) binds nothing.
+   - pi-rack **pins the name to the NIC's MAC** with `systemd.network.links."10-genetp0"`
+     (`MACAddress=` → `Name=genetp0`), the same approach as `pve_pin_network_interface` on the
+     Proxmox nodes. keepalived uses `genetp0`. The MAC comes from
+     `vars.network-02.nicMacAddress`, which is the same 1Password field NIM uses for the DHCP
+     reservation.
+   - Eval shows the `.link` in `/etc/systemd/network` and in the initrd, with no networkd needed.
+     On the CM4 the NIC comes up as `genetp0` (2026-09-25).
+   - The blunter alternative is `usePredictableInterfaceNames = false` (adds `net.ifnames=0`,
+     keeps `eth0`). It was rejected because an explicit pin survives future naming-scheme
+     changes.
+8. **An image built from a host config fails to evaluate unless ZFS is forced off.** The
+   `sd-image` module imports `profiles/base.nix`, which enables ZFS, and the kernel's zfs module
+   (nixos-raspberrypi's nixpkgs) and ours differ, tripping an assertion. `pi-rack-image` in
+   `flake.nix` sets `boot.supportedFilesystems.zfs = lib.mkForce false`.
+9. **Building a whole host image locally needs `nix-shell.sh --sandbox`.** Unsandboxed, the
+   container builds as root, so the first builder that writes to `$HOME` creates
+   `/homeless-shelter`, and Nix refuses every later build (NixOS/nix#8313). Deploys don't hit
+   this, because `deploy-host.sh` builds on the target. `build-image.sh` passes `--sandbox`.
 
 ## Module-system semantics worth knowing
 
@@ -318,10 +349,11 @@ merge function runs. Consequences:
   host-level definition **discards** a module's `mkDefault` list rather than appending to it.
 - **`types.attrsOf` does not behave that way**, and the distinction matters here. Merging is
   per-key, so a host setting `hardware.raspberry-pi.config.all.base-dt-params.poe_fan_temp0` leaves
-  the module's other keys intact. Verified by evaluating pi-rack: the result contains the four
-  `poe_fan_temp*` params **and** upstream's `audio = "on"`, which was never restated in the host
-  config. An earlier draft of this document claimed defaults had to be re-stated for
-  `base-dt-params`; that is true for `dtparam`-style *lists*, false for this option.
+  the module's other keys intact. Verified by evaluating pi-rack on 2026-08-07, when it still set
+  the PoE params: the result contained the four `poe_fan_temp*` params **and** upstream's
+  `audio = "on"`, which was never restated in the host config. An earlier draft of this
+  document claimed defaults had to be re-stated for `base-dt-params`; that is true for
+  `dtparam`-style *lists*, false for this option.
 - `types.str` merges via `mergeEqualOption` (`types.nix:555-561` → `options.nix:499-516`): two equal
   definitions merge silently; two differing ones throw ``The option `…' has conflicting definition
   values``. Two `mkDefault`s of different values are equal priority and neither is discarded, so they
