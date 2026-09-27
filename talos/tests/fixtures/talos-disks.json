@@ -1,0 +1,186 @@
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:04Z",
+        "id": "loop0",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/virtual",
+        "cdrom": false,
+        "dev_path": "/dev/loop0",
+        "io_size": 512,
+        "pretty_size": "4.1 kB",
+        "readonly": true,
+        "sector_size": 512,
+        "size": 4096,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/25",
+            "/dev/disk/by-loop-inode/0:2-9",
+            "/dev/disk/by-loop-ref/2.sqsh"
+        ]
+    }
+}
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:04Z",
+        "id": "loop1",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/virtual",
+        "cdrom": false,
+        "dev_path": "/dev/loop1",
+        "io_size": 512,
+        "pretty_size": "135 kB",
+        "readonly": true,
+        "sector_size": 512,
+        "size": 135168,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/26",
+            "/dev/disk/by-loop-inode/0:2-8",
+            "/dev/disk/by-loop-ref/1.sqsh"
+        ]
+    }
+}
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:04Z",
+        "id": "loop2",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/virtual",
+        "cdrom": false,
+        "dev_path": "/dev/loop2",
+        "io_size": 512,
+        "pretty_size": "561 kB",
+        "readonly": true,
+        "sector_size": 512,
+        "size": 561152,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/27",
+            "/dev/disk/by-loop-inode/0:2-7",
+            "/dev/disk/by-loop-ref/0.sqsh"
+        ]
+    }
+}
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:04Z",
+        "id": "loop3",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/virtual",
+        "cdrom": false,
+        "dev_path": "/dev/loop3",
+        "io_size": 512,
+        "pretty_size": "85 MB",
+        "readonly": true,
+        "sector_size": 512,
+        "size": 84615168,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/28",
+            "/dev/disk/by-loop-inode/0:2-6",
+            "/dev/disk/by-loop-ref/\\x2frootfs.sqsh"
+        ]
+    }
+}
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:06Z",
+        "id": "mmcblk0",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/platform/emmc2bus/fe340000.mmc/mmc_host/mmc0/mmc0:0001",
+        "cdrom": false,
+        "dev_path": "/dev/mmcblk0",
+        "io_size": 512,
+        "pretty_size": "62 GB",
+        "readonly": false,
+        "sector_size": 512,
+        "serial": "0x487e0369",
+        "size": 62537072640,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/29",
+            "/dev/disk/by-id/mmc-SD_0x487e0369",
+            "/dev/disk/by-path/platform-fe340000.mmc"
+        ],
+        "transport": "mmc"
+    }
+}
+{
+    "metadata": {
+        "created": "1970-01-01T00:00:08Z",
+        "id": "nvme0n1",
+        "namespace": "runtime",
+        "owner": "block.DisksController",
+        "phase": "running",
+        "type": "Disks.block.talos.dev",
+        "updated": "1970-01-01T00:00:08Z",
+        "version": 2
+    },
+    "node": "192.168.1.181",
+    "spec": {
+        "bus_path": "/platform/scb/fd500000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0/nvme",
+        "cdrom": false,
+        "dev_path": "/dev/nvme0n1",
+        "firmware_version": "26303039",
+        "io_size": 131072,
+        "modalias": "pci:v0000144Dd0000A809sv0000144Dsd0000A801bc01sc08i02",
+        "model": "PM991a NVMe Samsung 256GB",
+        "pretty_size": "256 GB",
+        "readonly": false,
+        "sector_size": 512,
+        "serial": "S660NF0T317352",
+        "size": 256060514304,
+        "sub_system": "/sys/class/block",
+        "symlinks": [
+            "/dev/disk/by-diskseq/30",
+            "/dev/disk/by-id/nvme-PM991a_NVMe_Samsung_256GB__S660NF0T317352",
+            "/dev/disk/by-id/nvme-PM991a_NVMe_Samsung_256GB_______S660NF0T317352",
+            "/dev/disk/by-id/nvme-PM991a_NVMe_Samsung_256GB_______S660NF0T317352_1",
+            "/dev/disk/by-id/nvme-eui.36363030543173520025384600000001",
+            "/dev/disk/by-path/platform-fd500000.pcie-pci-0000:01:00.0-nvme-1"
+        ],
+        "transport": "nvme",
+        "uuid": "36363030-5431-7352-0025-384600000001",
+        "wwid": "eui.36363030543173520025384600000001"
+    }
+}

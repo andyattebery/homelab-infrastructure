@@ -1,0 +1,34 @@
+# Every node. Talos is installed on the microSD; the PM991 NVMe carries EPHEMERAL and the
+# Longhorn volume.
+apiVersion: v1alpha1
+kind: UnattendedInstallConfig
+provisioning:
+  diskSelector:
+    match: disk.transport == "mmc"
+---
+# EPHEMERAL holds etcd, container images and logs, which would wear out the SD card. The size
+# and placement apply only when the volume is first provisioned.
+apiVersion: v1alpha1
+kind: VolumeConfig
+name: EPHEMERAL
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  maxSize: 40GiB
+---
+# The rest of the PM991, mounted at /var/mnt/longhorn (volume status ID u-longhorn). minSize
+# makes provisioning fail loudly instead of creating a tiny volume.
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: longhorn
+provisioning:
+  diskSelector:
+    match: disk.transport == "nvme" && !system_disk
+  minSize: 150GB
+  grow: false
+---
+# Declared explicitly: Talos stops running its default DHCP once any explicit link
+# configuration is applied.
+apiVersion: v1alpha1
+kind: DHCPv4Config
+name: end0

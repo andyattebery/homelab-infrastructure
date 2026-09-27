@@ -1,0 +1,114 @@
+# Longhorn smoke test (README.md, "Verification"). Everything is in its own namespace, so
+# `kubectl delete -f longhorn/smoke-test.yaml` removes it all.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-smoke-test
+---
+# ReadWriteOnce: one pod appends a line each time it starts, so a line per boot survives.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rwo
+  namespace: longhorn-smoke-test
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rwo
+  namespace: longhorn-smoke-test
+spec:
+  containers:
+    - name: rwo
+      image: busybox:1.37
+      command: [sh, -c, 'echo "started $(date)" >> /data/rwo.txt; cat /data/rwo.txt; sleep 86400']
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: rwo
+---
+# ReadWriteMany: two pods on different nodes append to one file; each should see both lines.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rwx
+  namespace: longhorn-smoke-test
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rwx-a
+  namespace: longhorn-smoke-test
+  labels:
+    app: rwx
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: rwx
+          topologyKey: kubernetes.io/hostname
+  containers:
+    - name: rwx
+      image: busybox:1.37
+      command: [sh, -c, 'echo "rwx-a on $NODE" >> /data/shared.txt; sleep 86400']
+      env:
+        - name: NODE
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: rwx
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rwx-b
+  namespace: longhorn-smoke-test
+  labels:
+    app: rwx
+spec:
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app: rwx
+          topologyKey: kubernetes.io/hostname
+  containers:
+    - name: rwx
+      image: busybox:1.37
+      command: [sh, -c, 'echo "rwx-b on $NODE" >> /data/shared.txt; sleep 86400']
+      env:
+        - name: NODE
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: rwx

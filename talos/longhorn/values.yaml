@@ -1,0 +1,10 @@
+# Values for the Longhorn 1.12.1 chart (README.md, "Build").
+defaultSettings:
+  # Where the "longhorn" UserVolumeConfig in patches/all.yaml mounts the rest of each PM991.
+  defaultDataPath: /var/mnt/longhorn
+  # Per data engine, in the format the chart documents ({"v1":"3","v2":"3"} by default). Only the
+  # v1 engine is in use.
+  defaultReplicaCount: '{"v1":"2","v2":"2"}'
+persistence:
+  # The default "longhorn" StorageClass, which PVCs use.
+  defaultClassReplicaCount: 2

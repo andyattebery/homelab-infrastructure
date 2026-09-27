@@ -1,0 +1,25 @@
+# Tools for talos/. talosctl must match the cluster's Talos version, and kubectl must be within
+# one minor of its Kubernetes. Everything generated -- including kubectl's cache and helm's
+# cache, config and data -- stays in generated/, so nothing lands in ~/.talos, ~/.kube or helm's
+# default home.
+[tools]
+talosctl = '1.14.1'
+kubectl = '1.37'
+helm = '4.3'
+
+[env]
+TALOSCONFIG = '{{config_root}}/generated/talosconfig'
+KUBECONFIG = '{{config_root}}/generated/kubeconfig'
+KUBECACHEDIR = '{{config_root}}/generated/kube-cache'
+HELM_CACHE_HOME = '{{config_root}}/generated/helm/cache'
+HELM_CONFIG_HOME = '{{config_root}}/generated/helm/config'
+HELM_DATA_HOME = '{{config_root}}/generated/helm/data'
+
+# All six nodes at once. --force skips each node's cordon/drain: with every node going down the
+# pods have nowhere to go, and the drains need the Kubernetes API that the control planes take
+# down with them. The modules halt but the Super6C board stays powered, and there is no per-node
+# power control: switch the board off, and back on to start the cluster again.
+[tasks.shutdown]
+description = 'Shut down all six Talos nodes'
+confirm = 'Shut down all six nodes? Starting them again needs the board power switch.'
+run = 'talosctl -n 192.168.1.181,192.168.1.182,192.168.1.183,192.168.1.184,192.168.1.185,192.168.1.186 shutdown --force'

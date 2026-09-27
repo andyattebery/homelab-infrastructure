@@ -1,0 +1,8 @@
+# Longhorn's pods need host access (iSCSI, mounts under /var/mnt/longhorn). Talos enforces the
+# baseline Pod Security level on every namespace, so this one opts up to privileged.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

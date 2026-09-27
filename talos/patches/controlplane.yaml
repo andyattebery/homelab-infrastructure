@@ -1,0 +1,13 @@
+# Control planes (pi-cluster-01..03). Workloads schedule on them too, and the API VIP floats
+# between them.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  $patch: delete
+nodeIP:
+  validSubnets: ["192.168.1.0/24", "!192.168.1.187/32"]
+---
+apiVersion: v1alpha1
+kind: Layer2VIPConfig
+name: 192.168.1.187
+link: end0

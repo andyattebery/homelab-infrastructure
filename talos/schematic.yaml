@@ -1,0 +1,10 @@
+overlay:
+  image: siderolabs/sbc-raspberrypi
+  name: rpi_generic
+customization:
+  extraKernelArgs:
+    - nvme_core.default_ps_max_latency_us=0
+  systemExtensions:
+    officialExtensions:
+      - siderolabs/iscsi-tools
+      - siderolabs/util-linux-tools
