@@ -146,16 +146,11 @@ vault_pbs_api_token_name: {{ op://Home Lab/backup-01/api/token name }}
 vault_pbs_api_token_value: {{ op://Home Lab/backup-01/api/token value }}
 vault_pdu_rack_network_snmp_address: {{ op://Personal/pdu-rack-network/config/address }}
 vault_pdu_rack_network_snmp_read_write_community: {{ op://Personal/pdu-rack-network/snmp v1/read write community }}
-vault_pi_cluster_01_ansible_password: {{ op://Home Lab/pi-cluster-01/password }}
-vault_pi_cluster_02_ansible_password: {{ op://Home Lab/pi-cluster-02/password }}
-vault_pi_cluster_03_ansible_password: {{ op://Home Lab/pi-cluster-03/password }}
-vault_pi_cluster_04_ansible_password: {{ op://Home Lab/pi-cluster-04/password }}
-vault_pi_cluster_05_ansible_password: {{ op://Home Lab/pi-cluster-05/password }}
-vault_pi_cluster_06_ansible_password: {{ op://Home Lab/pi-cluster-06/password }}
 vault_pikvm_api_username: {{ op://Home Lab/a2ttpo3a7lr576kodz7yz7bnka/username }}
 vault_pikvm_api_password: {{ op://Home Lab/a2ttpo3a7lr576kodz7yz7bnka/password }}
 vault_pikvm_hid_api_username: {{ op://Home Lab/pq4deawt5ojibg6irq6mu7vmpe/username }}
 vault_pikvm_hid_api_password: {{ op://Home Lab/pq4deawt5ojibg6irq6mu7vmpe/password }}
+vault_pikvm_hid_mac_address: {{ op://Home Lab/pikvm-hid/hardware/mac address }}
 vault_pikvm_kvmd_ssh_private_key: |
 {{ op://Personal/pikvm - kvmd - SSH Key/add more/indented private key }}
 vault_pikvm_kvmd_ssh_public_key: {{ op://Personal/pikvm - kvmd - SSH Key/public key }}

@@ -1,2 +1,0 @@
----
-ansible_become_password: "{{ pi_cluster_03_ansible_password }}"

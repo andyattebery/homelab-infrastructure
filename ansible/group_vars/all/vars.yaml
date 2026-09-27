@@ -59,18 +59,12 @@ offsite_pikvm_auth_token: "{{ vault_offsite_pikvm_auth_token }}"
 offsite_pikvm_web_username: "{{ vault_offsite_pikvm_web_username }}"
 offsite_pikvm_web_password: "{{ vault_offsite_pikvm_web_password }}"
 
-pi_cluster_01_ansible_password: "{{ vault_pi_cluster_01_ansible_password }}"
-pi_cluster_02_ansible_password: "{{ vault_pi_cluster_02_ansible_password }}"
-pi_cluster_03_ansible_password: "{{ vault_pi_cluster_03_ansible_password }}"
-pi_cluster_04_ansible_password: "{{ vault_pi_cluster_04_ansible_password }}"
-pi_cluster_05_ansible_password: "{{ vault_pi_cluster_05_ansible_password }}"
-pi_cluster_06_ansible_password: "{{ vault_pi_cluster_06_ansible_password }}"
-
 pikvm_api_username: "{{ vault_pikvm_api_username }}"
 pikvm_api_password: "{{ vault_pikvm_api_password }}"
 
 pikvm_hid_api_username: "{{ vault_pikvm_hid_api_username }}"
 pikvm_hid_api_password: "{{ vault_pikvm_hid_api_password }}"
+pikvm_hid_mac_address: "{{ vault_pikvm_hid_mac_address }}"
 
 vdesktop_01_mac_address: "{{ vault_vdesktop_01_mac_address }}"
 vm_host_01_mac_address: "{{ vault_vm_host_01_mac_address }}"
