@@ -115,19 +115,28 @@ homelab_hosts:
   turingpi-cm4-02:
     ip: 192.168.1.219
 
-  # Pi Cluster (legacy)
+  # Pi Cluster (Talos, Super6C)
   pi-cluster-01:
     ip: 192.168.1.181
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-01 }}
   pi-cluster-02:
     ip: 192.168.1.182
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-02 }}
   pi-cluster-03:
     ip: 192.168.1.183
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-03 }}
   pi-cluster-04:
     ip: 192.168.1.184
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-04 }}
   pi-cluster-05:
     ip: 192.168.1.185
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-05 }}
   pi-cluster-06:
     ip: 192.168.1.186
+    mac: {{ op://Home Lab/pi-cluster/mac address/pi-cluster-06 }}
+  # the Kubernetes API VIP, held by one of pi-cluster-01..03 (talos/patches/controlplane.yaml)
+  pi-cluster-k8s:
+    ip: 192.168.1.187
 
   # Gaming
   htpc-01:

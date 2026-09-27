@@ -2,7 +2,6 @@
 .ansible
 .venv
 ansible/*vars/**/vault.yaml
-talos/*.raw
 ansible/.claude/settings.local.json
 .claude/settings.local.json
 
@@ -13,6 +12,11 @@ nix/secrets/*.cleartext
 # flashable disk images from nix/scripts/build-image.sh; they embed values rendered from
 # nix/secrets/vars.nix
 /nix/images/
+
+# talos/generated/ holds the Talos cluster's secrets bundle, machine configs, talosconfig and
+# kubeconfig; talos/images/ holds the images talos/scripts/flash-sd.sh downloads
+/talos/generated/
+/talos/images/
 
 # agent working notes — hold unvaulted hostnames, IPs, and WAN details.
 # Anchored with a leading slash: unanchored, `tasks/` matches a directory of that name at ANY
