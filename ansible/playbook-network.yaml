@@ -28,8 +28,7 @@
         # The probe has to prove AdGuard *resolves*, not merely that it answers. The old
         # probe used healthcheck.adguardhome.test, which AdGuard synthesises itself as a
         # NODATA answer without contacting any upstream — so on 2026-08-21 it passed for
-        # 36 minutes while every upstream was unreachable, and the VIP never moved. See
-        # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+        # 36 minutes while every upstream was unreachable, and the VIP never moved.
         #
         # dns-probe.{{ domain_name }} is an A record in our own zone (127.0.0.1, TTL 60)
         # that exists only for this. It must NOT be added to

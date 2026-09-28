@@ -7,10 +7,11 @@
 # Input is the part that is not obvious. Wayland has no XTest, so Sunshine injects through
 # /dev/uinput -- and a wlroots compositor only learns about input devices through udev, which an
 # unprivileged container does not get. The udev_shim role synthesises those events. Every claim
-# in that chain is measured rather than assumed; the derivations live in
-# plans/vdesktop-01-wayland-native.md and in each role's README.
+# in that chain is measured rather than assumed; the derivations live in docs/vdesktop-01.md
+# ("Why hardware rendering was hard here") and in each role's README.
 #
-# Container reasoning and the road not taken: plans/pve-lxc-role.md.
+# Why a container rather than a VM, and the alternatives ruled out -- a VM with the host's own
+# VGA passed through, Fedora Atomic, a privileged container: docs/vdesktop-01.md.
 
 # --------------------------------------------------------------------------------------
 # The container itself. This play targets the NODE, not the container -- at this point the
@@ -92,6 +93,15 @@
     # No device on this node carries vendor 1209, so the rule is a no-op on current hardware by
     # construction. That matters because writing a rules file IS activating it: udevd reloads on
     # its own when it notices the change. There is no installed-but-inert window to verify in.
+    #
+    # Both clauses are load-bearing. This node's Sleep Button already carries product 0003; only
+    # its vendor, 0000, keeps it out, so a product-only match would hand a real host device to
+    # the container.
+    #
+    # Wolf's version of this rule also strips `uaccess` and moves the devices to a seat of their
+    # own. Not done here: this node has no desktop and no active seat, so logind has nothing to
+    # hand them to. If it ever gains a local seat, the container's virtual keyboard would drive
+    # it, and that half of Wolf's rule becomes required.
     - name: Publish the virtual input devices to a group the container can reach
       tags: [udev-input]
       ansible.builtin.include_role:

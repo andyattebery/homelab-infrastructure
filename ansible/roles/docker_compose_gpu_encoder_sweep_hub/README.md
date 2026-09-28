@@ -269,5 +269,5 @@ args before running the assertion — looks a service up by name.
 Every other part of the harness can be rebuilt from an image. This one cannot: the store is the
 campaign's measurement database, and re-measuring is weeks of GPU time. Whether the host's docker
 data directory is actually covered by a backup is a property of the host, not of this role — check
-it rather than assume it, and check before the acceptance run rather than after. The open question
-for this deployment is recorded in `tasks/gpu-encoder-sweep-roles.md`.
+it rather than assume it, check before the acceptance run rather than after, and record the answer
+where the role is called.

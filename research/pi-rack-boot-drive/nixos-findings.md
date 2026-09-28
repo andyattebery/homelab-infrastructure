@@ -75,6 +75,9 @@ nixpkgs `c508844`). **[E]** means read-only `nix eval` / `build --dry-run` outpu
   activation re-runs.
 - Today `.sops.yaml` has 3 recipients (`operator`, `network-01`, `network-03`). An image built
   before `add-sops-recipient.sh pi-rack` cannot decrypt even once the key is installed.
+- [S] Install the key as `services@…`, not `root@…`: a system built from this flake's
+  `base.nix` sets `PermitRootLogin = "no"` (base.nix:54). `host-age-key.sh` escalates with
+  sudo, which wheel gets without a password (base.nix:45).
 
 ## The upstream `rpi4-installer` is not a headless path
 
@@ -141,13 +144,3 @@ nixpkgs `c508844`). **[E]** means read-only `nix eval` / `build --dry-run` outpu
 
 - [I] sd-image.nix:403 takes the root partition number from `lsblk` MAJ:MIN, which is only right
   on the first disk. Keep one disk attached for the first boot.
-
-## Corrections to `plans/pi-rack-nixos-migration.md` (gitignored; recorded here)
-
-- Phase 0 step 5: "rpi4-installer toplevel is in their cache" is **false** at `7e39508`.
-- Phase 2: "firmware → U-Boot → extlinux" is wrong for `bootloader = "kernel"`; the firmware loads
-  `nixos/default/kernel.img` directly.
-- Phase 3: `host-age-key.sh --target root@…` fails (`PermitRootLogin = "no"`, base.nix:54). Use
-  `services@…`; the script escalates with sudo.
-- Phase 3: "fails at user activation" is only half right. User activation succeeds with a locked
-  password and SSH key login is unaffected; only the secrets are missing.

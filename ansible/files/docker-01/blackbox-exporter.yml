@@ -1,10 +1,11 @@
 # Blackbox DNS probe for the AdGuard HA cluster.
 #
-# This exists because nothing else could see the 2026-08-21 outage: the VIP had a master
+# This exists because nothing else could see the 2026-08-21 outage, when AdGuard on the
+# VIP holder answered every query but resolved nothing for 36 minutes: the VIP had a master
 # the whole time, so `keepalived-no-master` could not fire, and the adguard-exporter only
 # publishes 24h rolling aggregates — over the 36-minute window
 # adguard_avg_processing_time_seconds moved 0 -> 4ms and sum(adguard_top_upstreams) moved
-# 75.4M -> 75.6M. See tasks/keepalived-vip-dns-outage-2026-08-21.md.
+# 75.4M -> 75.6M. The cause is written up at upstream_dns in nix/modules/network.nix.
 #
 # dns-probe.{{ domain_name }} is an A record in our own zone (127.0.0.1, TTL 60) that
 # exists only for health probing, and is deliberately absent from

@@ -453,6 +453,13 @@
     # already-planned runs and every claim then answers 409 until they are re-planned.
     #
     # The operator token and the agent tokens come from group_vars/all/vars.yaml.
+    #
+    # The hub's store lives under docker_compose_dst_data_directory_path (/mnt/docker, from
+    # host_vars) — this guest's 64 GB `sdb` on pve-optane-01 — and is the one part of the harness
+    # that cannot be rebuilt. Its only backup is the nightly PBS backup of this whole guest (VM 200);
+    # syncoid, sanoid, snapraid and btrbk do not cover it and do not need to. Unchecked as of
+    # 2026-09-18: a per-disk `backup=0` on that disk in `qm config 200` would drop it from the job
+    # without an error.
     - name: Deploy the gpu-encoder-sweep hub
       tags: gpu_encoder_sweep
       ansible.builtin.include_role:

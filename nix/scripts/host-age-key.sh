@@ -126,7 +126,9 @@ if host_has_key; then
       echo "WARNING: $HOST has a key on the host but no copy at $OP_SECRET_REF."
       echo "         If that disk is lost or re-imaged the key goes with it, and the host"
       echo "         needs a new sops recipient plus a full re-encrypt."
-      echo "         Backfill runbook: plans/flake-host-enumeration-and-age-keys.md"
+      echo "         Backfill: store the key file's AGE-SECRET-KEY- line at $OP_SECRET_REF"
+      echo "         and its '# public key:' value at $OP_PUBLIC_REF, then re-run this"
+      echo "         script; the warning clears once the secret reads back."
     } >&2
   fi
   printf '%s\n' "$PUB"

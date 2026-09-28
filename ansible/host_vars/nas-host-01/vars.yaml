@@ -29,8 +29,12 @@ extra_packages:
 # column structure rather than independent stuck cells, so reserving whole blocks also
 # covers the pages inside them that have not failed yet.
 #
-# Curated from the rasdaemon database; the working list and the per-page error counts
-# are in tasks/nas-host-01-bad-pages.txt. Takes effect at the next boot.
+# Chosen from the rasdaemon database (`ras-mc-ctl --errors`) on 2026-09-10: every page
+# with >= 10 corrected errors in the previous 30 days. That is 22 pages carrying 15,044
+# of 15,064 errors, and all 22 fall inside the five ranges below. These are physical
+# addresses: stable across reboots, but NOT across a change in DIMM population or
+# interleaving. After moving, adding or removing a DIMM, or a CPU reseat, re-derive the
+# list the same way before trusting it. Takes effect at the next boot.
 #
 # Soft-offline was tried first and rejected: the kernel refused with "thp split failed"
 # on pages inside guest memory held by passthrough, and with "unhandlable page" on one

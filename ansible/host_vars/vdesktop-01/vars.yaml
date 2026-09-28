@@ -1,7 +1,7 @@
 ---
 # vdesktop-01 is an unprivileged LXC on vm-host-01, not a VM. It exists to keep a
 # browser running when the laptop it is driven from is closed, and to stream that
-# session to a Mac cheaply. See plans/vdesktop-01-desktop.md.
+# session to a Mac cheaply. Why a container and not a VM: docs/vdesktop-01.md.
 
 # The account the desktop runs as. Deliberately NOT ansible_user: that account
 # has passwordless sudo everywhere (group_vars/all/vars.yaml,

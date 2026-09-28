@@ -1,7 +1,7 @@
 # pi-rack failure (2026-09-24): evidence and cause analysis
 
-All data was read on 2026-09-25 from Prometheus, Scrutiny, the UniFi and UPS notes in
-`tasks/pikvm-hid-beszel-flapping.md`, and the Mac's IORegistry. Times are CDT.
+All data was read on 2026-09-25 from Prometheus, Scrutiny, the UniFi controller's event log, the
+UPS network management card's own data log, and the Mac's IORegistry. Times are CDT.
 
 ## The hardware that failed
 
@@ -76,8 +76,11 @@ three drives, including the spares in Proxmox hosts. The PLP capacitors cover in
 - Daily max temperature (09-10 → 09-24): 70.6–76.0 °C.
 - UniFi logged "Rack - 24 Port 2.5GbE POE Switch power-cycled Port 7 connected to pi-rack" at
   16:26, 16:57 and 17:28 — an auto power-cycle of an already-dead host. It did not revive it.
-- **Mains and UPS are ruled out.** The UPS NMC log showed input 120.9–122.4 V at 16:05 and only
-  the OL flag ever. See `tasks/pikvm-hid-beszel-flapping.md:55-56`.
+- **Mains and UPS are ruled out.** The UPS network card's own data log (10-minute rows,
+  09-22 → 09-25) shows input 120.9–122.4 V around 16:05, and 117.3 V as its lowest input
+  anywhere. Prometheus's nut_exporter series (1-minute samples, 09-18 → 16:06) show only
+  the OL flag ever — never on battery, low battery, replace battery, trim, boost, overload
+  or bypass.
 
 ## What the under-voltage metric can and cannot show
 

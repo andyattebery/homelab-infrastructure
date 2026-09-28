@@ -10,7 +10,7 @@ to it.
 
 Ported from games-on-whales/wolf `src/fake-udev/`, whose header struct is itself copied from
 systemd `src/libsystemd/sd-device/device-monitor.c`. Verified against systemd v257 and against
-Linux v7.0's netlink permission check. The calling playbook's plan carries the full derivation.
+Linux v7.0's netlink permission check. The role's README carries the derivation.
 
 THE SILENT FAILURE THIS FILE EXISTS TO AVOID: a subscriber attaches a BPF filter that compares
 `filter_subsystem_hash` against MurmurHash2 of the subsystem it asked for. Get that hash wrong,

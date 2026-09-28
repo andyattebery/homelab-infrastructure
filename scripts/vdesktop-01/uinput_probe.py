@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Answer one question: does UI_DEV_CREATE succeed inside an unprivileged PVE container?
 
-This is "The one unknown" in plans/vdesktop-01-wayland-native.md. uinput's own source has no
-capability check at all -- `drivers/input/misc/uinput.c` at v7.0 has zero `capable`/`CAP_*`/uid
-checks in 1171 lines, so access is governed only by file permissions. But AppArmor and seccomp
-are not in that source, PVE ships its own container profile, and every published containerised
-guide does this PRIVILEGED, so no source reading settles it. Only a box does.
+The Wayland input design in docs/vdesktop-01.md ("Why hardware rendering was hard here") rests
+on this. uinput's own source has no capability check at all -- `drivers/input/misc/uinput.c` at
+v7.0 has zero `capable`/`CAP_*`/uid checks in 1171 lines, so access is governed only by file
+permissions. But AppArmor and seccomp are not in that source, PVE ships its own container
+profile, and every published containerised guide does this PRIVILEGED, so no source reading
+settles it. Only a box does.
 
 If UI_DEV_CREATE fails here, the whole Wayland route dies: Wayland has no XTest, so uinput is the
 only way to inject input into a wlroots compositor.
@@ -95,7 +96,8 @@ def probe(hold_seconds: int = 0) -> int:
     except FileNotFoundError:
         print("FAIL: /dev/uinput does not exist.")
         print("      The container has no uinput passthrough. In PVE that is a `devN` entry in")
-        print("      the container config, applied at container START -- see the plan.")
+        print("      the container config, applied at container START -- dev1 in")
+        print("      ansible/playbook-vdesktop-01.yaml.")
         return 2
     except PermissionError:
         print("FAIL: cannot open /dev/uinput (EACCES).")
@@ -139,7 +141,7 @@ def probe(hold_seconds: int = 0) -> int:
             print()
             print("      UI_DEV_CREATE was REFUSED. uinput.c itself has no capability check, so")
             print("      this is AppArmor or seccomp in PVE's unprivileged container profile.")
-            print("      That is the answer the plan could not get from source, and it is the")
+            print("      That is the answer no source reading could give, and it is the")
             print("      one that kills the Wayland route: Wayland has no XTest fallback.")
         os.close(fd)
         return 1
@@ -177,9 +179,9 @@ def probe(hold_seconds: int = 0) -> int:
                   f"uid={info.st_uid} gid={info.st_gid} mode={oct(info.st_mode & 0o777)}")
             if info.st_uid == 65534 or info.st_gid == 65534:
                 print("      gid 65534 is `nobody`: owned by a HOST group outside this")
-                print("      container's id map. EXPECTED until the host udev rule puts these")
-                print("      devices in a group whose gid maps inside -- the lxc-input group at")
-                print("      100996 in the plan, which is NOT installed yet. A compositor could")
+                print("      container's id map. EXPECTED only while the host udev rule is")
+                print("      absent -- playbook-vdesktop-01.yaml installs it, putting these")
+                print("      devices in lxc-input (gid 100996, `input` inside). A compositor could")
                 print("      see this device and would fail to open it.")
             else:
                 print("      readable ownership: a compositor in this container could open it.")

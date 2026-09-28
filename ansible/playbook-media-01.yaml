@@ -108,7 +108,6 @@
     #
     # Sized against 48 GiB of RAM: container high-water marks sum to 26.4 GiB (cgroup v2
     # memory.peak across 24 containers) plus ~1.5 GiB host overhead, leaving ~12 GiB free.
-    # See plans/media-01-ram-and-arc-sizing.md.
     - role: zfs_conf
       tags: zfs
       vars:

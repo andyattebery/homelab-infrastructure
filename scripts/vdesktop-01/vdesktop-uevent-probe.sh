@@ -9,11 +9,11 @@
 #   scripts/vdesktop-01/vdesktop-uevent-probe.sh vdesktop-01
 #   scripts/vdesktop-01/vdesktop-uevent-probe.sh vdesktop-01 --install-udev
 #
-# WHY THIS EXISTS. plans/vdesktop-01-wayland-native.md rests on one claim that source can only
-# argue and a box has to settle: that the container's own root may send to the udev multicast
-# group, and that a real libudev accepts the message scripts/fake_udev_send.py builds. If that
-# is false the plan's whole design collapses back to a startup ordering that was proven
-# self-defeating, so this runs before any role is written.
+# WHY THIS EXISTS. The udev_shim role rests on one claim that source can only argue and a box has
+# to settle: that the container's own root may send to the udev multicast group, and that a real
+# libudev accepts the message ansible/roles/udev_shim/files/fake_udev_send.py builds. If that is
+# false there is no fallback -- ordering the units instead cannot work (docs/vdesktop-01.md,
+# "Why not simply order the units") -- so run this before trusting the shim on a new container.
 #
 # WHAT IT PROVES, and in what order:
 #
@@ -308,8 +308,8 @@ fi
 if [ "\$MAIN_OK" = "1" ] && [ "\$C1_OK" = "1" ] && [ "\$C2_OK" = "1" ]; then
     echo "PASS -- a synthetic uevent from the container's own root reaches a libudev subscriber"
     echo "        through the subsystem filter, an unprivileged sender is refused, and a"
-    echo "        wrongly-hashed one is dropped. The design in"
-    echo "        plans/vdesktop-01-wayland-native.md is sound on this box."
+    echo "        wrongly-hashed one is dropped. The event transport udev_shim relies on works"
+    echo "        on this box."
     exit 0
 elif [ "\$MAIN_OK" = "1" ]; then
     echo "INCONCLUSIVE -- the message arrived, but a control did not fire"
@@ -318,8 +318,10 @@ elif [ "\$MAIN_OK" = "1" ]; then
     exit 3
 else
     echo "FAIL -- a correctly-hashed message from root did NOT reach the subscriber."
-    echo "        Do not proceed. The fake-udev route in plans/vdesktop-01-wayland-native.md"
-    echo "        does not work here and the design needs rethinking from the top."
+    echo "        Do not proceed. udev_shim cannot announce input devices on this box, so a"
+    echo "        compositor here will never see Sunshine's keyboard or mouse. The design"
+    echo "        needs rethinking from the top: docs/vdesktop-01.md, 'Why hardware"
+    echo "        rendering was hard here'."
     exit 1
 fi
 REMOTE

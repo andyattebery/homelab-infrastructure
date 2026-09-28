@@ -3,8 +3,8 @@
 #
 # Ownership and resolution are separate questions and both need a rule. On 2026-08-21 the
 # VIP had a master for the whole 36-minute outage while resolving nothing, so an
-# ownership-only ruleset stayed silent throughout. See
-# tasks/keepalived-vip-dns-outage-2026-08-21.md.
+# ownership-only ruleset stayed silent throughout. The cause and the fix are in the
+# upstream_dns and vrrpScripts comments in nix/modules/network.nix.
 #
 # Metric grounding:
 # - keepalived_vrrp_state (mehdy/keepalived-exporter v1.7.1+):

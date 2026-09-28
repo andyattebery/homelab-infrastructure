@@ -370,4 +370,3 @@ and each host file states its own modules. The Pi modules
 ## Related
 
 - `nix/docs/proxmox-workflow.md` — the equivalent for x86 Proxmox guests.
-- `plans/pi-rack-nixos-migration.md` — the deferred migration plan for `pi-rack` (not committed).

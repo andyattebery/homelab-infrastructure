@@ -7,10 +7,13 @@
 #     .venv/bin/ansible-playbook -i roles/kernel_parameters/tests/inventory \
 #     roles/kernel_parameters/tests/test.yml
 #
-# Scope: the merge, the loss guard, and the two file-writing paths. main.yaml's
-# dispatch between grub / systemd-boot / rpm-ostree is NOT covered here -- it is
-# unchanged by this work and all three branches were verified against the live hosts
-# on 2026-09-10 (see tasks/kernel-parameters-repeated-keys.md).
+# Scope: the merge, the loss guard, and all three configure_* paths. main.yaml's
+# dispatch between grub / systemd-boot / rpm-ostree is NOT covered here: it keys on
+# `proxmox-boot-tool status`, `which rpm-ostree` and the running kernel's name, which
+# a controller-side fixture cannot reproduce (README, "Tests"). Each branch was
+# checked on a live host on 2026-09-10 -- a ZFS-root -pve node took systemd-boot,
+# GRUB-booted -pve nodes took GRUB, a Bazzite host took rpm-ostree. No host took the
+# Ubuntu/Fedora route into GRUB, so that route has never been checked.
 #
 # The seeds are real command lines read off the hosts, not placeholders.
 - name: Test kernel_parameters

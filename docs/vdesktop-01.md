@@ -17,8 +17,9 @@
 > DRI3, so the browser rasterised on the CPU while the GPU did nothing but encode. Sections
 > marked *superseded* below record why the replacement looks the way it does.
 >
-> The reasoning, with every claim traced to source or measurement, is in
-> `plans/vdesktop-01-wayland-native.md`.
+> The reasoning, with every claim traced to source or measurement, is in "Why hardware rendering
+> was hard here" below and in the READMEs of `udev_shim`, `sway_headless_wayland_session` and
+> `sunshine`.
 
 ## Why this host exists
 
@@ -551,6 +552,15 @@ repair it. That is why `udev_shim` has a prime unit ordered ahead of the user ma
 the failure that cost two debugging rounds during development with a perfectly formed message
 and a successful `sendmsg` both times.
 
+**Why not simply order the units.** Sunshine picks its capture backend once, at startup, so it
+has to start after the compositor — and its virtual keyboard and mouse live and die with the
+Sunshine process, so they always appear after the compositor has enumerated its input. Starting
+Sunshine first and restarting it once the compositor is up does not escape that: the restart
+destroys the devices the compositor saw and creates new ones it never hears about. A container
+gets no uevents, so no start order delivers both capture and input. The shim removes the
+constraint by announcing devices whenever they appear, which is also why restarting Sunshine
+is harmless — measured on the build, its replacement devices were picked up with no manual step.
+
 The privileged-container route was also never necessary on its own terms: `PVE::API2::LXC`
 requires `Sys.Modify` on `/` for privileged containers, which the automation token does not
 have, so it was never reachable from a playbook anyway.
@@ -566,11 +576,8 @@ There is **no always-on host in this fleet with a spare GPU**:
 | media-01 | Arc B580 | QSV for jellyfin/plex/tdarr |
 | vm-host-01 | UHD 630 | a VM reaches it only by exclusive passthrough of the host's own primary VGA — which is why this is a container |
 
-The investigation, the gates and what has been ruled out are in
-`plans/vdesktop-01-hardware-rendering.md`; the running record is
-`tasks/vdesktop-01-performance.md`. Two committed tools support it:
-`scripts/vdesktop-01/browser-profile.sh` (headless profile capture, validated against the
-installed build -- it began as an `ff-profile.sh` that only knew Firefox, and grew a Chromium
-branch because the two engines share no mechanism) and
+The investigation left two committed tools: `scripts/vdesktop-01/browser-profile.sh` (headless
+profile capture, validated against the installed build -- it began as an `ff-profile.sh` that
+only knew Firefox, and grew a Chromium branch because the two engines share no mechanism) and
 `scripts/vdesktop-01/browser-cpu.sh` (engine-agnostic per-thread CPU sampling, which refuses to
 run unprivileged because an unprivileged caller silently measures nothing).

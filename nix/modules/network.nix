@@ -101,8 +101,7 @@ in {
             # port 53 while it was down, and answered every DoH hostname with its own
             # address (192.168.1.254, unreachable from behind the UDM). AdGuard cached
             # that and kept dialling a dead address long after the WAN recovered: a 65
-            # second blip became a 36 minute outage. See
-            # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+            # second blip became a 36 minute outage.
             #
             # dnsproxy skips bootstrap entirely when the upstream host parses as an
             # address (upstream/resolver.go, NotBootstrapError), so there is no plaintext
@@ -175,8 +174,8 @@ in {
         # The probe has to prove AdGuard *resolves*, not merely that it answers. The old
         # probe used healthcheck.adguardhome.test, which AdGuard synthesises itself as a
         # NODATA answer without contacting any upstream -- so on 2026-08-21 it passed for
-        # 36 minutes while every upstream was unreachable, and the VIP never moved. See
-        # tasks/keepalived-vip-dns-outage-2026-08-21.md.
+        # 36 minutes while every upstream was unreachable, and the VIP never moved. Why
+        # the upstreams were unreachable is under upstream_dns above.
         #
         # dns-probe.<domain_name> is an A record in our own zone (127.0.0.1, TTL 60) that
         # exists only for this. Two properties matter and both are load-bearing:

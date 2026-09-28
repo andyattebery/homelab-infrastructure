@@ -1,21 +1,28 @@
 # media-01 — upgrading to Ubuntu 26.04
 
-> **This document is the current state: what is true of the host, and the procedure to follow.**
-> It is not a progress tracker — progress lives in `tasks/media-01-26.04-upgrade.md`, which is where
-> a new thread should start. Keep this file accurate as things change; do not log work in it.
+> **Done. media-01 was upgraded in place on 2026-08-29/30 and runs Ubuntu 26.04.1.** At the end of
+> the run it was on kernel 7.0.0-30 with ZFS userspace and module both at 2.4.1 — the split this
+> document exists to close — pool `data` was **not** upgraded, `dkms` was back on the archive's
+> 3.2.2, and a playbook run restored all four third-party sources at `resolute`.
 >
-> The upgrade itself has still not been executed.
+> Everything below is the procedure as written before the run, kept because it carries the
+> reasoning. Execution departed from it in three places:
+>
+> - **Forced with `Prompt=normal`, not `do-release-upgrade -d`.** 26.04 was released and merely not
+>   offered under `Prompt=lts`; `-d` targets the development meta-release. `Prompt` went back to
+>   `lts` afterwards.
+> - **`dkms` (step 3a) was fixed after the upgrade, not during it.** resolute's `3.2.2-1ubuntu1`
+>   loses to the installed epoch `1:3.4.1`, so the upgrade left it in place.
+> - **The rollback held was `qm snapshot 201 pre-26-04` of both disks, not a PBS restore.** A
+>   rollback to it reverts the `data` pool on `scsi1` as well as root, so used now it would discard
+>   every pool write since 2026-08-29.
 >
 > Written as research on 2026-08-22. Corrections since are marked **UPDATE 2026-08-23** in place
 > rather than rewritten away, because what was found on 2026-08-22 is the reason the apt-source
 > migration happened.
 >
-> This file fills the reference `plans/media-01-restore-scsi0-from-backup.md` left dangling: the
-> 26.04 upgrade was deliberately deferred to "on or after 27 August", and that runbook noted the
-> follow-up "needs writing up before it is attempted".
->
-> Every date below is a fact with a shelf life. 26.04.1's date has already moved once. Re-check
-> anything load-bearing rather than trusting this document's age.
+> Every date below is a fact with a shelf life. Re-check anything load-bearing rather than trusting
+> this document's age.
 
 ## Recommendation
 
@@ -109,19 +116,16 @@ Host state as read on 2026-08-23 16:51 CDT — Ubuntu 24.04.4, kernel 6.8.0-137-
                                nvidia-container-toolkit.asc
     inline PGP keys in sources: none
 
-**What is still outstanding is the numbered procedure above.** The migration deliberately applied
-only each role's `tasks/apt_repo.yaml`, so the rest of the drift this document found is untouched.
-
-Progress against the procedure above is tracked in `tasks/media-01-26.04-upgrade.md`.
+The migration deliberately applied only each role's `tasks/apt_repo.yaml`, so the rest of the drift
+this document found was left for step 4's full playbook run.
 
 ## Why 26.04 fixes the thing that broke in August
 
 On 2026-08-10 a playbook run installed `linux-generic-hwe-24.04` 7.0.0-28 and the host was rolled
-back by a full PBS root-disk restore (`plans/media-01-restore-scsi0-from-backup.md`).
+back by a full PBS root-disk restore — see [Rollback](#rollback).
 
 **What broke was a ZFS split: the kernel module and the userspace tools stopped matching.** The
-restore notes never record this — they say only "the restore removed the symptom". The mechanism is
-recorded here from the operator, and this document is the first place it is written down.
+mechanism comes from the operator, and this document is the first place it is written down.
 
 | | zfs module | `zfsutils-linux` | |
 | --- | --- | --- | --- |
@@ -330,9 +334,21 @@ restore rather than purging the HWE stack because the same playbook run had upgr
 other packages, and an in-place downgrade cannot guarantee returning to the original package set.
 
 A release upgrade rewrites essentially every package, so "undo it with apt" is not available at any
-scale. The rollback is the PBS snapshot, restored per
-`plans/media-01-restore-scsi0-from-backup.md` — proven on 2026-08-10, ~18 minutes, root disk only,
-ZFS pool untouched.
+scale. The rollback is a root-disk restore from a PBS backup, proven on 2026-08-10: 18 minutes end
+to end, under 4 of them with the guest down, root disk (`scsi0`) only, ZFS pool on `scsi1`
+untouched. No committed script runs it yet. What the 2026-08-10 run found:
+
+- **Restore the disk, never the whole VM.** A backup carries the VM config of its day, PCI mapping
+  names included. On 2026-08-10 the GPU mapping had been renamed since the backup, so a full-VM
+  restore would have pointed passthrough at a mapping that no longer existed.
+- **Restore into a freshly allocated volume.** `pbs-restore --skip-zero` does not write zero
+  chunks, so over an old volume it leaves stale blocks wherever the backup has zeros.
+- **Reset the boot order after swapping `scsi0`.** Detaching `scsi0` leaves an empty `boot:` line
+  and re-attaching does not restore it, so the guest does not boot until `boot: order=scsi0` is
+  set again.
+- **Shut the guest down, do not stop it.** `stop` is a power-pull, and `scsi1` holds the live pool.
+- **Keep the old root attached as `unusedN`** until the restored one is verified. It is the way
+  back.
 
 Three things keep it viable:
 
@@ -355,7 +371,6 @@ Three things keep it viable:
 - `docs/media-01-nvidia-driver.md` — driver sourcing (Canonical archive vs NVIDIA CUDA repo) and the
   `nvidia_driver` role design. Adopting that role on 24.04 first is recommended: it is a package-set
   change (`-driver-` → `-headless-`) and should not share a window with a release upgrade.
-- `plans/media-01-restore-scsi0-from-backup.md` — the rollback runbook.
 
 ## Sources
 
