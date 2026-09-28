@@ -67,6 +67,17 @@
   when: docker_compose_src_config_dirs | default([]) | length > 0
   ansible.builtin.include_tasks:
     file: copy_config_dirs.yaml
+# Before `up`, so Docker never auto-creates these bind-mount sources as root.
+- name: Create data directories
+  ansible.builtin.file:
+    path: "{{ (docker_compose_dst_data_directory_path, data_dir.dst_relative_dir_path) | path_join }}"
+    state: directory
+    owner: "{{ data_dir.owner | default(docker_compose_uid) }}"
+    group: "{{ data_dir.group | default(docker_compose_gid) }}"
+    mode: "{{ data_dir.mode | default('0755') }}"
+  loop: "{{ docker_compose_data_dirs }}"
+  loop_control:
+    loop_var: data_dir
 - name: Copy scripts
   when: docker_compose_copy_scripts
   ansible.builtin.copy:

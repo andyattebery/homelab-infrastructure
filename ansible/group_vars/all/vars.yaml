@@ -255,6 +255,8 @@ remote_power_control_target_authorized_keys_extra: []
 remote_power_control_target_authorized_keys: "{{ [pikvm_kvmd_ssh_public_key] + remote_power_control_target_authorized_keys_extra }}"
 
 searxng_secret_key: "{{ vault_searxng_secret_key }}"
+semaphore_admin_password: "{{ vault_semaphore_admin_password }}"
+semaphore_access_key_encryption: "{{ vault_semaphore_access_key_encryption }}"
 
 smtp_host: "{{ vault_smtp_host }}"
 smtp_port: "{{ vault_smtp_port }}"

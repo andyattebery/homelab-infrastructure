@@ -169,6 +169,8 @@ vault_remote_power_control_homeassistant_access_token: {{ op://Home Lab/Home Ass
 vault_scrutiny_pushover_token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/scrutiny }}
 vault_servercat_ssh_public_key: {{ op://Personal/pibtry4hziwtyen2xklu5g2qzy/public key }}
 vault_searxng_secret_key: {{ op://Personal/searxng/config/secret key }}
+vault_semaphore_admin_password: {{ op://Personal/Semaphore/password }}
+vault_semaphore_access_key_encryption: {{ op://Personal/Semaphore/config/access key encryption }}
 vault_shinobi_db_name: "{{ op://Personal/Shinobi/database/name }}"
 vault_shinobi_db_username: "{{ op://Personal/Shinobi/database/username }}"
 vault_shinobi_db_password: "{{ op://Personal/Shinobi/database/password }}"

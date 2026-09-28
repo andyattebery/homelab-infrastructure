@@ -9,6 +9,7 @@ docker_compose_should_pull: true
 docker_compose_should_run_up: true
 docker_compose_should_prune: false
 docker_compose_copy_scripts: true
+docker_compose_data_dirs: []
 
 docker_compose_up_command: "{{ docker_compose_base_command }} up --detach"
 

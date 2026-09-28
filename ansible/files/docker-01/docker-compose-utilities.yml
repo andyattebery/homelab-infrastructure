@@ -58,17 +58,21 @@ services:
     image: semaphoreui/semaphore:latest
     restart: unless-stopped
     environment:
-      - SEMAPHORE_DB_DIALECT=bolt
+      - SEMAPHORE_DB_DIALECT=sqlite
+      - SEMAPHORE_DB_PATH=/var/lib/semaphore
       - SEMAPHORE_ADMIN=admin
-      - SEMAPHORE_ADMIN_PASSWORD=changeme
-      - SEMAPHORE_ADMIN_NAME="Admin"
+      - SEMAPHORE_ADMIN_PASSWORD=${SEMAPHORE_ADMIN_PASSWORD}
+      - SEMAPHORE_ADMIN_NAME=Admin
       - SEMAPHORE_ADMIN_EMAIL=admin@localhost
+      # Required: encrypts stored credentials. config.json is not persisted and is regenerated on
+      # every recreate, so this key must come from outside it.
+      - SEMAPHORE_ACCESS_KEY_ENCRYPTION=${SEMAPHORE_ACCESS_KEY_ENCRYPTION}
     networks:
       - traefik
     volumes:
       - ${DOCKER_DATA_DIRECTORY}/semaphore/data:/var/lib/semaphore
-      - ${DOCKER_DATA_DIRECTORY}/semaphore/config:/etc/semaphore
-      - ${DOCKER_DATA_DIRECTORY}/semaphore/temp:/tmp/semaphore
+    labels:
+      - traefik.enable=true
   stirling-pdf:
     image: frooodle/s-pdf:latest
     container_name: stirling-pdf
