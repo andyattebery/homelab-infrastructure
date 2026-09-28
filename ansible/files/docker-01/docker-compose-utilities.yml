@@ -73,8 +73,9 @@ services:
     image: frooodle/s-pdf:latest
     container_name: stirling-pdf
     restart: unless-stopped
-    user: ${PUID}:${PGID}
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
       - DOCKER_ENABLE_SECURITY=false
       - INSTALL_BOOK_AND_ADVANCED_HTML_OPS=false
       - LANGS=${LANGUAGE_REGION_WITH_UNDERSCORE}
