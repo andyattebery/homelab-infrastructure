@@ -10,6 +10,15 @@
   ansible.builtin.apt:
     name: "{{ sunshine_package }}"
     state: present
+    # Only meaningful alongside a version-pinned sunshine_package; see the default's comment for
+    # why this is opt-in rather than always on.
+    allow_downgrade: "{{ sunshine_allow_downgrade | bool }}"
+  # A NEW PACKAGE IS NOT A NEW PROCESS. Without this, apt replaces the binary and the old one
+  # keeps running from an unlinked inode -- `/proc/<pid>/exe` reads "/usr/bin/sunshine (deleted)"
+  # -- so the role reports success while the host runs the version it was just moved off. That
+  # went wrong twice on 2026-09-29: an `apt upgrade` left a broken build latent until an unrelated
+  # reboot surfaced it, and then the fix-up downgrade silently did not take effect either.
+  notify: Restart sunshine
 
 - name: Render the configuration and the drop-in
   ansible.builtin.include_tasks:

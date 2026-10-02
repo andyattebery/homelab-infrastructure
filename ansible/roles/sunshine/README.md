@@ -49,6 +49,15 @@ Optional:
   substitution for suites, not for this field.
 - `sunshine_package` — default `sunshine`. An input because the same repository also carries
   beta and nightly channels under other names.
+- `sunshine_allow_downgrade` — bool, default `false`. Changing the installed version **restarts
+  the service** (the install task notifies the handler), because otherwise apt swaps the binary
+  and the old process keeps running from an unlinked inode. Needed when a pinned `sunshine_package`
+  version is **lower** than what is installed. Wrong (left off in that situation): the apt task
+  does not quietly skip — it **errors** with *"Packages were downgraded and -y was used without
+  --allow-downgrades"* and takes the rest of the role with it, so `sunshine.conf` and the drop-in
+  never get rendered either. Off by default because upstream documents it as able to make the
+  module non-idempotent, and because a downgrade can leave state a newer build wrote; for
+  Sunshine that is `sunshine_state.json`, so the realistic cost is re-pairing clients.
 - `sunshine_display` — default `:0`, and **may be empty**. Empty renders no
   `Environment=DISPLAY` line at all, which is what a Wayland host wants. Setting it alongside a
   Wayland session is not harmful (Sunshine checks `WAYLAND_DISPLAY` first and guards the X11

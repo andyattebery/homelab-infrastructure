@@ -475,8 +475,21 @@
         # REVERT TO STABLE once a stable release carries #5699. Both URLs move together; a repo
         # and a key from different channels make apt refuse every operation with
         # "Conflicting values set for option Signed-By".
-        sunshine_apt_repo_url: https://dl.cloudsmith.io/public/lizardbyte/beta/deb/debian
-        sunshine_apt_gpg_key_url: https://dl.cloudsmith.io/public/lizardbyte/beta/gpg.key
+        # BACK ON STABLE as of 2026-09-29. The beta pin below existed only to reach PR #5699
+        # ("fix(linux): export all Wayland DMA-BUF planes"), without which capture is a black
+        # screen. That build has since been PROMOTED TO STABLE: 2026.914.233613 is now the newest
+        # version the stable channel offers, so the reason for beta is gone.
+        #
+        # Beta was actively harmful here, not merely unnecessary. It churns -- three builds dated
+        # 2026-09-29 alone against five in all of stable -- and an `apt upgrade` carried this host
+        # onto 2026.929.125923, which EXITS at startup when it cannot create a system tray. That
+        # took Moonlight down until it was diagnosed; see
+        # tasks/2026-09-29-vdesktop-01-moonlight-down.md.
+        #
+        # BOTH URLS MOVE TOGETHER. A repo from one channel with a key from the other makes apt
+        # refuse every operation with "Conflicting values set for option Signed-By".
+        sunshine_apt_repo_url: https://dl.cloudsmith.io/public/lizardbyte/stable/deb/debian
+        sunshine_apt_gpg_key_url: https://dl.cloudsmith.io/public/lizardbyte/stable/gpg.key
         # PINNED TO AN EXACT BUILD, and the version is the point rather than incidental: this is
         # the first build carrying #5699, verified as 19 commits ahead of that merge with 0
         # behind. A bare `sunshine` would NOT have upgraded at all -- the role installs with
@@ -486,7 +499,24 @@
         # Pinned rather than `latest` so a converge run cannot silently move this host onto
         # whatever beta happens to be newest that day. Beta is a dated workaround; drop the pin
         # and both URLs above together when a stable release carries the fix.
+        # The newest build stable offers, and the one this host is PROVEN on: it streamed the
+        # game at 80-90 fps on 2026-09-14 with working capture, encode and input.
+        #
+        # Still pinned rather than left bare, for one reason: a bare `sunshine` would follow
+        # stable wherever it goes, and this host has now been broken twice by a Sunshine version
+        # it did not choose. Stable moves rarely -- five versions in a year -- so the pin should
+        # need touching about that often.
+        #
+        # THE PIN IS NOT A HOLD. `state: present` selects a version at INSTALL time only,
+        # `apt-mark showhold` is empty, and `apt upgrade` moves freely past it -- which is exactly
+        # how this host ended up on a beta that would not start. Being on stable narrows the odds
+        # a great deal; it does not close the hole.
         sunshine_package: sunshine=2026.914.233613-1+debiantrixie
+        # Required to get there from 2026.929: apt refuses a downgrade without it, and refuses
+        # LOUDLY -- the task errors and the rest of the role never runs, so the config would not
+        # be rendered either. Left on afterwards deliberately: the pin above is the authority, and
+        # a pin that cannot be enforced downward is half a pin.
+        sunshine_allow_downgrade: true
         # EMPTY, deliberately: this host has no X server at all, so the drop-in renders no
         # Environment=DISPLAY line. Leaving `:0` set would not break capture -- Sunshine checks
         # WAYLAND_DISPLAY first and guards the X11 branch on `window_system != WAYLAND` -- but it
@@ -505,6 +535,20 @@
         sunshine_config:
           encoder: vaapi
           adapter_name: "{{ vdesktop_render_node }}"
+          # MANDATORY ON THIS HOST, not a preference. Sunshine 2026.929.125923 EXITS at startup
+          # when it cannot create a system tray:
+          #
+          #   Info:  Starting system tray
+          #   Warning: Failed to create system tray
+          #   Error:  System tray is not initialized
+          #   Info:  Main loop has exited
+          #
+          # There is no desktop shell here and therefore no tray host, by design -- so the tray
+          # can never be created. 2026.914 tolerated that and ran for two weeks; this build makes
+          # it fatal. It exits **0**, so the unit reads `inactive (dead)` with `Result=success`
+          # and `NRestarts=0`: every systemd-level check passes while nothing listens on 47989.
+          # Diagnosed 2026-09-29, tasks/2026-09-29-vdesktop-01-moonlight-down.md.
+          system_tray: disabled
           # Pinned, not left on Sunshine's automatic order. Unset, Sunshine tries
           # nvfbc -> wlr -> kms -> x11 -> portal -> kwin and takes the first that verifies;
           # with no session up it reaches `portal`, whose PipeWire loop then emits

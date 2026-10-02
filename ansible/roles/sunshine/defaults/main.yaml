@@ -25,6 +25,19 @@ sunshine_apt_components: [main]
 
 sunshine_package: sunshine
 
+# Let a pinned `sunshine_package` version win even when a HIGHER one is installed.
+#
+# Off by default, and that default is the careful one: upstream documents that
+# `allow_downgrade=true` "can make this module behave in a non-idempotent way", and a downgrade
+# is not generally reversible -- a newer build may have rewritten state the older one cannot
+# read. For Sunshine the state at risk is `sunshine_state.json`, which holds the PAIRING data,
+# so the worst realistic outcome is having to re-pair clients.
+#
+# Turn it on when the pinned version is the authority. Without it, a pin that has fallen behind
+# the installed package does not merely fail to apply -- the apt task ERRORS
+# ("Packages were downgraded and -y was used without --allow-downgrades") and takes the whole
+# role with it, so the config half never runs either.
+
 # --- the half that needs a host -------------------------------------------
 #
 # REQUIRED, asserted by tasks/configure.yaml:
