@@ -106,13 +106,17 @@ homelab_hosts:
   # Turing Pi
   turingpi:
     ip: 192.168.1.215
+    mac: {{ op://Personal/turingpi/hardware/mac address }}
   turingpi-rk1-01:
     ip: 192.168.1.216
+    mac: {{ op://Home Lab/turingpi-rk1-01/hardware/mac address }}
   turingpi-rk1-02:
     ip: 192.168.1.217
+    mac: {{ op://Home Lab/turingpi-rk1-02/hardware/mac address }}
   turingpi-cm4-01:
     ip: 192.168.1.218
-  turingpi-cm4-02:
+    mac: {{ op://Home Lab/turingpi-cm4-01/hardware/mac address }}
+  turingpi-jetson-02:
     ip: 192.168.1.219
 
   # Pi Cluster (Talos, Super6C)
