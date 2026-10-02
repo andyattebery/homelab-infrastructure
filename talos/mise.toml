@@ -14,12 +14,20 @@ KUBECACHEDIR = '{{config_root}}/generated/kube-cache'
 HELM_CACHE_HOME = '{{config_root}}/generated/helm/cache'
 HELM_CONFIG_HOME = '{{config_root}}/generated/helm/config'
 HELM_DATA_HOME = '{{config_root}}/generated/helm/data'
+# The six nodes, for the tasks below. IPs rather than DNS names: the names carry the internal
+# domain.
+TALOS_NODES = '192.168.1.181,192.168.1.182,192.168.1.183,192.168.1.184,192.168.1.185,192.168.1.186'
 
-# All six nodes at once. --force skips each node's cordon/drain: with every node going down the
-# pods have nowhere to go, and the drains need the Kubernetes API that the control planes take
-# down with them. The modules halt but the Super6C board stays powered, and there is no per-node
-# power control: switch the board off, and back on to start the cluster again.
-[tasks.shutdown]
-description = 'Shut down all six Talos nodes'
-confirm = 'Shut down all six nodes? Starting them again needs the board power switch.'
-run = 'talosctl -n 192.168.1.181,192.168.1.182,192.168.1.183,192.168.1.184,192.168.1.185,192.168.1.186 shutdown --force'
+# talosctl against all six nodes; arguments are appended, e.g. `mise run nodes memory`.
+# To stop the cluster: `mise run nodes shutdown --force` (--force skips each node's cordon/drain,
+# which needs the Kubernetes API that the control planes take down with them), then switch the
+# board off.
+[tasks.nodes]
+description = 'Run a talosctl command against all six nodes'
+run = 'talosctl --nodes "$TALOS_NODES"'
+
+# Every sensor on every node: CPU, NVMe drive, and the Pi's under-voltage alarm. A node list
+# narrows it, e.g. `mise run temps 192.168.1.181,192.168.1.182`.
+[tasks.temps]
+description = 'Show every temperature sensor and alarm on each node'
+run = 'scripts/temps.sh'

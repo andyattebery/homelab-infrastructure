@@ -29,12 +29,12 @@ choice are in [research/super6c-cluster/](../research/super6c-cluster/README.md)
 
 | Path | What it is |
 |---|---|
-| `mise.toml` | Pins talosctl (= the cluster's Talos version), kubectl and helm. Points `TALOSCONFIG`, `KUBECONFIG`, kubectl's cache and helm's home into `generated/`. `mise run shutdown` shuts down all six nodes. |
+| `mise.toml` | Pins talosctl (= the cluster's Talos version), kubectl and helm. Points `TALOSCONFIG`, `KUBECONFIG`, kubectl's cache and helm's home into `generated/`. `mise run nodes <command>` runs talosctl against all six nodes, e.g. `mise run nodes memory`; `mise run temps` shows every sensor on every node (see Traps, "Temperatures"). Both take the node list from `TALOS_NODES`. |
 | `schematic.yaml`, `schematic.id` | The Image Factory schematic (`rpi_generic` overlay, `iscsi-tools`, `util-linux-tools`, `nvme_core.default_ps_max_latency_us=0`) and its ID, which names the disk image and the installer. |
 | `secrets.yaml.tpl` | The Talos secrets bundle as `op://` references into the `pi-cluster` item's `talos` section. |
 | `patches/` | Machine config patches: `all.yaml` (every node), `controlplane.yaml` (VIP, no taint), `nodes/pi-cluster-0N.yaml` (hostname). |
 | `longhorn/` | The namespace, the chart values and the smoke test. |
-| `scripts/` | `flash-sd.sh`, `store-secrets.sh`, `gen-config.sh`, `wipe-disk.sh`. Each prints its usage with `-h`. |
+| `scripts/` | `flash-sd.sh`, `store-secrets.sh`, `gen-config.sh`, `wipe-disk.sh`, `temps.sh`. Each prints its usage with `-h`. |
 | `tests/` | pytest for the scripts; see "Tests". |
 | `generated/`, `images/` | Gitignored: the secrets bundle, machine configs, talosconfig and kubeconfig; the downloaded disk images. |
 
@@ -121,12 +121,15 @@ cd ansible && .venv/bin/pytest ../talos/tests -q
 ```
 
 - The scripts run for real on a copy of `talos/` in a temporary git repo. `tests/stubs/` stand in
-  for diskutil, dd, sudo, curl, op and talosctl's calls that reach a node. The rest of talosctl
-  (`gen`, `machineconfig`, `validate`, `version`) is the real pinned binary, which works offline.
+  for diskutil, dd, sudo, curl, op and talosctl's calls that reach a node (`get disks`,
+  `wipe disk`, `list`, `read`). The rest of talosctl (`gen`, `machineconfig`, `validate`,
+  `version`) is the real pinned binary, which works offline.
 - Fixtures are captured from real output, never written by hand. Tests that need one skip until
   it exists:
   - `tests/fixtures/talos-disks.json`: `talosctl get disks --insecure -n 192.168.1.181 -o json`
     from a node in maintenance mode.
+  - `tests/fixtures/talos-sysfs.json`: `tests/capture_sysfs.py 192.168.1.181`, run from `talos/`.
+    It holds talosctl's output for each directory `temps.sh` lists and each file it reads.
   - `tests/fixtures/diskutil-sd.plist`: `diskutil info -plist diskN` with an SD card in the Mac.
     Not captured yet, so `test_flash_sd.py`'s card cases skip.
 - A test that has never failed proves nothing. When changing a script's guard, remove the guard,
@@ -141,9 +144,18 @@ cd ansible && .venv/bin/pytest ../talos/tests -q
   `talosctl -n <node> read /sys/class/nvme/nvme0/power/pm_qos_latency_tolerance_us` must say `0`.
   **A hung drive recovers only when its M.2 slot loses power, which takes the board's power
   switch.** CM4 reboots and the board's reset button do not cut it.
-- **Drive temperature:** `talosctl -n <node> read /sys/class/hwmon/hwmon2/temp1_input`
-  (millidegrees C; `hwmon2` is the `nvme` sensor here, check its `name`). With a fan on the board
-  the drives stayed at 23–47 °C through the install; their warning threshold is about 82 °C.
+- **Temperatures:** `mise run temps` (`scripts/temps.sh`) reads every hwmon sensor through the
+  Talos API. A node that doesn't answer shows `no answer` after about 20 s, and the run exits 1.
+  What the columns mean here:
+  - `cpu_thermal` has no limits of its own. Its CRIT is the kernel's critical trip, 110 °C, where
+    the node shuts down. The firmware throttles well before that: "When the core temperature is
+    between 80°C and 85°C, the Arm cores will be progressively throttled back", and at 85 °C the
+    GPU too (Raspberry Pi docs).
+  - `nvme` Composite has the drive's own limits: MAX is its warning point (80.85–82.85 °C across
+    these six drives) and CRIT is 84.85 °C. Its Sensor 1 reports no limits.
+  - `rpi_volt` `in0_lcrit` is the firmware's under-voltage alarm (kernel docs, raspberrypi-hwmon).
+    1 means the firmware reports under-voltage.
+  - With a fan on the board, the drives stayed at 23–47 °C through the install.
 - **SD boot race** (siderolabs/talos#14359, fix not in 1.14.1). A node can come up in maintenance
   mode after a reboot; re-run `talosctl apply-config --insecure` for it. The reverted upgrades
   above may be the same race (unconfirmed).
@@ -155,8 +167,8 @@ cd ansible && .venv/bin/pytest ../talos/tests -q
   Fix it with Raspberry Pi Imager's "SD Card Boot" bootloader image.
 - **Super6C power:** there is no per-node power control. A node shut down with `talosctl shutdown`
   comes back only with a board power cycle, which restarts all six. To stop the whole cluster,
-  `mise run shutdown` (asks first; `--force` skips the drains, which would need the API the control
-  planes are taking down), then switch the board off. Switching it on starts the cluster again;
+  `mise run nodes shutdown --force` (`--force` skips the drains, which would need the API the
+  control planes are taking down), then switch the board off. Switching it on starts the cluster again;
   etcd and Longhorn resume from the NVMe drives.
 - **bcmgenet:** watch `talosctl dmesg` for `NETDEV WATCHDOG` (siderolabs/sbc-raspberrypi#72,
   reported fixed in Linux 6.18.33; Talos 1.14.1 runs 6.18.51).

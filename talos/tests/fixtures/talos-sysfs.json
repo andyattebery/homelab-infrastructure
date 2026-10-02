@@ -1,0 +1,31 @@
+{
+  "list": {
+    "/sys/class/hwmon": ".\nhwmon0\nhwmon1\nhwmon2\n",
+    "/sys/class/hwmon/hwmon0": ".\ndevice\nname\npower\nsubsystem\ntemp1_input\nuevent\n",
+    "/sys/class/hwmon/hwmon1": ".\ndevice\nin0_lcrit_alarm\nname\nof_node\npower\nsubsystem\nuevent\n",
+    "/sys/class/hwmon/hwmon2": ".\ndevice\nname\nof_node\npower\nsubsystem\ntemp1_alarm\ntemp1_crit\ntemp1_input\ntemp1_label\ntemp1_max\ntemp1_min\ntemp2_input\ntemp2_label\ntemp2_max\ntemp2_min\nuevent\n",
+    "/sys/class/thermal": ".\nthermal_zone0\n",
+    "/sys/class/thermal/thermal_zone0": ".\navailable_policies\nemul_temp\nhwmon0\nintegral_cutoff\nk_d\nk_i\nk_po\nk_pu\nmode\noffset\npolicy\npower\nslope\nsubsystem\nsustainable_power\ntemp\ntrip_point_0_hyst\ntrip_point_0_temp\ntrip_point_0_type\ntype\nuevent\n"
+  },
+  "read": {
+    "/proc/sys/kernel/hostname": "pi-cluster-01\n",
+    "/sys/class/hwmon/hwmon0/name": "cpu_thermal\n",
+    "/sys/class/hwmon/hwmon0/temp1_input": "55991\n",
+    "/sys/class/hwmon/hwmon1/in0_lcrit_alarm": "0\n",
+    "/sys/class/hwmon/hwmon1/name": "rpi_volt\n",
+    "/sys/class/hwmon/hwmon2/name": "nvme\n",
+    "/sys/class/hwmon/hwmon2/temp1_alarm": "0\n",
+    "/sys/class/hwmon/hwmon2/temp1_crit": "84850\n",
+    "/sys/class/hwmon/hwmon2/temp1_input": "46850\n",
+    "/sys/class/hwmon/hwmon2/temp1_label": "Composite\n",
+    "/sys/class/hwmon/hwmon2/temp1_max": "82850\n",
+    "/sys/class/hwmon/hwmon2/temp1_min": "-273150\n",
+    "/sys/class/hwmon/hwmon2/temp2_input": "46850\n",
+    "/sys/class/hwmon/hwmon2/temp2_label": "Sensor 1\n",
+    "/sys/class/hwmon/hwmon2/temp2_max": "65261850\n",
+    "/sys/class/hwmon/hwmon2/temp2_min": "-273150\n",
+    "/sys/class/thermal/thermal_zone0/trip_point_0_hyst": "0\n",
+    "/sys/class/thermal/thermal_zone0/trip_point_0_temp": "110000\n",
+    "/sys/class/thermal/thermal_zone0/trip_point_0_type": "critical\n"
+  }
+}
