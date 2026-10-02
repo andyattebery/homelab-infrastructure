@@ -83,6 +83,8 @@ Details: [storage.md](storage.md).
 
 Kairos is out: it has no RK3588 support and no Orin Nano model.
 
+**Update (2026-10-01):** option 4's RK1 premise has partly changed. The vendor-kernel images are still unmaintained. But Ubuntu 26.04's own generic 7.0 kernel ships the RK1 DTB with GPU, NPU and rkvdec enabled, and builds `iscsi_tcp`. Booting it needs a hand-built EFI/GRUB path. See [rk1-os-releases.md](rk1-os-releases.md), and [rk1-gpu-npu.md](rk1-gpu-npu.md) for the GPU/NPU stacks and the boot procedure.
+
 **Recommendation: option 1, if in-cluster accelerators are not a goal of the lab.** If they are, no option gets them all while keeping a supported Kubernetes platform. Option 4 is the only one with every accelerator, and it rests on an unmaintained RK1 OS image.
 
 ## Open questions
@@ -105,4 +107,7 @@ Kairos is out: it has no RK3588 support and no Orin Nano model.
 | [storage.md](storage.md) | Longhorn v1/v2, Piraeus/LINSTOR, Rook-Ceph, OpenEBS and Talos local storage on this hardware |
 | [talos.md](talos.md) | Talos 1.14.1: board support, known issues, the multi-document config, Image Factory and upgrades, networking and VIP, etcd, secrets, tooling. Also the build outline for option 1. |
 | [os-alternatives.md](os-alternatives.md) | Why the Orin GPU needs NVIDIA's stack, Kubernetes GPU on Jetson, and options A–E in detail |
+| [rk1-gpu-npu.md](rk1-gpu-npu.md) | 2026-10-01: getting the RK1's GPU and NPU working. Ubuntu 26.04 generic (firmware, Mesa/rocket gaps, Teflon, booting via U-Boot v2026.07 → shim → GRUB, DT and console) vs Armbian vendor (kbase/libmali or panthor, RKNN/RKLLM, install) |
+| [rk1-custom-image.md](rk1-custom-image.md) | 2026-10-01: building a custom RK1 vendor-kernel image. Base (Armbian framework vs stock rootfs vs defcom5/Radxa/BredOS), distro (Ubuntu 24.04 vs Debian 13; Rockchip targets Debian), Armbian framework internals (hosts, OrbStack, userpatches, pins, apt/version traps, first boot), libmali/RKNN/RKLLM/video userspace, vendor-tree maintenance, `tpi flash` |
+| [rk1-os-releases.md](rk1-os-releases.md) | 2026-10-01 follow-up: current RK1 releases (Turing, Armbian Ubuntu 26.04 / Debian 13 on vendor 6.1.172, kurochan's builds), and Ubuntu 26.04's generic 7.0 kernel on the RK1 with its EFI boot path |
 | [ops-findings.md](ops-findings.md) | The fixed-IP block, NIM behaviour, vaulted values, jetson-01's role, earlier attempts in the repo, local tooling |

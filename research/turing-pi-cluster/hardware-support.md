@@ -16,6 +16,8 @@ Legend: **Y** supported · **P** partial · **N** not supported · **U** unverif
 
 ## Turing RK1 (RK3588)
 
+For the 2026-10-01 release state, and an Ubuntu 26.04 generic-kernel (7.0) column built from its config and the RK1 DTB, see [rk1-os-releases.md](rk1-os-releases.md).
+
 | Feature | Talos 1.14.1 (6.18.51) | Armbian vendor 6.1 | Armbian current 6.18 | Turing Ubuntu 22.04 (5.10) | NixOS 26.05 (6.18) | From a pod |
 |---|---|---|---|---|---|---|
 | CPU, cpufreq | Y: cpufreq-dt on SCMI clocks (TC:682,7604; MS:98,174), schedutil (TC:671). No energy-aware scheduling: ENERGY_MODEL off (TC:631) | Y [I] | Y (AC:82) | Y [I] | Y [I] | — |

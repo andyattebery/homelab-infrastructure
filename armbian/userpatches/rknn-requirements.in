@@ -1,0 +1,8 @@
+# Dependencies of the RKNN Toolkit Lite2 2.3.2 wheel (its Requires-Dist), plus OpenCV for
+# Rockchip's examples. The wheel itself is installed --no-deps from versions.env.
+# Its extension modules use numpy from Python only (no numpy C API), so numpy 2.x is fine.
+# Regenerate the lock from armbian/userpatches/ with the command in its header, via mise.
+numpy
+psutil
+ruamel.yaml
+opencv-python-headless
