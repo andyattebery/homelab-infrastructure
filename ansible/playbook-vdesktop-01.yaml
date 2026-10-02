@@ -138,7 +138,18 @@
           storage: "{{ vdesktop_rootfs_storage }}"
           size: 32
         pve_lxc_cores: 4
-        pve_lxc_memory: 4096
+        # RAISED 4096 -> 8192 on 2026-09-29 to match a change the operator made on the node.
+        # This value is COMPARE-AND-SET by pve_lxc: left at 4096 here, the next full playbook run
+        # would have quietly taken the container back down.
+        #
+        # Why it was raised: at 4 GB the session exhausted RAM and filled swap while playing, and
+        # the container became unreachable WITHOUT an OOM kill -- `oom_kill 0`, so the kernel
+        # never reaped anything and it simply thrashed. It had to be rebooted from the node three
+        # times on 2026-09-29. The node has 62 GB and CT 120 is its only guest.
+        #
+        # SWAP IS DELIBERATELY NOT RAISED. More swap lengthens the thrash instead of preventing
+        # it, which is precisely the unreachable-but-not-killed state being avoided.
+        pve_lxc_memory: 8192
         pve_lxc_swap: 512
         # nesting is the only feature flag an API token may set; anything else is root@pam.
         # It is here for the systemd user session Sunshine runs under.
@@ -226,7 +237,30 @@
     # global_prep_cmd executes it. Written twice instead, the two drift and the failure is a
     # stream that does not start -- Sunshine aborts the launch when a prep command is missing.
     vdesktop_client_mode_script: /usr/local/bin/sway-headless-wayland-set-mode
-    vdesktop_browser_command: /usr/bin/chromium --ozone-platform=wayland
+
+    # The GC watchdog. Threshold chosen from measurement: the post-GC floor is ~460 MB and play
+    # adds 12.5 MB/min, so 2 GB is about two hours of playing between collections -- one
+    # sub-second hitch every couple of hours, and it leaves the container's other ~6 GB alone.
+    vdesktop_gc_watchdog_path: /usr/local/bin/chromium-gc-watchdog.py
+    vdesktop_gc_watchdog_threshold_mb: 2048
+    vdesktop_gc_watchdog_interval: 5min
+    # Matched so the GC lands on the GAME's renderer and not, say, a settings tab.
+    vdesktop_gc_watchdog_match: birbplay
+    # `--remote-debugging-port` IS LOAD-BEARING, not a leftover diagnostic. It started as one on
+    # 2026-10-02; the GC watchdog below now depends on it, and removing it breaks the only thing
+    # keeping this container from wedging roughly every 18 hours of use.
+    #
+    # EXPOSURE, stated rather than assumed, because it is now permanent: Chromium binds this to
+    # 127.0.0.1 only, but anything that can reach it has full control of the browser -- read any
+    # page, run arbitrary JS, read cookies. On this host that means anyone with a shell in the
+    # container, the same boundary wayvnc's socket already sits behind. Accepted deliberately in
+    # exchange for a host that does not need `pct` to recover; it is still strictly more surface
+    # than nothing.
+    #
+    # Note this host's extra flags do not all come from here: /usr/bin/chromium is a Debian shell
+    # wrapper that sources /etc/chromium.d/*, which is where --enable-gpu-rasterization actually
+    # comes from.
+    vdesktop_browser_command: /usr/bin/chromium --ozone-platform=wayland --remote-debugging-port=9222
 
   # No configure_server here, deliberately. That role carries the whole fleet
   # baseline -- beszel_agent, node_exporter, textfile_collector, fail2ban,
@@ -443,6 +477,104 @@
         name: "{{ vdesktop_browser_unit_name }}"
         scope: user
         daemon_reload: "{{ vdesktop_browser_unit.changed }}"
+        enabled: true
+        state: started
+
+    # --- forcing the garbage collection Chromium will not do by itself -----------------------
+    #
+    # MEASURED on this host 2026-10-02, because every part of this is a number rather than a
+    # theory:
+    #
+    #   the game churns           12.5 MB/min of canvas garbage while being played
+    #   V8 collects it            never, unprompted -- major GCs are scheduled on JS-HEAP growth,
+    #                             and the heap sits at ~50 MB while several hundred MB of canvas
+    #                             backing store rides along as external memory that does not
+    #                             weigh on that decision
+    #   a forced major GC frees   776 MB in under a second (98.9% of what accumulated in an hour)
+    #   the floor left behind     rises 9 MB/h -> ~32 days to the ceiling
+    #   without this              ~18 h to the ceiling, and then the container WEDGES: PVE sets
+    #                             memory.high just under memory.max, so the cgroup is throttled
+    #                             into reclaim rather than OOM-killed (34,494 high events,
+    #                             oom_kill 0) and only `pct` from the node recovers it
+    #
+    # THERE IS NO LEAK. Two heap snapshots an hour apart, with an hour of play between, showed the
+    # retained set STABLE: 984 -> 994 canvas contexts, 122.3 -> 122.4 MB of backing stores. What
+    # accumulates is ordinary garbage that nothing ever collects.
+    #
+    # Why a watchdog and not something gentler: reloading the page or restarting the browser also
+    # frees it, but the game needs CLICKS to resume, so either is no better than the hang it
+    # replaces. A GC keeps the page, the window, the Wayland surface and the Moonlight stream.
+    #
+    # tasks/2026-10-02-vdesktop-01-chromium-memory-growth.md carries the full derivation.
+    - name: Install the GC watchdog
+      tags: [session]
+      ansible.builtin.copy:
+        src: "{{ inventory_hostname }}/chromium-gc-watchdog.py"
+        dest: "{{ vdesktop_gc_watchdog_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    # A oneshot on a timer rather than a daemon: there is no state to keep between checks, and a
+    # crashed daemon is a silent failure where a failed oneshot is visible in `--failed`.
+    - name: The GC watchdog unit
+      tags: [session]
+      ansible.builtin.copy:
+        dest: "/home/{{ vdesktop_desktop_user }}/.config/systemd/user/vdesktop-gc-watchdog.service"
+        owner: "{{ vdesktop_desktop_user }}"
+        group: "{{ vdesktop_desktop_user }}"
+        mode: "0644"
+        content: |
+          # Managed by playbook-vdesktop-01.yaml
+          [Unit]
+          Description=Force a Chromium major GC when the game's renderer grows too large
+          # Not ordered After= the browser: the watchdog is harmless when nothing is running
+          # (it logs "no renderer" and exits 0), and ordering a timer-driven oneshot against a
+          # long-running unit buys nothing.
+
+          [Service]
+          Type=oneshot
+          Environment=GC_WATCHDOG_THRESHOLD_MB={{ vdesktop_gc_watchdog_threshold_mb }}
+          Environment=GC_WATCHDOG_MATCH={{ vdesktop_gc_watchdog_match }}
+          ExecStart=/usr/bin/python3 {{ vdesktop_gc_watchdog_path }}
+      register: vdesktop_gc_watchdog_unit
+
+    - name: The GC watchdog timer
+      tags: [session]
+      ansible.builtin.copy:
+        dest: "/home/{{ vdesktop_desktop_user }}/.config/systemd/user/vdesktop-gc-watchdog.timer"
+        owner: "{{ vdesktop_desktop_user }}"
+        group: "{{ vdesktop_desktop_user }}"
+        mode: "0644"
+        content: |
+          # Managed by playbook-vdesktop-01.yaml
+          [Unit]
+          Description=Check the game renderer's size every {{ vdesktop_gc_watchdog_interval }}
+
+          [Timer]
+          # At 12.5 MB/min the renderer gains ~60 MB between checks, which is nothing against a
+          # {{ vdesktop_gc_watchdog_threshold_mb }} MB threshold. The interval is about bounding
+          # overshoot, not precision.
+          OnBootSec=5min
+          OnUnitActiveSec={{ vdesktop_gc_watchdog_interval }}
+          AccuracySec=30s
+
+          [Install]
+          WantedBy=timers.target
+      register: vdesktop_gc_watchdog_timer
+
+    # timers.target, NOT default.target: it exists in a user manager and is what pulls timers up.
+    - name: Enable the GC watchdog timer
+      tags: [session]
+      become: true
+      become_user: "{{ vdesktop_desktop_user }}"
+      environment:
+        XDG_RUNTIME_DIR: "/run/user/{{ vdesktop_uid }}"
+      ansible.builtin.systemd_service:
+        name: vdesktop-gc-watchdog.timer
+        scope: user
+        daemon_reload: >-
+          {{ vdesktop_gc_watchdog_unit.changed or vdesktop_gc_watchdog_timer.changed }}
         enabled: true
         state: started
 
