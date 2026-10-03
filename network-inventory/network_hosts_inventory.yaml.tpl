@@ -116,8 +116,9 @@ homelab_hosts:
   turingpi-cm4-01:
     ip: 192.168.1.218
     mac: {{ op://Home Lab/turingpi-cm4-01/hardware/mac address }}
-  turingpi-jetson-02:
+  turingpi-jetson-01:
     ip: 192.168.1.219
+    mac: {{ op://Home Lab/turingpi-jetson-01/hardware/mac address }}
 
   # Pi Cluster (Talos, Super6C)
   pi-cluster-01:
