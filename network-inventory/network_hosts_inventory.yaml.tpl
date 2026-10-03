@@ -106,7 +106,7 @@ homelab_hosts:
   # Turing Pi
   turingpi:
     ip: 192.168.1.215
-    mac: {{ op://Personal/turingpi/hardware/mac address }}
+    mac: {{ op://Home Lab/turingpi/hardware/mac address }}
   turingpi-rk1-01:
     ip: 192.168.1.216
     mac: {{ op://Home Lab/turingpi-rk1-01/hardware/mac address }}
