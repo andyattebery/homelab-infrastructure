@@ -1,0 +1,6 @@
+---
+# A version tag, not latest: a new runner version is a deliberate change. The config template is that version's
+# `forgejo-runner generate-config` (README.md).
+forgejo_runner_image: data.forgejo.org/forgejo/runner:13.2.0
+# Jobs the runner takes at once.
+forgejo_runner_capacity: 1

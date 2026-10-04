@@ -1,0 +1,26 @@
+---
+# These four have no defaults (README.md). Left empty, the runner would deploy and then fail at runtime: it can't
+# connect, or it matches no job.
+- name: Check the forgejo_runner inputs
+  ansible.builtin.assert:
+    that:
+      - forgejo_runner_instance_url | default('') | length > 0
+      - forgejo_runner_uuid | default('') | length > 0
+      - forgejo_runner_token | default('') | length > 0
+      - forgejo_runner_labels | default([]) | length > 0
+    fail_msg: >-
+      docker_compose_forgejo_runner requires forgejo_runner_instance_url, forgejo_runner_uuid,
+      forgejo_runner_token and forgejo_runner_labels (README.md).
+    quiet: true
+- name: Configure forgejo-runner docker compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-forgejo-runner.yaml
+    # 0600 because the config holds the runner's token. Its directory, which docker_compose creates owned by
+    # PUID:PGID, is the container's /data, so no docker_compose_data_dirs entry is needed.
+    docker_compose_src_config_files:
+      - src_file_path: templates/runner-config.yml.j2
+        dst_relative_file_path: forgejo-runner/runner-config.yml
+        mode: "0600"
+        service_name_to_restart: forgejo-runner
+  ansible.builtin.include_role:
+    name: docker_compose

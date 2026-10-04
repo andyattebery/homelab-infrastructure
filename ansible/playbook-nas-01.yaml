@@ -244,6 +244,18 @@
           LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
           LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
       tags: docker_compose_nas_01
+    # The Actions runner for jetson-orin-nano-l4t-bootloader on Forgejo, which builds the Turing Pi
+    # Jetson's L4T packages and publishes them to Forgejo's Debian registry
+    # (research/turing-pi-cluster/orin-nano-qspi-updates.md). Registered on that repository only:
+    # Forgejo runs push workflows when a mirror syncs, so a runner on the user would take jobs from
+    # every GitHub mirror. The label's image is ubuntu:24.04, pinned by digest. Its UUID and token
+    # come from host_vars/nas-01.
+    - role: docker_compose_forgejo_runner
+      vars:
+        forgejo_runner_instance_url: "https://forgejo.{{ domain_name }}/"
+        forgejo_runner_labels:
+          - "l4t-build:docker://docker.io/library/ubuntu:24.04@sha256:a853f94d226358a79c740cfc7bce0c289748f3fe3488d921d038ccd752c61b60"
+      tags: forgejo_runner
     # - role: rtsp_recorder
     #   vars:
     #     rtsp_stream_name: pi-camera-cam1

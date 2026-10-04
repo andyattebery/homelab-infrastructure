@@ -1,0 +1,16 @@
+---
+services:
+  forgejo-runner:
+    image: {{ forgejo_runner_image }}
+    container_name: forgejo-runner
+    restart: unless-stopped
+    # PUID:PGID owns /data's bind source. The docker group's GID opens the socket.
+    user: "${PUID}:${PGID}"
+    group_add:
+      - "${DOCKER_GID}"
+    volumes:
+      # Host-socket mode: the runner starts job containers on this host's Docker, and jobs don't get the socket
+      # (runner-config.yml, container.docker_host "-").
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "${DOCKER_DATA_DIRECTORY}/forgejo-runner:/data"
+    command: forgejo-runner daemon --config /data/runner-config.yml

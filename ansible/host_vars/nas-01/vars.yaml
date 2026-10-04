@@ -1,6 +1,11 @@
 ---
 docker_compose_dst_data_directory_path: "/mnt/docker"
 
+# The Forgejo runner's registration, from creating it in the repository's settings (playbook-nas-01.yaml,
+# docker_compose_forgejo_runner).
+forgejo_runner_uuid: "{{ vault_forgejo_runner_uuid }}"
+forgejo_runner_token: "{{ vault_forgejo_runner_token }}"
+
 # One Samba share per media data disk, appended to the one-off shares in playbook-nas-01.yaml.
 # Derived from storage_media_data_disks (group_vars/all/vars.yaml) so this host, media-01 and
 # htpc-01 cannot drift: the same list creates the share here and mounts it there.
