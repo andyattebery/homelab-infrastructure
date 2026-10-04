@@ -142,6 +142,9 @@ homelab_hosts:
   # the Kubernetes API VIP, held by one of pi-cluster-01..03 (talos/patches/controlplane.yaml)
   pi-cluster-k8s:
     ip: 192.168.1.187
+  # the cluster's Gateway (Istio), from MetalLB (talos/ingress/metallb-pool.yaml)
+  pi-cluster-ingress:
+    ip: 192.168.1.188
 
   # Gaming
   htpc-01:
@@ -200,6 +203,9 @@ services:
     hostname: nas-01
   network-inventory-manager:
     hostname: network-01
+  # every name under picluster, for the cluster's Gateway; quoted: a bare * starts a YAML alias
+  "*.picluster":
+    hostname: pi-cluster-ingress
   # aliases
   bazzite:
     hostname: htpc-01
