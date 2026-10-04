@@ -1,0 +1,8 @@
+# tpi, Turing's CLI for the Turing Pi 2 BMC: power, flashing and serial for every node. tpi asks for the
+# BMC login, or uses the token it cached from the last login; credentials never go in this file.
+[tools]
+"github:turing-machines/tpi" = '1.0.7'
+
+[env]
+# The BMC by IP rather than DNS name: the name carries the internal domain.
+TPI_HOSTNAME = '192.168.1.215'

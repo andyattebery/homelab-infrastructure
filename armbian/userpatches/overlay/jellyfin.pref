@@ -1,9 +1,0 @@
-Explanation: repo.jellyfin.org may supply jellyfin-ffmpeg8 and nothing else. A record naming
-Explanation: the package outranks a Package: * record whatever their order (apt_preferences(5)).
-Package: *
-Pin: origin "repo.jellyfin.org"
-Pin-Priority: -1
-
-Package: jellyfin-ffmpeg8
-Pin: origin "repo.jellyfin.org"
-Pin-Priority: 500

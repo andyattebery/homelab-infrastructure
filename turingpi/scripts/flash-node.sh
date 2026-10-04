@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARMBIAN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TURINGPI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
     echo "Usage: $(basename "$0") <node 1-4> <image> [--yes]"
     echo
-    echo "Write an image from build-image.sh to a Turing Pi 2 node's eMMC through the BMC"
-    echo "(TPI_HOSTNAME in armbian/mise.toml), streamed from this Mac: about 8 minutes per GB,"
-    echo "plus verification. Without --yes it only shows the nodes' power state and the image."
-    echo "With it, the node is powered off, flashed, and powered on; the BMC checks the stream"
-    echo "against the image's .sha file. tpi asks for the BMC login unless it has a cached token."
+    echo "Write an image to a Turing Pi 2 node's eMMC through the BMC (TPI_HOSTNAME in"
+    echo "turingpi/mise.toml), streamed from this Mac: about 8 minutes per GB, plus verification."
+    echo "The image needs its <image>.sha beside it, as rk1-armbian-minimal's releases have; an"
+    echo ".img.xz works, the BMC decompresses it. Without --yes it only shows the nodes' power state"
+    echo "and the image. With it, the node is powered off, flashed, and powered on; the BMC checks the"
+    echo "stream against the .sha. tpi asks for the BMC login unless it has a cached token."
     echo
     echo "Example:"
-    echo "  $(basename "$0") 1 armbian/images/turingpi-rk1-01/<name>.img --yes"
+    echo "  $(basename "$0") 2 turingpi/rk1/images/<name>.img.xz --yes"
     exit 1
 }
 
@@ -23,16 +24,16 @@ CONFIRM="${3:-}"
 [[ "$NODE" =~ ^[1-4]$ && -n "$IMAGE" ]] || usage
 [[ $# -le 3 && ( -z "$CONFIRM" || "$CONFIRM" == --yes ) ]] || usage
 
-# tpi and TPI_HOSTNAME come from armbian/mise.toml whatever directory this runs from.
+# tpi and TPI_HOSTNAME come from turingpi/mise.toml whatever directory this runs from.
 tpi() {
-    mise -C "$ARMBIAN_DIR" exec -- tpi "$@"
+    mise -C "$TURINGPI_DIR" exec -- tpi "$@"
 }
 
 if [[ ! -f "$IMAGE" || ! -f "$IMAGE.sha" ]]; then
-    echo "Error: need $IMAGE and $IMAGE.sha, as build-image.sh writes them"
+    echo "Error: need $IMAGE and $IMAGE.sha, as a release has them"
     exit 1
 fi
-# Absolute, because tpi runs with armbian/ as its working directory.
+# Absolute, because tpi runs with turingpi/ as its working directory.
 IMAGE="$(cd "$(dirname "$IMAGE")" && pwd)/$(basename "$IMAGE")"
 SHA="$(awk '{print $1}' "$IMAGE.sha")"
 if [[ ! "$SHA" =~ ^[0-9a-f]{64}$ ]]; then
@@ -57,4 +58,4 @@ tpi power off -n "$NODE"
 tpi flash -n "$NODE" -i "$IMAGE" --sha256 "$SHA"
 tpi power on -n "$NODE"
 echo "Flashed node $NODE. The serial console (115200 baud, buffered by the BMC; re-run to read more):"
-echo "  mise -C '$ARMBIAN_DIR' exec -- tpi uart -n $NODE get"
+echo "  mise -C '$TURINGPI_DIR' exec -- tpi uart -n $NODE get"
