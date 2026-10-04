@@ -96,11 +96,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1786508826,
-        "narHash": "sha256-mYOa6xCNFt6FElPKPpjpu4QUa+WedmMeLkWxLFjquoU=",
+        "lastModified": 1791137154,
+        "narHash": "sha256-HZqszz5GG/W76EhuDgPvd6U2xnrgMfGf76y5XQLTrx4=",
         "owner": "andyattebery",
         "repo": "network-inventory-manager",
-        "rev": "5aa92215c2365261d1750f56b2b949cbfe7cabac",
+        "rev": "ea985a8369a0239aa0f75a91a6624b537a78a34f",
         "type": "github"
       },
       "original": {
