@@ -1,0 +1,6 @@
+# Values for the istiod chart 1.31.1 (oci://ghcr.io/istio/release/charts/istiod). Istio runs here
+# only as the Gateway API controller: no namespace is labelled for injection, so there are no
+# sidecars. The chart requests 2048Mi, sized for meshes; this lowers it (the CPU request stays 500m).
+resources:
+  requests:
+    memory: 512Mi

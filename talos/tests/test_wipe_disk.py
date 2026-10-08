@@ -10,29 +10,11 @@ import json
 
 import pytest
 
-from support import FIXTURES, calls, make_env, run
+from support import DISKS, calls, captured_disks, make_env, only, run
 
-DISKS = FIXTURES / "talos-disks.json"
 needs_disks = pytest.mark.skipif(
     not DISKS.exists(), reason="fixtures/talos-disks.json is captured from pi-cluster-01 (README.md, Tests)"
 )
-
-
-def captured():
-    """The capture as a list of resources: talosctl prints one JSON object after another."""
-    text, decoder, resources, at = DISKS.read_text(), json.JSONDecoder(), [], 0
-    while True:
-        while at < len(text) and text[at].isspace():
-            at += 1
-        if at == len(text):
-            return resources
-        resource, at = decoder.raw_decode(text, at)
-        resources.append(resource)
-
-
-def only(resources, transport):
-    (disk,) = [r for r in resources if r["spec"].get("transport") == transport]
-    return disk
 
 
 def wipe(tmp_path, talos, resources, *args):
@@ -59,6 +41,7 @@ def wipes(env):
         ["nas-01", "S1"],
         ["pi-cluster-01", "S1", "--force"],
         ["pi-cluster-01", "S1", "--yes", "extra"],
+        ["pi-cluster-01", "S1", "--insecure", "--yes", "extra"],
     ],
 )
 def test_refuses_bad_arguments_before_asking_the_node(tmp_path, talos, args):
@@ -70,7 +53,7 @@ def test_refuses_bad_arguments_before_asking_the_node(tmp_path, talos, args):
 
 @needs_disks
 def test_without_yes_it_only_shows_the_match(tmp_path, talos):
-    resources = captured()
+    resources = captured_disks()
     env, result = wipe(tmp_path, talos, resources, "pi-cluster-01", only(resources, "nvme")["spec"]["serial"])
     assert result.returncode == 1
     assert only(resources, "nvme")["metadata"]["id"] in result.stdout
@@ -80,14 +63,14 @@ def test_without_yes_it_only_shows_the_match(tmp_path, talos):
 
 @needs_disks
 def test_refuses_an_unknown_serial(tmp_path, talos):
-    env, result = wipe(tmp_path, talos, captured(), "pi-cluster-01", "NO-SUCH-SERIAL", "--yes")
+    env, result = wipe(tmp_path, talos, captured_disks(), "pi-cluster-01", "NO-SUCH-SERIAL", "--yes")
     assert result.returncode == 1
     assert wipes(env) == []
 
 
 @needs_disks
 def test_refuses_a_serial_two_disks_share(tmp_path, talos):
-    resources = captured()
+    resources = captured_disks()
     twin = copy.deepcopy(only(resources, "nvme"))
     twin["metadata"]["id"] = "nvme1n1"
     twin["spec"]["dev_path"] = "/dev/nvme1n1"
@@ -98,7 +81,7 @@ def test_refuses_a_serial_two_disks_share(tmp_path, talos):
 
 @needs_disks
 def test_never_wipes_the_sd_card(tmp_path, talos):
-    resources = captured()
+    resources = captured_disks()
     sd = only(resources, "mmc")
     # Some cards report no serial; give it one so the serial really selects the SD card.
     sd["spec"]["serial"] = sd["spec"].get("serial") or "0xdeadbeef"
@@ -110,11 +93,27 @@ def test_never_wipes_the_sd_card(tmp_path, talos):
 @needs_disks
 @pytest.mark.parametrize("host, node", [("pi-cluster-01", "192.168.1.181"), ("pi-cluster-06", "192.168.1.186")])
 def test_wipes_the_matched_drive_on_that_node(tmp_path, talos, host, node):
-    resources = captured()
+    resources = captured_disks()
     nvme = only(resources, "nvme")
     env, result = wipe(tmp_path, talos, resources, host, nvme["spec"]["serial"], "--yes")
     assert result.returncode == 0, result.stdout + result.stderr
     assert wipes(env) == [
         ["talosctl", "--talosconfig", "generated/talosconfig", "-e", node, "-n", node,
-         "wipe", "disk", nvme["metadata"]["id"]],
+         "wipe", "disk", "--insecure=false", nvme["metadata"]["id"]],
+    ]
+
+
+@needs_disks
+@pytest.mark.parametrize("flags", [["--insecure", "--yes"], ["--yes", "--insecure"]])
+def test_insecure_reaches_a_node_in_maintenance_mode(tmp_path, talos, flags):
+    resources = captured_disks()
+    nvme = only(resources, "nvme")
+    env, result = wipe(tmp_path, talos, resources, "pi-cluster-04", nvme["spec"]["serial"], *flags)
+    assert result.returncode == 0, result.stdout + result.stderr
+    node = "192.168.1.184"
+    assert calls(env, "talosctl") == [
+        ["talosctl", "--talosconfig", "generated/talosconfig", "-e", node, "-n", node,
+         "get", "disks", "--insecure=true", "-o", "json"],
+        ["talosctl", "--talosconfig", "generated/talosconfig", "-e", node, "-n", node,
+         "wipe", "disk", "--insecure=true", nvme["metadata"]["id"]],
     ]

@@ -26,6 +26,7 @@ NODES = [f"pi-cluster-0{n}" for n in range(1, 7)]
 CONTROL_PLANES = NODES[:3]
 WORKERS = NODES[3:]
 VIP = "192.168.1.187"
+KUBERNETES_VERSION = "v1.36.5"
 
 
 @pytest.fixture(scope="module")
@@ -148,6 +149,16 @@ def test_every_node_installs_to_sd_and_puts_its_volumes_on_nvme(generated):
         longhorn = doc(documents, "UserVolumeConfig", "longhorn")["provisioning"]
         assert longhorn == {"diskSelector": {"match": nvme}, "minSize": "150GB", "grow": False}, node
         assert doc(documents, "DHCPv4Config") is not None, node
+
+
+def test_every_node_runs_the_pinned_kubernetes(generated):
+    talos, _ = generated
+    for node in NODES:
+        assert doc(docs(talos, node), "KubeletConfig")["image"] == f"ghcr.io/siderolabs/kubelet:{KUBERNETES_VERSION}", node
+    for node in CONTROL_PLANES:
+        for kind, name in [("KubeAPIServerConfig", "kube-apiserver"), ("KubeControllerManagerConfig", "kube-controller-manager"),
+                           ("KubeSchedulerConfig", "kube-scheduler"), ("KubeProxyConfig", "kube-proxy")]:
+            assert doc(docs(talos, node), kind)["image"] == f"registry.k8s.io/{name}:{KUBERNETES_VERSION}", (node, kind)
 
 
 def test_the_installer_carries_the_schematic(generated):

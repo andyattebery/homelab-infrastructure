@@ -1,0 +1,19 @@
+# One LAN address for the cluster's one LoadBalancer Service, the Gateway's proxy. The inventory
+# reserves it as pi-cluster-ingress.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: pi-cluster
+  namespace: metallb-system
+spec:
+  addresses:
+    - 192.168.1.188/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: pi-cluster
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - pi-cluster

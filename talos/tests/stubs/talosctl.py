@@ -2,7 +2,7 @@
 """Stand-in for talosctl that answers only what would reach a node.
 
 - `get disks` prints $STUB_TALOS_DISKS, output captured from a real node (fixtures/).
-- `wipe disk` does nothing.
+- `wipe disk` and `reset` do nothing.
 - `list <dir>` and `read <file>` print talosctl's output for that path from $STUB_TALOS_SYSFS,
   captured from a real node (fixtures/). A path it doesn't hold fails, as a missing file does.
   Both fail for a node named in $STUB_TALOS_DOWN (comma-separated), as an unreachable node does.
@@ -54,7 +54,7 @@ def main(argv):
         with open(os.environ["STUB_TALOS_DISKS"]) as f:
             sys.stdout.write(f.read())
         return 0
-    if has(args, "wipe", "disk"):
+    if has(args, "wipe", "disk") or has(args, "reset"):
         return 0
     if "list" in args or "read" in args:
         return sysfs(args)

@@ -1,0 +1,17 @@
+# MetalLB's speaker needs host networking and raw sockets. Its docs require all three labels under
+# Pod Security admission; Talos enforces baseline everywhere else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# The Gateway and the proxy pods Istio generates for it. Baseline is enough: the pods run as
+# non-root and need only the net.ipv4.ip_unprivileged_port_start sysctl, which baseline allows.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-ingress

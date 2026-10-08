@@ -33,6 +33,10 @@ if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
+# Kubernetes 1.36, not Talos 1.14.1's default 1.37.0: Istio 1.31 supports 1.32-1.36 and
+# cert-manager 1.21 is tested on 1.33-1.36.
+KUBERNETES_VERSION=1.36.5
+
 umask 077
 mkdir -p generated
 
@@ -44,6 +48,7 @@ fi
 talosctl gen config pi-cluster https://192.168.1.187:6443 \
     --with-secrets generated/secrets.yaml \
     --install-image "factory.talos.dev/metal-installer/$(cat schematic.id):$VERSION" \
+    --kubernetes-version "$KUBERNETES_VERSION" \
     --config-patch @patches/all.yaml \
     --config-patch-control-plane @patches/controlplane.yaml \
     --output-types controlplane,worker,talosconfig \

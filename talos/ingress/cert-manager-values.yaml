@@ -1,0 +1,12 @@
+# Values for the cert-manager chart v1.21.2.
+crds:
+  enabled: true
+# Certificates for annotated Gateways. The Gateway API CRDs must exist before cert-manager starts.
+config:
+  gatewayAPI:
+    enabled: true
+# DNS-01 propagation checks go to public resolvers. In-cluster DNS ends at AdGuard, which answers a
+# fresh _acme-challenge TXT with NXDOMAIN and caches it (the same failure the Docker hosts' Traefik
+# works around; see ansible/roles/docker_compose_traefik/templates/docker-compose-traefik.yaml.j2).
+dns01RecursiveNameservers: "1.1.1.1:53,1.0.0.1:53"
+dns01RecursiveNameserversOnly: true

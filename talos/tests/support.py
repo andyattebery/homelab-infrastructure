@@ -10,6 +10,7 @@ TESTS_DIR = Path(__file__).resolve().parent
 TALOS_DIR = TESTS_DIR.parent
 STUBS = TESTS_DIR / "stubs"
 FIXTURES = TESTS_DIR / "fixtures"
+DISKS = FIXTURES / "talos-disks.json"
 
 # The talosctl that mise.toml pins: the one the scripts run in real use.
 REAL_TALOSCTL = subprocess.run(
@@ -84,6 +85,24 @@ def gen_secrets(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run([REAL_TALOSCTL, "gen", "secrets", "-o", str(path)], check=True, capture_output=True)
     return path
+
+
+def captured_disks():
+    """fixtures/talos-disks.json as a list of resources: talosctl prints one JSON object after
+    another."""
+    text, decoder, resources, at = DISKS.read_text(), json.JSONDecoder(), [], 0
+    while True:
+        while at < len(text) and text[at].isspace():
+            at += 1
+        if at == len(text):
+            return resources
+        resource, at = decoder.raw_decode(text, at)
+        resources.append(resource)
+
+
+def only(resources, transport):
+    (disk,) = [r for r in resources if r["spec"].get("transport") == transport]
+    return disk
 
 
 def leaves(node, path=()):
