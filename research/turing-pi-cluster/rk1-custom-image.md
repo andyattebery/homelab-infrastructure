@@ -1,6 +1,6 @@
 # Turing RK1: building a custom vendor-kernel image
 
-Researched 2026-10-01. **[I]** marks inference; **U** means unverified. Nothing here was run on an RK1; the build itself is planned in `plans/2026-10-01-rk1-armbian-vendor-image.md` (gitignored) and lands in `armbian/`.
+Researched 2026-10-01. **[I]** marks inference; **U** means unverified. Nothing here was run on an RK1; the build itself is planned in `plans/2026-10-01-rk1-armbian-vendor-image.md` (gitignored) and lands in `armbian/`. Since 2026-10-03 it lives in github.com/andyattebery/rk1-armbian-minimal (section Building in CI).
 
 Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-npu.md). The question was: package Rockchip's vendor kernel for the RK1 — on what base, which distro, which userspace, built where.
 
@@ -32,7 +32,7 @@ Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-np
 - **The PPA in detail:** maintained by amazingfate (an Armbian maintainer; configng adds it on noble only, pinned at 1001, `module_desktops.sh:109-110,135-136,207-213`). Last noble upload 2025-03-05 (chromium); media stack from 2024: `librockchip-mpp1 1.5.0-1+git20240612`, `librga2 2.2.0-1+git20231208`, `gstreamer1.0-rockchip1 1.14-4+git240423`, `ffmpeg 7:6.1.1-3ubuntu5+git240504` (rkmpp h264/hevc/mjpeg encoders, decoders through vp9/av1, rkrga filters). No libmali, Mesa or firmware. `rockchip-multimedia-config`'s postinst creates `/usr/lib64 -> /lib` and runs `udevadm trigger`. No kernel dependency.
 - **Does Rockchip target Debian?** Its docs and SDK do: RKNN user guide v2.3.2 Table 3-2 lists the board OS as "Debian 10 / 11 (aarch64)" with Python 3.7–3.11 (the table predates Rockchip's own cp312 wheel); MPP (`rockchip-linux/mpp`, active 2026-09-21) and libmali (`JeffyCN/mirrors` `libmali-next`) carry `debian/` packaging. The binaries don't care: librknnrt needs glibc 2.17, librkllmrt 2.29, libmali 2.34, `jellyfin-ffmpeg8` 2.38; noble has 2.39, trixie 2.41.
 - **Support (distro-info):** Ubuntu 24.04 standard to 2029-05-31 (ESM 2034); Debian 12 regular security ended 2026-07-11, LTS to 2028-06-30; Debian 13 to 2028-08-09, LTS to 2030-06-30; Debian 11 LTS ended 2026-08-31.
-- **Armbian releases for turing-rk1/vendor:** noble, resolute and trixie are `supported`; jammy and bookworm are `csc` (need `EXPERT=yes`). Armbian's stable-release target list builds RK1 vendor as **trixie minimal CLI** and **noble GNOME** (`armbian/os` `targets-release-community-maintained.yaml:215`, used by `minimal-cli-stable-debian` and `gnome-desktop-stable-ubuntu`). Its rolling images on armbian.com (2026-09-29) are Ubuntu 26.04 GNOME/KDE and Debian 13 minimal. Debian 13 minimal is in both.
+- **Armbian releases for turing-rk1/vendor:** noble, resolute and trixie are `supported`; jammy and bookworm are `csc` (need `EXPERT=yes`). Armbian's stable-release target list builds RK1 vendor as **trixie minimal CLI** and **noble GNOME** (`armbian/os` `targets-release-community-maintained.yaml:215`, used by `minimal-cli-stable-debian` and `gnome-desktop-stable-ubuntu`). Its rolling images on armbian.com (2026-09-29) are Ubuntu 26.04 GNOME/KDE and Debian 13 minimal. Debian 13 minimal is in both. **Update (2026-10-08):** dl.armbian.com serves only Debian 13 minimal and Ubuntu 26.04 GNOME/KDE desktop images for `turing-rk1` vendor, and nothing for noble; the target file's "noble GNOME" entry is stale ([cm4-os.md](cm4-os.md)).
 - **Radxa's Debian 12 repo** has apt-packaged `rknpu2-rk3588` and `python3-rknnlite2` 2.3.0 (cp311), but no MPP, RGA, GStreamer, FFmpeg or libmali (377 packages). Its noble suite has only metapackages.
 - **Trixie gives up** the GStreamer rockchip plugin; `jellyfin-ffmpeg8` covers FFmpeg.
 
@@ -71,6 +71,7 @@ Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-np
   - `librkllmrt.so` 1.3.1: rknn-llm release-v1.3.1 `rkllm-runtime/Linux/librkllm_api/aarch64/`; needs `libgomp1`; uses OpenCL when present (+7–10%, rknn-llm#531). Server and demos are source-only. rknn-llm#509: SIGSEGV on an RK1 with 1.3.0 from a header mismatch.
   - Radxa's apt `rknpu2-rk3588` 2.3.0 (with `rknn_server`) is bookworm-only; its `python3-rknnlite2` is cp311.
 - **Video:** `jellyfin-ffmpeg8` 8.1.3-1 is published for noble, trixie and resolute arm64; it bundles its own MPP (jellyfin-mpp-next, 2025-12) and RGA, depends on `ocl-icd-libopencl1`, and installs under `/usr/lib/jellyfin-ffmpeg/`. Jellyfin requires a BSP 5.10/6.1 kernel. Devices: `/dev/dri`, `/dev/dma_heap`, `/dev/rga`, `/dev/mpp_service`, `/dev/mali0` (tone-mapping). Jellyfin's udev rules (`rockchip.md`) set `mpp_service`/`rga` to video 0660 and the dma_heap nodes to 0666. Armbian's `50-mali.rules` (`KERNEL=="mali*", MODE="0660", GROUP="video"`) is installed by `family_tweaks_bsp` in `rockchip64_common.inc`, but `rockchip-rk3588.conf:61-63` redefines that function as a no-op. RK3588 images therefore have no Mali rule, which the first build on 2026-10-01 confirmed. An image must bring its own.
+- **2.5 GbE:** slots 1 and 2 have Realtek RTL8125 cards in their mini-PCIe slots ([turingpi/nodes.md](../../turingpi/nodes.md)). The vendor kernel has `CONFIG_R8169=m`, and `r8169.ko` carries the alias for `10ec:8125`. It asks for `rtl_nic/rtl8125a-3.fw` and `rtl_nic/rtl8125b-2.fw`, both in `armbian-firmware` `1-SA2a9e-B96c8-R448a`. Checked in the build's debs on 2026-10-03, not on a node.
 - **jjriek PPAs** still serve noble but stopped in 2024; their `libmali-g610-x11` is g13p0 with no Vulkan ICD.
 
 ## Vendor kernel trees, maintenance (window since 2026-07-03)
@@ -84,6 +85,45 @@ Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-np
 ## Flashing with `tpi` (v1.0.7)
 
 `tpi flash -n <1-4> -i ./image.img [--sha256 <hex>] [--skip-crc]` streams a local file from the client; `-l` instead names a file on the BMC's microSD. The BMC accepts `.xz`. Turing: "about 8 minutes for each 1 GB of the image file, plus an additional minute at the end for verification".
+
+## Building in CI (2026-10-03)
+
+The build moved to github.com/andyattebery/rk1-armbian-minimal. Its own workflow runs on GitHub's
+`ubuntu-24.04-arm` runner and publishes each build as a release.
+- **Not Armbian's GitHub Action** (`armbian/build` `action.yml` @8eb7e43e):
+  - it merges the unpinned `armbian/os` userpatches into the build (`:133-139, :199-204`);
+  - it versions the image from `armbian/ci` releases (`:161-197`);
+  - it hard-codes `SHARE_LOG="yes"` (`:243`);
+  - it passes BOARD/BRANCH/RELEASE on the command line instead of loading a userpatches config
+    (`:231-244`);
+  - it uploads everything in `output/images/` (`:563-574`).
+- **Native on the runner.** Armbian accepts noble as a build host (`host-release.sh:32`). Without
+  `PREFER_DOCKER=no` it relaunches in Docker whenever Docker works (`utils-cli.sh:224, :247`).
+- **Limits.** Release assets must be under 2 GiB (GitHub docs, "About releases"). GitHub documents the
+  standard arm64 runner for public repos as 4 CPUs, 16 GB RAM and 14 GB SSD, free. The first run's
+  root filesystem was 145 GB with 108 GB free, and the build peaks at about 4 GB (local measurement).
+- **First run (2026-10-03):** release `6.1.172-1` in 5 min 26 s (Armbian 4:23).
+  - Armbian's ghcr cache served U-Boot, the kernel, firmware, base-files and the rootfs; only the BSP
+    package was built, as in the local cold start.
+  - xz on 4 threads took 157 s.
+  - A free-disk step freed 8 GB the build doesn't need, so it was removed from the workflow. Build 2
+    (`6.1.172-2`) ran without it in 4 min 48 s.
+- **`.img.xz`.** `COMPRESS_OUTPUTIMAGE="sha,xz"` overrides Armbian's `sha,img` default
+  (`config-prepare.sh:199-200`).
+  - `xz` deletes the raw image (`compress-checksum.sh:207-209`).
+  - The `.sha` is the compressed file's, written `<hash> <name>` with one space (`:233-236`).
+  - GNU `sha256sum -c` accepts that form and macOS `shasum -a 256 -c` rejects it (both tested
+    2026-10-03), so the build rewrites it with two spaces.
+  - `tpi flash` takes `.xz`: the BMC decompresses by extension and checks `--sha256` against the
+    compressed stream (bmcd v2.3.7 `data_transfer.rs`). Confirmed 2026-10-03: release `6.1.172-1`
+    flashed to node 2 with the `.sha`'s hash in 7 minutes, the same time as the 2.41 GiB raw image.
+- **Licences of the redistributed blobs:**
+  - Arm's Mali EULA (ginkage/libmali-rockchip `END_USER_LICENCE_AGREEMENT.txt`) allows
+    redistribution with "a copy of this Licence" (clauses 1.1(ii), 1.2(iii)).
+  - airockchip/rknn-llm's LICENSE is BSD-style: reproduce the notice.
+  - airockchip/rknn-toolkit2's LICENSE is a 5-line "All rights reserved" statement with no
+    redistribution grant. The `rknn-toolkit-lite2` wheel declares no licence on PyPI.
+  - Each release attaches all three texts.
 
 ## Open
 
@@ -100,7 +140,7 @@ Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-np
   - The Armbian side needed two settings:
     - `INCLUDE_HOME_DIR=yes`: Armbian leaves `/home` out of images by default.
     - A Mali udev rule of its own: `rockchip-rk3588.conf` makes `family_tweaks_bsp` a no-op, so `50-mali.rules` is never installed.
-  - Details: `armbian/README.md`.
+  - Details: github.com/andyattebery/rk1-armbian-minimal (the build) and `turingpi/rk1/README.md` (flashing this homelab's nodes).
 
 ## Sources
 
@@ -114,3 +154,4 @@ Follows [rk1-os-releases.md](rk1-os-releases.md) and [rk1-gpu-npu.md](rk1-gpu-np
 - repo.jellyfin.org `debian/dists/trixie` and `ubuntu/dists/noble` Packages; jellyfin.org docs `rockchip.md` @85e9359.
 - rockchip-linux/mpp `debian/changelog`; OrbStack docs (architecture, machines, file-sharing, FAQ, release notes), orbstack/orbstack #1158, #2329, #2655.
 - turing-machines/tpi v1.0.7 `src/{cli.rs,legacy_handler.rs}`; turing-machines/bmcd v2.3.7 `streaming_data_service/data_transfer.rs`; docs.turingpi.com `turing-rk1-flashing-os`.
+- GitHub docs: 'About releases', 'GitHub-hosted runners' (2026-10-03); ginkage/libmali-rockchip `v1.10-1-e96672b` `END_USER_LICENCE_AGREEMENT.txt`; airockchip/rknn-llm `release-v1.3.1` `LICENSE`; airockchip/rknn-toolkit2 `v2.3.2` `LICENSE`; PyPI `rknn-toolkit-lite2` 2.3.2 JSON.

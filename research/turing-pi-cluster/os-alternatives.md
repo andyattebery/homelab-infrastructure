@@ -38,7 +38,7 @@ The question: which ways of building this cluster let Kubernetes pods use the Or
 - **A working recipe** (from the #1453 reporter, 2025-05-22): Orin Nano dev kit 8 GB, JetPack 6.1, k3s v1.31.5+k3s1, device plugin v0.17.1 "without any issue", toolkit 1.17.7-1 with CDI, and a separately installed containerd passed via `--container-runtime-endpoint`.
   - k3s "will automatically detect alternative container runtimes", and pods use `runtimeClassName: nvidia` ([k3s](https://docs.k3s.io/advanced#nvidia-container-runtime-support)).
 - **Caveats.** A PREEMPT_RT kernel broke pod cgroups. One NVIDIA reply suggested `--docker` for a cgroup failure on JetPack 6.0.
-- **Longhorn on the Orin.** L4T R36.5.2's kernel is built from a `defconfig` with no `CONFIG_ISCSI_TCP`, and R38.4 is the same. So the Orin can't attach Longhorn volumes without a kernel rebuild [I]. jetpack-nixos builds the same defconfig with `autoModules = false`.
+- **Longhorn on the Orin.** L4T R36.5.2's kernel is built from a `defconfig` with no `CONFIG_ISCSI_TCP`, and R38.4 is the same. So the Orin can't attach Longhorn volumes without a kernel rebuild [I]. jetpack-nixos builds the same defconfig with `autoModules = false`. R39.2.1 (JetPack 7.2.1) is the same: its shipped kernel config has no `ISCSI_TCP` ([kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md)).
 
 ## The options
 
@@ -99,6 +99,7 @@ The question: which ways of building this cluster let Kubernetes pods use the Or
 - **SUSE Linux Micro 6.2:** Orin is supported, with the GPU via SUSE kernel-module packages and JetPack 6.2.2; firmware needs an x86 host. Kubernetes GPU is not covered. RK3588: not found.
 - **Ubuntu Core 24:** "the entire range of NVIDIA Jetson Orin devices". MicroK8s's GPU add-on uses the GPU Operator, which doesn't support Jetson. RK3588: not found.
 - **balenaOS:** has a `jetson-orin-nano-devkit-nvme` device type, but no RK1, and it is not Kubernetes.
+- **More distros on NVIDIA's kernel (2026-10-02):** Canonical's certified Ubuntu Server 22.04, RHEL 9.8 / Red Hat Device Edge (GA), and OE4T meta-tegra (R36.5.2 and R39.2.1 branches). See [orin-nano-install.md](orin-nano-install.md).
 
 ### E. Talos on RK1, RK1, CM4, with the Orin standalone
 

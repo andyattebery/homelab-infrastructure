@@ -4,6 +4,8 @@ Researched 2026-09-26. **[I]** marks inference. Most cells carry a source key (l
 
 Kernel-config lines come from grepping the raw files. A WebFetch summary of the 10,638-line Talos config reported most of these symbols as absent, and it was wrong.
 
+For what a Kubernetes pod can use on the vendor OSes the boards run since 2026-10-03, see [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md).
+
 Legend: **Y** supported · **P** partial · **N** not supported · **U** unverified.
 
 ## The Talos kernel, for reference
@@ -72,7 +74,7 @@ For the 2026-10-01 release state, and an Ubuntu 26.04 generic-kernel (7.0) colum
 
 ## Raspberry Pi CM4 (BCM2711)
 
-| Feature | Talos 1.14.1 | NixOS + nixos-hardware (RPi kernel 6.18.50) | NixOS, mainline 6.18 | Raspberry Pi OS (6.18.34) | From a pod |
+| Feature | Talos 1.14.1 | NixOS + nixos-hardware (RPi kernel 6.18.50) | NixOS, mainline 6.18 | Raspberry Pi OS (6.18.50) | From a pod |
 |---|---|---|---|---|---|
 | CPU, cpufreq, thermal | Y (TC:693,4788) | Y (R:73,851) | Y [I] | Y (R:73,851) | — |
 | eMMC | Y (TC:7037; TM:110). The Talos docs call the CM4 community-tested (TD) | Y (R:1434) | Y [I] | Y | local PV |
@@ -80,8 +82,8 @@ For the 2026-10-01 release state, and an Ubuntu 26.04 generic-kernel (7.0) colum
 | Ethernet (bcmgenet) | Y (TC:2951,3307) | Y (R:533) | Y [I] | Y | — |
 | USB 2.0 (dwc2) | P: dwc2 built (TC:6749,6756), but the CM4 needs a host-mode overlay (JG), which can be added through the overlay's `configTxtAppend` (SRP) [I] | Y (R:1315) | P [I] | Y with the overlay (JG) | device plugin |
 | GPU (v3d) | P: v3d/vc4 only via the `vc4` extension (TE); CMA defaults to 16 MB (TC:10209) and must be raised (TD) | Y (R:1103) | Y (DEF:974) | Y | `renderD128` + Mesa v3d/v3dv (V3D) |
-| H.264 decode/encode (bcm2835-codec) | N: not in mainline (MRPI); STAGING off (TC:7571) | Y (R:1550; NH:36) | N | Y: `/dev/video10` decode, `/dev/video11` encode (R:52-58) | map `/dev/video10-12` (FRD; GDP) |
-| HEVC decode | N: not in mainline through v7.3-rc4 (MRPI); the upstream series is at v6 (HEVC) | Y (R:1034) | N | Y (R, hevc_d.c:321) | stateless V4L2; Frigate's `preset-rpi-64-h265` (FRD) |
+| H.264 decode/encode (bcm2835-codec) | N: not in mainline (MRPI); STAGING off (TC:7571) | Y (R:1550; NH:36) | N | Y: `/dev/video10` decode, `/dev/video11` encode (R:52-58) | map `/dev/video10` (decode), `/dev/video11` (encode), `/dev/video12` (ISP). Frigate's docs name `video11` or all of `/dev/video*` (FRD; GDP) |
+| HEVC decode | N: not in mainline through v7.3-rc4 (MRPI); the upstream series is at v6 (HEVC) | Y (R:1034) | N | Y (R, hevc_d.c:321) | stateless V4L2: `/dev/video19` plus its media node. Frigate's `preset-rpi-64-h265` uses the stateful `hevc_v4l2m2m`, so it probably misses this decoder [I] (FRD) |
 
 - **The Talos CM4 overlay boots the Talos mainline kernel.** The Pi firmware loads `kernel=u-boot.bin`, and the downstream kernels are deleted as "not used by Talos boot flow" (SRP). The DTB is the Pi firmware's downstream bcm2711 DTB [I].
 - **Open Ethernet report.** On a Pi 4, which uses the same bcmgenet driver: "NETDEV WATCHDOG … transmit queue 1 timed out", Talos 1.12.2, no workaround (sbc-raspberrypi#72, 2026-01-25).
@@ -137,6 +139,7 @@ The first column says what the module has; many blocks exist only under NVIDIA's
    - USB 3: slot 4 only
    - 25 W sustained per slot: unverified
 4. **Kept:** Ethernet [I], the module's own microSD slot, one M.2 x4.
+5. **Install paths, OS on microSD with the NVMe for data, the firmware-update lock, and distros on NVIDIA's kernel (2026-10-02):** [orin-nano-install.md](orin-nano-install.md).
 
 ## Turing Pi 2 (v2.5)
 
@@ -185,7 +188,7 @@ The first column says what the module has; many blocks exist only under NVIDIA's
 - **NIX**: [nixpkgs release-26.05](https://github.com/NixOS/nixpkgs/tree/release-26.05) (`linux-kernels.nix`, `common-config.nix`, `mesa/`)
 - **NR**: [GiyoMoon/nixos-turing-rk1](https://github.com/GiyoMoon/nixos-turing-rk1)
 - **NH**: [nixos-hardware `raspberry-pi/common/kernel.nix`](https://github.com/NixOS/nixos-hardware/blob/master/raspberry-pi/common/kernel.nix)
-- **R**: [raspberrypi/linux@stable_20260911](https://github.com/raspberrypi/linux/tree/stable_20260911) (`bcm2711_defconfig`, `bcm2835-v4l2-codec.c`, `hevc_d.c`). RPi OS on 6.18.34 per 9to5linux.
+- **R**: [raspberrypi/linux@stable_20260911](https://github.com/raspberrypi/linux/tree/stable_20260911) (`bcm2711_defconfig`, `bcm2835-v4l2-codec.c`, `hevc_d.c`). RPi OS images from 2026-09-15 on carry 6.18.50 ([release notes](https://downloads.raspberrypi.com/raspios_lite_arm64/release_notes.txt)).
 
 **Userspace and field reports**
 - **MT**: [Mesa Teflon](https://docs.mesa3d.org/teflon.html) · **PF**: [Mesa Panfrost](https://docs.mesa3d.org/drivers/panfrost.html) · **V3D**: [Mesa V3D](https://docs.mesa3d.org/drivers/v3d.html)

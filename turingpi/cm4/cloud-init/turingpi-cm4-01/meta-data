@@ -1,0 +1,7 @@
+# turingpi-cm4-01 (Turing Pi 2 node 3). turingpi/cm4/scripts/seed-image.sh writes it into the
+# image's system-boot partition, replacing Ubuntu's, next to turingpi/cm4/cloud-init/user-data.
+# dsmode: local is the value Ubuntu's own meta-data sets. cloud-init takes the hostname from
+# local-hostname.
+dsmode: local
+instance-id: turingpi-cm4-01
+local-hostname: turingpi-cm4-01

@@ -1,0 +1,49 @@
+#cloud-config
+# First-boot settings for every Turing RK1 in this homelab (turingpi/rk1/README.md), on the
+# rk1-armbian-minimal image, whose first boot is cloud-init (NoCloud) from its FAT armbi_boot
+# partition.
+#
+# turingpi/rk1/scripts/flash-latest-release.sh writes this file into that partition as user-data,
+# replacing the image's default, next to the node's meta-data (turingpi/rk1/cloud-init/<hostname>/).
+# cloud-init applies both on the first boot, then disables itself (the last write_files entry).
+#
+# Access is the CM4's and the Jetson's: user services, uid 1000, passwordless sudo that keeps
+# SSH_AUTH_SOCK, SSH keys only, no password. The keys are copied from nix/modules/ssh-keys.nix. A key
+# changed there must be changed here too. users has no "default" entry, so the distro's default
+# user isn't created. The image sets root's password to 1234; runcmd replaces the hash with "*", so
+# root has no password and 1234 can't be restored. A locked or "*" password still lets root's cron
+# jobs run; an expired one would not.
+
+users:
+  - name: services
+    uid: 1000
+    groups: [sudo, video, render]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINbbqGPcNfykhW1otDDfnW5NspRaHJYbpVVu+ZpobYtb"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDjcevFbdJJVYgNRDzkU8qDlamNFm2/qcXEYAW2HmNqa"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzB/Pe+lol11t3Fwit7haMr7QsSpG4y/mAokuvZPXsu"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFM8kpGI/ndVzIGhlOG8vcFzKky9SenwP9+7cvZcsA88"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ4o8GVZBMulmiIVoqt5OJ2n5tlU4bx1+Mlnfkz974x/"
+ssh_pwauth: false
+
+timezone: America/Chicago
+locale: en_US.UTF-8
+manage_etc_hosts: localhost
+
+write_files:
+  - path: /etc/sudoers.d/91-ssh-auth-sock
+    permissions: "0440"
+    content: |
+      Defaults env_keep += "SSH_AUTH_SOCK"
+  # cloud-init runs once. Left enabled, it reads armbi_boot on every boot: edits there would do
+  # nothing unless instance-id changed, and deleting the files would make it treat the node as new
+  # and regenerate the SSH host keys. Re-provisioning is reflashing.
+  - path: /etc/cloud/cloud-init.disabled
+    defer: true
+    content: ""
+
+runcmd:
+  - [usermod, -p, "*", root]

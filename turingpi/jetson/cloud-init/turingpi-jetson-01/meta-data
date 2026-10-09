@@ -1,0 +1,5 @@
+# turingpi-jetson-01 (Turing Pi 2 node 4). Copy onto the card's CIDATA volume next to the user-data
+# rendered from turingpi/jetson/cloud-init/user-data.tpl (turingpi/jetson/README.md). cloud-init
+# takes the hostname from local-hostname.
+instance-id: turingpi-jetson-01
+local-hostname: turingpi-jetson-01

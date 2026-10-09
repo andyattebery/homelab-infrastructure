@@ -1,0 +1,5 @@
+# turingpi-rk1-02 (Turing Pi 2 node 2). turingpi/rk1/scripts/flash-latest-release.sh writes it into
+# the image's armbi_boot partition next to turingpi/rk1/cloud-init/user-data. cloud-init takes the
+# hostname from local-hostname.
+instance-id: turingpi-rk1-02
+local-hostname: turingpi-rk1-02

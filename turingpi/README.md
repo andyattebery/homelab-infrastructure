@@ -4,17 +4,20 @@ Tooling for the Turing Pi 2 board's BMC, used for every node:
 - `tpi`, Turing's CLI, pinned in `mise.toml` with the BMC's address;
 - `scripts/flash-node.sh`, which writes an image to a node's eMMC.
 
-One directory per kind of node holds what is specific to it: [rk1/](rk1/) for the Turing RK1s. The
-Jetson's is [../jetson/](../jetson/).
+One directory per kind of node holds what is specific to it: [rk1/](rk1/) for the Turing RK1s,
+[jetson/](jetson/) for the Jetson Orin Nano, and [cm4/](cm4/) for the Raspberry Pi CM4.
 
 ## Files
 
 | Path | What |
 |---|---|
-| `hardware.md` | What is in each slot: module, host, IP, storage and add-in card. |
+| `nodes.md` | What is in each slot: module, host, IP, storage, add-in card and OS. |
 | `mise.toml` | `tpi` 1.0.7 and `TPI_HOSTNAME`, the BMC's IP. |
 | `scripts/flash-node.sh` | Writes an image to a node's eMMC through the BMC. Prints its usage with `-h`. |
-| `rk1/` | The RK1s: the script that flashes the latest release, and its downloads (gitignored). |
+| `scripts/write-seed.sh` | Writes a cloud-init seed into the FAT partition of a copy of an `.img.xz`, recompressed, for the CM4 and RK1 scripts. Prints its usage with `-h`. |
+| `rk1/` | The RK1s: their cloud-init seed, the script that seeds and flashes the latest release, and its downloads (gitignored). |
+| `jetson/` | The Jetson Orin Nano: its cloud-init seed for the microSD card, its first QSPI flash, and its downloads (gitignored). |
+| `cm4/` | The Raspberry Pi CM4: its cloud-init seed, the script that writes it into Ubuntu's image, and the seeded images (gitignored). |
 
 ## Logging in to the BMC
 
@@ -32,11 +35,12 @@ With `--yes` it:
 3. streams the image from the Mac, which the BMC checks against the `.sha`;
 4. powers the node on.
 
-A `.img.xz` works: the BMC decompresses it, and checks the `.sha` against the compressed stream. A
-flash takes about 7 minutes either way.
+A `.img.xz` works: the BMC decompresses it, and checks the `.sha` against the compressed stream. An
+RK1 `.img.xz` (about 500 MiB, 2.5–3.2 GiB decompressed) flashes in 7–8 minutes; the CM4's raw
+4.6 GiB `.img` took about 25. `scripts/write-seed.sh` writes `.img.xz` for that reason.
 
-For an RK1, `turingpi/rk1/scripts/flash-latest-release.sh` downloads the latest image first and then
-runs this ([rk1/](rk1/)).
+For an RK1, `turingpi/rk1/scripts/flash-latest-release.sh` downloads the latest image and writes the
+node's cloud-init seed into it first, then runs this ([rk1/](rk1/)).
 
 ## Traps
 

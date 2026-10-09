@@ -180,6 +180,8 @@ Docs are pinned to `docs.siderolabs.com/talos/v1.14/`. The Kubernetes guides und
 
 Addresses: see [ops-findings.md](ops-findings.md).
 
+**Update (2026-10-03):** slot 3's SATA ports are empty, so `turingpi-cm4-01` has no data disk. What is installed is in [turingpi/nodes.md](../../turingpi/nodes.md).
+
 **Design.**
 - **Config generation.** Plain talosctl.
   - `gen secrets` once; the bundle is kept as a 1Password Document.

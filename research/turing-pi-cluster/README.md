@@ -16,6 +16,56 @@ The work started as a Talos plan. This folder is the research behind it.
 
 **Superseded (2026-09-26):** the cluster is being built on the DeskPi Super6C (6× CM4 Lite) instead. See [../super6c-cluster/](../super6c-cluster/README.md).
 
+## The CM4's OS (2026-10-08)
+
+`turingpi-cm4-01` runs stock Armbian `rpi4b` 26.8.1, installed to match the RK1s. That match no longer holds: the RK1s run a custom build on Rockchip's vendor kernel. Details: [cm4-os.md](cm4-os.md).
+
+**Decided (owner, 2026-10-08): Ubuntu 26.04 on the RK1s and the CM4; the Jetson stays on Ubuntu 24.04,** which is what NVIDIA's L4T supports. That is Ubuntu on all four nodes, in two releases.
+
+**Recommendation for the CM4: Canonical's Ubuntu Server 26.04 for Raspberry Pi.**
+- **Why:** Canonical certifies the CM4. Its A/B boot falls back by itself when a kernel update fails. Its first boot is cloud-init, like the Jetson's card.
+- **What it needs:** an EEPROM dated 2022-11-25 or later, and a small script that puts the `user-data` seed onto the image the BMC writes.
+- **On the kernel-update reports:** the two CM4 reports are single-user and unconfirmed, and the widespread `piboot-try` failure is a low-RAM problem.
+- **The fallback is Armbian's `rpi4b` 26.04 image,** if the EEPROM or the seeding doesn't work out. Armbian doesn't test the CM4, its first boot is a manual wizard, and its boot-partition packaging has no fallback.
+
+**For the RK1s,** 26.04 means building a minimal image Armbian doesn't publish. Armbian ships 26.04 for this board only as desktops. `rk1-armbian-minimal` then needs reworking from Debian 13, and the image must pass its hardware checks again.
+
+## Kubernetes on the vendor OSes (2026-10-07)
+
+Since 2026-10-03 the RK1s run Debian 13 on Rockchip's vendor kernel and the Orin runs L4T R39.2.1 ([turingpi/nodes.md](../../turingpi/nodes.md)). The Talos answer above therefore no longer says what the boards could do. Details: [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md).
+
+**Bottom line: under Kubernetes on these OSes, the Orin's GPU and the CM4's H.264 reach pods the standard way. The RK1's accelerators reach them only partly: its full video and most NPU front ends need privileged pods.** Nothing here has been run on the boards.
+- **Orin:**
+  - CUDA and TensorRT work through NVIDIA's device plugin and CDI. That is reported working on R39.2.1 with k3s 1.36.
+  - NVDEC comes with the GPU allocation, unverified.
+  - NVIDIA calls Kubernetes on Jetson community support, and its GPU Operator excludes Jetson.
+  - Its stock kernel runs k3s's defaults (Flannel VXLAN, iptables kube-proxy). It can't run nftables or IPVS kube-proxy or Cilium, and has no iSCSI for Longhorn.
+- **RK1:**
+  - GPU (OpenCL, Vulkan) and RGA: unprivileged [I].
+  - NPU through the C runtimes: unprivileged [I, untested]. Python RKNN, Frigate and Immich need privileged pods.
+  - MPP video: the full codec set only in privileged pods.
+- **CM4:**
+  - Raspberry Pi OS: H.264 decode and encode and the V3D GPU, yes. The HEVC hardware is stateless, and most apps miss it.
+  - Canonical's Ubuntu 26.04, the recommended OS: the same, with the HEVC decoder in its 7.0 kernel.
+  - Talos: no codecs.
+- **No maintained device plugin exists for the Rockchip or Pi blocks.** `squat/generic-device-plugin` is the generic route.
+- **The boards shouldn't join the Super6C Talos cluster.** Sidero won't support mixed clusters, and the Orin's kernel can't run that cluster's nftables kube-proxy [I].
+
+**Kubernetes is a consistent layer for the workloads, not for the OSes.** Each board's kernel and firmware come from its own vendor (the RK1 build, NVIDIA's L4T, the Pi kernel tree), and those upgrades stay three separate jobs with or without it. Docker CE is already the same version on Debian and Ubuntu.
+
+**Recommendation:** run the boards as Docker hosts managed by Ansible. Choose k3s for its operating model, or to keep RK1 services up during RK1 upgrades, not to reduce OS maintenance. The work that does reduce OS maintenance is automating RK1 kernel updates and keeping every node on Ubuntu ([cm4-os.md](cm4-os.md)). The argument is in [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md#decision-kubernetes-on-the-turing-pi-or-not).
+
+## Storage for a self-contained board (2026-10-08)
+
+**The goal:** the board is self-contained. Its primary data is local, except data that lives only on nas-01, and it may serve other systems, such as the Wyoming whisper stack for Home Assistant. Details: [node-storage.md](node-storage.md).
+
+**Bottom line: each node's NVMe is good enough for its own data. Two S3610s in a ZFS mirror on slot 3, with the CM4 as the other nodes' file server, doesn't fit.**
+- The apps' own docs require local disk for the data worth protecting: databases, SQLite, Docker's root. What may go on NFS, mostly models, can be downloaded again.
+- The CM4 serves it through its single 1 GbE port: about 110 MB/s shared, against about 3 GB/s from local NVMe.
+- It makes the slowest node a single point of failure. The S3610s' power-loss protection doesn't help when the whole board shares one power supply.
+- What the NVMe drives lack is redundancy. Back up the small irreplaceable part to backup-01, which is off the board and already feeds the offsite copy.
+- Keep the S3610s shelved until something writes a lot locally, such as camera recordings. Then put them on the node that writes the data, not behind NFS.
+
 ## Hardware
 
 | Slot | Module | Data disk (from `hardware/ssd-inventory.md`, "Unused / shelved") |
@@ -28,6 +78,8 @@ The work started as a Talos plan. This folder is the research behind it.
 - The two NVMe drives were picked to match in size. Raw capacity is about 2 TB, roughly 1 TB of volumes at 2 replicas [I].
 - The three Intel S3610s stay unassigned. At least one is the Proxmox Ceph cold spare.
 - The Orin is `jetson-01` today. It sits on its own carrier and serves Wyoming faster-whisper and piper to Home Assistant ([ops-findings.md](ops-findings.md)).
+
+**Update (2026-10-03):** what is installed now is in [turingpi/nodes.md](../../turingpi/nodes.md). It differs from the table: slot 3's SATA ports are empty, the Orin is in slot 4 as `turingpi-jetson-01` with an HP EX950 1 TB NVMe, and slots 1 and 2 carry Realtek RTL8125 2.5 GbE cards in their mini-PCIe slots.
 
 ## Conclusions
 
@@ -92,6 +144,9 @@ Kairos is out: it has no RK3588 support and no Orin Nano model.
 - **Which accelerators, if any, should pods use?** That decides the OS.
 - **If Talos:** build on 1.14.1 and live with the mmc boot race (#14359), re-applying the config when a node lands in maintenance mode? Or wait for a 1.14.x that carries fix #14370? Its backport was only "Proposed" on 2026-09-26.
 - **If the Orin moves into slot 4, under any OS:** the per-node power budget for 25 W and the fan header wiring are undocumented.
+- **Untested here: Canonical's Ubuntu 26.04 on the CM4** (its EEPROM date, the seeding route, whether the first kernel update applies) **and a 26.04 minimal RK1 image.** See [cm4-os.md](cm4-os.md#open).
+- **Kubernetes on the Turing Pi, or Docker hosts?** See [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md#decision-kubernetes-on-the-turing-pi-or-not); its unverified items are listed there under "Open".
+- **Before relying on the NVMe drives:** read their SMART wear. They came out of Proxmox hosts. See [node-storage.md](node-storage.md#open).
 
 ## Repo-level findings
 
@@ -109,5 +164,10 @@ Kairos is out: it has no RK3588 support and no Orin Nano model.
 | [os-alternatives.md](os-alternatives.md) | Why the Orin GPU needs NVIDIA's stack, Kubernetes GPU on Jetson, and options A–E in detail |
 | [rk1-gpu-npu.md](rk1-gpu-npu.md) | 2026-10-01: getting the RK1's GPU and NPU working. Ubuntu 26.04 generic (firmware, Mesa/rocket gaps, Teflon, booting via U-Boot v2026.07 → shim → GRUB, DT and console) vs Armbian vendor (kbase/libmali or panthor, RKNN/RKLLM, install) |
 | [rk1-custom-image.md](rk1-custom-image.md) | 2026-10-01: building a custom RK1 vendor-kernel image. Base (Armbian framework vs stock rootfs vs defcom5/Radxa/BredOS), distro (Ubuntu 24.04 vs Debian 13; Rockchip targets Debian), Armbian framework internals (hosts, OrbStack, userpatches, pins, apt/version traps, first boot), libmali/RKNN/RKLLM/video userspace, vendor-tree maintenance, `tpi flash` |
+| [orin-nano-install.md](orin-nano-install.md) | 2026-10-02: installing the Orin Nano in a Turing Pi slot. One x86 QSPI flash (not SDK Manager or the JetPack ISO), the EEPROM fix, the OS on microSD from a `jetson-disk-image-creator.sh` image with the NVMe for data, headless minimal/basic rootfs, locking QSPI against apt, distros on NVIDIA's kernel, Turing's steps |
+| [orin-nano-qspi-updates.md](orin-nano-qspi-updates.md) | 2026-10-03: QSPI updates through apt. How NVIDIA's bootloader package reaches QSPI; rebuilding it around a patched capsule with NVIDIA's tools; a private apt repo that carries the release and gates it; checks |
+| [cm4-os.md](cm4-os.md) | 2026-10-08: which OS `turingpi-cm4-01` should run. Armbian `rpi4b`, Ubuntu 24.04 and 26.04, and Raspberry Pi OS Lite, compared on kernel and update cadence, codecs, boot firmware and EEPROM, first boot after `tpi flash`, memory cgroup, and support dates. Records the decision (Ubuntu 26.04 on the RK1s and the CM4) and the RK1 image rework it needs |
+| [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md) | 2026-10-07: what a Kubernetes pod can use on the vendor OSes the boards now run (RK1 on Armbian vendor 6.1, Orin on L4T R39.2.1, CM4 on Raspberry Pi OS or Talos); how device nodes reach pods; each kernel's Kubernetes readiness; joining the Talos cluster vs a separate k3s cluster vs Docker hosts |
+| [node-storage.md](node-storage.md) | 2026-10-08: each node's NVMe vs a CM4 file server on two S3610s in slot 3. Slot-3 SATA and power, the 1 GbE ceiling, ZFS on each OS, the three NVMe drives' specs and quirks, what each app allows on NFS, and backups to backup-01 |
 | [rk1-os-releases.md](rk1-os-releases.md) | 2026-10-01 follow-up: current RK1 releases (Turing, Armbian Ubuntu 26.04 / Debian 13 on vendor 6.1.172, kurochan's builds), and Ubuntu 26.04's generic 7.0 kernel on the RK1 with its EFI boot path |
 | [ops-findings.md](ops-findings.md) | The fixed-IP block, NIM behaviour, vaulted values, jetson-01's role, earlier attempts in the repo, local tooling |
