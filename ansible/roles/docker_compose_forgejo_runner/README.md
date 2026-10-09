@@ -3,7 +3,7 @@
 Deploys a Forgejo Actions runner (`forgejo-runner`) as a compose stack. The runner starts each
 job's container on the host's own Docker.
 
-## Status: WIP
+## Status: Production
 
 ## Inputs
 
@@ -58,7 +58,7 @@ The runner gets the host's Docker socket and starts each job's container there, 
 its own. That gives the runner root-equivalent control of the host's Docker. Anything that can
 change its config or its image has the same control.
 
-Jobs get neither: the config keeps `container.docker_host: "-"`, `container.privileged: false`
+Jobs get none of that. The config keeps `container.docker_host: "-"`, `container.privileged: false`
 and `container.valid_volumes: []`. A job runs as root inside its container, but it can't reach the
 host's Docker or mount the host's files.
 

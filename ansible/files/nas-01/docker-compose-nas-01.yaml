@@ -6,6 +6,12 @@ services:
     environment:
       - USER_UID=${PUID}
       - USER_GID=${PGID}
+      - FORGEJO__mailer__ENABLED=true
+      - FORGEJO__mailer__SMTP_ADDR=${FORGEJO_SMTP_HOST}
+      - FORGEJO__mailer__SMTP_PORT=${FORGEJO_SMTP_PORT}
+      - FORGEJO__mailer__USER=${FORGEJO_SMTP_USERNAME}
+      - FORGEJO__mailer__PASSWD=${FORGEJO_SMTP_PASSWORD}
+      - FORGEJO__mailer__FROM=forgejo@${DOMAIN_NAME}
     restart: unless-stopped
     networks:
       - traefik

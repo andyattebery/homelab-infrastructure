@@ -243,6 +243,10 @@
           LINKWARDEN_POSTGRES_USER: "{{ linkwarden_postgres_user }}"
           LINKWARDEN_POSTGRES_PASSWORD: "{{ linkwarden_postgres_password }}"
           LINKWARDEN_NEXTAUTH_SECRET: "{{ linkwarden_nextauth_secret }}"
+          FORGEJO_SMTP_HOST: "{{ smtp_host }}"
+          FORGEJO_SMTP_PORT: "{{ smtp_port }}"
+          FORGEJO_SMTP_USERNAME: "{{ smtp_username }}"
+          FORGEJO_SMTP_PASSWORD: "{{ smtp_password }}"
       tags: docker_compose_nas_01
     # The Actions runner for jetson-orin-nano-l4t-bootloader on Forgejo, which builds the Turing Pi
     # Jetson's L4T packages and publishes them to Forgejo's Debian registry
