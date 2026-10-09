@@ -12,15 +12,18 @@
     - name: Enable read/write on filesystem
       ansible.builtin.raw: rw
       changed_when: false
+      tags: always # --tags runs write files too
     - name: Gather facts
       ansible.builtin.setup:
   post_tasks:
     - name: Disable read/write on filesystem
       ansible.builtin.raw: ro
       changed_when: false
+      tags: always
 
   roles:
     - role: pikvm
+      tags: kvm_switch # renders override.yaml, which holds the KVM switch buttons
     - role: remote_power_control
       when: inventory_hostname == 'pikvm'
       vars:
@@ -39,6 +42,9 @@
         pikvm_hid_username: "{{ pikvm_hid_api_username }}"
         pikvm_hid_password: "{{ pikvm_hid_api_password }}"
         pikvm_hid_hostname: "pikvm-hid.{{ domain_name }}"
+    - role: pikvm_ch9329_kvm_switch_input
+      when: inventory_hostname == 'pikvm'
+      tags: kvm_switch
     - role: esphome_api_cli
       when: inventory_hostname == 'pikvm'
     - role: beszel_agent
@@ -48,6 +54,11 @@
       ansible.builtin.systemd_service:
         name: prometheus-node-exporter.service
         state: restarted
+    - name: Disable WiFi power save
+      vars:
+        wifi_interface: "{{ ansible_facts['interfaces'] | map('extract', ansible_facts) | selectattr('macaddress', 'defined') | selectattr('macaddress', '==', pikvm_hid_mac_address | lower) | map(attribute='device') | first }}"
+      ansible.builtin.command:
+        cmd: "/usr/bin/iw dev {{ wifi_interface }} set power_save off"
 
   tasks:
     - name: Install prometheus-node-exporter
@@ -86,3 +97,17 @@
     - name: Set timezone
       community.general.timezone:
         name: "{{ timezone }}"
+    - name: Gather network facts for the WiFi power save handler
+      ansible.builtin.setup:
+        gather_subset: [network]
+      when: inventory_hostname == 'pikvm-hid'
+      tags: wifi_power_save
+    - name: Copy WiFi power save off udev rule
+      ansible.builtin.copy:
+        content: |
+          ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="{{ pikvm_hid_mac_address | lower }}", RUN+="/usr/bin/iw dev $name set power_save off"
+        dest: /etc/udev/rules.d/10-wifi-power-save-off.rules
+        mode: "0644"
+      when: inventory_hostname == 'pikvm-hid' # WiFi (brcmfmac) drops and fails to rejoin with power save on
+      notify: Disable WiFi power save
+      tags: wifi_power_save

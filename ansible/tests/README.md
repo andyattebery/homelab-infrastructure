@@ -126,6 +126,7 @@ tests/vdesktop/run.sh setup.yml repro.yml
 .venv/bin/pytest roles/textfile_collector_pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/github_release_install/tests/ -q
 .venv/bin/pytest roles/udev_shim/tests/ -q
+.venv/bin/pytest roles/pikvm_ch9329_kvm_switch_input/tests/ -q
 ```
 
 ## Role resolution: the thing that bites first

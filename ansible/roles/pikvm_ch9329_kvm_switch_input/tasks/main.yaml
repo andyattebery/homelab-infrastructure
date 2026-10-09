@@ -1,0 +1,8 @@
+---
+- name: Copy pikvm_ch9329_kvm_switch_input
+  ansible.builtin.copy:
+    src: pikvm_ch9329_kvm_switch_input.py
+    dest: "{{ pikvm_ch9329_kvm_switch_input_script_path }}"
+    mode: "0755"
+    owner: root
+    group: root

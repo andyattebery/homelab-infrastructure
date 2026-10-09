@@ -5,6 +5,10 @@ pikvm_root_password: "{{ vault_pikvm_root_password }}"
 pikvm_web_admin_password: "{{ vault_pikvm_web_admin_password }}"
 
 pikvm_override_yaml_template_src: files/pikvm/override.yaml.j2
+# override.yaml's KVM switch buttons run this script with this serial port. The script path is set here, not left to the
+# pikvm_ch9329_kvm_switch_input role default, so that the pikvm role's template reads the same value.
+pikvm_ch9329_kvm_switch_input_script_path: /usr/local/bin/pikvm_ch9329_kvm_switch_input
+pikvm_ch9329_device_path: /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
 remote_power_control_ssh_username: kvmd
 remote_power_control_ssh_private_key_path: /etc/remote_power_control/id_ed25519
 pikvm_remote_power_control_ssh_targets:
