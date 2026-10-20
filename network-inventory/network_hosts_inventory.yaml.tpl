@@ -20,9 +20,6 @@ homelab_hosts:
   ipmi.nas-host-01:
     ip: 192.168.1.230
     mac: {{ op://Home Lab/nas-host-01/hardware/ipmi mac address }}
-  jetson-01:
-    ip: 192.168.1.193
-    mac: {{ op://Home Lab/jetson-01/hardware/mac address }}
   mac-mini-01:
     ip: 192.168.1.201
     mac: {{ op://Home Lab/mac-mini-01/hardware/mac address }}
