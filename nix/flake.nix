@@ -10,8 +10,11 @@
       url = "github:andyattebery/dashboard-services-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # The `release` branch, not main: NIM's CI fast-forwards it only to a release tag whose
+    # tests passed, and NIM's package build no longer runs the tests itself. So `nix flake
+    # update` picks up releases and nothing else.
     nim = {
-      url = "github:andyattebery/network-inventory-manager";
+      url = "github:andyattebery/network-inventory-manager/release";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     # Currently imported by no host. pi-rack used its raspberry-pi-4 module until that was

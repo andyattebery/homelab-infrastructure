@@ -81,6 +81,7 @@ in {
   sops.secrets."beszel-agent-env" = {};
   services.beszel.agent = {
     enable = true;
+    package = pkgs-unstable.beszel;
     environment = {
       HUB_URL = "https://beszel.${vars.domainName}";
       DATA_DIR = "/var/lib/beszel-agent";
