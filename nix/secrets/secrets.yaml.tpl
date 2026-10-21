@@ -31,3 +31,14 @@ nut-client-vm-host-01-password: {{ op://Home Lab/pi-rack/nut/vm-host-01 password
 nut-client-vm-host-02-password: {{ op://Home Lab/pi-rack/nut/vm-host-02 password }}
 nut-client-backup-01-password: {{ op://Home Lab/pi-rack/nut/backup-01 password }}
 nut-pushover-token: {{ op://Personal/6iivbkri4bhihgjhc7rnxva5l4/tokens/nut }}
+
+# needledrop (pi-turntable)
+needledrop-lastfm-api-key: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/key }}
+needledrop-lastfm-api-secret: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/api/shared secret }}
+needledrop-lastfm-username: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/username }}
+needledrop-lastfm-password-hash: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/add more/password md5 }}
+
+# pi-turntable Wi-Fi: wpa_supplicant's secretsFile, one name=value line per secret. A block
+# scalar, so YAML never parses the password. Referenced by ID: the name form contains the SSID.
+pi-turntable-wifi: |
+  wifi_psk={{ op://Private/gwck4n2ntjc7bpw5whlsemqdxa/5E8E08B4D29E46F792206B1C83ACDE04/password }}

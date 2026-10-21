@@ -147,7 +147,7 @@ member [playbook-network.yaml](../ansible/playbook-network.yaml) targets. WireGu
 | `backup-01` | Intel N150 4C/4T, 32 GB DDR5-4800, whitebox board (DMI reports `Default string`). Boot on an Intel S3520 150 GB; `backups` zpool 20 TB = 2× 10 TB + 2× 12 TB mirrors | [playbook-backup-01.yaml](../ansible/playbook-backup-01.yaml) | **Proxmox Backup Server** (datastore `zfs_backups_pbs` at `/mnt/backups/pbs`) on Debian 13 trixie / PVE 7.0 kernel. Also ZFS replication target (syncoid from nas-01, forwards to offsite-nas), Samba Time Machine target, NUT client, `remote_power_control` target. |
 | `pi-rack` / `network-02` | Raspberry Pi 4 Model B Rev 1.4, 8 GB, PoE+ HAT, boots from a 139.7 GB USB SSD | [playbook-pi-rack.yaml](../ansible/playbook-pi-rack.yaml) + [playbook-network.yaml](../ansible/playbook-network.yaml) (as `network-02`) | UPS server + DNS HA member + rack ops. NUT **server** for the APC SMT1500RM2U (via AP9630 SNMP) with `nas-host-01`, `vm-host-01`, `vm-host-02`, `backup-01` as `upsmon` secondaries and `homeassistant` polling via the HA NUT integration. AdGuardHome (keepalived BACKUP, prio 150), WireGuard, Diun, Certbot. `scrutiny-collector` is a **systemd timer**, not a container. |
 | `pi-camera` | Raspberry Pi 5 Model B Rev 1.0 | [playbook-pi-camera.yaml](../ansible/playbook-pi-camera.yaml) | Camera streamer — `go2rtc` (rpi5 config), Certbot. No docker. **Not verified 2026-09-06** (unreachable). |
-| `pi-turntable` | Raspberry Pi 4 Model B Rev 1.1, 4 GB, 58 GB SD | [playbook-pi-turntable.yaml](../ansible/playbook-pi-turntable.yaml) | Turntable audio streaming. Traefik, Owntone, `needledrop` (Last.fm scrobbling), icecast2, and `owntone-alsa-pipe.service` (ALSA → named pipe → Owntone). |
+| `pi-turntable` | Raspberry Pi 4 Model B Rev 1.1, 4 GB, root on a 32 GB microSD. Wi-Fi only. | NixOS: [nix/hosts/pi-turntable](../nix/hosts/pi-turntable/default.nix), deployed with `nix/scripts/deploy-host.sh` | Turntable audio streaming, all native services, no Docker: OwnTone (web interface behind nginx + ACME at `owntone.<domain_name>`), `needledrop` (recognition, Last.fm scrobbling, now-playing to OwnTone and the Tuneshine), and `owntone-alsa-pipe.service` (ALSA dsnoop → named pipe → OwnTone). |
 | `pikvm` | Raspberry Pi 4 Model B Rev 1.5, 2 GB, Arch Linux ARM, kvmd 4.212-1 | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Primary PiKVM. Tailscale exit node, esphome-api-cli outlet control (`backup_01`, `mac_mini_01`, `nas_host_01`, `vm_host_01`, `vm_host_02`), `remote_power_control` client to four servers, HID switching to `pikvm-hid`. |
 | `pikvm-hid` | Raspberry Pi **Zero 2 W** Rev 1.0, 389 MB, Arch Linux ARM, kvmd 4.212-1 | [playbook-pikvm.yaml](../ansible/playbook-pikvm.yaml) | Secondary PiKVM (HID / USB-keyboard only), slaved to `pikvm`'s `pikvm_hid_kvm_switch_input`. |
 | `jetson-01` | NVIDIA Jetson Orin Nano Dev Kit Super (Tegra R36) | [playbook-jetson-01.yaml](../ansible/playbook-jetson-01.yaml) | AI offload for Home Assistant — Wyoming `faster-whisper` (:10300) and Wyoming `piper-tts` (:10200). **That is all it runs**; it does not run Immich ML. **Not verified 2026-09-06** (unreachable). |
@@ -178,15 +178,16 @@ For the `offsite` group, `domain_name` is the Tailscale tailnet, not the interna
 
 ## Monitoring coverage
 
-Checked host by host on 2026-09-06 rather than assumed. **12 of the 14 hosts checked run
+Checked host by host on 2026-09-06 rather than assumed (pi-turntable again on 2026-10-21, after
+its move to NixOS). **12 of the 14 hosts checked run
 `beszel-agent` plus exactly one node exporter**, and the unit name splits by OS family
 (`network-01` and `network-03` are here as machines, though they are not `inventory.ini`
 names):
 
 | Unit | Hosts |
 | --- | --- |
-| `node_exporter` | backup-01, pi-rack, pi-turntable, cloud-01, docker-01, nas-01, media-01 |
-| `prometheus-node-exporter` | network-01, network-03, pikvm, pikvm-hid, offsite-pikvm |
+| `node_exporter` | backup-01, pi-rack, cloud-01, docker-01, nas-01, media-01 |
+| `prometheus-node-exporter` | network-01, network-03, pi-turntable, pikvm, pikvm-hid, offsite-pikvm |
 | **neither, and no beszel-agent** | **htpc-01, eta** |
 
 htpc-01 has neither because `configure_server` dispatches to the Bazzite

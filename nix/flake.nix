@@ -17,6 +17,10 @@
       url = "github:andyattebery/network-inventory-manager/release";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    needledrop = {
+      url = "github:andyattebery/needledrop";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Currently imported by no host. pi-rack used its raspberry-pi-4 module until that was
     # replaced by nixos-raspberrypi (see nix/docs/raspberry-pi.md), and the x86 hosts are
     # Proxmox VMs with no hardware quirks to patch. Kept because it is the obvious source
@@ -38,7 +42,7 @@
     nixos-raspberrypi.url = "github:nvmd/nixos-raspberrypi/main";
   };
 
-  outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, nixos-raspberrypi, ... }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, needledrop, nixos-hardware, deploy-rs, nixos-raspberrypi, ... }:
   let
     inherit (nixpkgs) lib;
     vars = import ./secrets/vars.nix;
@@ -72,9 +76,9 @@
         inherit sops-nix nixpkgs-unstable vars;
         # Consumed by host files that import input-derived modules:
         # nixos-raspberrypi's board modules read nixos-raspberrypi.packages.<system>
-        # directly, and dsm/nim expose nixosModules the hosts import by hand. Unused
-        # module args are lazy, so passing all of them to every host costs nothing.
-        inherit nixos-raspberrypi dsm nim;
+        # directly, and dsm/nim/needledrop expose nixosModules the hosts import by hand.
+        # Unused module args are lazy, so passing all of them to every host costs nothing.
+        inherit nixos-raspberrypi dsm nim needledrop;
       };
       modules = [
         ./modules/base.nix
@@ -92,6 +96,21 @@
     # it is never a deploy target. install-proxmox-template.sh:55 installs it by this exact
     # attribute name, so do not rename it.
     managedHosts = builtins.removeAttrs hostDirs [ "proxmox-template" ];
+
+    # A Pi host's own configuration as a flashable disk image (FIRMWARE + NIXOS_SD, the labels
+    # modules/rpi4.nix mounts), built by scripts/build-image.sh from
+    # packages.aarch64-linux.<host>-image. It is not the deploy target: sd-image adds
+    # expand-on-boot and a /boot/firmware automount, and the first deploy-host.sh replaces it.
+    # ZFS is forced off because sd-image imports profiles/base.nix, which enables it, and the
+    # kernel's zfs module (nixos-raspberrypi's nixpkgs) and our zfs userland differ -- an
+    # eval-time assertion. extraModules reach the image's generation only, never a deployed one.
+    mkPiImage = hostname: extraModules:
+      (self.nixosConfigurations.${hostname}.extendModules {
+        modules = [
+          nixos-raspberrypi.nixosModules.sd-image
+          { boot.supportedFilesystems.zfs = lib.mkForce false; }
+        ] ++ extraModules;
+      }).config.system.build.sdImage;
   in {
     nixosConfigurations = (builtins.mapAttrs (hostname: _: mkHost hostname) managedHosts) // {
       proxmox-template = lib.nixosSystem {
@@ -122,19 +141,12 @@
     packages.aarch64-linux.deploy-rs = deployPkgs.aarch64-linux.deploy-rs.deploy-rs;
     packages.aarch64-darwin.deploy-rs = deployPkgs.aarch64-darwin.deploy-rs.deploy-rs;
 
-    # pi-rack's own configuration as a flashable disk image (FIRMWARE + NIXOS_SD, the labels
-    # modules/rpi4.nix mounts), written to the CM4's eMMC via rpiboot. It is not the deploy
-    # target: sd-image adds expand-on-boot and a /boot/firmware automount, and the first
-    # deploy-host.sh replaces it. ZFS is forced off because sd-image imports
-    # profiles/base.nix, which enables it, and the kernel's zfs module (nixos-raspberrypi's
-    # nixpkgs) and our zfs userland differ -- an eval-time assertion.
-    packages.aarch64-linux.pi-rack-image =
-      (self.nixosConfigurations.pi-rack.extendModules {
-        modules = [
-          nixos-raspberrypi.nixosModules.sd-image
-          { boot.supportedFilesystems.zfs = lib.mkForce false; }
-        ];
-      }).config.system.build.sdImage;
+    # Written to the CM4's eMMC via rpiboot.
+    packages.aarch64-linux.pi-rack-image = mkPiImage "pi-rack" [ ];
+    # Written to a microSD card. image-wifi.nix gives the image's own generation the Wi-Fi
+    # password, which sops cannot supply before the host's age key is installed.
+    packages.aarch64-linux.pi-turntable-image =
+      mkPiImage "pi-turntable" [ ./hosts/pi-turntable/image-wifi.nix ];
 
     # checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };

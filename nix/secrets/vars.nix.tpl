@@ -30,4 +30,12 @@
     upsSnmpAddress = "{{ op://Home Lab/ups-rack/config/address }}";
     upsSnmpCommunity = "{{ op://Home Lab/ups-rack/snmp v1/read write community }}";
   };
+
+  # Referenced by ID, not name: the name form of these references contains the SSID.
+  pi-turntable = {
+    wifiSsid = "{{ op://Private/gwck4n2ntjc7bpw5whlsemqdxa/5E8E08B4D29E46F792206B1C83ACDE04/ssid }}";
+    # Only for the first-boot image (hosts/pi-turntable/image-wifi.nix); deployed generations
+    # read the password from secrets.yaml. An indented string, so a " or \ in it stays literal.
+    wifiPsk = ''{{ op://Private/gwck4n2ntjc7bpw5whlsemqdxa/5E8E08B4D29E46F792206B1C83ACDE04/password }}'';
+  };
 }

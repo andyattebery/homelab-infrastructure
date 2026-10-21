@@ -11,6 +11,7 @@ NixOS host management for the homelab, running alongside the existing Ansible se
         base.nix                # foundation: everything every host gets (users, SSH, sops, node_exporter, beszel)
         tailscale.nix           # capability: Tailscale with routing features
         nut.nix                 # capability: NUT UPS server + its Prometheus exporter
+        owntone.nix             # capability: OwnTone, built here against libevent 2.2 (nixpkgs has no module)
         docker-host.nix         # capability: services.docker-compose + Diun (no host imports it yet)
         network.nix             # stack bundle: AdGuard Home + keepalived + ACME (+ nginx)
         proxmox-guest.nix       # hardware: QEMU guest agent, grub, growPartition
@@ -24,6 +25,7 @@ NixOS host management for the homelab, running alongside the existing Ansible se
         network-01/             # AdGuard primary, adguardhome-sync, network-inventory-manager
         network-03/             # AdGuard replica
         pi-rack/                # Raspberry Pi 4: AdGuard replica + NUT server
+        pi-turntable/           # Raspberry Pi 4, Wi-Fi only: OwnTone + needledrop for the turntable
       pkgs/                     # custom packages (adguardhome-sync, keepalived-exporter)
       docs/                     # raspberry-pi.md, proxmox-workflow.md
       secrets/
@@ -53,7 +55,7 @@ hostDirs     = lib.filterAttrs (_: type: type == "directory") (builtins.readDir 
 managedHosts = builtins.removeAttrs hostDirs [ "proxmox-template" ];
 
 mkHost = hostname: lib.nixosSystem {
-  specialArgs = { inherit sops-nix nixpkgs-unstable vars nixos-raspberrypi dsm nim; };
+  specialArgs = { inherit sops-nix nixpkgs-unstable vars nixos-raspberrypi dsm nim needledrop; };
   modules = [ ./modules/base.nix ./hosts/${hostname} ];
 };
 
@@ -85,9 +87,9 @@ that do not want it, or silently missing from hosts that do.
 
 If a host could reasonably decline it, it is a capability and does not belong in `base.nix`.
 
-Modules from flake inputs (`dsm`, `nim`, `nixos-raspberrypi`) arrive through `specialArgs`, which
-reaches a module before evaluation and so may be used in that module's own `imports` — by a host file
-or by another module.
+Modules from flake inputs (`dsm`, `nim`, `needledrop`, `nixos-raspberrypi`) arrive through
+`specialArgs`, which reaches a module before evaluation and so may be used in that module's own
+`imports` — by a host file or by another module.
 
 **A stack bundle imports its own dependencies.** `network.nix` configures `tailscale.nix` and
 `dsm-provider` unconditionally, so it imports both, and a host gets them by importing `network.nix`
@@ -100,7 +102,8 @@ explicit `key`. That is not automatic — a flake module exported as a bare func
 key per import site, so a second import re-declares its options and evaluation fails. Only a path, or
 an explicit `key`, dedups. Worth knowing before importing any flake's module from more than one place.
 
-`tailscale.nix` still needs `base.nix` for `pkgs-unstable`, which `mkHost` always supplies.
+`tailscale.nix` and `owntone.nix` still need `base.nix` for `pkgs-unstable`, which `mkHost` always
+supplies.
 
 `vars` (from `secrets/vars.nix`) provides infrastructure values at Nix eval time -- domain name, subnet CIDR, DNS VIP, ACME email. These are available in any module via `{ vars, ... }:` in the function args.
 
@@ -110,8 +113,8 @@ Three categories, all populated by `scripts/populate-secrets-from-op.sh`:
 
 | File | What | How it's used |
 |---|---|---|
-| `secrets.yaml` | Credentials — the services user's password hash, Tailscale auth key, Cloudflare token, AdGuard/NIM/beszel/Pushover/NUT passwords | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
-| `vars.nix` | Infrastructure values (domain, subnet, VIP, email) | Plain Nix. Read at eval time via `specialArgs`. Committed with placeholders, overwritten locally by the populate script. |
+| `secrets.yaml` | Credentials — the services user's password hash, Tailscale auth key, Cloudflare token, AdGuard/NIM/beszel/Pushover/NUT passwords, needledrop's Last.fm credentials, pi-turntable's Wi-Fi password | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
+| `vars.nix` | Infrastructure values (domain, subnet, VIP, email), pi-turntable's Wi-Fi SSID, and the Wi-Fi password its first-boot image needs (`docs/raspberry-pi.md`) | Plain Nix. Read at eval time via `specialArgs`. Committed with placeholders, overwritten locally by the populate script. |
 | `ssh-keys.nix` | SSH public keys | Plain Nix. Imported by `base.nix` and `proxmox-template`. Committed with real values (public keys aren't secret). |
 
 After running `populate-secrets-from-op.sh`:
@@ -203,7 +206,12 @@ After activation succeeds, `--reboot` compares `/run/booted-system` to `/nix/var
 nix/scripts/deploy-host.sh network-01
 nix/scripts/deploy-host.sh network-03
 nix/scripts/deploy-host.sh pi-rack
+nix/scripts/deploy-host.sh pi-turntable
 ```
+
+pi-turntable's OwnTone has no binary cache (`modules/owntone.nix` builds it against libevent 2.2),
+so whenever its inputs change the Pi compiles libevent and OwnTone, and that deploy takes about 12
+minutes.
 
 ### How it works
 
@@ -261,8 +269,8 @@ nix/scripts/host-age-key.sh --target root@<ip> <hostname>
 
 ### Update flake inputs (routine)
 
-Updates nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, nixos-hardware, deploy-rs, nixos-raspberrypi
-and the custom packages to their latest versions within the current NixOS release.
+Updates nixpkgs, nixpkgs-unstable, sops-nix, dsm, nim, needledrop, nixos-hardware, deploy-rs,
+nixos-raspberrypi and the custom packages to their latest versions within the current NixOS release.
 
 `update.sh` does all of it, including bumping the pinned Nix image in `scripts/nix-image`:
 
@@ -287,6 +295,7 @@ Then deploy to each host:
 nix/scripts/deploy-host.sh network-01
 nix/scripts/deploy-host.sh network-03
 nix/scripts/deploy-host.sh pi-rack
+nix/scripts/deploy-host.sh pi-turntable
 ```
 
 ### NixOS release upgrade (e.g. 26.05 → 26.11)
