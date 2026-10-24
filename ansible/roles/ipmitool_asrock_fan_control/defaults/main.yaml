@@ -1,0 +1,18 @@
+---
+# owner/repo whose latest release is installed. The release must carry an asset named
+# ipmitool-asrock-fan-control.sh, stamped with its tag (see the README).
+ipmitool_asrock_fan_control_repo: andyattebery/ipmitool-asrock-fan-control
+ipmitool_asrock_fan_control_directory_path: /opt/ipmitool-asrock-fan-control
+
+# Wrapper on root's PATH. Named like the script so the commands its help prints work as
+# typed. See the README for why this is a wrapper rather than a symlink.
+ipmitool_asrock_fan_control_command_path: /usr/local/sbin/ipmitool-asrock-fan-control.sh
+
+# Fan labels as slot number to label. Display-only: they add a LABEL column to the script's
+# tables and are never accepted as an index. Empty removes the labels file.
+#
+#   ipmitool_asrock_fan_control_labels:
+#     1: CPU fan
+#     6: front intake
+ipmitool_asrock_fan_control_labels: {}
+ipmitool_asrock_fan_control_labels_file_path: /etc/ipmitool-asrock-fan-control/fan-labels.conf

@@ -101,14 +101,8 @@ pve_vm_hostpci_vms:
   - vmid: 201   # media-01
     hostpci:
       - { index: 0, mapping: nvidia_rtx_a4000, pcie: 1 }
-      # The B580 is faulty as of 2026-09-10: its link trains at 2.5 GT/s with
-      # EqualizationComplete-, and the card drops off the bus as soon as a driver
-      # initialises it. Reproduced in PCIE3 twice and in PCIE4 on a different root
-      # complex, with the same cable that worked before — so it is the card, not the
-      # slot. The mappings are kept and re-pointed so a replacement drops straight in;
-      # set these back to present when a working card is fitted.
-      - { index: 1, mapping: intel_arc_b580, pcie: 1, state: absent }
-      - { index: 2, mapping: intel_arc_b580_audio, pcie: 1, state: absent }
+      - { index: 1, mapping: intel_arc_b580, pcie: 1 }
+      - { index: 2, mapping: intel_arc_b580_audio, pcie: 1 }
 
 # Block rasdaemon's per-AER-event OEM writes to the BMC event log. This host's two noisy PCIe
 # links generated about 185 of them a day, and together with the BIOS's own PCI PERR entry for
@@ -124,3 +118,16 @@ rasdaemon_block_ipmitool_sel: true
 # cleanly.
 journald_config_settings:
   SyncIntervalSec: "30s"
+
+# ROMED8-2T fan headers, wired as of 2026-10-23 (hardware/nas-host-01.md, "Header to fan
+# mapping"). The labels are display-only, a LABEL column in the script's tables; the role sets
+# no fan mode or duty.
+install_ipmitool_asrock_fan_control: true
+ipmitool_asrock_fan_control_labels:
+  1: CPU fan
+  2: Rear 80mm fans (dual fan adapter)
+  3: HBA 40mm fan
+  # 4 is empty
+  5: PCIe 120mm fan
+  6: Front 120mm fan 3
+  7: Front 120mm fans 1 and 2 (dual fan adapter)

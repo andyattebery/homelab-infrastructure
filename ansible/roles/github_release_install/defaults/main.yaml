@@ -62,8 +62,8 @@ github_release_install_symlink_path: "/usr/local/bin/{{ github_release_install_b
 # nothing structural prevents it -- see the README. It is not generated from these tasks.
 
 # Names the env file: <config_dir>/<name>.env. The basename is unique per host across every
-# current caller; the eight call sites in this repo produce eight distinct basenames, so no two
-# can collide. Override if you add a caller that would be the ninth.
+# current caller: the nine call sites in this repo never use one basename twice on a host, so no
+# two can collide. Override if you add a caller whose basename another one on its host already uses.
 #
 # Wrong value: two installs share an env file and the second overwrites the first, so one binary
 # silently stops being updated.

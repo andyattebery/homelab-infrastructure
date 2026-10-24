@@ -1,0 +1,77 @@
+---
+# column is in bsdextrautils on Debian, not util-linux.
+- name: Install packages
+  ansible.builtin.apt:
+    name:
+      - bsdextrautils
+      - ipmitool
+    state: present
+
+# github_release_install downloads with get_url, which fails on a missing parent directory
+# rather than creating it.
+- name: Create the install directory
+  ansible.builtin.file:
+    path: "{{ ipmitool_asrock_fan_control_directory_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install ipmitool-asrock-fan-control
+  ansible.builtin.include_role:
+    name: github_release_install
+  vars:
+    github_release_install_repo: "{{ ipmitool_asrock_fan_control_repo }}"
+    # One bash script for every architecture. The role keys its patterns on the architecture
+    # fact, so each one this can run on is listed.
+    github_release_install_asset_patterns:
+      x86_64: "ipmitool-asrock-fan-control.sh"
+      aarch64: "ipmitool-asrock-fan-control.sh"
+    github_release_install_archive_type: binary
+    github_release_install_binary_path: "{{ (ipmitool_asrock_fan_control_directory_path, 'ipmitool-asrock-fan-control.sh') | path_join }}"
+    # Default version_command (`<binary> --version`) and regex work: the release workflow
+    # stamps the tag into the script, which then prints `ipmitool-asrock-fan-control.sh vX.Y.Z`.
+
+- name: Create the fan labels directory
+  when: ipmitool_asrock_fan_control_labels | length > 0
+  ansible.builtin.file:
+    path: "{{ ipmitool_asrock_fan_control_labels_file_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Write the fan labels
+  when: ipmitool_asrock_fan_control_labels | length > 0
+  ansible.builtin.copy:
+    dest: "{{ ipmitool_asrock_fan_control_labels_file_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the ipmitool_asrock_fan_control Ansible role.
+      # slot = label
+      {% for slot, label in ipmitool_asrock_fan_control_labels | dictsort %}
+      {{ slot }} = {{ label }}
+      {% endfor %}
+
+# Reversible: emptying the dict removes the file rather than leaving it behind.
+- name: Remove the fan labels
+  when: ipmitool_asrock_fan_control_labels | length == 0
+  ansible.builtin.file:
+    path: "{{ ipmitool_asrock_fan_control_labels_file_path }}"
+    state: absent
+
+# A wrapper, not a symlink: the script looks for its labels file beside $0, which for a
+# symlink is the link's directory.
+- name: Install the command wrapper
+  ansible.builtin.copy:
+    dest: "{{ ipmitool_asrock_fan_control_command_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # Managed by the ipmitool_asrock_fan_control Ansible role.
+      export FAN_LABELS_FILE="${FAN_LABELS_FILE:-{{ ipmitool_asrock_fan_control_labels_file_path }}}"
+      exec "{{ (ipmitool_asrock_fan_control_directory_path, 'ipmitool-asrock-fan-control.sh') | path_join }}" "$@"

@@ -86,6 +86,12 @@
       ansible.builtin.import_role:
         name: rasdaemon
 
+    - name: Install ipmitool-asrock-fan-control
+      when: install_ipmitool_asrock_fan_control | default(false)
+      tags: fan_control
+      ansible.builtin.import_role:
+        name: ipmitool_asrock_fan_control
+
     # `is defined` would not skip here — an imported role's defaults are visible to the
     # task-level when — so gate on length.
     - name: Configure journald

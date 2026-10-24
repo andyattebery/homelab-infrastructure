@@ -75,41 +75,41 @@ The ROMED8-2T has **7 fan headers, all 6-pin**, rated 5 A / 60 W each. Each head
 
 Pins 1-4 are the standard 4-pin PWM order, so an ordinary fan plugs straight in. That
 second tach on pin 5 is why the BMC exposes `FANn` **and** `FANn_2` sensors — 14 sensors
-for 7 headers. `FANn_2` is not a separate fan, it is the second rotor of the fan on
-header *n*.
+for 7 headers. `FANn_2` is not separately controllable: it reads whatever is wired to pin 5
+of header *n*, such as a dual-rotor fan's second rotor or the second fan on a dual-tach
+adapter, and it shares header *n*'s PWM.
 
 ### Header to fan mapping
 
-Derived from maximum RPM at 100% duty and PWM response, since nothing labels them:
+Rewired 2026-10-23. RPMs read the same day with every header in manual at 100% duty. "—" is
+the BMC's `No Reading`.
 
-| header | RPM @100% | responds to PWM | fan |
+| header | `FANn` RPM | `FANn_2` RPM | fan |
 |---|---|---|---|
-| FAN1 | 3700 | yes | Noctua NF-A4x20 PWM (5000 rated) |
-| FAN2 | 2300 | yes | **3x EK-Vardar F4-120ER on a splitter — front intake** |
-| FAN3 | 4900 | **no — flat at 35% and 100%** | Supermicro SP3 cooler fan |
-| FAN4 | 1900 | yes | Noctua NF-A14 industrialPPC-2000 |
-| FAN5 | — | — | *empty* |
-| FAN6 | 1700 (see below) | yes | **2x Noctua NF-A8 PWM on a splitter** |
-| FAN7 | — | — | *empty* |
+| FAN1 | 3700 | — | CPU fan |
+| FAN2 | 2400 | 2300 | 2x rear 80mm, Noctua NF-A8 PWM, on a dual fan adapter |
+| FAN3 | 4900 | — | HBA fan, Noctua NF-A4x20 |
+| FAN4 | — | — | *empty* |
+| FAN5 | **—** | — | 120mm PCIe fan, Arctic P12 Pro |
+| FAN6 | 1800 | — | front 120mm fan 3, EK-Vardar F4-120ER |
+| FAN7 | 1700 | **—** | front 120mm fans 1 and 2, EK-Vardar F4-120ER, on a dual fan adapter |
 
-Eight fans on five headers. FAN2 was identified by elimination: 2300 RPM exceeds the
-NF-A14's 2000 rating even at +10% tolerance, so FAN2 cannot be the NF-A14.
+Eight fans on six headers. The labels in the fan-control script's `LABEL` column come from
+`ansible/host_vars/nas-host-01/vars.yaml`.
 
 ### Known issues
 
-- **FAN6's tachometer is intermittent.** Both NF-A8s spin, confirmed visually, but the
-  header reports `0 RPM` / `lnc`. It read a steady 1700 earlier the same day and briefly
-  returned to 1700 after a duty change, so it is a flaky contact rather than a dead fan or
-  a severed wire (a severed tach reads `ns`, like FAN5/FAN7). Reseat the splitter. Until
-  then FAN6 sits in permanent alarm and **cannot report a real failure on that header**.
-- **FAN3 ignores PWM** — 4900 RPM at both 35% and 100% duty. Most likely a 3-pin fan on a
-  PWM header seeing a constant 12 V, meaning the CPU cooler has no thermal response.
-  Unconfirmed.
-- **A splitter discards tach.** FAN2 carries three fans but reports one; two of the three
-  front intakes are unmonitored. A 6-pin header has only two tach inputs, so no cable fixes
-  all three — but FAN5 and FAN7 are empty, so splitting them 2+1 across two headers would
-  cover all of them. A dual-tach adapter (e.g. modDIY `2PWM4-ASRR`) wires the second fan's
-  tach to pin 5; a generic splitter does not.
+- **FAN5 reports no tach.** The 120mm PCIe fan's header reads `ns` / `No Reading` at 100%
+  duty, the same as empty FAN4, so the BMC gets no tach signal from that fan and cannot see it
+  fail. Whether the fan spins was not checked.
+- **FAN7's second tach reads nothing.** FAN7 carries two front fans on a dual fan adapter, but
+  only `FAN7` reports; `FAN7_2` is `No Reading`. FAN2's adapter reports both fans, so the
+  board's second tach input works. Either FAN7's adapter does not carry the second fan's tach
+  to pin 5, which a generic splitter does not, or that fan's tach is not connected. One front
+  fan is unmonitored.
+- **FAN3 did not respond to PWM on 2026-09-04:** 4900 RPM at both 35% and 100% duty. That
+  usually means a 3-pin fan on a PWM header, seeing a constant 12 V. Not re-tested since the
+  rewiring.
 
 ### Control
 
@@ -125,8 +125,9 @@ netfn `0x3a`, per ASRock Rack [TSDQA-72](https://download.asrock.com/Rack/TSD/FA
 | get current duty | `0x3a 0xda` |
 | reset to defaults | `0x3a 0xd8` with all sixteen bytes `0x00` |
 
-Managed with [ipmitool-asrock-fan-control](https://github.com/andyattebery/ipmitool-asrock-fan-control)
-(`~/projects/ipmitool-asrock-fan-control` on the host).
+Managed with [ipmitool-asrock-fan-control](https://github.com/andyattebery/ipmitool-asrock-fan-control),
+installed by the `ipmitool_asrock_fan_control` role as `sudo ipmitool-asrock-fan-control.sh`
+(`playbook-prod-proxmox-cluster.yaml --tags fan_control --limit nas-host-01`).
 
 Things that cost time to work out and are not written down anywhere else:
 
@@ -226,15 +227,24 @@ card move slots without renaming the interfaces.
 
 ##### Intel Arc B580
 
-**The card is faulty and is not passed to any guest.** Its link trains at 2.5 GT/s with
-`EqualizationComplete-` and the card drops off the bus — config reads return `ffff` — as soon as
-a driver initialises it. Reproduced in PCIE3 twice and here in PCIE4, which is a different root
-complex, on the same power cable that worked beforehand. The slots are not the problem: the
-A4000 trains Gen4 correctly in PCIE2.
+Passed to media-01 — see [media-01 VM Passthrough](#media-01-vm-passthrough). The slot link
+trains at Gen4 x8.
 
-Its two mappings are kept and pointed at its current position so a replacement card drops
-straight in. To restore it, set `index: 1` and `index: 2` for VM 201 back to `state: present` in
-`ansible/host_vars/nas-host-01/vars.yaml` and run the playbook with `--tags pci_passthrough`.
+**`lspci` on the GPU always reads 2.5 GT/s x1 with `EqualizationComplete-`, and that is
+normal.** The card has its own PCIe switch between the slot and the GPU. The GPU function
+(`8086:e20b`) and the switch's downstream port (`8086:e2f0`) report the switch-to-GPU link,
+whose maximum is also 2.5 GT/s x1. The slot link is on the switch's upstream port (`8086:e2ff`),
+the bridge directly under the root port. Equalization only runs at 8 GT/s and above, so it never
+completes on a 2.5 GT/s link.
+
+**A bad 8-pin feed looks like a dead card.** With the 8-pin unplugged the card does not
+enumerate at all. With a bad connection it enumerates. Then, within seconds of the host's `xe`
+initialising it, `xe` logs `PL2 disabled for channel 0, val 0x00000000`,
+`energy read from pmt failed, ret -19`, `Runtime PM usage count underflow!` and
+`power interval read fail`. Once a VM takes the card, it reads `0xffffffff` (off the bus). It
+fails on some boots and not others, in any slot fed by the same cable. A healthy initialisation
+logs `PL2 is supported on channel 0` and nothing after it. Try another cable on another PSU
+socket before suspecting the card or the slot.
 
 #### PCIE3
 
@@ -341,16 +351,16 @@ All use `pcie=1` (the VM is `q35`).
 | `hostpciN` | Mapping | Device | Role |
 | --- | --- | --- | --- |
 | `hostpci0` | `nvidia_rtx_a4000` | Nvidia RTX A4000 | Transcoding, AI inference (CUDA) |
+| `hostpci1` | `intel_arc_b580` | Intel Arc B580 | Transcoding (QSV/VA-API) |
+| `hostpci2` | `intel_arc_b580_audio` | Intel Arc B580 HDA | Rides along with the B580 |
 
 **The A4000 passes as GPU only.** Its mapping is function-scoped rather than function-less, so
 the card's HDA on function `.1` is *not* attached and sits unmapped on the host. `lspci` inside
 media-01 shows the A4000 with no NVIDIA audio device.
 
-**The B580 is declared `state: absent` for this VM** because the card is faulty — see
-[PCIE4](#pcie4). Its `intel_arc_b580` and `intel_arc_b580_audio` mappings still exist and are
-resolved on every run, so a replacement needs only those two entries set back to
-`state: present`. The B580's GPU and HDA sit on different buses with different device IDs and
-cannot share one mapping, which is why there are two.
+The B580's GPU and HDA sit on different buses with different device IDs and cannot share one
+mapping, which is why there are two. Inside media-01 the Arc is `02:00.0`, the address
+`playbook-media-01.yaml` names it by (`/dev/dri/by-path/pci-0000:02:00.0-render`).
 
 ### Resource mappings
 

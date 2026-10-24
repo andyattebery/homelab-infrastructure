@@ -7,7 +7,7 @@ Does not handle services, users, configs — caller's responsibility.
 
 ## Status: Production
 
-Eight callers across the fleet. Also deploys `github-release-update` and
+Nine callers across the fleet. Also deploys `github-release-update` and
 `github-release-update-all` to every host it runs on, so a binary can be
 updated between playbook runs — see "The on-host updater" below.
 
@@ -172,8 +172,8 @@ Optional:
   `{{ github_release_install_binary_path | basename }}`. Names the env file the
   updater reads: `<config_dir>/<name>.env`.
 
-  The eight callers in this repo produce eight distinct basenames, so no two can
-  collide on one host. **Wrong value:** two installs share an env file, the
+  The nine callers in this repo never use one basename twice on a host, so no two
+  can collide there. **Wrong value:** two installs share an env file, the
   second overwrites the first, and one binary silently stops being updated.
 
 - `github_release_install_config_dir` — default
