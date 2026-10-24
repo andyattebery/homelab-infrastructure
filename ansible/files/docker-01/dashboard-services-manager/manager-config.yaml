@@ -10,11 +10,14 @@ ManagerOptions:
   IgnoredServiceNames:
     - Dashy
     - Dashboard Services Manager
+    - Gpu Encoder Sweep Hub
     - Hardlink Manager
     - Homepage
     - Minio S3
     - Netbootxyz Assets
     - Ollama
+    - Silo S3
+    - Podsync
 
 # Override or extend bundled defaults (see service-defaults.yaml shipped with the app):
 ServiceDefaultOptions:
@@ -33,6 +36,25 @@ ServiceDefaultOptions:
     kohya ss:
       NameWithHostnameFormatString: koyha-ss
       Category: ai
+    local deep research:
+      Category: information
+    media sync manager:
+      Category: media
+    media sync manager web:
+      NameWithHostnameFormatString: Media Sync Manager
+      Category: media
+    qbittorrent:
+      Category: downloading
+    podsync:
+      Category: downloading
+    semaphore:
+      Category: utilities
+    silo:
+      Category: storage
+      Icon: sh-pgsty-silo
+    stirling pdf:
+      NameWithHostnameFormatString: Stiring PDF
+      Category: utilities
     swarmui:
       NameWithHostnameFormatString: SwarmUI
       Category: ai

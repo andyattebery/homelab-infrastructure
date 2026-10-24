@@ -21,6 +21,7 @@ services:
       - ${DOCKER_DATA_DIRECTORY}/dashy:/dashy_config
       - ${DOCKER_DATA_DIRECTORY}/homepage/config:/homepage_config
       - ${DOCKER_DATA_DIRECTORY}/dashboard-services-manager:/config
+      - ${DOCKER_DATA_DIRECTORY}/dashboard-services-manager/data:/data
     labels:
       - traefik.enable=true
   dashboard_services_manager_provider:

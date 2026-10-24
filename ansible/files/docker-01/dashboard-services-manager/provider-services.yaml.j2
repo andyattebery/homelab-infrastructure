@@ -13,17 +13,10 @@
 - name: PiKVM
   url: https://pikvm.{{ domain_name }}
   hostname: pikvm
-- name: PiKVM HID
-  url: https://pikvm-hid.{{ domain_name }}
-  hostname: pikvm-hid
-  service_defaults_name: pikvm
 - name: PiKVM (Offsite)
   url: https://offsite-pikvm.{{ tailscale_tailnet }}
   hostname: offsite-pikvm
   service_defaults_name: pikvm
-- name: Plex
-  url: https://app.plex.tv/
-  hostname: nas-01
 - name: Proxmox
   url: https://nas-host-01.{{ domain_name }}:8006
   hostname: nas-host-01
