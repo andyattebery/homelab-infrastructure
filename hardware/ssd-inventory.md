@@ -1,11 +1,11 @@
 # SSD inventory
 
-Cross-host snapshot of every SSD in the Proxmox cluster, the nas-01 VM and htpc-01. See [nas-host-01.md](nas-host-01.md) for the full nas-host-01 build including chassis, motherboard, and HDDs.
+Cross-host snapshot of every SSD in the Proxmox cluster, the nas-01 VM, htpc-01 and the Turing Pi 2. See [nas-host-01.md](nas-host-01.md) for the full nas-host-01 build including chassis, motherboard, and HDDs.
 
 Refresh source: `lsblk`, `zpool status`, `pvesm status`, `/etc/pve/qemu-server/*.conf`, `lspci`, `smartctl` on each host.
 
 Last verified: nas-host-01 and nas-01 2026-09-06; vm-host-01 2026-09-09; vm-host-02 2026-09-07;
-htpc-01 2026-09-10.
+htpc-01 2026-10-23; Turing Pi 2 2026-10-03.
 
 ## nas-host-01 (Proxmox bare-metal)
 
@@ -97,19 +97,31 @@ Not a cluster node: a workstation with four SSDs and no shared storage. All four
 
 | Device | Model | Serial | Cap | Class | Use |
 |---|---|---|---|---|---|
-| nvme0n1 | SK hynix `BC711` (OEM) | `CDACN71971370CP2X` | 256 GB | OEM consumer TLC NVMe, no PLP | Bazzite boot: `/boot/efi` (vfat), `/boot` (ext4) and the `bazzite-deck_fedora` btrfs root that carries `/var`, `/etc`, `/var/home`, the ostree deployment and the **rootful podman overlay store** (139 GB of 237 GB used) |
-| nvme1n1 | SK hynix Platinum P41 (`SHPP41-2000GM`) | `ASDAN54041200B15X` | 2 TB | Consumer TLC NVMe, no PLP | btrfs `Games` at `/run/media/system/Games` (1.0 TB of 1.8 TB used) |
-| sda | Samsung 850 EVO 500GB | `S2RANXAH130042A` | 500 GB | Consumer SATA TLC, no PLP | btrfs `data` at `/run/media/system/data` — `htpc_data_mount_path`, the data root every podman quadlet binds into (191 GB of 466 GB used) |
+| nvme0n1 | SK hynix `BC711` (OEM) | `CDACN71971370CP2X` | 256 GB | OEM consumer TLC NVMe, no PLP | Bazzite boot: `/boot/efi` (vfat), `/boot` (ext4) and the `bazzite-deck_fedora` btrfs root that carries `/var`, `/etc`, `/var/home`, the ostree deployment and the **rootful podman overlay store** (154 GB of 237 GB used) |
+| nvme1n1 | SK hynix Platinum P41 (`SHPP41-2000GM`) | `ASDAN54041200B15X` | 2 TB | Consumer TLC NVMe, no PLP | btrfs `Games` at `/run/media/system/Games` (1.1 TB of 1.8 TB used) |
+| sda | Samsung 860 EVO mSATA 1TB (replaced the 850 EVO 500GB, 2026-10-23) | `S41PNB0M302478W` | 1 TB | Consumer SATA TLC (mSATA), no PLP | btrfs `data` at `/run/media/system/data` — `htpc_data_mount_path`, the data root every podman quadlet binds into (191 GB of 932 GB used) |
 | sdb | Intel DC S3500 (`SSDSC2BB016T4`) | `BTWD5362016W1P6HGN` | 1.6 TB | Enterprise SATA MLC, PLP | btrfs `sata_2tb` at `/run/media/system/sata_2tb` (930 GB of 1.5 TB used) |
 
 **The btrfs labels do not describe the hardware.** `sata_2tb` is a 1.6 TB drive, `data` is the
-500 GB consumer SATA one and the models are only distinguishable by serial. Swap is `zram0`
+1 TB consumer mSATA one and the models are only distinguishable by serial. Swap is `zram0`
 (14.6 GB), not a partition — nothing on these disks is swap.
 
 The container store is on the boot drive, so podman images and volumes eat the same 237 GB as the
-OS; `htpc_data_mount_path` on `sda` is what keeps quadlet *data* off it. The other directories
+OS; `htpc_data_mount_path` on the 860 EVO is what keeps quadlet *data* off it. The other directories
 under `/run/media/system/` — `tdarr_media`, `tdarr_media_raw`, `nas_01_ai_images` — are CIFS
 mount points onto nas-01 shares, not local storage.
+
+## Turing Pi 2 (RK1, CM4 and Jetson nodes)
+
+Which module is in which slot: [../turingpi/nodes.md](../turingpi/nodes.md). The RK1s and the CM4
+boot from their eMMC and the Jetson from its microSD card.
+
+| Host | Model | Cap | Class | Use |
+|---|---|---|---|---|
+| `turingpi-rk1-01` | Samsung 960 PRO 512 GB (pulled from vm-host-01, 2026-09-09) | 512 GB | Consumer MLC NVMe (no PLP) | M.2 T1; the data disk for `data_disk_offload` (write-heavy paths) |
+| `turingpi-rk1-02` | Samsung 970 EVO 500 GB (pulled from vm-host-02, 2026-09-07) | 500 GB | Consumer TLC NVMe (no PLP) | M.2 T2; the data disk for `data_disk_offload` (write-heavy paths) |
+| `turingpi-cm4-01` | Samsung 850 EVO 500GB (`S2RANXAH130042A`; pulled from htpc-01, 2026-10-23) | 500 GB | Consumer SATA TLC | Slot 3 SATA; the data disk for `data_disk_offload` (write-heavy paths) |
+| `turingpi-jetson-01` | HP EX950 1 TB | 1 TB | Consumer NVMe TLC (SMI controller) | M.2 T4; the data disk for `data_disk_offload` (write-heavy paths and swap) |
 
 ## Unused / shelved
 
@@ -117,12 +129,8 @@ mount points onto nas-01 shares, not local storage.
 |---|---|---|
 | **3× Intel DC S3610 1.6 TB** (of five; the other two are the cluster's osd.0 and osd.1) | Enterprise SATA MLC, PLP, 3 DWPD (10.7 PBW) | Unassigned. At least one is the cluster's only cold spare — a failed OSD cannot heal without it. Per-drive detail below. |
 | Intel DC S3520 150 GB M.2 (`SSDSCKJB150G7`; pulled from vm-host-01, 2026-09-09) | Enterprise SATA M.2 | vm-host-01's old boot drive; spare |
-| Samsung 960 PRO 512 GB (pulled from vm-host-01, 2026-09-09) | Consumer MLC NVMe (no PLP) | vm-host-01's old osd.0, zapped by `pveceph osd destroy --cleanup`; shelf |
 | Intel DC S3520 150 GB M.2 (`SSDSCKJB150G7`; pulled from vm-host-02, 2026-09-07) | Enterprise SATA M.2 | vm-host-02's old boot drive; spare |
-| Samsung 970 EVO 500 GB (pulled from vm-host-02, 2026-09-07) | Consumer TLC NVMe (no PLP) | vm-host-02's old osd.1, zapped by `pveceph osd destroy --cleanup`; shelf |
 | 4× Intel Optane Memory M10 16 GB | Optane "cache" SKU, small, M.2 single-namespace | None. Too small for a special vdev, and a SLOG is the only other role — no pool has one and no P1600X is spare to build one with |
-| Samsung 860 EVO 1 TB | Consumer SATA TLC | General bulk SATA SSD |
-| HP EX950 1 TB | Consumer NVMe TLC (SMI controller) | Drop-in consumer NVMe OSD candidate |
 
 Plus M.2-to-PCIe carrier adapters available for slotting M.2 22110 enterprise NVMe into PCIe x4 lanes.
 

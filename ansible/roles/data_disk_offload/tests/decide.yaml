@@ -1,0 +1,31 @@
+---
+# One case for test.yml: run one of the role's decision files (bind_state.yaml, pool_state.yaml or
+# swap_state.yaml) with _case's inputs, and compare each fact in _case.want with what it set.
+- name: "Run {{ _case.file }}: {{ _case.name }}"
+  ansible.builtin.include_role:
+    name: data_disk_offload
+    tasks_from: "{{ _case.file }}"
+  vars:
+    data_disk_offload_dir: "{{ _case.dir | default({}) }}"
+    data_disk_offload_fs_label: data
+    data_disk_offload_findmnt: "{{ _case.findmnt | default({}) }}"
+    data_disk_offload_ramlog_enabled: "{{ _case.ramlog | default({}) }}"
+    data_disk_offload_pool_list: "{{ _case.pool_list | default({}) }}"
+    data_disk_offload_part1_probe: "{{ _case.probe | default({}) }}"
+    data_disk_offload_swap_dev: /dev/nvme0n1p2
+    data_disk_offload_swap_type: "{{ _case.swap_type | default({}) }}"
+    data_disk_offload_swaps: "{{ _case.swaps | default({}) }}"
+
+- name: "Check the facts: {{ _case.name }}"
+  ansible.builtin.assert:
+    that:
+      - _case.want | length > 0
+      - (lookup('ansible.builtin.vars', item.key) is boolean) or (item.value is not boolean)
+      - lookup('ansible.builtin.vars', item.key) == item.value
+    fail_msg: >-
+      {{ _case.name }}: {{ item.key }} is {{ lookup('ansible.builtin.vars', item.key) }}
+      ({{ lookup('ansible.builtin.vars', item.key) | type_debug }}), expected {{ item.value }}
+    success_msg: "{{ _case.name }}: {{ item.key }} = {{ item.value }}"
+  loop: "{{ _case.want | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

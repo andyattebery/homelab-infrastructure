@@ -1,0 +1,39 @@
+---
+# data_disk_offload (playbook-turingpi.yaml): the directories each Turing Pi node moves onto its
+# data disk, unless its host_vars set their own list. Each node's host_vars name the disk.
+#
+# A socket comes before its service, or it restarts the service mid-copy: rsyslog.service
+# requires syslog.socket. fail2ban holds journal files open, unattended-upgrades its shutdown log
+# and auditd /var/log/audit/audit.log, so they are stopped for the copy too. Units that are not
+# installed are skipped.
+#
+# On the RK1s, /var/log is armbian-ramlog's zram mount, which the role turns off to move it.
+# Armbian's zram swap stays, at priority 5 (armbian-zram-config), so it fills before the swap
+# partition their host_vars ask for, which gets the kernel's negative default.
+#
+# No container runtime's directories yet. Docker vs k3s is undecided for the RK1s and the CM4,
+# and the role can't undo a bind. Add the chosen runtime's directories before installing it, so
+# it starts on the data disk:
+# - Docker: /var/lib/docker [docker.socket, docker.service] and /var/lib/containerd
+#   [docker.socket, docker.service, containerd.service];
+# - k3s: /var/lib/rancher/k3s and /var/lib/kubelet, plus /var/lib/longhorn with Longhorn.
+data_disk_offload_bind_dirs:
+  - path: /var/log
+    services:
+      - syslog.socket
+      - rsyslog.service
+      - fail2ban.service
+      - unattended-upgrades.service
+      - auditd.service
+  - path: /var/tmp
+    services: []
+
+# Where every node mounts its data disk: the role's default, set here so beszel_agent below can
+# name it.
+data_disk_offload_mount_path: /mnt/data
+
+# beszel_agent: the agent finds the root disk by itself, and btrfs and ZFS pools, but no other
+# filesystem. The data disk is ext4, so it is named by its mount point, the same on every node
+# whatever the device is called.
+beszel_agent_extra_filesystems:
+  - "{{ data_disk_offload_mount_path }}__Data"

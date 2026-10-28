@@ -36,8 +36,9 @@ With `--yes` it:
 4. powers the node on.
 
 A `.img.xz` works: the BMC decompresses it, and checks the `.sha` against the compressed stream. An
-RK1 `.img.xz` (about 500 MiB, 2.5–3.2 GiB decompressed) flashes in 7–8 minutes; the CM4's raw
-4.6 GiB `.img` took about 25. `scripts/write-seed.sh` writes `.img.xz` for that reason.
+RK1 `.img.xz` (about 580 MiB; resolute's is 3.6 GiB decompressed) flashes in about 10 minutes. The
+CM4's image takes about 25 either way, raw (4.6 GiB) or as a 1.3 GiB `.img.xz`: its write, about
+3 MiB/s, is the limit.
 
 For an RK1, `turingpi/rk1/scripts/flash-latest-release.sh` downloads the latest image and writes the
 node's cloud-init seed into it first, then runs this ([rk1/](rk1/)).

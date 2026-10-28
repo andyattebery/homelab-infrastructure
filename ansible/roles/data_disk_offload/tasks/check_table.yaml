@@ -1,0 +1,40 @@
+---
+# community.general.parted with state: present runs mklabel whenever the disk's partition table
+# differs from `label`, which destroys every partition on it. So the role continues only when the
+# disk is blank, or holds exactly the partitions this role makes. Inputs: data_disk_offload_table,
+# the result of community.general.parted with state: info, and data_disk_offload_signatures,
+# wipefs's TYPE column with one signature per line. Decision logic only: tests/test.yml runs this
+# file on its own.
+#
+# Blank means no partitions, and either no signature or a GPT with nothing else: the empty table a
+# wipe by parted rm leaves, whose wipefs lines are its two headers and the protective MBR. parted
+# alone can't tell blank: a whole-disk LVM PV, LUKS, md or BlueStore volume has no partition table
+# either, and wipefs sees its signature.
+#
+# The role's own: a GPT whose partition 1 is named data_disk_offload_fs_label, alone, or followed
+# by partition 2 named swap when data_disk_offload_swap_mib asks for one.
+- name: Check the data disk is blank or partitioned by this role
+  vars:
+    _parts: "{{ data_disk_offload_table.partitions }}"
+    _signatures: "{{ data_disk_offload_signatures.stdout_lines }}"
+  ansible.builtin.assert:
+    that: >-
+      (_parts | length == 0
+       and (_signatures | length == 0
+            or (data_disk_offload_table.disk.table == 'gpt'
+                and _signatures | difference(['gpt', 'PMBR']) | length == 0)))
+      or (data_disk_offload_table.disk.table == 'gpt'
+          and _parts | length in [1, 2]
+          and _parts[0].num == 1
+          and _parts[0].name == data_disk_offload_fs_label
+          and (_parts | length == 1
+               or (data_disk_offload_swap_mib | int > 0
+                   and _parts[1].num == 2
+                   and _parts[1].name == 'swap')))
+    fail_msg: >-
+      {{ data_disk_offload_device }} has a {{ data_disk_offload_table.disk.table }} partition
+      table with partitions {{ _parts | map(attribute='name') | list }} and signatures
+      {{ _signatures }}. The role partitions only a blank disk (no partitions, and no signature or
+      an empty GPT), or one holding its own GPT partitions: {{ data_disk_offload_fs_label }}, then
+      swap when data_disk_offload_swap_mib is set. It never repartitions or wipes.
+    quiet: true

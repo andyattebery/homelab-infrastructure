@@ -1,0 +1,70 @@
+---
+# The role's inputs, checked before anything is touched. Decision logic only: tests/test.yml runs
+# this file on its own.
+- name: Check data_disk_offload_device and the other inputs
+  ansible.builtin.assert:
+    that:
+      - data_disk_offload_device is defined
+      - data_disk_offload_device is string
+      - data_disk_offload_device is match('/dev/disk/by-id/[^/]+$')
+      - data_disk_offload_device is not match('.*-part[0-9]+$')
+      - data_disk_offload_fs_label is string
+      - data_disk_offload_fs_label | upper != 'APP'
+      # The label is the pool's name too: zpool-create(8)'s rule, without the space it allows. It
+      # reserves mirror, raidz, draid, spare and log, and names beginning with the first four.
+      # swap is partition 2's name.
+      - data_disk_offload_fs_label is match('[A-Za-z][A-Za-z0-9_.:-]*$')
+      - data_disk_offload_fs_label is not match('(mirror|raidz|draid|spare)')
+      - data_disk_offload_fs_label not in ['log', 'swap']
+      # Absolute, no trailing slash, no whitespace (fstab separates its fields with it), not /.
+      - data_disk_offload_mount_path is match('/[^\s]*[^/\s]$')
+      - data_disk_offload_bind_dirs is sequence
+      - data_disk_offload_bind_dirs is not string
+      - data_disk_offload_swap_mib | string is match('[0-9]+$')
+      - data_disk_offload_zfs_root_properties is mapping
+    fail_msg: >-
+      data_disk_offload_device must be a whole disk's /dev/disk/by-id/ path (not a -partN link),
+      data_disk_offload_fs_label a pool name zpool accepts and not APP or swap,
+      data_disk_offload_mount_path absolute without a trailing slash, data_disk_offload_bind_dirs a
+      list, data_disk_offload_swap_mib a whole number of MiB, and
+      data_disk_offload_zfs_root_properties a mapping; got device
+      {{ data_disk_offload_device | default('(none)') }}, label {{ data_disk_offload_fs_label }},
+      mount path {{ data_disk_offload_mount_path }}, swap {{ data_disk_offload_swap_mib }}
+    quiet: true
+
+- name: Check each directory to relocate
+  ansible.builtin.assert:
+    that:
+      - item.path is defined
+      - item.path is string
+      # Absolute, not /, no trailing slash, and only characters a dataset name can hold: the path
+      # names the directory's dataset, <fs_label><path>.
+      - item.path is match('(/[A-Za-z0-9_.:-]+)+$')
+      - not (item.path ~ '/').startswith(data_disk_offload_mount_path ~ '/')
+      - not (data_disk_offload_mount_path ~ '/').startswith(item.path ~ '/')
+      # No other listed directory inside this one: a bind inside a bind depends on mount order.
+      - >-
+        data_disk_offload_bind_dirs | map(attribute='path', default='') | map('string')
+        | select('match', (item.path | regex_escape) ~ '/') | list | length == 0
+      - item.services | default([]) is sequence
+      - item.services | default([]) is not string
+      - item.zfs_properties | default({}) is mapping
+    fail_msg: >-
+      Each data_disk_offload_bind_dirs entry needs a path that is absolute, has no trailing slash,
+      uses only letters, digits and _.:- between its slashes, is not / and is neither inside nor
+      above {{ data_disk_offload_mount_path }} or another entry; services as a list; and
+      zfs_properties, if given, as a mapping; got {{ item }}
+    quiet: true
+  loop: "{{ data_disk_offload_bind_dirs }}"
+  loop_control:
+    label: "{{ item.path | default(item) }}"
+
+- name: Check the directories to relocate are unique
+  ansible.builtin.assert:
+    that: >-
+      data_disk_offload_bind_dirs | map(attribute='path') | unique | list | length
+      == data_disk_offload_bind_dirs | length
+    fail_msg: >-
+      data_disk_offload_bind_dirs lists a path twice:
+      {{ data_disk_offload_bind_dirs | map(attribute='path') | list }}
+    quiet: true

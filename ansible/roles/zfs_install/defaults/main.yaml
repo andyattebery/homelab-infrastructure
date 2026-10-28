@@ -10,3 +10,20 @@ zfs_install_backports_uri: http://deb.debian.org/debian
 # Base path of the Debian archive keyring, without extension. The role picks
 # .pgp if present and .gpg otherwise -- see the comment in apt_repo.yaml.
 zfs_install_keyring_base: /usr/share/keyrings/debian-archive-keyring
+
+# The three below are read by the Ubuntu path only (tasks/install-ubuntu.yaml).
+
+# Installed from Ubuntu's own archive, without recommends. zfs-dkms builds the
+# module against the running kernel's headers; a kernel that ships the module
+# prebuilt needs only zfsutils-linux.
+zfs_install_packages:
+  - zfs-dkms
+  - zfsutils-linux
+
+# apt preferences, written to /etc/apt/preferences.d/90_zfs before the install.
+# Empty removes that file.
+zfs_install_apt_preferences: ""
+
+# present: install, load the module and check it. absent: unload the module,
+# purge zfs_install_packages and remove the preferences file.
+zfs_install_state: present

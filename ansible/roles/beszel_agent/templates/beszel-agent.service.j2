@@ -4,13 +4,19 @@ Wants=network-online.target
 After=network-online.target
 
 [Service]
-Environment="PORT={{ beszel_agent_port }}"
-Environment="KEY={{ beszel_key }}"
-Environment="TOKEN={{ beszel_token }}"
+Environment="LISTEN={{ beszel_agent_port }}"
 Environment="HUB_URL={{ beszel_hub_url }}"
-# Environment="EXTRA_FILESYSTEMS=sdb"
+# KEY and TOKEN: root-only, unlike this unit, which any local user can read.
+EnvironmentFile={{ beszel_agent_env_path }}
+{% if beszel_agent_extra_filesystems | length > 0 %}
+Environment="EXTRA_FILESYSTEMS={{ beszel_agent_extra_filesystems | join(',') }}"
+{% endif %}
 ExecStart={{ beszel_agent_bin_path }}
 User={{ beszel_agent_username }}
+# S.M.A.R.T., for smartctl, which inherits both: disk opens the block devices; CAP_SYS_RAWIO sends
+# SATA disks ATA commands, CAP_SYS_ADMIN NVMe admin commands.
+SupplementaryGroups=disk
+AmbientCapabilities=CAP_SYS_RAWIO CAP_SYS_ADMIN
 Restart=on-failure
 RestartSec=5
 StateDirectory=beszel-agent

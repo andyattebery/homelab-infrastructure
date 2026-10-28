@@ -1,0 +1,20 @@
+---
+# data_disk_offload: the Samsung 850 EVO on slot 3's SATA (turingpi/nodes.md). The directories are
+# group_vars/turingpi's.
+data_disk_offload_device: /dev/disk/by-id/ata-Samsung_SSD_850_EVO_500GB_S2RANXAH130042A
+
+# 8 GiB of swap, the Jetson's and the RK1s' size. Its RAM isn't shared with a GPU, but growing the
+# partition later means wiping the disk, against 4 GiB more of 500 GB now; and the CM4 has no zram.
+data_disk_offload_swap_mib: 8192
+
+# Ubuntu's monthly trim (/usr/lib/zfs-linux/trim) skips a pool that isn't all NVMe unless this says
+# enable, and fstrim can't trim ZFS. TRIM reaches the 850 EVO through slot 3's SATA bridge (lsblk
+# --discard: DISC-MAX 2G, 2026-10-26).
+data_disk_offload_zfs_root_properties:
+  org.debian:periodic-trim: enable
+
+# zfs_install: Ubuntu's raspi kernel ships the ZFS module prebuilt (linux-main-modules-zfs-<kernel>),
+# so only the userland is installed. Each kernel's modules package depends on that package, so a
+# kernel update brings its own.
+zfs_install_packages:
+  - zfsutils-linux

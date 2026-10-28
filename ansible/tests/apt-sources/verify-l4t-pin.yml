@@ -1,0 +1,499 @@
+---
+# Verifies the apt pin and the first-boot check that turingpi/jetson/cloud-init/user-data.tpl
+# writes for the private L4T repo (research/turing-pi-cluster/orin-nano-qspi-updates.md). Both are
+# read from that template, not copied here, so this tests what a card gets.
+#
+#   cd ansible
+#   tests/apt-sources/run.sh setup.yml verify-l4t-pin.yml
+#   tests/apt-sources/run.sh verify-l4t-pin.yml     # the second run, against the same container
+#
+# No role is under test. Like verify-realtek.yml, this resets its own state first (step 0), so it
+# is safe to re-run without setup.yml. One leg: noble on arm64, like the Jetson.
+#
+# The fixtures are nine empty packages built in the container, with NVIDIA's dependencies:
+# - exact versions: bootloader -> -utils -> -core <- -cuda-nvgpu -> -init <- -kernel-nvgpu ->
+#   -kernel;
+# - -firmware has none;
+# - -bsp, NVIDIA's meta-package, has only version ranges, on all the others.
+#
+# Two file: repos stand in for the real ones:
+# - NVIDIA's (Origin: Nvidia, Codename: r39.2) has versions V and V1 of all nine. Its pin (600)
+#   is re-keyed from the hostname to o=Nvidia, because a file: repo has no host.
+# - The private one (Origin: Forgejo, Codename: l4t-bootloader-no-carrier-eeprom) is set to one of
+#   four states by fixture.sh:
+#   - base: the V files except NVIDIA's own bootloader, plus the rebuild V+tp1, as the build repo
+#     publishes them;
+#   - partial: also every V1 except the rebuild V1+tp1, as during an upload;
+#   - full: also V1+tp1;
+#   - nobl: base without the rebuild.
+- name: Verify the L4T private repo's pin and first-boot check
+  hosts: apt-test-ubuntu2404
+  gather_facts: false
+  vars:
+    v_template: "{{ playbook_dir }}/../../../turingpi/jetson/cloud-init/user-data.tpl"
+    v_v: "39.2.1-20260806224157"
+    v_v1: "39.2.2-20261201000000"
+    v_kv: "6.8.12-tegra-39.2.1-20260806224157"
+    v_kv1: "6.8.12-tegra-39.2.2-20261201000000"
+    # Everything the fixtures install. The check holds exactly these when it holds.
+    v_installed:
+      - nvidia-l4t-bootloader
+      - nvidia-l4t-bootloader-utils
+      - nvidia-l4t-bsp
+      - nvidia-l4t-core
+      - nvidia-l4t-cuda-nvgpu
+      - nvidia-l4t-firmware
+      - nvidia-l4t-init
+      - nvidia-l4t-kernel
+      - nvidia-l4t-kernel-nvgpu
+
+  tasks:
+    # lookup + from_yaml leaves the template's {{ op://... }} line as text: lookup results aren't
+    # templated (checked on ansible-core 2.21.3, with a control).
+    - name: Read the pin and the check from the template
+      vars:
+        _files: "{{ (lookup('ansible.builtin.file', v_template) | from_yaml).write_files }}"
+      ansible.builtin.set_fact:
+        v_pin: "{{ _files | selectattr('path', 'equalto', '/etc/apt/preferences.d/l4t-private') | map(attribute='content') | first }}"
+        v_check: "{{ _files | selectattr('path', 'equalto', '/usr/local/sbin/l4t-private-repo-check') | map(attribute='content') | first }}"
+
+    - name: The template yields a two-record pin and the check
+      ansible.builtin.assert:
+        that:
+          - v_pin | length > 0
+          - v_check | length > 0
+          - v_pin.split('\n\n') | length == 2
+          - "'Pin-Priority: -1' in v_pin.split('\n\n')[0]"
+          - "'Pin-Priority: 990' in v_pin.split('\n\n')[1]"
+          - "'apt-mark hold' in v_check"
+        fail_msg: "pin: {{ v_pin | to_json }}"
+        success_msg: "pin: {{ v_pin | to_json }} | check: {{ v_check | length }} characters"
+
+    # Step 0. Undo any earlier run.
+    - name: Reset - unhold and purge the fixture packages, remove the fixtures, sources and pins
+      ansible.builtin.shell: |
+        pkgs=$(dpkg-query -W -f '${Package}\n' 'nvidia-l4t-*' 2>/dev/null || true)
+        if [ -n "$pkgs" ]; then apt-mark unhold $pkgs > /dev/null; dpkg --purge $pkgs > /dev/null; fi
+        rm -rf /srv/l4t-test
+        rm -f /etc/apt/sources.list.d/l4t-test-nvidia.sources /etc/apt/sources.list.d/l4t-private.sources \
+          /etc/apt/preferences.d/nvidia-repo-pin /etc/apt/preferences.d/l4t-private \
+          /usr/local/sbin/l4t-private-repo-check
+      changed_when: true
+
+    - name: Install apt-ftparchive
+      ansible.builtin.apt:
+        name: apt-utils
+        state: present
+        update_cache: true
+
+    - name: Create the fixture directory
+      ansible.builtin.file:
+        path: /srv/l4t-test
+        state: directory
+        mode: "0755"
+
+    - name: Write the fixture builder and the state reader
+      ansible.builtin.copy:
+        dest: "/srv/l4t-test/{{ item.name }}"
+        mode: "0755"
+        content: "{{ item.content }}"
+      loop_control:
+        label: "{{ item.name }}"
+      loop:
+        - name: fixture.sh
+          content: |
+            #!/bin/bash
+            # fixture.sh build | private <base|partial|full|nobl>
+            set -euo pipefail
+            T=/srv/l4t-test
+            V={{ v_v }} V1={{ v_v1 }} KV={{ v_kv }} KV1={{ v_kv1 }}
+
+            mkdeb() {  # name version [depends]
+              local d; d=$(mktemp -d)
+              mkdir "$d/DEBIAN"
+              printf 'Package: %s\nVersion: %s\nArchitecture: arm64\nMaintainer: verify-l4t-pin <test@invalid>\n' "$1" "$2" > "$d/DEBIAN/control"
+              if [ -n "${3:-}" ]; then printf 'Depends: %s\n' "$3" >> "$d/DEBIAN/control"; fi
+              printf 'Description: verify-l4t-pin.yml fixture\n' >> "$d/DEBIAN/control"
+              dpkg-deb --root-owner-group --build "$d" "$T/debs/${1}_${2}_arm64.deb" > /dev/null
+              rm -rf "$d"
+            }
+
+            build_version() {  # version kernel-version
+              mkdeb nvidia-l4t-core "$1"
+              mkdeb nvidia-l4t-bootloader-utils "$1" "nvidia-l4t-core (= $1)"
+              mkdeb nvidia-l4t-bootloader "$1" "nvidia-l4t-bootloader-utils (= $1)"
+              mkdeb nvidia-l4t-bootloader "$1+tp1" "nvidia-l4t-bootloader-utils (= $1)"
+              mkdeb nvidia-l4t-init "$1"
+              mkdeb nvidia-l4t-cuda-nvgpu "$1" "nvidia-l4t-core (= $1), nvidia-l4t-init (= $1)"
+              mkdeb nvidia-l4t-firmware "$1"
+              mkdeb nvidia-l4t-kernel "$2"
+              mkdeb nvidia-l4t-kernel-nvgpu "$2" "nvidia-l4t-kernel (= $2), nvidia-l4t-init (= $1)"
+              # NVIDIA's meta-package: a version range on each package of the release, no exact version.
+              local deps="" p
+              for p in bootloader bootloader-utils core cuda-nvgpu firmware init; do
+                deps="$deps, nvidia-l4t-$p (>> 39.2-0), nvidia-l4t-$p (<< 39.3-0)"
+              done
+              for p in kernel kernel-nvgpu; do
+                deps="$deps, nvidia-l4t-$p (>> 6.8.12-tegra-39.2-0), nvidia-l4t-$p (<< 6.8.12-tegra-39.3-0)"
+              done
+              mkdeb nvidia-l4t-bsp "$1" "${deps#, }"
+            }
+
+            release_repo() {  # dir origin suite codename deb...
+              local dir=$1 origin=$2 suite=$3 codename=$4; shift 4
+              rm -rf "$dir"; mkdir -p "$dir/pool" "$dir/dists/$codename/main/binary-arm64"
+              for f in "$@"; do cp "$T/debs/$f" "$dir/pool/"; done
+              (cd "$dir" && apt-ftparchive packages pool > "dists/$codename/main/binary-arm64/Packages")
+              apt-ftparchive \
+                -o "APT::FTPArchive::Release::Origin=$origin" -o "APT::FTPArchive::Release::Label=$origin" \
+                -o "APT::FTPArchive::Release::Suite=$suite" -o "APT::FTPArchive::Release::Codename=$codename" \
+                -o APT::FTPArchive::Release::Architectures=arm64 -o APT::FTPArchive::Release::Components=main \
+                release "$dir/dists/$codename" > "$T/Release.tmp"
+              mv "$T/Release.tmp" "$dir/dists/$codename/Release"
+            }
+
+            deb() { echo "${1}_${2}_arm64.deb"; }
+
+            # One version of the release, without the bootloader: the private repo never carries NVIDIA's
+            # own, and its rebuild is added per state.
+            release_without_bootloader() {  # version kernel-version
+              echo "$(deb nvidia-l4t-core "$1") $(deb nvidia-l4t-bootloader-utils "$1") $(deb nvidia-l4t-init "$1")" \
+                "$(deb nvidia-l4t-cuda-nvgpu "$1") $(deb nvidia-l4t-firmware "$1") $(deb nvidia-l4t-bsp "$1")" \
+                "$(deb nvidia-l4t-kernel "$2") $(deb nvidia-l4t-kernel-nvgpu "$2")"
+            }
+
+            case "${1:-}" in
+              build)
+                rm -rf "$T/debs"; mkdir -p "$T/debs"
+                build_version "$V" "$KV"
+                build_version "$V1" "$KV1"
+                # NVIDIA's repo: both versions of everything, its own bootloader included, never a rebuild.
+                release_repo "$T/nvidia" Nvidia stable r39.2 $(cd "$T/debs" && ls | grep -v '+tp1')
+                ;;
+              private)
+                base="$(release_without_bootloader "$V" "$KV") $(deb nvidia-l4t-bootloader "$V+tp1")"
+                case "${2:-}" in
+                  base) files=$base ;;
+                  nobl) files=$(release_without_bootloader "$V" "$KV") ;;
+                  partial) files="$base $(release_without_bootloader "$V1" "$KV1")" ;;
+                  full) files="$base $(release_without_bootloader "$V1" "$KV1") $(deb nvidia-l4t-bootloader "$V1+tp1")" ;;
+                  *) echo "unknown state: ${2:-}" >&2; exit 2 ;;
+                esac
+                release_repo "$T/private" Forgejo l4t-bootloader-no-carrier-eeprom l4t-bootloader-no-carrier-eeprom $files
+                ;;
+              *) echo "usage: fixture.sh build | private <base|partial|full|nobl>" >&2; exit 2 ;;
+            esac
+        - name: apt-state.py
+          content: |
+            #!/usr/bin/env python3
+            """Prints apt's view of the fixture packages as JSON: policy, simulated upgrades, holds."""
+            import json
+            import re
+            import subprocess
+
+            PKGS = {{ v_installed | to_json }}
+
+
+            def run(*cmd):
+                return subprocess.run(cmd, check=True, capture_output=True, text=True,
+                                      env={"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}).stdout
+
+
+            policy = {}
+            for p in PKGS:
+                out = run("apt-cache", "policy", p)
+                policy[p] = {
+                    "installed": re.search(r"^\s+Installed: (\S+)$", out, re.M).group(1),
+                    "candidate": re.search(r"^\s+Candidate: (\S+)$", out, re.M).group(1),
+                    # Version lines: " *** <version> <priority>" or "     <version> <priority>".
+                    "versions": {v: int(prio) for v, prio in
+                                 re.findall(r"^ (?:\*\*\*| {3}) (\S+) (-?\d+)$", out, re.M)},
+                }
+            sim = {}
+            for mode in ("upgrade", "dist-upgrade"):
+                out = run("apt-get", "-s", mode)
+                sim[mode] = {
+                    "inst": {n: v for n, v in re.findall(r"^Inst (\S+) (?:\[\S+\] )?\((\S+) ", out, re.M)
+                             if n.startswith("nvidia-l4t-")},
+                    "remv": [n for n in re.findall(r"^Remv (\S+)", out, re.M) if n.startswith("nvidia-l4t-")],
+                }
+            print(json.dumps({"policy": policy, "sim": sim, "holds": sorted(run("apt-mark", "showhold").split())}))
+
+    - name: Build the packages, NVIDIA's repo, and the private repo's base state
+      ansible.builtin.shell: /srv/l4t-test/fixture.sh build && /srv/l4t-test/fixture.sh private base
+      changed_when: true
+
+    - name: NVIDIA's repo and its pin, as the image has them
+      ansible.builtin.copy:
+        dest: "{{ item.dest }}"
+        mode: "0644"
+        content: "{{ item.content }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      loop:
+        - dest: /etc/apt/sources.list.d/l4t-test-nvidia.sources
+          content: |
+            Types: deb
+            URIs: file:/srv/l4t-test/nvidia
+            Suites: r39.2
+            Components: main
+            Trusted: yes
+        - dest: /etc/apt/preferences.d/nvidia-repo-pin
+          content: |
+            Package: *
+            Pin: release o=Nvidia
+            Pin-Priority: 600
+
+    - name: Install V, as the image does
+      ansible.builtin.shell: >-
+        apt-get update -qq &&
+        apt-get install -y -qq
+        nvidia-l4t-core={{ v_v }} nvidia-l4t-bootloader-utils={{ v_v }} nvidia-l4t-bootloader={{ v_v }}
+        nvidia-l4t-init={{ v_v }} nvidia-l4t-cuda-nvgpu={{ v_v }} nvidia-l4t-firmware={{ v_v }}
+        nvidia-l4t-bsp={{ v_v }} nvidia-l4t-kernel={{ v_kv }} nvidia-l4t-kernel-nvgpu={{ v_kv }}
+      changed_when: true
+
+    # The card's first boot: write_files, then runcmd's last item.
+    - name: First boot - the private repo's source, and the template's pin and check
+      ansible.builtin.copy:
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode }}"
+        content: "{{ item.content }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      loop:
+        - dest: /etc/apt/sources.list.d/l4t-private.sources
+          mode: "0644"
+          content: |
+            Types: deb
+            URIs: file:/srv/l4t-test/private
+            Suites: l4t-bootloader-no-carrier-eeprom
+            Components: main
+            Trusted: yes
+        - dest: /etc/apt/preferences.d/l4t-private
+          mode: "0644"
+          content: "{{ v_pin }}"
+        - dest: /usr/local/sbin/l4t-private-repo-check
+          mode: "0755"
+          content: "{{ v_check }}"
+
+    - name: Run the check, as runcmd does
+      ansible.builtin.command: /usr/local/sbin/l4t-private-repo-check
+      register: v_run
+      changed_when: false
+
+    - name: Read apt's state
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: The check found the rebuild and held nothing
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - v_run.rc == 0
+          - "'nothing held' in v_run.stdout"
+          - _s.holds | length == 0
+        fail_msg: "rc={{ v_run.rc }} :: {{ v_run.stdout }} {{ v_run.stderr }} :: holds={{ _s.holds }}"
+        success_msg: "{{ v_run.stdout }}"
+
+    - name: Policy - NVIDIA's bootloader -1 in every version, the rebuild 990, -core held at V by 990
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+        _bl: "{{ _s.policy['nvidia-l4t-bootloader'] }}"
+        _core: "{{ _s.policy['nvidia-l4t-core'] }}"
+      ansible.builtin.assert:
+        that:
+          - _s.policy | length == v_installed | length
+          - _bl.installed == v_v
+          - "_bl.versions == {v_v: -1, v_v1: -1, v_v ~ '+tp1': 990}"
+          - _bl.candidate == v_v ~ '+tp1'
+          - "_core.versions == {v_v: 990, v_v1: 600}"
+          - _core.candidate == v_v
+        fail_msg: "bootloader {{ _bl | to_json }} :: core {{ _core | to_json }}"
+        success_msg: "bootloader {{ _bl.versions | to_json }}, candidate {{ _bl.candidate }} :: core {{ _core.versions | to_json }}"
+
+    - name: Upgrades take the rebuild and nothing at V1
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+        _want: "{{ {'nvidia-l4t-bootloader': v_v ~ '+tp1'} }}"
+      ansible.builtin.assert:
+        that:
+          - _s.sim.upgrade.inst == _want
+          - _s.sim['dist-upgrade'].inst == _want
+          - _s.sim.upgrade.remv | length == 0
+          - _s.sim['dist-upgrade'].remv | length == 0
+        fail_msg: "{{ _s.sim | to_json }}"
+        success_msg: "{{ _s.sim | to_json }}"
+
+    # An upload in progress: every V1 is in the private repo except the rebuild V1+tp1, which goes
+    # last. Packages tied to the bootloader by exact versions wait; -firmware and -bsp have no such
+    # tie and move.
+    - name: Partial publish
+      ansible.builtin.shell: /srv/l4t-test/fixture.sh private partial && apt-get update -qq
+      changed_when: true
+
+    - name: Read apt's state, partial publish
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Partial publish - upgrade keeps the tied packages back and moves only the untied -firmware and -bsp
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - "_s.sim.upgrade.inst == {'nvidia-l4t-firmware': v_v1, 'nvidia-l4t-bsp': v_v1}"
+          - _s.sim.upgrade.remv | length == 0
+        fail_msg: "{{ _s.sim.upgrade | to_json }}"
+        success_msg: "{{ _s.sim.upgrade | to_json }}"
+
+    # The hazard the docs warn about: during an upload, dist-upgrade (and full-upgrade, and the
+    # system_upgrade role) removes the bootloader to move everything tied to it. Asserted, so that a
+    # change in apt's behaviour shows up here and the warning gets revisited.
+    - name: Partial publish - dist-upgrade removes nvidia-l4t-bootloader and -bsp, and moves the rest to V1
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+        _moved: "{{ _s.sim['dist-upgrade'].inst }}"
+      ansible.builtin.assert:
+        that:
+          - _s.sim['dist-upgrade'].remv | sort == ['nvidia-l4t-bootloader', 'nvidia-l4t-bsp']
+          - _moved['nvidia-l4t-core'] | default('') == v_v1
+          - _moved['nvidia-l4t-kernel'] | default('') == v_kv1
+          - "'nvidia-l4t-bootloader' not in _moved"
+        fail_msg: "{{ _s.sim['dist-upgrade'] | to_json }}"
+        success_msg: "{{ _s.sim['dist-upgrade'] | to_json }}"
+
+    - name: Full publish
+      ansible.builtin.shell: /srv/l4t-test/fixture.sh private full && apt-get update -qq
+      changed_when: true
+
+    - name: Read apt's state, full publish
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Full publish - all nine move together, the bootloader to the rebuild V1+tp1
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+        _want:
+          nvidia-l4t-bootloader: "{{ v_v1 }}+tp1"
+          nvidia-l4t-bootloader-utils: "{{ v_v1 }}"
+          nvidia-l4t-bsp: "{{ v_v1 }}"
+          nvidia-l4t-core: "{{ v_v1 }}"
+          nvidia-l4t-cuda-nvgpu: "{{ v_v1 }}"
+          nvidia-l4t-firmware: "{{ v_v1 }}"
+          nvidia-l4t-init: "{{ v_v1 }}"
+          nvidia-l4t-kernel: "{{ v_kv1 }}"
+          nvidia-l4t-kernel-nvgpu: "{{ v_kv1 }}"
+      ansible.builtin.assert:
+        that:
+          - _s.sim.upgrade.inst == _want
+          - _s.sim['dist-upgrade'].inst == _want
+          - _s.sim.upgrade.remv | length == 0
+          - _s.sim['dist-upgrade'].remv | length == 0
+        fail_msg: "{{ _s.sim | to_json }}"
+        success_msg: "{{ _s.sim | to_json }}"
+
+    # Controls. Each constructs a broken state by hand and asserts the failure it should cause, so the
+    # checks above are shown able to fail.
+    - name: Control 1 setup - the base state
+      ansible.builtin.shell: /srv/l4t-test/fixture.sh private base && apt-get update -qq
+      changed_when: true
+
+    - name: Control 1 setup - the pin without its 990 record
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/l4t-private
+        mode: "0644"
+        content: "{{ v_pin.split('\n\n')[0] | trim }}\n"
+
+    - name: Read apt's state, control 1
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Control 1 - without the 990 record, -core's candidate is NVIDIA's V1; the check would not notice
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - _s.policy['nvidia-l4t-core'].candidate == v_v1
+          - _s.policy['nvidia-l4t-bootloader'].candidate == v_v ~ '+tp1'
+        fail_msg: "{{ _s.policy | to_json }}"
+        success_msg: >-
+          core candidate {{ _s.policy['nvidia-l4t-core'].candidate }};
+          bootloader candidate {{ _s.policy['nvidia-l4t-bootloader'].candidate }}, which the check accepts
+
+    - name: Control 2 setup - no rebuild in the private repo
+      ansible.builtin.shell: /srv/l4t-test/fixture.sh private nobl && apt-get update -qq
+      changed_when: true
+
+    - name: Control 2 setup - the pin without its -1 record
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/l4t-private
+        mode: "0644"
+        content: "{{ v_pin.split('\n\n')[1] | trim }}\n"
+
+    - name: Read apt's state, control 2
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Control 2 - without the -1 record or the rebuild, the bootloader's candidate is NVIDIA's V1
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - _s.policy['nvidia-l4t-bootloader'].candidate == v_v1
+        fail_msg: "{{ _s.policy['nvidia-l4t-bootloader'] | to_json }}"
+        success_msg: "bootloader candidate {{ _s.policy['nvidia-l4t-bootloader'].candidate }}"
+
+    - name: Control 3 setup - no rebuild in the private repo, the template's pin
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/l4t-private
+        mode: "0644"
+        content: "{{ v_pin }}"
+
+    - name: Control 3 - run the check
+      ansible.builtin.command: /usr/local/sbin/l4t-private-repo-check
+      register: v_run
+      changed_when: false
+
+    - name: Read apt's state, control 3
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Control 3 - without the rebuild, the check holds every installed nvidia-l4t-* package
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - v_run.rc == 0
+          - "'holding' in v_run.stderr"
+          - _s.holds == v_installed | sort
+        fail_msg: "rc={{ v_run.rc }} :: {{ v_run.stdout }} {{ v_run.stderr }} :: holds={{ _s.holds }}"
+        success_msg: "holds {{ _s.holds | to_json }}"
+
+    - name: Restore - unhold, the base state, the template's pin
+      ansible.builtin.shell: >-
+        apt-mark unhold {{ v_installed | join(' ') }} > /dev/null &&
+        /srv/l4t-test/fixture.sh private base && apt-get update -qq
+      changed_when: true
+
+    - name: Read apt's state, restored
+      ansible.builtin.command: /srv/l4t-test/apt-state.py
+      register: v_out
+      changed_when: false
+
+    - name: Restored - the rebuild is the candidate again, and nothing is held
+      vars:
+        _s: "{{ v_out.stdout | from_json }}"
+      ansible.builtin.assert:
+        that:
+          - _s.policy['nvidia-l4t-bootloader'].candidate == v_v ~ '+tp1'
+          - _s.policy['nvidia-l4t-core'].candidate == v_v
+          - _s.holds | length == 0
+        fail_msg: "{{ _s.policy | to_json }} :: holds={{ _s.holds }}"
+        success_msg: "restored"

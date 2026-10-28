@@ -77,7 +77,9 @@ dns_server_vip: "{{ vault_dns_server_vip }}"
 # applications
 beszel_key: "{{ vault_beszel_key }}"
 beszel_token: "{{ vault_beszel_universal_token }}"
-beszel_hub_url: "beszel.{{ domain_name }}"
+# The agent's outgoing WebSocket needs the scheme; without it the agent only waits for the hub over
+# SSH. The same URL as nix/modules/base.nix's HUB_URL.
+beszel_hub_url: "https://beszel.{{ domain_name }}"
 beszel_username: "{{ vault_beszel_username }}"
 beszel_password: "{{ vault_beszel_password }}"
 
@@ -320,6 +322,9 @@ ntp_config_file: /etc/chrony/chrony.conf
 security_sudoers_passwordless:
   - "{{ ansible_user }}"
 
+# github_release_install
+github_release_install_github_token: "{{ vault_github_release_install_github_token }}"
+
 # pbs_acme
 pbs_fingerprint: "{{ vault_pbs_fingerprint }}"
 pbs_api_token_name: "{{ vault_pbs_api_token_name }}"
@@ -401,6 +406,11 @@ podsync_feeds:
   - id: nerd-nest
     url: "https://www.youtube.com/playlist?list=PLly4JWEWaZCpkvpv3BLgOpqJ-Xki455HU"
     title: "The Nerd Nest (via Podsync)"
+  # The WVFRM Podcast channel posts Shorts alongside episodes; this is its "Waveform Podcast"
+  # playlist, newest-first.
+  - id: waveform
+    url: "https://www.youtube.com/playlist?list=PL70yIS6vx_Y2xaKD3w2qb6Eu06jNBdNJb"
+    title: "Waveform (via Podsync)"
 
 # storage media data disks
 # The nas-01 disks holding media libraries — six of the twelve; the rest are not media.

@@ -19,7 +19,7 @@ same settings from an env file the role writes:
 It does NOT install a binary that is absent -- that is Ansible's job. A missing BINARY_PATH prints
 SKIP and exits 0, which is also how an env file left behind by a role you no longer call stops
 resurrecting something you removed. The check runs BEFORE the API call so an orphan costs no
-request against the unauthenticated 60/hour limit.
+request against the rate limit.
 
 Prints exactly one status line: OK | CHANGED | WOULD-UPDATE | SKIP | FAILED.
 Exit status is 0 unless the update failed. Stdlib only.
@@ -49,10 +49,10 @@ PROG = "github-release-update"
 DEFAULT_CONFIG_DIR = "/etc/github-release-install"
 DEFAULT_API_BASE = "https://api.github.com"
 
-# Mirrors defaults/main.yaml. Keys are the env-file names; the second element is the default,
-# and None means "no default, must be supplied". VERSION_COMMAND and TAG_STAMP_PATH default to
-# expressions over BINARY_PATH, which the role renders before writing -- resolved here too so the
-# script still works when driven entirely from flags.
+# Mirrors defaults/main.yaml. Keys are the env-file names; DEFAULTS below holds the ones with a
+# fixed default, and the rest start empty. VERSION_COMMAND, TAG_STAMP_PATH and SYMLINK_PATH
+# default to expressions over BINARY_PATH, which the role renders before writing -- resolved here
+# too so the script still works when driven entirely from flags.
 SETTINGS = (
     "NAME",
     "REPO",
@@ -68,6 +68,7 @@ SETTINGS = (
     "SYMLINK",
     "SYMLINK_PATH",
     "POST_UPDATE_COMMAND",
+    "GITHUB_TOKEN",
 )
 
 DEFAULTS = {
@@ -77,6 +78,7 @@ DEFAULTS = {
     "SYMLINK": "false",
     "POST_UPDATE_COMMAND": "",
     "BINARY_IN_ARCHIVE": "",
+    "GITHUB_TOKEN": "",
 }
 
 ARCHIVE_TYPES = ("deb", "tarball", "binary")
@@ -107,7 +109,10 @@ def read_env_file(path):
         with open(path, encoding="utf-8") as handle:
             raw = handle.read()
     except OSError as exc:
-        raise Failure(f"cannot read env file {path}: {exc}") from exc
+        # The role writes these 0600 because GITHUB_TOKEN is a secret, so this is what running
+        # without sudo looks like.
+        hint = "; run with sudo" if isinstance(exc, PermissionError) and os.geteuid() != 0 else ""
+        raise Failure(f"cannot read env file {path}: {exc}{hint}") from exc
 
     config = {}
     for lineno, line in enumerate(raw.splitlines(), 1):
@@ -147,6 +152,10 @@ def build_config(args):
         if value is not None:
             config[key] = value
 
+    # GITHUB_TOKEN has no flag (see parse_args); the environment variable is its per-run override.
+    if os.environ.get("GITHUB_TOKEN"):
+        config["GITHUB_TOKEN"] = os.environ["GITHUB_TOKEN"]
+
     for key in SETTINGS:
         config.setdefault(key, "")
 
@@ -183,29 +192,34 @@ def validate(config):
 # --------------------------------------------------------------------------------------------
 
 
-def open_url(url, accept=None):
+def open_url(url, accept=None, token=""):
     request = urllib.request.Request(url)
-    # Headers are pointless on file:// (the test fixtures' scheme) and GITHUB_TOKEN must never be
-    # attached to a non-GitHub URL, so both are gated on the scheme rather than added blindly.
+    # Headers are pointless on file:// (the test fixtures' scheme), so they are gated on it.
+    #
+    # Only fetch_release passes a token; download never does. A release download answers 302 to a
+    # different host (release-assets.githubusercontent.com, a signed URL), and urllib copies every
+    # add_header() header onto the redirected request -- a token here would go there too. The role
+    # authenticates its API call and nothing else, so the two agree.
     if url.startswith(("http://", "https://")):
         request.add_header("User-Agent", PROG)
         if accept:
             request.add_header("Accept", accept)
-        token = os.environ.get("GITHUB_TOKEN", "")
         if token:
             request.add_header("Authorization", f"Bearer {token}")
     return urllib.request.urlopen(request)
 
 
-def fetch_release(api_base, repo, release_tag):
+def fetch_release(api_base, repo, release_tag, token):
     ref = f"tags/{release_tag}" if release_tag else "latest"
     url = f"{api_base.rstrip('/')}/repos/{repo}/releases/{ref}"
     try:
-        with open_url(url, accept="application/vnd.github+json") as response:
+        with open_url(url, accept="application/vnd.github+json", token=token) as response:
             return json.load(response)
     except urllib.error.HTTPError as exc:
         hint = ""
-        if exc.code == 403:
+        if exc.code == 401 and token:
+            hint = " (GitHub rejected GITHUB_TOKEN)"
+        elif exc.code == 403 and not token:
             hint = " (unauthenticated GitHub allows 60 requests/hour per source IP; set GITHUB_TOKEN)"
         raise Failure(f"GET {url} failed: HTTP {exc.code}{hint}") from exc
     except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -502,7 +516,8 @@ def parse_args(argv):
         prog=PROG,
         description="Update one binary installed by the github_release_install Ansible role.",
         epilog="Settings come from an env file the role writes; any of them can be overridden by "
-        "the matching flag. A binary that is not already installed is skipped, not installed.",
+        "the matching flag, except GITHUB_TOKEN, which is overridden by the environment variable "
+        "of that name. A binary that is not already installed is skipped, not installed.",
     )
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--env-file", help="path to an env file written by the role")
@@ -522,9 +537,12 @@ def parse_args(argv):
     # NAME is deliberately absent here: `--name` above already sets it. The install name and the
     # env file's basename are the same value by design, so a second flag for it would be two ways
     # to say one thing, and argparse rejects the duplicate anyway.
+    #
+    # GITHUB_TOKEN is absent for a different reason: argv is readable by every user on the host
+    # (ps, /proc/<pid>/cmdline). build_config takes its override from the environment instead.
     overrides = parser.add_argument_group("setting overrides")
     for key in SETTINGS:
-        if key == "NAME":
+        if key in ("NAME", "GITHUB_TOKEN"):
             continue
         overrides.add_argument(f"--{key.lower().replace('_', '-')}", dest=key.lower(),
                                help=f"override {key}")
@@ -535,13 +553,14 @@ def run(args):
     config = build_config(args)
     name = config["NAME"]
 
-    # Before the network call, deliberately: an orphaned env file must not spend one of the 60
-    # unauthenticated requests per hour to discover it has nothing to do.
+    # Before the network call, deliberately: an orphaned env file must not spend a request against
+    # the rate limit to discover it has nothing to do.
     if not os.path.exists(config["BINARY_PATH"]) and not args.force:
         print(f"SKIP    {name}  binary absent at {config['BINARY_PATH']}")
         return 0
 
-    release = fetch_release(args.api_base, config["REPO"], config["RELEASE_TAG"])
+    release = fetch_release(args.api_base, config["REPO"], config["RELEASE_TAG"],
+                            config["GITHUB_TOKEN"])
     asset = select_asset(release, config["ASSET_PATTERN"])
     needs_update, current, wanted = decide(config, release, asset)
 

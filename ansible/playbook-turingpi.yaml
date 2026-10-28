@@ -1,6 +1,17 @@
+# The Turing Pi 2 nodes (turingpi/nodes.md). Each boots from flash, the RK1s and the CM4 from eMMC
+# and the Jetson from its microSD card, so data_disk_offload moves its write-heavy paths onto a ZFS
+# pool on the data disk its host_vars name. A node without one fails at that role's input check.
 - name: Configure all nodes
   hosts: turingpi
   become: true
   roles:
     - configure_server
-    - system_upgrade
+    # ZFS, loaded at every boot, before data_disk_offload builds its pool. Each node's host_vars say
+    # how it gets the module. Tagged so one node can run it alone: --tags zfs -l <host>.
+    - role: zfs_install
+      tags: [zfs]
+    # Tagged so a run can leave it out (--skip-tags data_disk_offload). The role refuses a disk
+    # still holding its old ext4 layout; playbook-turingpi-data-disk-zfs-migration.yaml wipes that
+    # once, on a node where nothing uses the disk any more.
+    - role: data_disk_offload
+      tags: [data_disk_offload]

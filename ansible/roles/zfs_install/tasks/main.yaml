@@ -1,5 +1,19 @@
 ---
+# The gate is the distribution, not os_family: Ubuntu's os_family is Debian too,
+# and the Debian path adds a <codename>-backports source that deb.debian.org
+# doesn't serve for Ubuntu's codenames.
+- name: Refuse a distribution without an install path
+  ansible.builtin.assert:
+    that: ansible_facts['distribution'] in ['Debian', 'Ubuntu']
+    fail_msg: "zfs_install installs on Debian or Ubuntu, not {{ ansible_facts['distribution'] }}."
+    quiet: true
+
 - name: Install on 'Debian'
   ansible.builtin.include_tasks: install-debian.yaml
   when:
-    - ansible_facts['os_family'] == 'Debian'
+    - ansible_facts['distribution'] == 'Debian'
+
+- name: Install on 'Ubuntu'
+  ansible.builtin.include_tasks: install-ubuntu.yaml
+  when:
+    - ansible_facts['distribution'] == 'Ubuntu'

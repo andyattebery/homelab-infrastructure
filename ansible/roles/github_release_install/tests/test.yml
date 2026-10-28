@@ -10,12 +10,16 @@
 # is why the role has a separate task file at all.
 #
 # What is under test is the rendering the SCRIPT depends on: that each env file names the right
-# install, resolves the architecture to this host's single pattern, and passes ${VERSION} through
-# without expanding it. The script's own behaviour is pinned by the pytest suite beside this file.
+# install, resolves the architecture to this host's single pattern, passes ${VERSION} through
+# without expanding it, and carries GITHUB_TOKEN in a file only its owner can read. The script's
+# own behaviour is pinned by the pytest suite beside this file.
 - name: github_release_install env file rendering
   hosts: localhost
   gather_facts: true
   vars:
+    # In production the token comes from group_vars/all, for every caller alike.
+    test_token: placeholder-not-a-token
+
     # Every case is a real caller from this repo, values lifted from the calling file. A case
     # invented to match the template would agree with it by construction.
     cases:
@@ -147,6 +151,7 @@
         github_release_install_symlink_path: "/usr/local/bin/{{ case.vars.github_release_install_binary_path | basename }}"
         github_release_install_use_tag_stamp: "{{ case.vars.github_release_install_use_tag_stamp | default(false) }}"
         github_release_install_post_update_command: "{{ case.vars.github_release_install_post_update_command | default('') }}"
+        github_release_install_github_token: "{{ test_token }}"
       loop: "{{ cases }}"
       loop_control:
         loop_var: case
@@ -184,15 +189,15 @@
 
     # Non-emptiness first. A regex that silently matched nothing would leave every dict empty and
     # then every `expected in actual` comparison below would be vacuously true.
-    - name: C0 -- every env file parsed to a non-empty dict with all 14 settings
+    - name: C0 -- every env file parsed to a non-empty dict with all 15 settings
       ansible.builtin.assert:
         that:
           - parsed | length == cases | length
-          - parsed.values() | map('length') | unique | list == [14]
+          - parsed.values() | map('length') | unique | list == [15]
         fail_msg: >-
           Parsed {{ parsed | length }} of {{ cases | length }} files;
           key counts were {{ parsed.values() | map('length') | list }}.
-        success_msg: "{{ cases | length }} env files, 14 settings each: {{ parsed.keys() | list }}"
+        success_msg: "{{ cases | length }} env files, 15 settings each: {{ parsed.keys() | list }}"
 
     - name: C1 -- each case renders the values its caller implies
       ansible.builtin.assert:
@@ -252,6 +257,29 @@
           - deployed.results | map(attribute='stat.exists') | list == [true, true]
           - deployed.results | map(attribute='stat.executable') | list == [true, true]
         success_msg: "both scripts deployed 0755"
+
+    - name: C6 -- every env file carries the token
+      ansible.builtin.assert:
+        that:
+          - parsed.values() | map(attribute='GITHUB_TOKEN') | unique | list == [test_token]
+        fail_msg: "GITHUB_TOKEN values: {{ parsed.values() | map(attribute='GITHUB_TOKEN') | list }}"
+        success_msg: "GITHUB_TOKEN rendered into all {{ cases | length }} env files"
+
+    # The token is why. A 0644 env file hands it to every user on the host.
+    - name: C7 -- every env file is 0600
+      ansible.builtin.stat:
+        path: "{{ scratch.path }}/etc/{{ item.name }}.env"
+      loop: "{{ cases }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: env_modes
+
+    - name: C7 -- assert
+      ansible.builtin.assert:
+        that:
+          - env_modes.results | map(attribute='stat.mode') | unique | list == ['0600']
+        fail_msg: "modes: {{ env_modes.results | map(attribute='stat.mode') | list }}"
+        success_msg: "all {{ cases | length }} env files 0600"
 
     - name: Remove the scratch root
       ansible.builtin.file:

@@ -29,6 +29,7 @@ vault_freshrss_api_password: {{ op://Personal/FreshRSS/add more/api password }}
 vault_freshrss_email: {{ op://Personal/FreshRSS/add more/email }}
 vault_freshrss_password: {{ op://Personal/FreshRSS/password }}
 vault_freshrss_username: {{ op://Personal/FreshRSS/username }}
+vault_github_release_install_github_token: {{ op://Personal/i33z7kysyrclrbj6btdffy47ym/PAT/github_release_install }}
 vault_gpu_encoder_sweep_operator_token: {{ op://Personal/gpu-encoder-sweep/tokens/nas-01 operator }}
 vault_gpu_encoder_sweep_agent_token_media_01: {{ op://Personal/gpu-encoder-sweep/tokens/media-01 encode }}
 vault_gpu_encoder_sweep_agent_token_media_01_score: {{ op://Personal/gpu-encoder-sweep/tokens/media-01 score }}

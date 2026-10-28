@@ -1,0 +1,328 @@
+---
+# Nothing changes until the inputs check out, ZFS is loaded and the disk is present as a block
+# device.
+- name: Check the inputs
+  ansible.builtin.include_tasks:
+    file: validate.yaml
+
+# /dev/zfs is the ZFS module's control device: without it no zpool or zfs command works.
+- name: Look at /dev/zfs
+  ansible.builtin.stat:
+    path: /dev/zfs
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: data_disk_offload_dev_zfs
+
+- name: Check ZFS is loaded
+  ansible.builtin.assert:
+    that: data_disk_offload_dev_zfs.stat.ischr | default(false)
+    fail_msg: /dev/zfs is not a character device, so the ZFS module isn't loaded. Run zfs_install first.
+    quiet: true
+
+- name: Look at the data disk
+  ansible.builtin.stat:
+    path: "{{ data_disk_offload_device }}"
+    follow: true
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: data_disk_offload_disk
+
+- name: Check the data disk is a block device
+  ansible.builtin.assert:
+    that:
+      - data_disk_offload_disk.stat.exists
+      - data_disk_offload_disk.stat.isblk
+    fail_msg: "{{ data_disk_offload_device }} is not a block device on this host"
+    quiet: true
+
+# community.general.parted calls the parted binary; rsync copies the relocated directories.
+- name: Install parted and rsync
+  ansible.builtin.package:
+    name:
+      - parted
+      - rsync
+    state: present
+
+- name: Read the data disk's partition table
+  community.general.parted:
+    device: "{{ data_disk_offload_device }}"
+    unit: MiB
+    state: info
+  register: data_disk_offload_table
+
+# parted recognises partition tables and filesystems only, so it reads a whole-disk LVM PV, LUKS,
+# md or BlueStore volume as a blank disk. wipefs lists every signature libblkid knows.
+- name: Read the data disk's signatures
+  ansible.builtin.command:
+    argv: [wipefs, --output, TYPE, --noheadings, "{{ data_disk_offload_device }}"]
+  register: data_disk_offload_signatures
+  changed_when: false
+
+- name: Check the partition table
+  ansible.builtin.include_tasks:
+    file: check_table.yaml
+
+# In bytes, since parted's MiB figures are rounded.
+- name: Read the data disk's size
+  ansible.builtin.command:
+    argv: [blockdev, --getsize64, "{{ data_disk_offload_device }}"]
+  register: data_disk_offload_disk_bytes
+  changed_when: false
+
+# Partition 1 starts at 1 MiB and partition 2 at a whole MiB, swap_mib before the disk's last
+# whole MiB; partition 1 ends where partition 2 starts. parted then aligns both and makes partition
+# 2 exactly swap_mib. Its default start, 0%, put partition 1 at sector 34 on an image file, which
+# 4K I/O doesn't line up with (README, Traps).
+- name: Note where partition 2 starts
+  ansible.builtin.set_fact:
+    data_disk_offload_part2_start: >-
+      {{ (data_disk_offload_disk_bytes.stdout | int) // 1048576 - (data_disk_offload_swap_mib | int) }}MiB
+
+- name: Partition the data disk
+  community.general.parted:
+    device: "{{ data_disk_offload_device }}"
+    label: gpt
+    number: 1
+    name: "{{ data_disk_offload_fs_label }}"
+    part_start: 1MiB
+    part_end: "{{ data_disk_offload_part2_start if data_disk_offload_swap_mib | int > 0 else '100%' }}"
+    state: present
+  register: data_disk_offload_partitioned
+
+- name: Wait for udev to link the new partition
+  when: data_disk_offload_partitioned is changed
+  ansible.builtin.command: udevadm settle
+  changed_when: false
+
+- name: Look at the data partition
+  ansible.builtin.stat:
+    path: "{{ data_disk_offload_part1 }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: data_disk_offload_part
+
+- name: Check the data partition's link
+  ansible.builtin.assert:
+    that:
+      - data_disk_offload_part.stat.exists
+      - data_disk_offload_part.stat.islnk
+      - data_disk_offload_part.stat.lnk_source is match('/dev/[^/]+$')
+    fail_msg: "no {{ data_disk_offload_part1 }} link to a /dev/ device"
+    quiet: true
+
+- name: Note the data partition's device
+  ansible.builtin.set_fact:
+    data_disk_offload_part_dev: "{{ data_disk_offload_part.stat.lnk_source }}"
+
+# -p probes the device itself rather than blkid's cache, which may predate the pool. rc 2 means
+# blkid found nothing at all.
+- name: Read what the data partition holds
+  ansible.builtin.command:
+    argv: [blkid, -p, -o, export, "{{ data_disk_offload_part_dev }}"]
+  register: data_disk_offload_part1_probe
+  changed_when: false
+  failed_when: data_disk_offload_part1_probe.rc not in [0, 2]
+
+- name: Read whether the pool is imported
+  ansible.builtin.command:
+    argv: [zpool, list, -H, -o, name, "{{ data_disk_offload_fs_label }}"]
+  register: data_disk_offload_pool_list
+  changed_when: false
+  failed_when: false
+
+- name: Decide what the pool needs
+  ansible.builtin.include_tasks:
+    file: pool_state.yaml
+
+- name: Check the data partition holds this pool or nothing
+  ansible.builtin.assert:
+    that: data_disk_offload_pool_action != 'refuse'
+    fail_msg: >-
+      {{ data_disk_offload_part1 }} holds {{ data_disk_offload_part1_probe.stdout_lines }}, which
+      is neither pool {{ data_disk_offload_fs_label }} nor empty. The role never replaces a
+      filesystem or another pool.
+    quiet: true
+
+# After the pool check, so a disk with another layout's whole-disk partition 1, where this one
+# wouldn't fit, gets that check's reason instead of parted's. Before the pool is made, so the table
+# changes while partition 1 is idle. Partition 1 ends where this starts.
+- name: Make the swap partition
+  when: data_disk_offload_swap_mib | int > 0
+  community.general.parted:
+    device: "{{ data_disk_offload_device }}"
+    label: gpt
+    number: 2
+    name: swap
+    fs_type: linux-swap
+    part_start: "{{ data_disk_offload_part2_start }}"
+    part_end: 100%
+    state: present
+  register: data_disk_offload_swap_partitioned
+
+- name: Wait for udev to link the swap partition
+  when: data_disk_offload_swap_partitioned is changed
+  ansible.builtin.command: udevadm settle
+  changed_when: false
+
+# Only when the pool doesn't exist. On an existing pool the module compares zpool status's real,
+# partition-stripped path with this by-id path, finds a difference and runs zpool add and zpool
+# remove (README, Traps). Its force default, false, keeps zpool create from overwriting a
+# signature.
+- name: Create the pool
+  when: data_disk_offload_pool_action == 'create'
+  community.general.zpool:
+    name: "{{ data_disk_offload_fs_label }}"
+    vdevs:
+      - disks:
+          - "{{ data_disk_offload_part1 }}"
+    pool_properties: "{{ data_disk_offload_pool_properties }}"
+    filesystem_properties: "{{ data_disk_offload_filesystem_properties }}"
+    mountpoint: "{{ data_disk_offload_mount_path }}"
+
+# A pool that was never exported, as after a reinstall, "appears as potentially active", and
+# importing it takes -f (zpool-import(8)). -d looks only at the data partition.
+- name: Import the pool
+  when: data_disk_offload_pool_action == 'import'
+  ansible.builtin.command:
+    argv: [zpool, import, -f, -d, "{{ data_disk_offload_part1 }}", "{{ data_disk_offload_fs_label }}"]
+  changed_when: true
+
+# -P prints each device's whole path and -L resolves it to its /dev name. The first field of a
+# device's line is empty, which is how Ubuntu's /usr/lib/zfs-linux/trim finds them.
+- name: Read the pool's devices
+  ansible.builtin.command:
+    argv: [zpool, list, -vHPL, "{{ data_disk_offload_fs_label }}"]
+  register: data_disk_offload_pool_devices
+  changed_when: false
+
+- name: Check the pool is the data partition alone
+  vars:
+    _devices: >-
+      {{ data_disk_offload_pool_devices.stdout_lines | map('split') | map('first')
+         | select('match', '/dev/') | list }}
+  ansible.builtin.assert:
+    that: _devices == [data_disk_offload_part_dev]
+    fail_msg: >-
+      pool {{ data_disk_offload_fs_label }} is on {{ _devices }}, not on
+      {{ data_disk_offload_part_dev }} alone
+    quiet: true
+
+- name: Read where the pool is mounted
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, "mountpoint,mounted", "{{ data_disk_offload_fs_label }}"]
+  register: data_disk_offload_pool_mount
+  changed_when: false
+
+- name: Check the pool is mounted at the mount path
+  ansible.builtin.assert:
+    that: data_disk_offload_pool_mount.stdout_lines == [data_disk_offload_mount_path, 'yes']
+    fail_msg: >-
+      pool {{ data_disk_offload_fs_label }} has mountpoint and mounted
+      {{ data_disk_offload_pool_mount.stdout_lines }}, not {{ data_disk_offload_mount_path }} and
+      yes. The role doesn't move a pool's mount point.
+    quiet: true
+
+# On every run, so a changed value reaches an existing pool. Every dataset inherits them.
+- name: Set the pool's own properties
+  when: data_disk_offload_zfs_root_properties | length > 0
+  community.general.zfs:
+    name: "{{ data_disk_offload_fs_label }}"
+    state: present
+    extra_zfs_properties: "{{ data_disk_offload_zfs_root_properties }}"
+
+# zfs create -p, which makes the parents too. Each mounts at <mount_path><path>, its mountpoint
+# inherited from the pool's.
+- name: Create each directory's dataset
+  community.general.zfs:
+    name: "{{ data_disk_offload_fs_label }}{{ item.path }}"
+    state: present
+    extra_zfs_properties: "{{ item.zfs_properties | default({}) }}"
+  loop: "{{ data_disk_offload_bind_dirs }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Read where each dataset is mounted
+  ansible.builtin.command:
+    argv: [zfs, get, -H, -o, value, "mountpoint,mounted", "{{ data_disk_offload_fs_label }}{{ item.path }}"]
+  loop: "{{ data_disk_offload_bind_dirs }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: data_disk_offload_dataset_mounts
+  changed_when: false
+
+# relocate.yaml copies into each mount point: a dataset that isn't mounted there would leave the
+# copy in the pool's root dataset.
+- name: Check each dataset is mounted where its copy goes
+  ansible.builtin.assert:
+    that: item.stdout_lines == [data_disk_offload_mount_path ~ item.item.path, 'yes']
+    fail_msg: >-
+      {{ data_disk_offload_fs_label }}{{ item.item.path }} has mountpoint and mounted
+      {{ item.stdout_lines }}, not {{ data_disk_offload_mount_path }}{{ item.item.path }} and yes
+    quiet: true
+  loop: "{{ data_disk_offload_dataset_mounts.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+# At boot systemd creates a bind's missing source directory and mounts it (mount.c: "Create the
+# source directory for bind-mounts if needed"). So without the pool, each bind would put an empty
+# directory on the root filesystem over its path. This condition skips the bind instead. A skipped
+# unit isn't failed, and what waits for it still starts, so the path keeps its old contents
+# (systemd.unit(5), "Conditions and Asserts").
+- name: Read each bind's mount unit name
+  ansible.builtin.command:
+    argv: [systemd-escape, --path, --suffix=mount, "{{ item.path }}"]
+  loop: "{{ data_disk_offload_bind_dirs }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: data_disk_offload_bind_units
+  changed_when: false
+
+- name: Make each bind's drop-in directory
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item.stdout }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ data_disk_offload_bind_units.results }}"
+  loop_control:
+    label: "{{ item.stdout }}"
+
+- name: Skip each bind at boot when its dataset isn't mounted
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.stdout }}.d/data_disk_offload.conf"
+    content: |
+      [Unit]
+      ConditionPathIsMountPoint={{ data_disk_offload_mount_path }}{{ item.item.path }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ data_disk_offload_bind_units.results }}"
+  loop_control:
+    label: "{{ item.stdout }}"
+  notify: Reload systemd
+
+# Armbian's armbian-ramlog keeps /var/log on a zram device while its defaults file says
+# ENABLED=true; relocate.yaml turns it off to move /var/log. Empty where the file does not exist.
+- name: Read whether Armbian's RAM logging is on
+  ansible.builtin.command:
+    argv: [sed, -n, 's/^ENABLED=//p', /etc/default/armbian-ramlog]
+  register: data_disk_offload_ramlog_enabled
+  changed_when: false
+  failed_when: false
+
+- name: Relocate each directory onto its dataset
+  ansible.builtin.include_tasks:
+    file: relocate.yaml
+  loop: "{{ data_disk_offload_bind_dirs }}"
+  loop_control:
+    loop_var: data_disk_offload_dir
+    label: "{{ data_disk_offload_dir.path }}"
+
+- name: Swap partition on the data disk
+  when: data_disk_offload_swap_mib | int > 0
+  ansible.builtin.include_tasks:
+    file: swap.yaml

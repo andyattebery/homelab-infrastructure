@@ -1,0 +1,219 @@
+---
+# One entry of data_disk_offload_bind_dirs, as data_disk_offload_dir: {path, services,
+# zfs_properties}. The directory moves once: its contents are copied into its dataset, mounted at
+# <mount_path><path>, and that copy is bind-mounted over it. The old contents stay on the root
+# filesystem, hidden under the bind.
+- name: Read what is mounted at {{ data_disk_offload_dir.path }}
+  ansible.builtin.command:
+    argv: [findmnt, -no, SOURCE, --mountpoint, "{{ data_disk_offload_dir.path }}"]
+  register: data_disk_offload_findmnt
+  changed_when: false
+  failed_when: false
+
+- name: Decide what {{ data_disk_offload_dir.path }} needs
+  ansible.builtin.include_tasks:
+    file: bind_state.yaml
+
+- name: Check {{ data_disk_offload_dir.path }} is not mounted from elsewhere
+  ansible.builtin.assert:
+    that: not data_disk_offload_foreign
+    fail_msg: >-
+      {{ data_disk_offload_dir.path }} is already a mount point, of
+      {{ data_disk_offload_findmnt.stdout }}; the role binds only over a plain directory
+    quiet: true
+
+# A bound directory keeps its live bind. present rewrites only its fstab entry, so the entry
+# carries data_disk_offload_bind_opts even when the bind was made with other options.
+- name: Keep {{ data_disk_offload_dir.path }}'s fstab entry
+  when: data_disk_offload_bound
+  ansible.posix.mount:
+    path: "{{ data_disk_offload_dir.path }}"
+    src: "{{ data_disk_offload_mount_path }}{{ data_disk_offload_dir.path }}"
+    fstype: none
+    opts: "{{ data_disk_offload_bind_opts }}"
+    state: present
+  notify: Reload systemd
+
+- name: Move {{ data_disk_offload_dir.path }} onto the data disk
+  when: not data_disk_offload_bound
+  vars:
+    data_disk_offload_copy: "{{ data_disk_offload_mount_path }}{{ data_disk_offload_dir.path }}"
+  block:
+    - name: Check which of the directory's services are running
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop: "{{ data_disk_offload_dir.services | default([]) }}"
+      register: data_disk_offload_running
+      changed_when: false
+      failed_when: false
+
+    - name: Stop the directory's running services
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop: >-
+        {{ data_disk_offload_running.results | selectattr('stdout', 'eq', 'active')
+           | map(attribute='item') | list }}
+
+    # journald keeps its files under /var/log/journal open. This makes it write to /run until
+    # the flush below.
+    - name: Move journald to volatile storage for the copy
+      when: data_disk_offload_journal
+      ansible.builtin.command: journalctl --relinquish-var
+      changed_when: true
+
+    # A process still holding a file in the directory would go on using the old copy, hidden
+    # under the bind mount, so the move stops here instead. Readers count too: a journal reader
+    # such as fail2ban would miss every new entry. Under Armbian's RAM logging,
+    # /var/log/journal links to /var/log.hdd/journal, so open journal files show under
+    # /var/log.hdd, which is checked as well.
+    - name: List files still open in the directory
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -c
+          - |
+            for dir in "$@"; do
+                [ -n "$dir" ] || continue
+                find /proc -mindepth 3 -maxdepth 3 -path '/proc/[0-9]*/fd/*' -lname "$dir/*" \
+                    -xtype f 2>/dev/null
+            done |
+                while read -r fd; do
+                    pid="${fd#/proc/}"
+                    pid="${pid%%/*}"
+                    echo "$pid $(cat "/proc/$pid/comm" 2>/dev/null) $(readlink "$fd")"
+                done
+          - bash
+          - "{{ data_disk_offload_dir.path }}"
+          - "{{ '/var/log.hdd' if data_disk_offload_ramlog else '' }}"
+      register: data_disk_offload_open
+      changed_when: false
+
+    - name: Check nothing still writes into the directory
+      ansible.builtin.assert:
+        that: data_disk_offload_open.stdout_lines | length == 0
+        fail_msg: >-
+          Still open under {{ data_disk_offload_dir.path }} (pid, process, file):
+          {{ data_disk_offload_open.stdout_lines }}. Add the service that owns them to this
+          entry's services.
+        quiet: true
+
+    # Stopping armbian-ramlog writes the RAM copy back to the root filesystem's /var/log and
+    # unmounts the zram and /var/log.hdd. Its stop does nothing once ENABLED is false, so ENABLED
+    # changes only after the stop, once /var/log is a plain directory again.
+    - name: Turn off Armbian's RAM logging for {{ data_disk_offload_dir.path }}
+      when: data_disk_offload_ramlog
+      block:
+        - name: Stop armbian-ramlog
+          ansible.builtin.systemd_service:
+            name: armbian-ramlog.service
+            state: stopped
+
+        - name: Read what is mounted at {{ data_disk_offload_dir.path }} without it
+          ansible.builtin.command:
+            argv: [findmnt, -no, SOURCE, --mountpoint, "{{ data_disk_offload_dir.path }}"]
+          register: data_disk_offload_after_ramlog
+          changed_when: false
+          failed_when: false
+
+        - name: Check {{ data_disk_offload_dir.path }} is a plain directory again
+          ansible.builtin.assert:
+            that: data_disk_offload_after_ramlog.stdout | length == 0
+            fail_msg: >-
+              {{ data_disk_offload_dir.path }} is still mounted from
+              '{{ data_disk_offload_after_ramlog.stdout }}' after stopping armbian-ramlog
+            quiet: true
+
+        - name: Keep Armbian's RAM logging off at boot
+          ansible.builtin.lineinfile:
+            path: /etc/default/armbian-ramlog
+            regexp: '^ENABLED='
+            line: ENABLED=false
+
+    - name: Look at {{ data_disk_offload_dir.path }}
+      ansible.builtin.stat:
+        path: "{{ data_disk_offload_dir.path }}"
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
+      register: data_disk_offload_src
+
+    - name: Check {{ data_disk_offload_dir.path }} is a directory
+      ansible.builtin.assert:
+        that: >-
+          not data_disk_offload_src.stat.exists
+          or (data_disk_offload_src.stat.isdir and not data_disk_offload_src.stat.islnk)
+        fail_msg: "{{ data_disk_offload_dir.path }} exists and is not a plain directory"
+        quiet: true
+
+    # A directory that does not exist yet, such as a container runtime's before it is
+    # installed, is created empty, so that the runtime starts on the data disk.
+    - name: Create the directory and its copy with the directory's owner and mode
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ data_disk_offload_src.stat.pw_name | default('root') }}"
+        group: "{{ data_disk_offload_src.stat.gr_name | default('root') }}"
+        mode: "{{ data_disk_offload_src.stat.mode | default('0755') }}"
+      loop:
+        - "{{ data_disk_offload_dir.path }}"
+        - "{{ data_disk_offload_copy }}"
+
+    # --ignore-existing: a copy already on the data disk, from an OS reinstall or an
+    # interrupted run, is kept, and gains only what it lacks. rsync exits 24 when a file
+    # vanishes during the copy, which a live /var/tmp can do; such a file needs no copy.
+    - name: Copy the directory's contents onto the data disk
+      ansible.builtin.command:
+        argv:
+          - rsync
+          - -aHAX
+          - --numeric-ids
+          - --ignore-existing
+          - --itemize-changes
+          - "{{ data_disk_offload_dir.path }}/"
+          - "{{ data_disk_offload_copy }}/"
+      register: data_disk_offload_rsync
+      changed_when: data_disk_offload_rsync.stdout | length > 0
+      failed_when: data_disk_offload_rsync.rc not in [0, 24]
+
+    - name: Bind-mount the copy over the directory
+      ansible.posix.mount:
+        path: "{{ data_disk_offload_dir.path }}"
+        src: "{{ data_disk_offload_copy }}"
+        fstype: none
+        opts: "{{ data_disk_offload_bind_opts }}"
+        state: mounted
+      notify: Reload systemd
+
+  always:
+    - name: Move journald back to persistent storage
+      when: data_disk_offload_journal
+      ansible.builtin.command: journalctl --flush
+      changed_when: true
+
+    - name: Start the services that were running
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: started
+      loop: >-
+        {{ data_disk_offload_running.results | default([]) | selectattr('stdout', 'eq', 'active')
+           | map(attribute='item') | list }}
+
+- name: Read what is mounted at {{ data_disk_offload_dir.path }} now
+  ansible.builtin.command:
+    argv: [findmnt, -no, SOURCE, --mountpoint, "{{ data_disk_offload_dir.path }}"]
+  register: data_disk_offload_findmnt
+  changed_when: false
+  failed_when: false
+
+- name: Decide again for {{ data_disk_offload_dir.path }}
+  ansible.builtin.include_tasks:
+    file: bind_state.yaml
+
+- name: Check {{ data_disk_offload_dir.path }} is on the data disk
+  ansible.builtin.assert:
+    that: data_disk_offload_bound
+    fail_msg: >-
+      {{ data_disk_offload_dir.path }} is mounted from '{{ data_disk_offload_findmnt.stdout }}',
+      not dataset {{ data_disk_offload_fs_label }}{{ data_disk_offload_dir.path }}
+    quiet: true

@@ -53,6 +53,18 @@ github_release_install_tag_stamp_path: "{{ github_release_install_binary_path }}
 github_release_install_symlink: false
 github_release_install_symlink_path: "/usr/local/bin/{{ github_release_install_binary_path | basename }}"
 
+# GitHub API token, sent as `Authorization: Bearer` on the release lookup: the role's one API call,
+# and the on-host updater's, which reads it from each env file as GITHUB_TOKEN. Never sent on a
+# download -- those are not API calls, and a download's redirect would carry the header to another
+# host.
+#
+# Empty = unauthenticated: 60 requests/hour per source IP, shared by every host behind one WAN
+# address, one request per install per run.
+#
+# Wrong value: a revoked or mistyped token fails every run with HTTP 401. GitHub answers bad
+# credentials with 401; it does not fall back to anonymous.
+github_release_install_github_token: ""
+
 # --- the on-host updater ----------------------------------------------------------------------
 #
 # The role installs and updates, but only while ansible-playbook is running. These deploy a

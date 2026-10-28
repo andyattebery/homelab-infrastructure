@@ -1,0 +1,18 @@
+---
+# Derived, not inputs.
+
+# The data disk's partitions, as udev links them next to its by-id path.
+data_disk_offload_part1: "{{ data_disk_offload_device }}-part1"
+data_disk_offload_part2: "{{ data_disk_offload_device }}-part2"
+
+# The binds' fstab options. ZFS mounts its datasets from zfs-mount.service (zfs mount -a), not from
+# mount units, so each bind is ordered after that service. nofail drops a mount's ordering before
+# local-fs.target, which before= puts back, so services start after the binds (README, Traps).
+data_disk_offload_bind_opts: bind,nofail,x-systemd.requires=zfs-mount.service,x-systemd.before=local-fs.target
+
+# Set when the pool is created. README, Traps, says why each.
+data_disk_offload_pool_properties:
+  ashift: 12
+data_disk_offload_filesystem_properties:
+  acltype: posix
+  xattr: sa

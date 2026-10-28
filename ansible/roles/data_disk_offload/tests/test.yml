@@ -1,0 +1,506 @@
+---
+# Exercises data_disk_offload's decisions through the role's own decision files (tasks_from):
+# the input checks, the partition-table guard, the pool decision, the relocation decision and the
+# swap decision.
+# Runs on localhost and touches nothing. The tasks that need a real disk, a pool, mounts and
+# services are not here; see the role's README, "Tests".
+#
+#   cd ansible
+#   ANSIBLE_VAULT_PASSWORD_FILE=tests/apt-sources/no-vault.sh \
+#     .venv/bin/ansible-playbook -i roles/data_disk_offload/tests/inventory \
+#     roles/data_disk_offload/tests/test.yml
+#
+# The partition tables are what community.general.parted (13.3.0) returns with state: info. They
+# were captured on 2026-10-02 from parted 3.6 (Ubuntu 24.04) reading 1 GiB loop devices
+# partitioned with parted, sgdisk and mkfs.ext4, run through the module's own
+# parse_partition_info(), with the loop device renamed /dev/nvme0n1. The findmnt and swapon values
+# are that system's output for a real bind mount and tmpfs.
+#
+# On 2026-10-07 more came from the Turing Pi RK1s, then on Armbian trixie: parted 3.6-5 and
+# util-linux 2.41.5, where their Ubuntu 26.04 has 3.6-6 and 2.41.3. They give:
+# - an RK1's NVMe as found (`foreign`), its parted output run through parse_partition_info();
+# - wipefs's TYPE column for a GPT disk;
+# - the zram that armbian-ramlog mounts on /var/log.
+# LVM2_member is libblkid's name for an LVM PV (libblkid/src/superblocks/lvm.c), and armbian-ramlog
+# is the source name of the tmpfs that armbian-ramlog mounts when it has no zram.
+#
+# On 2026-10-26, parted 3.6 in an ubuntu:26.04 container, on image files of a 970 EVO's size, gave
+# the role's own two partitions, and the empty GPT that parted rm leaves: their parted -m lines,
+# converted by hand into the module's fields, and the empty GPT's wipefs lines. Built first, then
+# confirmed on 2026-10-27 by an RK1's first run of the role's ZFS form:
+# - the ZFS findmnt source, data/var/log: the role's own check, an exact comparison, passed for
+#   each bind. util-linux findmnt.c prints a source without [dir] when the mount's root is /
+#   (v2.39.3:611, v2.41.2:656);
+# - the blkid -p -o export lines: that run printed partition 1's LABEL=data and TYPE=zfs_member,
+#   the only tags pool_state.yaml reads. The UUID and PART_ENTRY_* lines stay built.
+#
+# Not exercised on its own: check_table.yaml's `table == 'gpt'` for the role's own partitions.
+# Every other table parted makes fails another condition first. msdos and whole-disk ext4 carry no
+# partition names, a Mac map is partition 1 itself, and dvh names only logical partitions. A PC98
+# table, which can name partition 1, could not be read on a loop device. Deleting the condition
+# leaves this test green.
+- name: Test data_disk_offload's decisions
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # A typical configuration, with a by-id path of the form udev gives an NVMe drive. Each case
+    # changes one input.
+    _defaults:
+      device: /dev/disk/by-id/nvme-Samsung_SSD_980_1TB_S649NL0T123456X
+      fs_label: data
+      mount_path: /srv/data
+      bind_dirs:
+        - { path: /var/log, services: [syslog.socket, rsyslog.service, fail2ban.service, unattended-upgrades.service, auditd.service] }
+        - { path: /var/tmp, services: [] }
+        - { path: /var/lib/docker, services: [docker.socket, docker.service] }
+        - { path: /var/lib/containerd, services: [docker.socket, docker.service, containerd.service] }
+      swap_mib: 8192
+
+    _disk: &disk
+      dev: /dev/nvme0n1
+      logical_block: 512
+      model: Loopback device
+      physical_block: 512
+      size: 1024.0
+      unit: mib
+    _evo: &evo
+      dev: /dev/nvme0n1
+      logical_block: 512
+      model: Samsung SSD 970 EVO 500GB
+      physical_block: 512
+      size: 476940.0
+      table: gpt
+      unit: mib
+    _tables:
+      blank:
+        disk: { <<: *disk, table: unknown }
+        partitions: []
+      # The role's partition 1 alone, here holding the old layout's ext4: check_table.yaml reads
+      # names only, and pool_state.yaml refuses the ext4.
+      role:
+        disk: { <<: *disk, table: gpt }
+        partitions:
+          - { begin: 1.0, end: 1023.0, flags: [], fstype: ext4, name: data, num: 1, size: 1022.0, unit: mib }
+      # The role's two partitions on a 970 EVO's size: "1:1.00MiB:468748MiB:468747MiB::data:;" and
+      # "2:468748MiB:476940MiB:8192MiB::swap:swap;".
+      role_swap:
+        disk: *evo
+        partitions:
+          - { begin: 1.0, end: 468748.0, flags: [], fstype: "", name: data, num: 1, size: 468747.0, unit: mib }
+          - { begin: 468748.0, end: 476940.0, flags: [swap], fstype: "", name: swap, num: 2, size: 8192.0, unit: mib }
+      # Those two the other way round.
+      swap_first:
+        disk: *evo
+        partitions:
+          - { begin: 1.0, end: 8193.0, flags: [swap], fstype: "", name: swap, num: 1, size: 8192.0, unit: mib }
+          - { begin: 8193.0, end: 476940.0, flags: [], fstype: "", name: data, num: 2, size: 468747.0, unit: mib }
+      # After parted rm 2 rm 1: a GPT with no partitions.
+      empty_gpt:
+        disk: *evo
+        partitions: []
+      sgdisk:
+        disk: { <<: *disk, table: gpt }
+        partitions:
+          - { begin: 1.0, end: 1024.0, flags: [], fstype: ext4, name: "", num: 1, size: 1023.0, unit: mib }
+      msdos:
+        disk: { <<: *disk, table: msdos }
+        partitions:
+          - { begin: 1.0, end: 1024.0, flags: [], fstype: ext4, name: "", num: 1, size: 1023.0, unit: mib }
+      whole:
+        disk: { <<: *disk, table: loop }
+        partitions:
+          - { begin: 0.0, end: 1024.0, flags: [], fstype: ext4, name: "", num: 1, size: 1024.0, unit: mib }
+      two:
+        disk: { <<: *disk, table: gpt }
+        partitions:
+          - { begin: 1.0, end: 512.0, flags: [], fstype: ext4, name: data, num: 1, size: 511.0, unit: mib }
+          - { begin: 512.0, end: 1023.0, flags: [], fstype: ext4, name: other, num: 2, size: 511.0, unit: mib }
+      # A Mac partition map with its partition named data. The map itself is partition 1.
+      mac:
+        disk: { <<: *disk, table: mac }
+        partitions:
+          - { begin: 0.0, end: 0.03, flags: [], fstype: "", name: Apple, num: 1, size: 0.03, unit: mib }
+          - { begin: 1.0, end: 1024.0, flags: [], fstype: "", name: data, num: 2, size: 1023.0, unit: mib }
+      # An RK1's 970 EVO as found on 2026-10-07: one partition named Linux filesystem, with no
+      # filesystem in it.
+      foreign:
+        disk: *evo
+        partitions:
+          - { begin: 1.0, end: 476940.0, flags: [], fstype: "", name: Linux filesystem, num: 1, size: 476939.0, unit: mib }
+
+    # wipefs --output TYPE --noheadings on a GPT disk: both headers and the protective MBR. The
+    # empty GPT gave the same three lines on 2026-10-26.
+    _gpt_signatures: { rc: 0, stdout_lines: [gpt, gpt, PMBR] }
+
+    # blkid -p -o export of partition 1, built from libblkid's tags (see the header).
+    _part_entry: [PART_ENTRY_SCHEME=gpt, PART_ENTRY_NAME=data, PART_ENTRY_NUMBER=1, PART_ENTRY_DISK=259:0]
+    _probes:
+      pool: { rc: 0, stdout_lines: "{{ ['LABEL=data', 'UUID=13466734785497452131', 'UUID_SUB=6045129480213557452', 'BLOCK_SIZE=4096', 'TYPE=zfs_member', 'USAGE=filesystem'] + _part_entry }}" }
+      other_pool: { rc: 0, stdout_lines: "{{ ['LABEL=tank', 'UUID=13466734785497452131', 'UUID_SUB=6045129480213557452', 'BLOCK_SIZE=4096', 'TYPE=zfs_member', 'USAGE=filesystem'] + _part_entry }}" }
+      ext4: { rc: 0, stdout_lines: "{{ ['LABEL=data', 'UUID=6c3b8e2a-5d1f-4b7e-9a0c-2f4e6d8b1a3c', 'BLOCK_SIZE=4096', 'TYPE=ext4', 'USAGE=filesystem'] + _part_entry }}" }
+      empty_entry: { rc: 0, stdout_lines: "{{ _part_entry }}" }
+      nothing: { rc: 2, stdout_lines: [] }
+
+    _inputs_check: Check data_disk_offload_device and the other inputs
+    _dir_check: Check each directory to relocate
+    _unique_check: Check the directories to relocate are unique
+    _table_check: Check the data disk is blank or partitioned by this role
+
+    _checks:
+      - { name: a typical configuration, file: validate.yaml, expect: accept }
+      - name: a SATA disk's by-id path
+        file: validate.yaml
+        device: /dev/disk/by-id/ata-Samsung_SSD_860_EVO_1TB_S3Z9NB0K123456X
+        expect: accept
+      - name: a bare /dev name
+        file: validate.yaml
+        device: /dev/nvme0n1
+        expect: refuse
+        refused_by: "{{ _inputs_check }}"
+      - name: a by-id partition link
+        file: validate.yaml
+        device: /dev/disk/by-id/nvme-Samsung_SSD_980_1TB_S649NL0T123456X-part1
+        expect: refuse
+        refused_by: "{{ _inputs_check }}"
+      - name: a by-uuid path
+        file: validate.yaml
+        device: /dev/disk/by-uuid/0f3c5d2e-6a1b-4c7d-9e8f-1a2b3c4d5e6f
+        expect: refuse
+        refused_by: "{{ _inputs_check }}"
+      - { name: the label APP, file: validate.yaml, fs_label: APP, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: the label app, file: validate.yaml, fs_label: app, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: the label swap, file: validate.yaml, fs_label: swap, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: a pool name starting with a digit, file: validate.yaml, fs_label: 1data, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: a pool name with a space, file: validate.yaml, fs_label: my data, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: the reserved pool name log, file: validate.yaml, fs_label: log, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: a pool name beginning with raidz, file: validate.yaml, fs_label: raidzdata, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: a pool name with zpool's other characters, file: validate.yaml, fs_label: "data_1.a:b-c", expect: accept }
+      - { name: a mount path with a trailing slash, file: validate.yaml, mount_path: /srv/data/, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: a swap size with a unit, file: validate.yaml, swap_mib: 8G, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - { name: directories as a string, file: validate.yaml, bind_dirs: /var/log, expect: refuse, refused_by: "{{ _inputs_check }}" }
+      - name: the pool's own properties
+        file: validate.yaml
+        root_properties: { "org.debian:periodic-trim": enable }
+        expect: accept
+      - name: the pool's own properties as a list
+        file: validate.yaml
+        root_properties: ["org.debian:periodic-trim=enable"]
+        expect: refuse
+        refused_by: "{{ _inputs_check }}"
+      - name: a directory with a trailing slash
+        file: validate.yaml
+        bind_dirs: [{ path: /var/log/, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: the root directory
+        file: validate.yaml
+        bind_dirs: [{ path: /, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: whitespace in a directory
+        file: validate.yaml
+        bind_dirs: [{ path: /var/my logs, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a character a dataset name can't hold
+        file: validate.yaml
+        bind_dirs: [{ path: /var/lib/app@1, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a directory inside the mount path
+        file: validate.yaml
+        bind_dirs: [{ path: /srv/data/log, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a directory above the mount path
+        file: validate.yaml
+        bind_dirs: [{ path: /srv, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a directory inside another
+        file: validate.yaml
+        bind_dirs: [{ path: /var/log, services: [] }, { path: /var/log/journal, services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: services as a string
+        file: validate.yaml
+        bind_dirs: [{ path: /var/log, services: rsyslog.service }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a dataset's properties
+        file: validate.yaml
+        bind_dirs: [{ path: /var/lib/postgresql, services: [], zfs_properties: { recordsize: 32K } }]
+        expect: accept
+      - name: a dataset's properties as a list
+        file: validate.yaml
+        bind_dirs: [{ path: /var/lib/postgresql, services: [], zfs_properties: [recordsize=32K] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a directory without a path
+        file: validate.yaml
+        bind_dirs: [{ services: [] }]
+        expect: refuse
+        refused_by: "{{ _dir_check }}"
+      - name: a directory listed twice
+        file: validate.yaml
+        bind_dirs: [{ path: /var/tmp, services: [] }, { path: /var/tmp, services: [] }]
+        expect: refuse
+        refused_by: "{{ _unique_check }}"
+      - { name: a blank disk, file: check_table.yaml, table: "{{ _tables.blank }}", expect: accept }
+      - name: an empty GPT (what the migration playbook's wipe leaves)
+        file: check_table.yaml
+        table: "{{ _tables.empty_gpt }}"
+        signatures: "{{ _gpt_signatures }}"
+        expect: accept
+      - name: an empty GPT on an LVM PV's disk
+        file: check_table.yaml
+        table: "{{ _tables.empty_gpt }}"
+        signatures: { rc: 0, stdout_lines: [gpt, gpt, PMBR, LVM2_member] }
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: the role's partition 1 alone
+        file: check_table.yaml
+        table: "{{ _tables.role }}"
+        signatures: "{{ _gpt_signatures }}"
+        swap_mib: 0
+        expect: accept
+      - name: the role's partition 1 alone, its swap partition still to come
+        file: check_table.yaml
+        table: "{{ _tables.role }}"
+        signatures: "{{ _gpt_signatures }}"
+        expect: accept
+      - name: the role's partitions with swap
+        file: check_table.yaml
+        table: "{{ _tables.role_swap }}"
+        signatures: "{{ _gpt_signatures }}"
+        expect: accept
+      - name: the role's partitions with swap, and no swap asked for
+        file: check_table.yaml
+        table: "{{ _tables.role_swap }}"
+        signatures: "{{ _gpt_signatures }}"
+        swap_mib: 0
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: the swap partition first
+        file: check_table.yaml
+        table: "{{ _tables.swap_first }}"
+        signatures: "{{ _gpt_signatures }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: an LVM PV on the whole disk
+        file: check_table.yaml
+        table: "{{ _tables.blank }}"
+        signatures: { rc: 0, stdout_lines: [LVM2_member] }
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: an empty partition someone else made (the RK1 and Jetson NVMes as found)
+        file: check_table.yaml
+        table: "{{ _tables.foreign }}"
+        signatures: "{{ _gpt_signatures }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: an unnamed GPT partition (sgdisk)
+        file: check_table.yaml
+        table: "{{ _tables.sgdisk }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: an msdos partition table
+        file: check_table.yaml
+        table: "{{ _tables.msdos }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: ext4 on the whole disk
+        file: check_table.yaml
+        table: "{{ _tables.whole }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: a second GPT partition not named swap
+        file: check_table.yaml
+        table: "{{ _tables.two }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: a Mac partition map with a partition named data
+        file: check_table.yaml
+        table: "{{ _tables.mac }}"
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+      - name: the role's partition under another configured label
+        file: check_table.yaml
+        table: "{{ _tables.role }}"
+        signatures: "{{ _gpt_signatures }}"
+        fs_label: scratch
+        expect: refuse
+        refused_by: "{{ _table_check }}"
+
+    _decisions:
+      - name: the pool imported
+        file: pool_state.yaml
+        pool_list: { rc: 0, stdout: data }
+        probe: "{{ _probes.pool }}"
+        want: { data_disk_offload_pool_action: none }
+      - name: the pool on partition 1, not imported (a reinstall)
+        file: pool_state.yaml
+        pool_list: { rc: 1, stdout: "" }
+        probe: "{{ _probes.pool }}"
+        want: { data_disk_offload_pool_action: import }
+      - name: another pool's member on partition 1
+        file: pool_state.yaml
+        pool_list: { rc: 1, stdout: "" }
+        probe: "{{ _probes.other_pool }}"
+        want: { data_disk_offload_pool_action: refuse }
+      - name: the old layout's ext4 on partition 1
+        file: pool_state.yaml
+        pool_list: { rc: 1, stdout: "" }
+        probe: "{{ _probes.ext4 }}"
+        want: { data_disk_offload_pool_action: refuse }
+      - name: an empty partition 1, with its partition entry
+        file: pool_state.yaml
+        pool_list: { rc: 1, stdout: "" }
+        probe: "{{ _probes.empty_entry }}"
+        want: { data_disk_offload_pool_action: create }
+      - name: an empty partition 1, blkid finding nothing
+        file: pool_state.yaml
+        pool_list: { rc: 1, stdout: "" }
+        probe: "{{ _probes.nothing }}"
+        want: { data_disk_offload_pool_action: create }
+      - name: /var/log, not a mount point
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 1, stdout: "" }
+        want: { data_disk_offload_bound: false, data_disk_offload_foreign: false, data_disk_offload_journal: true }
+      - name: /var/log, already bound from its dataset
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: data/var/log }
+        ramlog: { rc: 0, stdout: "false" }
+        want: { data_disk_offload_bound: true, data_disk_offload_ramlog: false, data_disk_offload_foreign: false }
+      - name: /var/log, bound from another dataset
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: data/var/tmp }
+        want: { data_disk_offload_bound: false, data_disk_offload_foreign: true }
+      - name: /var/log, bound from the old ext4 layout's partition
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: "/dev/nvme0n1p1[/var/log]" }
+        want: { data_disk_offload_bound: false, data_disk_offload_foreign: true }
+      - name: /var/log, Armbian's RAM logging on
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: /dev/zram1 }
+        ramlog: { rc: 0, stdout: "true" }
+        want:
+          data_disk_offload_bound: false
+          data_disk_offload_ramlog: true
+          data_disk_offload_foreign: false
+          data_disk_offload_journal: true
+      - name: /var/log, a zram still mounted after RAM logging was switched off
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: /dev/zram1 }
+        ramlog: { rc: 0, stdout: "false" }
+        want: { data_disk_offload_ramlog: false, data_disk_offload_foreign: true }
+      - name: /var/log, RAM logging's tmpfs fallback
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: armbian-ramlog }
+        ramlog: { rc: 0, stdout: "true" }
+        want: { data_disk_offload_ramlog: false, data_disk_offload_foreign: true }
+      - name: /var/tmp on a zram while RAM logging is on
+        file: bind_state.yaml
+        dir: { path: /var/tmp }
+        findmnt: { rc: 0, stdout: /dev/zram2 }
+        ramlog: { rc: 0, stdout: "true" }
+        want: { data_disk_offload_ramlog: false, data_disk_offload_foreign: true }
+      - name: /var/log, a tmpfs
+        file: bind_state.yaml
+        dir: { path: /var/log }
+        findmnt: { rc: 0, stdout: tmpfs }
+        want: { data_disk_offload_bound: false, data_disk_offload_foreign: true }
+      - name: /var/tmp holds no journal
+        file: bind_state.yaml
+        dir: { path: /var/tmp }
+        findmnt: { rc: 1, stdout: "" }
+        want: { data_disk_offload_journal: false }
+      - name: /var holds the journal
+        file: bind_state.yaml
+        dir: { path: /var }
+        findmnt: { rc: 1, stdout: "" }
+        want: { data_disk_offload_journal: true }
+      - name: /var/log/journal is the journal
+        file: bind_state.yaml
+        dir: { path: /var/log/journal }
+        findmnt: { rc: 1, stdout: "" }
+        want: { data_disk_offload_journal: true }
+      - name: /var/logs only shares a prefix with the journal
+        file: bind_state.yaml
+        dir: { path: /var/logs }
+        findmnt: { rc: 1, stdout: "" }
+        want: { data_disk_offload_journal: false }
+      - name: an empty swap partition
+        file: swap_state.yaml
+        swap_type: { rc: 2, stdout: "" }
+        swaps: { stdout_lines: [/dev/zram0] }
+        want: { data_disk_offload_swap_format: true, data_disk_offload_swap_foreign: false, data_disk_offload_swap_active: false }
+      - name: the swap partition in use
+        file: swap_state.yaml
+        swap_type: { rc: 0, stdout: swap }
+        swaps: { stdout_lines: [/dev/zram0, /dev/nvme0n1p2] }
+        want: { data_disk_offload_swap_format: false, data_disk_offload_swap_foreign: false, data_disk_offload_swap_active: true }
+      - name: the swap partition formatted but not in use
+        file: swap_state.yaml
+        swap_type: { rc: 0, stdout: swap }
+        swaps: { stdout_lines: [/dev/zram0] }
+        want: { data_disk_offload_swap_format: false, data_disk_offload_swap_foreign: false, data_disk_offload_swap_active: false }
+      - name: ext4 on partition 2
+        file: swap_state.yaml
+        swap_type: { rc: 0, stdout: ext4 }
+        swaps: { stdout_lines: [/dev/zram0] }
+        want: { data_disk_offload_swap_format: false, data_disk_offload_swap_foreign: true }
+
+  tasks:
+    - name: Check there is something to test
+      ansible.builtin.assert:
+        that:
+          - _defaults.bind_dirs | length > 0
+          - _checks | selectattr('expect', 'eq', 'accept') | list | length > 0
+          - _checks | selectattr('expect', 'eq', 'refuse') | list | length > 0
+          - _decisions | length > 0
+        success_msg: "{{ _checks | length }} checks, {{ _decisions | length }} decisions"
+
+    # Its own block: case.yaml always passes a device, and here there must be none.
+    - name: No device at all
+      block:
+        - name: Run validate.yaml without data_disk_offload_device
+          ansible.builtin.include_role:
+            name: data_disk_offload
+            tasks_from: validate.yaml
+          vars:
+            data_disk_offload_bind_dirs: "{{ _defaults.bind_dirs }}"
+
+        - name: Fail, because it should have been refused
+          ansible.builtin.fail:
+            msg: "no device: accepted"
+      rescue:
+        - name: Refused by the input check
+          ansible.builtin.assert:
+            that: ansible_failed_task.name == _inputs_check
+            fail_msg: "no device: '{{ ansible_failed_task.name }}' failed: {{ ansible_failed_result.msg | default('') }}"
+            success_msg: "no device: refused by '{{ ansible_failed_task.name }}'"
+
+    - name: Run each check
+      ansible.builtin.include_tasks:
+        file: case.yaml
+      loop: "{{ _checks }}"
+      loop_control:
+        loop_var: _case
+        label: "{{ _case.name }}"
+
+    - name: Run each decision
+      ansible.builtin.include_tasks:
+        file: decide.yaml
+      loop: "{{ _decisions }}"
+      loop_control:
+        loop_var: _case
+        label: "{{ _case.name }}"

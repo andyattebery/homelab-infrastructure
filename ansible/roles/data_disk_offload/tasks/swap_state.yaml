@@ -1,0 +1,11 @@
+---
+# What the swap partition needs. Inputs: data_disk_offload_swap_type (blkid -o value -s TYPE of
+# partition 2: empty when it holds nothing), data_disk_offload_swaps (swapon --show=NAME
+# --noheadings, one swap area per line) and data_disk_offload_swap_dev (partition 2's /dev path).
+# Formatted only when empty; any other filesystem is foreign and never replaced. Decision logic
+# only: tests/test.yml runs this file on its own.
+- name: Decide what the swap partition needs
+  ansible.builtin.set_fact:
+    data_disk_offload_swap_format: "{{ data_disk_offload_swap_type.stdout | default('') == '' }}"
+    data_disk_offload_swap_foreign: "{{ data_disk_offload_swap_type.stdout | default('') not in ['', 'swap'] }}"
+    data_disk_offload_swap_active: "{{ data_disk_offload_swap_dev in data_disk_offload_swaps.stdout_lines }}"

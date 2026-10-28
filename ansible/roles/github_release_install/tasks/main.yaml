@@ -21,7 +21,13 @@
       '{{ ansible_facts['architecture'] }}' in github_release_install_asset_patterns.
       Caller declared: {{ github_release_install_asset_patterns.keys() | list }}.
 
+# no_log because of the Authorization header. `headers` is an ordinary module parameter (uri marks
+# only url_password no_log), and AnsibleModule writes every parameter not marked no_log to the
+# target's journal as "Invoked with ...". no_log is what stops that. It also hides the result,
+# failures included, so this task does not fail -- the next one does, with the parts of the
+# response that carry no secret.
 - name: Get release from GitHub (pinned tag if set, else latest)
+  no_log: true
   ansible.builtin.uri:
     url: >-
       https://api.github.com/repos/{{ github_release_install_repo }}/releases/{{
@@ -29,8 +35,25 @@
         if (github_release_install_release_tag | default('') | length > 0)
         else 'latest'
       }}
+    headers: >-
+      {{ {'Authorization': 'Bearer ' ~ github_release_install_github_token}
+         if (github_release_install_github_token | length > 0) else {} }}
     return_content: true
   register: github_release_install_release_response
+  failed_when: false
+
+# The usual failure is 403, the rate limit. The limit in the message tells whether the token was
+# used: 60 is the unauthenticated one, per source IP and shared by every host behind it.
+- name: Fail if GitHub did not return the release
+  when: github_release_install_release_response.status | default(-1) != 200
+  vars:
+    response: "{{ github_release_install_release_response }}"
+  ansible.builtin.fail:
+    msg: >-
+      {{ response.msg | default('no response') }}.
+      Rate limit: {{ response.x_ratelimit_used | default('?') }} used of
+      {{ response.x_ratelimit_limit | default('?') }}, resets at epoch
+      {{ response.x_ratelimit_reset | default('?') }}.
 
 - name: Pick asset name for this architecture
   ansible.builtin.set_fact:

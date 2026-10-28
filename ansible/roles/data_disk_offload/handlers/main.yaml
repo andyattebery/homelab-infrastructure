@@ -1,0 +1,6 @@
+---
+# systemd generates mount and swap units from /etc/fstab, so a changed fstab needs a reload for
+# the running system's units to match what the next boot will use.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true

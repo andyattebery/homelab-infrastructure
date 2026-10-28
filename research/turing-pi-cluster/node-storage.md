@@ -161,6 +161,7 @@ Sources: Samsung datasheets (960 PRO Rev 1.0, 970 EVO Rev 1.0); the HP/BIWIN EX9
   An Armbian admin, January 2026: "It is not recommended to match ZFS with vendor kernel(s)." The 6.1.172 headers also exist only on beta.armbian.com.
 - **btrfs is the in-kernel alternative on the RK1.** `BTRFS_FS=m` is set in the vendor config, so it gives checksums and snapshots with no DKMS.
 - **ext4 is the plain default everywhere.**
+- **Update (2026-10-25):** each node's kernel was checked for ZFS, along with Canonical's 24.04 Jetson image: [zfs-on-the-nodes.md](zfs-on-the-nodes.md).
 
 ### Backups instead of a mirror
 

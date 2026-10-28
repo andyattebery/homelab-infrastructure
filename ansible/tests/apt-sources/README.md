@@ -76,7 +76,8 @@ from a pristine apt configuration. Chaining several verify playbooks against one
 
 `verify-realtek.yml` is the exception that also resets itself — it mutates the
 host by design (step 3 enables the component), so it undoes that at step 0 and is
-safe to run repeatedly.
+safe to run repeatedly. `verify-l4t-pin.yml` does the same: it builds its own
+fixtures, and its step 0 removes them.
 
 **Run every verify playbook twice.** The second run against unchanged containers
 is what catches non-idempotence, and it has caught real bugs twice: a
@@ -180,6 +181,19 @@ so a test cannot assert on `{{ some_role_default }}` afterwards. `set_fact` and
 `register` results do persist. Compute expected paths in the test itself — it is
 the stronger assertion anyway, since it checks where the file really lands rather
 than trusting the role's own description of it.
+
+## `verify-l4t-pin.yml` tests a template, not a role
+
+It reads the apt pin and the first-boot check from `turingpi/jetson/cloud-init/user-data.tpl`
+and runs them against two `file:` repos it builds in the container from empty
+packages. One stands in for NVIDIA's L4T repo, the other for the private repo, in
+four publish states. It runs only on `apt-test-ubuntu2404`: noble on arm64, like the
+Jetson.
+
+Its controls construct each failure by hand:
+- the pin without its 990 record;
+- the pin without its -1 record, with no rebuild in the private repo;
+- the private repo without the rebuild, which the check must answer by holding.
 
 ## Coverage, honestly
 

@@ -11,3 +11,9 @@
     github_release_install_binary_in_archive: beszel-agent
     github_release_install_binary_path: "{{ beszel_agent_bin_path }}"
     github_release_install_version_command: "{{ beszel_agent_bin_path }} -v"
+# The agent runs smartctl for S.M.A.R.T. data. Without it, it reads only eMMC health, from sysfs.
+# It looks for smartctl once, at start, so a new install restarts it.
+- name: Install smartmontools
+  ansible.builtin.package:
+    name: smartmontools
+  notify: Restart beszel-agent

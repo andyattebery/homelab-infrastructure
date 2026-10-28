@@ -1,4 +1,9 @@
 beszel_agent_port: 45876
 beszel_agent_bin_path: /usr/local/bin/beszel-agent
 beszel_agent_username: beszel
-beszel_agent_installer_path: /tmp/beszel/install-agent.sh
+# Holds KEY and TOKEN, root-only. systemd reads it before starting the agent as its user.
+beszel_agent_env_path: /etc/beszel-agent.env
+# Disks to show besides the root one, as devices, partitions or mount points, each optionally
+# followed by __<name> for the hub's charts. Empty means the root disk only, plus the btrfs
+# filesystems and ZFS pools the agent finds by itself.
+beszel_agent_extra_filesystems: []

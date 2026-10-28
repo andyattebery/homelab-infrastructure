@@ -28,10 +28,10 @@ From the repo root:
    - shows the nodes' power state.
 2. Run it again with `--yes` added to flash: it seeds again, powers the node off, writes the seeded
    image through [../scripts/flash-node.sh](../scripts/flash-node.sh), and powers the node on. About
-   10 minutes in all.
-3. Forget the node's old host key: `ssh-keygen -R <ip>`, with the node's IP from
-   [../nodes.md](../nodes.md).
-4. Log in: `ssh services@<ip>`.
+   11 minutes in all.
+3. Forget the node's old host key under the name ssh connects to, which your ssh config sets:
+   `ssh-keygen -R "$(ssh -G <hostname> | awk '/^hostname /{print $2}')"`.
+4. Log in: `ssh <hostname>`, and accept the new key.
 
 **A new node:** add `cloud-init/<hostname>/meta-data`. The script seeds node N as `turingpi-rk1-0N`.
 
@@ -50,7 +50,9 @@ From the repo root:
 
 ## First-boot checks
 
-Over ssh as `services`:
+Over ssh as `services`, after `cloud-init status --wait` returns. ssh can answer before cloud-init
+has finished. Until it finishes, `cloud-init status` shows `running`, there is no `result.json`,
+and root's password is still `P`.
 
 | Check | Expect |
 |---|---|

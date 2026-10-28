@@ -1,4 +1,16 @@
 ---
+# KEY and TOKEN go in a root-only file, not in the unit: the unit is world-readable, and
+# `systemctl show` prints its Environment= lines to any user. diff: false keeps --diff from
+# printing them.
+- name: Write beszel-agent's key and token
+  ansible.builtin.template:
+    src: beszel-agent.env.j2
+    dest: "{{ beszel_agent_env_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false
+  notify: Restart beszel-agent
 - name: Copy beszel-agent.service
   ansible.builtin.template:
     src: beszel-agent.service.j2

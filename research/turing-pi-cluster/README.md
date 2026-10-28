@@ -66,6 +66,8 @@ Since 2026-10-03 the RK1s run Debian 13 on Rockchip's vendor kernel and the Orin
 - What the NVMe drives lack is redundancy. Back up the small irreplaceable part to backup-01, which is off the board and already feeds the offsite copy.
 - Keep the S3610s shelved until something writes a lot locally, such as camera recordings. Then put them on the node that writes the data, not behind NFS.
 
+**Update (2026-10-25):** ZFS is prebuilt only in the CM4's kernel. Canonical's 24.04 Jetson image has it, but it is the Thor release and ships no Orin GPU driver. On the Jetson and the RK1, nothing found stops a DKMS build: neither kernel's config blocks out-of-tree modules, and the RK1's two failures on record were version-specific. It is untested on both. See [zfs-on-the-nodes.md](zfs-on-the-nodes.md).
+
 ## Hardware
 
 | Slot | Module | Data disk (from `hardware/ssd-inventory.md`, "Unused / shelved") |
@@ -169,5 +171,6 @@ Kairos is out: it has no RK3588 support and no Orin Nano model.
 | [cm4-os.md](cm4-os.md) | 2026-10-08: which OS `turingpi-cm4-01` should run. Armbian `rpi4b`, Ubuntu 24.04 and 26.04, and Raspberry Pi OS Lite, compared on kernel and update cadence, codecs, boot firmware and EEPROM, first boot after `tpi flash`, memory cgroup, and support dates. Records the decision (Ubuntu 26.04 on the RK1s and the CM4) and the RK1 image rework it needs |
 | [kubernetes-on-vendor-os.md](kubernetes-on-vendor-os.md) | 2026-10-07: what a Kubernetes pod can use on the vendor OSes the boards now run (RK1 on Armbian vendor 6.1, Orin on L4T R39.2.1, CM4 on Raspberry Pi OS or Talos); how device nodes reach pods; each kernel's Kubernetes readiness; joining the Talos cluster vs a separate k3s cluster vs Docker hosts |
 | [node-storage.md](node-storage.md) | 2026-10-08: each node's NVMe vs a CM4 file server on two S3610s in slot 3. Slot-3 SATA and power, the 1 GbE ceiling, ZFS on each OS, the three NVMe drives' specs and quirks, what each app allows on NFS, and backups to backup-01 |
+| [zfs-on-the-nodes.md](zfs-on-the-nodes.md) | 2026-10-25: ZFS in each node's kernel, checked on the nodes; Canonical's Ubuntu 24.04 Jetson image (ZFS built in, Thor-only, no nvgpu); the ZFS routes for the Jetson and the RK1; what changing the ext4 data disks involves |
 | [rk1-os-releases.md](rk1-os-releases.md) | 2026-10-01 follow-up: current RK1 releases (Turing, Armbian Ubuntu 26.04 / Debian 13 on vendor 6.1.172, kurochan's builds), and Ubuntu 26.04's generic 7.0 kernel on the RK1 with its EFI boot path |
 | [ops-findings.md](ops-findings.md) | The fixed-IP block, NIM behaviour, vaulted values, jetson-01's role, earlier attempts in the repo, local tooling |

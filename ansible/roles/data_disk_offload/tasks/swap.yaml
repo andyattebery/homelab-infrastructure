@@ -1,0 +1,97 @@
+---
+# Partition 2, which main.yaml makes. Only a wipe can change its size, so a partition of another
+# size is refused rather than acted on, and only an empty one is formatted.
+- name: Look at the swap partition
+  ansible.builtin.stat:
+    path: "{{ data_disk_offload_part2 }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: data_disk_offload_swap_link
+
+- name: Check the swap partition's link
+  ansible.builtin.assert:
+    that:
+      - data_disk_offload_swap_link.stat.exists
+      - data_disk_offload_swap_link.stat.islnk
+      - data_disk_offload_swap_link.stat.lnk_source is match('/dev/[^/]+$')
+    fail_msg: "no {{ data_disk_offload_part2 }} link to a /dev/ device"
+    quiet: true
+
+- name: Note the swap partition's device
+  ansible.builtin.set_fact:
+    data_disk_offload_swap_dev: "{{ data_disk_offload_swap_link.stat.lnk_source }}"
+
+- name: Read the swap partition's size
+  ansible.builtin.command:
+    argv: [blockdev, --getsize64, "{{ data_disk_offload_swap_dev }}"]
+  register: data_disk_offload_swap_bytes
+  changed_when: false
+
+- name: Check the swap partition is data_disk_offload_swap_mib
+  ansible.builtin.assert:
+    that: data_disk_offload_swap_bytes.stdout | int == (data_disk_offload_swap_mib | int) * 1048576
+    fail_msg: >-
+      {{ data_disk_offload_part2 }} is {{ data_disk_offload_swap_bytes.stdout }} bytes, not
+      {{ data_disk_offload_swap_mib }} MiB. Only wiping the disk changes its size.
+    quiet: true
+
+# -c /dev/null probes the device rather than blkid's cache. Empty, with rc 2, when it holds
+# nothing.
+- name: Read the swap partition's signature
+  ansible.builtin.command:
+    argv: [blkid, -c, /dev/null, -o, value, -s, TYPE, "{{ data_disk_offload_swap_dev }}"]
+  register: data_disk_offload_swap_type
+  changed_when: false
+  failed_when: false
+
+- name: Read the active swap areas
+  ansible.builtin.command:
+    argv: [swapon, --show=NAME, --noheadings]
+  register: data_disk_offload_swaps
+  changed_when: false
+
+- name: Decide what the swap partition needs
+  ansible.builtin.include_tasks:
+    file: swap_state.yaml
+
+- name: Check the swap partition holds swap or nothing
+  ansible.builtin.assert:
+    that: not data_disk_offload_swap_foreign
+    fail_msg: >-
+      {{ data_disk_offload_part2 }} holds {{ data_disk_offload_swap_type.stdout }}. The role
+      formats only an empty swap partition.
+    quiet: true
+
+- name: Format the swap partition
+  when: data_disk_offload_swap_format
+  ansible.builtin.command:
+    argv: [mkswap, "{{ data_disk_offload_swap_dev }}"]
+  changed_when: true
+
+# By its by-id link, so fstab names the partition by the drive's serial, not by whichever device
+# name it has today. nofail: without the data disk the node boots without this swap.
+- name: Add the swap partition to fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^{{ data_disk_offload_part2 | regex_escape }}\s'
+    line: "{{ data_disk_offload_part2 }} none swap sw,nofail 0 0"
+  notify: Reload systemd
+
+- name: Turn the swap partition on
+  when: not data_disk_offload_swap_active
+  ansible.builtin.command:
+    argv: [swapon, "{{ data_disk_offload_swap_dev }}"]
+  changed_when: true
+
+- name: Read the active swap areas again
+  ansible.builtin.command:
+    argv: [swapon, --show=NAME, --noheadings]
+  register: data_disk_offload_swaps
+  changed_when: false
+
+- name: Check the swap partition is in use
+  ansible.builtin.assert:
+    that: data_disk_offload_swap_dev in data_disk_offload_swaps.stdout_lines
+    fail_msg: "{{ data_disk_offload_swap_dev }} is not an active swap area: {{ data_disk_offload_swaps.stdout_lines }}"
+    quiet: true

@@ -5,7 +5,9 @@
 Hermetic. The script takes its GitHub API base and its apt-get as arguments, so every case points
 them at a local directory tree and a stub. `--api-base` is a `file://` URL into a tempdir laid out
 as `repos/<owner>/<repo>/releases/latest`, which urllib resolves natively -- no HTTP server, and
-no branch in the script that exists only for tests.
+no branch in the script that exists only for tests. The GITHUB_TOKEN cases are the one exception:
+headers are attached only on http(s), so they use an https:// base with `urlopen` replaced by a
+recorder, and nothing leaves the process.
 
 Fixture discipline follows ansible/tests/fixtures/README.md: real shape, placeholder values,
 `example.invalid` download URLs so a case that should never fetch fails loudly if it does. The two
@@ -16,12 +18,14 @@ They pin the behaviours the two must agree on; they cannot stop the two from dri
 """
 
 import importlib.util
+import io
 import json
 import os
 import shutil
 import stat
 import subprocess
 import tarfile
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -96,6 +100,7 @@ def write_env(root, **overrides):
         "SYMLINK": "false",
         "SYMLINK_PATH": "",
         "POST_UPDATE_COMMAND": "",
+        "GITHUB_TOKEN": "",
     }
     values.update(overrides)
     lines = [f"{key}='{value}'" for key, value in values.items()]
@@ -659,3 +664,119 @@ def test_release_tag_uses_the_tags_endpoint(tmp_path, capsys):
     code, out = run(["--env-file", str(env), "--api-base", api], capsys)
     assert code == 0, out
     assert (tmp_path / "bin" / "tool").read_bytes() == b"PINNED"
+
+
+# ---------------------------------------------------------------------------------------------
+# C30-C35  GITHUB_TOKEN
+# ---------------------------------------------------------------------------------------------
+
+API = "https://api.example.invalid"
+RELEASE_URL = f"{API}/repos/acme/tool/releases/latest"
+ASSET_URL = "https://example.invalid/download/tool-linux-amd64.tar.gz"
+
+
+class RecordingOpener:
+    """Stands in for urllib.request.urlopen. Serves a canned body per URL -- or raises HTTPError
+    when the body is an int -- and records every Request, so a case can see which carried a
+    token."""
+
+    def __init__(self, bodies):
+        self.bodies = bodies
+        self.requests = []
+
+    def __call__(self, request):
+        self.requests.append(request)
+        body = self.bodies[request.full_url]
+        if isinstance(body, int):
+            raise urllib.error.HTTPError(request.full_url, body, "error", {}, None)
+        return io.BytesIO(body)
+
+    def authorization(self):
+        return {r.full_url: r.get_header("Authorization") for r in self.requests}
+
+
+def serve_current_release(tmp_path, monkeypatch, release_body=None):
+    """A binary already at the release's version, so the run makes exactly one request."""
+    install_fake_binary(tmp_path, "1.1.0")
+    release = release_with_asset("v1.1.0", "tool-linux-amd64.tar.gz", ASSET_URL)
+    opener = RecordingOpener({RELEASE_URL: release_body or json.dumps(release).encode()})
+    monkeypatch.setattr(gru.urllib.request, "urlopen", opener)
+    return opener
+
+
+def test_token_goes_to_the_api_request_and_not_the_download(tmp_path, capsys, monkeypatch):
+    """A release download answers 302 to another host, and urllib copies add_header() headers
+    across the redirect. The token rides the API request only -- which is all the role sends."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    install_fake_binary(tmp_path, "1.0.0")
+    archive = make_tarball(tmp_path, "tool-linux-amd64.tar.gz", {"tool": b"NEW"})
+    release = release_with_asset("v1.1.0", "tool-linux-amd64.tar.gz", ASSET_URL)
+    opener = RecordingOpener({RELEASE_URL: json.dumps(release).encode(),
+                              ASSET_URL: archive.read_bytes()})
+    monkeypatch.setattr(gru.urllib.request, "urlopen", opener)
+    env = write_env(tmp_path, GITHUB_TOKEN="placeholder-token",
+                    VERSION_COMMAND=str(tmp_path / "bin" / "tool"))
+
+    code, out = run(["--env-file", str(env), "--api-base", API], capsys)
+    assert code == 0, out
+    assert out.startswith("CHANGED")
+    assert opener.authorization() == {RELEASE_URL: "Bearer placeholder-token", ASSET_URL: None}
+
+
+def test_environment_token_outranks_the_env_file(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "from-environment")
+    opener = serve_current_release(tmp_path, monkeypatch)
+    env = write_env(tmp_path, GITHUB_TOKEN="from-env-file",
+                    VERSION_COMMAND=str(tmp_path / "bin" / "tool"))
+
+    code, out = run(["--env-file", str(env), "--api-base", API], capsys)
+    assert code == 0, out
+    assert opener.authorization() == {RELEASE_URL: "Bearer from-environment"}
+
+
+def test_empty_token_sends_no_authorization_header(tmp_path, capsys, monkeypatch):
+    """The role's default. An empty token is no token, not an empty `Bearer` header."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    opener = serve_current_release(tmp_path, monkeypatch)
+    env = write_env(tmp_path, VERSION_COMMAND=str(tmp_path / "bin" / "tool"))
+
+    code, out = run(["--env-file", str(env), "--api-base", API], capsys)
+    assert code == 0, out
+    assert out.startswith("OK")
+    assert opener.authorization() == {RELEASE_URL: None}
+
+
+def test_token_has_no_command_line_flag():
+    """argv is readable by every user on the host. The environment is the override instead."""
+    with pytest.raises(SystemExit):
+        gru.parse_args(["--name", "tool", "--github-token", "x"])
+
+
+@pytest.mark.parametrize("token, status, present, absent", [
+    ("", 403, "unauthenticated GitHub allows 60 requests/hour", "rejected"),
+    ("placeholder-token", 403, "HTTP 403", "unauthenticated"),
+    ("placeholder-token", 401, "GitHub rejected GITHUB_TOKEN", "unauthenticated"),
+])
+def test_http_error_hint_matches_whether_a_token_was_sent(tmp_path, capsys, monkeypatch,
+                                                          token, status, present, absent):
+    """Telling someone to set GITHUB_TOKEN when it is already set sends them the wrong way."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    serve_current_release(tmp_path, monkeypatch, release_body=status)
+    env = write_env(tmp_path, GITHUB_TOKEN=token, VERSION_COMMAND=str(tmp_path / "bin" / "tool"))
+
+    code, out = run(["--env-file", str(env), "--api-base", API], capsys)
+    assert code == 1
+    assert out.startswith("FAILED")
+    assert present in out
+    assert absent not in out
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-0000 file regardless")
+def test_unreadable_env_file_says_run_with_sudo(tmp_path, capsys):
+    """The role writes env files 0600 because they hold the token."""
+    env = write_env(tmp_path)
+    env.chmod(0)
+    code, out = run(["--env-file", str(env)], capsys)
+    assert code == 1
+    assert out.startswith("FAILED")
+    assert "run with sudo" in out

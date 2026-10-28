@@ -1,0 +1,35 @@
+---
+# The data disk, as its /dev/disk/by-id/ path, which names the drive by model and serial, so the
+# role can never be aimed at whichever disk is nvme0n1 today. Required and unset on purpose:
+# without it the role fails before it changes anything, as it does for a -partN link or any path
+# outside /dev/disk/by-id/.
+#   data_disk_offload_device: /dev/disk/by-id/nvme-<model>_<serial>
+
+# Where the pool is mounted, and the parent of each relocated directory's dataset: /var/log's is
+# <fs_label>/var/log, mounted at <mount_path>/var/log. Set it before the first run: a pool mounted
+# anywhere else is refused.
+data_disk_offload_mount_path: /mnt/data
+
+# The GPT name of partition 1 and the name of the pool on it. Neither changes after the first run:
+# a partition 1 or a pool by another name is refused. On a Jetson, L4TLauncher boots any disk with
+# a partition named APP, so the role refuses APP; swap is partition 2's name.
+data_disk_offload_fs_label: data
+
+# Directories to move onto the data disk, each as {path, services, zfs_properties}. Each gets its
+# own dataset, <fs_label><path>, with zfs_properties (a mapping of ZFS properties, default {})
+# set on it. The services are stopped while the directory is copied and bind-mounted, in list
+# order, and started again afterwards, but only the ones that were running. List a socket before
+# its service, or the socket restarts the service mid-copy. Anything else that holds a file open
+# in the directory fails the role before the directory moves. On Armbian, /var/log is
+# armbian-ramlog's zram mount, which the role turns off to move it (README, Traps). Empty means the
+# role only partitions the disk and makes the pool.
+data_disk_offload_bind_dirs: []
+
+# A swap partition of this many MiB, partition 2, at the end of the disk. 0 means none. Set it
+# before the first run: only a wipe changes the partition's size, so a different one is refused.
+data_disk_offload_swap_mib: 0
+
+# ZFS properties of the pool's root dataset, which every dataset inherits, set on every run. For
+# example org.debian:periodic-trim: enable, without which Ubuntu's monthly trim skips a pool that
+# isn't all NVMe (README, Traps).
+data_disk_offload_zfs_root_properties: {}

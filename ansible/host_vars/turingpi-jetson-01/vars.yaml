@@ -1,0 +1,38 @@
+---
+# data_disk_offload: the write-heavy paths and the swap move from the microSD card to the HP EX950
+# in M.2 T4 (turingpi/nodes.md).
+data_disk_offload_device: /dev/disk/by-id/nvme-HP_SSD_EX950_1TB_HBSE49321202613
+
+# This list replaces group_vars/turingpi's, adding Docker's directories, so /var/log's services
+# repeat the group's (its comment says why each is there). A socket comes before its service, or
+# it restarts the service mid-copy: rsyslog.service requires syslog.socket, and docker.service
+# docker.socket. Moving containerd's state stops docker too, which runs its containers through
+# containerd. Units that are not installed are skipped, so the container directories move while
+# still empty and a runtime installed later starts on the NVMe.
+data_disk_offload_bind_dirs:
+  - path: /var/log
+    services:
+      - syslog.socket
+      - rsyslog.service
+      - fail2ban.service
+      - unattended-upgrades.service
+      - auditd.service
+  - path: /var/tmp
+    services: []
+  - path: /var/lib/docker
+    services: [docker.socket, docker.service]
+  - path: /var/lib/containerd
+    services: [docker.socket, docker.service, containerd.service]
+
+# The Jetson's only swap: the card's user-data (turingpi/jetson/cloud-init/user-data.tpl) removes
+# the 2 GB /swapfile NVIDIA's first-boot nvfb-swapfile.service makes, and there is no zram. 8 GiB,
+# about its RAM, which the GPU shares and models will mostly fill; NVIDIA's Jetson AI Lab puts swap
+# "typically correlated with the amount of memory on the board" on the NVMe.
+data_disk_offload_swap_mib: 8192
+
+# zfs_install: built by DKMS against nvidia-l4t-kernel-headers. NVIDIA's dkms only recommends gcc,
+# and the role installs without recommends, so gcc is listed.
+zfs_install_packages:
+  - zfs-dkms
+  - zfsutils-linux
+  - gcc

@@ -1,0 +1,31 @@
+---
+# What one relocated directory needs. Inputs: data_disk_offload_dir ({path, services}),
+# data_disk_offload_fs_label (the pool's name), data_disk_offload_findmnt (the result of findmnt
+# -no SOURCE --mountpoint <path>, which is empty when the path is not a mount point) and
+# data_disk_offload_ramlog_enabled (sed's ENABLED= value from /etc/default/armbian-ramlog, empty
+# without the file). findmnt shows a bind of a dataset's root as the dataset's name, data/var/log:
+# it adds a [dir] only for a mount whose root isn't / (util-linux findmnt.c). Decision logic only:
+# tests/test.yml runs this file on its own.
+- name: Decide what {{ data_disk_offload_dir.path }} needs
+  ansible.builtin.set_fact:
+    data_disk_offload_bound: >-
+      {{ data_disk_offload_findmnt.stdout == data_disk_offload_fs_label ~ data_disk_offload_dir.path }}
+    # Armbian's armbian-ramlog: /var/log on a zram device while ENABLED=true. relocate.yaml turns
+    # it off rather than refuse the mount. Its tmpfs fallback, and a zram still mounted after
+    # ENABLED was set false, stay foreign.
+    data_disk_offload_ramlog: >-
+      {{ data_disk_offload_dir.path == '/var/log'
+         and data_disk_offload_ramlog_enabled.stdout | default('') == 'true'
+         and data_disk_offload_findmnt.stdout is match('/dev/zram[0-9]+$') }}
+    # journald holds files open under /var/log/journal, its persistent storage.
+    data_disk_offload_journal: "{{ '/var/log/journal/'.startswith(data_disk_offload_dir.path ~ '/') }}"
+
+# Its own task: within one set_fact, a key that names another key of the same task reads that
+# fact's previous value, here the last directory's.
+- name: Decide whether {{ data_disk_offload_dir.path }} is mounted from elsewhere
+  ansible.builtin.set_fact:
+    # Mounted from something else: the role would remount that mount, not bind over it.
+    data_disk_offload_foreign: >-
+      {{ data_disk_offload_findmnt.stdout | length > 0
+         and not data_disk_offload_bound
+         and not data_disk_offload_ramlog }}

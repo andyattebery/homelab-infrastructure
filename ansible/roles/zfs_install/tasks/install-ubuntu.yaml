@@ -1,0 +1,126 @@
+---
+# Ubuntu's own ZFS: the module from zfs-dkms, or prebuilt where the kernel ships
+# it, and the userland from zfsutils-linux. The inputs are in the README.
+- name: Refuse an unknown state
+  ansible.builtin.assert:
+    that: zfs_install_state in ['present', 'absent']
+    fail_msg: "zfs_install_state must be 'present' or 'absent', not '{{ zfs_install_state }}'."
+    quiet: true
+
+- name: Install, load and check
+  when: zfs_install_state == 'present'
+  block:
+    # zfs-dkms builds against /lib/modules/<kernel>/build. Without it there is
+    # nothing to build against, and the install would leave the packages in and
+    # no module. Refused here, before anything changes. It is a symlink, so it is
+    # followed: a dangling one counts as missing.
+    - name: Stat the running kernel's headers
+      when: "'zfs-dkms' in zfs_install_packages"
+      ansible.builtin.stat:
+        path: "/lib/modules/{{ ansible_facts['kernel'] }}/build"
+        follow: true
+      register: zfs_install_headers
+
+    - name: Refuse zfs-dkms without headers for the running kernel
+      when: "'zfs-dkms' in zfs_install_packages"
+      ansible.builtin.assert:
+        that: zfs_install_headers.stat.exists
+        fail_msg: >-
+          zfs-dkms is listed and /lib/modules/{{ ansible_facts['kernel'] }}/build
+          doesn't exist. Install the running kernel's headers first.
+        quiet: true
+
+    # Before the install, so the install already sees it.
+    - name: Write the ZFS apt preferences
+      when: zfs_install_apt_preferences | length > 0
+      ansible.builtin.copy:
+        content: "{{ zfs_install_apt_preferences }}"
+        dest: /etc/apt/preferences.d/90_zfs
+        mode: "0644"
+        owner: root
+        group: root
+
+    - name: Remove the ZFS apt preferences, none being set
+      when: zfs_install_apt_preferences | length == 0
+      ansible.builtin.file:
+        path: /etc/apt/preferences.d/90_zfs
+        state: absent
+
+    # Without recommends, as the load test installed: zfs-zed stays out, and
+    # Ubuntu's dkms can't pull in a generic kernel's headers.
+    - name: Install zfs
+      ansible.builtin.apt:
+        name: "{{ zfs_install_packages }}"
+        install_recommends: false
+        update_cache: true
+
+    # zfsutils-linux's postinst starts zfs-load-module.service, but it doesn't
+    # depend on zfs-dkms, so dpkg may configure it before the build, and that
+    # unit ignores a failed modprobe. Then nothing has loaded the module.
+    - name: Load the module
+      community.general.modprobe:
+        name: zfs
+        state: present
+
+    - name: Read zpool's versions, which opens /dev/zfs
+      ansible.builtin.command:
+        argv: [zpool, version]
+      register: zfs_install_zpool_version
+      changed_when: false
+
+    - name: Stat /dev/zfs
+      ansible.builtin.stat:
+        path: /dev/zfs
+      register: zfs_install_dev
+
+    - name: Read dkms's status for zfs
+      when: "'zfs-dkms' in zfs_install_packages"
+      ansible.builtin.command:
+        argv: [dkms, status, -m, zfs]
+      register: zfs_install_dkms_status
+      changed_when: false
+
+    - name: Read the installed versions
+      ansible.builtin.command:
+        argv: "{{ ['dpkg-query', '--show', '--showformat=${Package}=${Version} '] + zfs_install_packages }}"
+      register: zfs_install_versions
+      changed_when: false
+
+    # The two zpool lines aren't compared: a module prebuilt with the kernel
+    # follows the kernel's release, not zfsutils-linux's.
+    - name: Check the userland, the device and the module
+      vars:
+        _zpool: "{{ zfs_install_zpool_version.stdout_lines }}"
+        _dkms: "{{ zfs_install_dkms_status.stdout | default('') }}"
+        _dkms_line: "(?m)^zfs/[^,]+, {{ ansible_facts['kernel'] | regex_escape }}, [^:]+: installed"
+      ansible.builtin.assert:
+        that:
+          - _zpool | select('match', 'zfs-[0-9]') | list | length == 1
+          - _zpool | select('match', 'zfs-kmod-[0-9]') | list | length == 1
+          - zfs_install_dev.stat.ischr | default(false)
+          - "'zfs-dkms' not in zfs_install_packages or _dkms is search(_dkms_line)"
+        fail_msg: >-
+          zpool version: {{ _zpool }}; /dev/zfs a character device:
+          {{ zfs_install_dev.stat.ischr | default(false) }}; dkms status: {{ _dkms }}
+        success_msg: "{{ (_zpool | join(' / ')) ~ '; ' ~ (zfs_install_versions.stdout | trim) }}"
+
+- name: Unload, purge and remove the preferences
+  when: zfs_install_state == 'absent'
+  block:
+    # Refused while anything holds the module, an imported pool included, so
+    # nothing is purged under one.
+    - name: Unload the module
+      community.general.modprobe:
+        name: zfs
+        state: absent
+
+    - name: Purge zfs
+      ansible.builtin.apt:
+        name: "{{ zfs_install_packages }}"
+        state: absent
+        purge: true
+
+    - name: Remove the ZFS apt preferences
+      ansible.builtin.file:
+        path: /etc/apt/preferences.d/90_zfs
+        state: absent

@@ -1,0 +1,20 @@
+---
+# What the pool needs. Inputs: data_disk_offload_pool_list, the result of zpool list -H -o name
+# <pool> (rc 0 when the pool is imported), and data_disk_offload_part1_probe, blkid -p -o export of
+# partition 1: TYPE=zfs_member and LABEL=<pool> on a pool's member, no TYPE line on an empty
+# partition. Decision logic only: tests/test.yml runs this file on its own.
+#
+# none: imported already. import: the pool is on partition 1 but not imported, as after the OS
+# was reinstalled. create: partition 1 holds nothing. refuse: anything else, another pool's member
+# or a filesystem, which the role never replaces.
+- name: Decide what the pool needs
+  vars:
+    _probe: "{{ data_disk_offload_part1_probe.stdout_lines | default([]) }}"
+    _type: "{{ _probe | select('match', 'TYPE=') | map('regex_replace', '^TYPE=', '') | first | default('') }}"
+    _label: "{{ _probe | select('match', 'LABEL=') | map('regex_replace', '^LABEL=', '') | first | default('') }}"
+  ansible.builtin.set_fact:
+    data_disk_offload_pool_action: >-
+      {{ 'none' if data_disk_offload_pool_list.rc == 0
+         else 'import' if (_type == 'zfs_member' and _label == data_disk_offload_fs_label)
+         else 'create' if _type == ''
+         else 'refuse' }}

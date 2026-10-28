@@ -32,7 +32,9 @@ Run the commands from the repo root.
    - It writes `turingpi/cm4/images/turingpi-cm4-01/<name>.img.xz`, recompressed, and its `.sha`.
 4. **Flash it:** `turingpi/scripts/flash-node.sh 3 turingpi/cm4/images/turingpi-cm4-01/<name>.img.xz`
    shows the nodes' power state. Add `--yes` to flash.
-5. **Log in:** `ssh-keygen -R 192.168.1.218`, then `ssh services@192.168.1.218`.
+5. **Log in:** forget the old host key under the name ssh connects to, which your ssh config sets:
+   `ssh-keygen -R "$(ssh -G turingpi-cm4-01 | awk '/^hostname /{print $2}')"`. Then
+   `ssh turingpi-cm4-01`, and accept the new key.
 
 **A new node:** add `cloud-init/<hostname>/meta-data`, then seed an image for it.
 
@@ -61,7 +63,7 @@ Over ssh as `services`:
 | `hostname` | `turingpi-cm4-01` |
 | `id services` | uid 1000, groups `sudo video render` |
 | `getent passwd ubuntu` | nothing |
-| `findmnt -no SIZE /` | about 29 G: the root grew to fill the eMMC |
+| `findmnt -no SIZE /` | about 28 G: the root grew to fill the eMMC |
 
 ## Traps
 

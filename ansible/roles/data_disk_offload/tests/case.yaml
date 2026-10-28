@@ -1,0 +1,39 @@
+---
+# One case for test.yml: run one of the role's checks (validate.yaml or check_table.yaml) with
+# _case's inputs over _defaults, and confirm it accepts or refuses as _case.expect says. A
+# refusal must come from the task named in _case.refused_by, so a case cannot pass by failing
+# somewhere else.
+- name: "{{ _case.name }}"
+  block:
+    - name: "Run {{ _case.file }}"
+      ansible.builtin.include_role:
+        name: data_disk_offload
+        tasks_from: "{{ _case.file }}"
+      vars:
+        data_disk_offload_device: "{{ _case.device | default(_defaults.device) }}"
+        data_disk_offload_fs_label: "{{ _case.fs_label | default(_defaults.fs_label) }}"
+        data_disk_offload_mount_path: "{{ _case.mount_path | default(_defaults.mount_path) }}"
+        data_disk_offload_bind_dirs: "{{ _case.bind_dirs | default(_defaults.bind_dirs) }}"
+        data_disk_offload_swap_mib: "{{ _case.swap_mib | default(_defaults.swap_mib) }}"
+        data_disk_offload_zfs_root_properties: "{{ _case.root_properties | default({}) }}"
+        data_disk_offload_table: "{{ _case.table | default({}) }}"
+        data_disk_offload_signatures: "{{ _case.signatures | default({'stdout_lines': []}) }}"
+
+    - name: Fail if it should have been refused
+      when: _case.expect == 'refuse'
+      ansible.builtin.fail:
+        msg: "{{ _case.name }}: accepted, but should have been refused by '{{ _case.refused_by }}'"
+
+    - name: Accepted
+      ansible.builtin.debug:
+        msg: "{{ _case.name }}: accepted"
+  rescue:
+    - name: Refused by the right check
+      ansible.builtin.assert:
+        that:
+          - _case.expect == 'refuse'
+          - ansible_failed_task.name == _case.refused_by
+        fail_msg: >-
+          {{ _case.name }}: expected {{ _case.expect }}, but '{{ ansible_failed_task.name }}'
+          failed: {{ ansible_failed_result.msg | default('') }}
+        success_msg: "{{ _case.name }}: refused by '{{ ansible_failed_task.name }}'"

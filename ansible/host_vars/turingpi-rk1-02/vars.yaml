@@ -1,0 +1,16 @@
+---
+# data_disk_offload: the Samsung 970 EVO in M.2 T2 (turingpi/nodes.md). The directories are
+# group_vars/turingpi's.
+data_disk_offload_device: /dev/disk/by-id/nvme-Samsung_SSD_970_EVO_500GB_S5H7NC0MB30425R
+
+# 8 GiB of swap, half the RAM, behind Armbian's zram (group_vars/turingpi).
+data_disk_offload_swap_mib: 8192
+
+# zfs_install: the default packages, built by DKMS against the kernel headers the image ships (the
+# role refuses an image without them). apt.armbian.com's ZFS can't be installed: its zfsutils-linux
+# Breaks every zfs-dkms but its own revision, which that repo doesn't carry. Being newer, it would
+# be apt's candidate, so it is blocked, and Ubuntu's ZFS is installed and updated.
+zfs_install_apt_preferences: |
+  Package: src:zfs-linux
+  Pin: origin apt.armbian.com
+  Pin-Priority: -1

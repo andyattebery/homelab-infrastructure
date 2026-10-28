@@ -32,10 +32,15 @@
   loop_control:
     label: "{{ item.dest }}"
 
-# 0644, not 0600: this holds a repo name, a path and a regex. Nothing in it is a secret, and a
-# file only root can read is a file nobody can debug.
+# 0600 because GITHUB_TOKEN is a secret; the rest is a repo name, a path and a regex. Reading one
+# therefore takes sudo, as running either script already does.
+#
+# diff: false, not no_log. template renders on the controller and hands copy a file (src=), so the
+# content is never a module parameter and never reaches the target's journal; the diff is the one
+# place it would print. no_log would also hide a render error.
 - name: Write the env file for {{ github_release_install_name }}
   ansible.builtin.template:
     src: install.env.j2
     dest: "{{ github_release_install_config_dir }}/{{ github_release_install_name }}.env"
-    mode: "0644"
+    mode: "0600"
+  diff: false

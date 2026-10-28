@@ -221,6 +221,22 @@ Optional:
   **Wrong value:** a non-zero exit fails the run *after* the binary was
   replaced, so the install stands and the run reports failure.
 
+- `github_release_install_github_token` — default `""`. Sent as
+  `Authorization: Bearer` on the release lookup: the role's one API call, and
+  the updater's, which reads it from each env file as `GITHUB_TOKEN`. Never sent
+  on a download — see "Rate limit" below.
+
+  Empty is unauthenticated: 60 requests/hour per source IP, shared by every host
+  behind one WAN address. This repo sets it for every host, in
+  `group_vars/all/vars.yaml`:
+
+  ```yaml
+  github_release_install_github_token: "{{ vault_github_release_install_github_token }}"
+  ```
+
+  **Wrong value:** a revoked or mistyped token fails every run with HTTP 401.
+  GitHub answers bad credentials with 401; it does not fall back to anonymous.
+
 ## Examples
 
 ### deb
@@ -271,6 +287,24 @@ Optional:
     github_release_install_binary_path: /opt/scrutiny/bin/scrutiny-collector-metrics-linux-amd64
 ```
 
+## The API call runs under `no_log`
+
+The release lookup carries the token in `headers`, an ordinary `uri`
+parameter — `uri` marks only `url_password` no_log. `AnsibleModule` writes
+every parameter not marked no_log to the target's journal ("Invoked with …"),
+so without `no_log` the token would land in the journal of every host on every
+run. Basic auth through `url_password` would be masked for free, but GitHub
+does not document it for tokens; Bearer is the documented form.
+
+`no_log` hides the result too, failures included. So the lookup runs with
+`failed_when: false`, and the next task fails instead, printing `uri`'s `msg`
+and the rate-limit headers — the parts of the response that carry no secret. A
+limit of 60 there means the request went unauthenticated.
+
+A template error is not hidden: an undefined
+`vault_github_release_install_github_token` still fails the lookup with
+"… is undefined" and the file it came from.
+
 ## The on-host updater
 
 The tasks above converge a binary *while `ansible-playbook` is running*. Between
@@ -281,7 +315,7 @@ deploys two scripts and one env file per install:
 |---|---|
 | `/usr/local/bin/github-release-update` | updates one install |
 | `/usr/local/bin/github-release-update-all` | walks every env file on the host |
-| `/etc/github-release-install/<name>.env` | one per install, written by this role |
+| `/etc/github-release-install/<name>.env` | one per install, written by this role; `0600`, because it holds the token |
 
 ```
 github-release-update-all --dry-run
@@ -290,10 +324,10 @@ github-release-update --name <name>
 github-release-update --env-file /etc/github-release-install/<name>.env --force
 ```
 
-Both need root — they write to `/usr/local/bin`, `/opt`, and run `apt-get`. They
-do **not** self-elevate the way `gpu-mode` does: the meta script loops over every
-install, and a self-elevating child would raise a sudo prompt per iteration,
-hanging an unattended run.
+Both need root — they read `0600` env files, write to `/usr/local/bin` and
+`/opt`, and run `apt-get`. They do **not** self-elevate the way `gpu-mode` does:
+the meta script loops over every install, and a self-elevating child would raise
+a sudo prompt per iteration, hanging an unattended run.
 
 ### It is a second implementation, and it can drift
 
@@ -309,7 +343,8 @@ What narrows it, honestly labelled:
   identically on both sides rather than merely similarly.
 - **Structural.** `roles/github_release_install/tests/` pins the behaviours the
   two must agree on — both idempotency modes, all three archive types, the
-  digest/`id:` fallback, the byte comparison.
+  digest/`id:` fallback, the byte comparison, the token reaching the release
+  lookup and nothing else.
 - **Exhortation.** "Change both." There is no artifact for this.
 
 The one check that can catch a live disagreement is operational: converge a host
@@ -330,11 +365,28 @@ resurrecting something you deliberately removed.
 The existence check runs **before** the API call, so an orphan costs nothing
 against the rate limit below. `--force` overrides it for a deliberate reinstall.
 
+An orphaned env file also keeps the token it was last written with. While its
+binary is gone that never matters. If the binary is still there and the token is
+rotated, that one install fails with 401 until the file is deleted.
+
 ### Rate limit
 
 Unauthenticated GitHub allows **60 requests per hour per source IP**, shared by
-every host behind one WAN address — one request per env file per run. Set
-`GITHUB_TOKEN` in the environment if that bites; the role does not deploy one.
+every host behind one WAN address — one request per install, per playbook run
+and per updater run. `github_release_install_github_token` authenticates both:
+the role sends it on its `uri` call, and the updater reads it from the env file
+as `GITHUB_TOKEN`. A `GITHUB_TOKEN` in the updater's own environment outranks
+the env file, for a one-off run with a different token. There is no
+`--github-token` flag, because argv is readable by every user on the host.
+
+The token goes on the release lookup and **nowhere else**, on both sides. A
+release download is not an API call, and it answers 302 to
+`release-assets.githubusercontent.com` with a signed URL. urllib copies every
+header it was given onto the redirected request, so a token sent on the download
+would reach a second host. The role's `get_url`/`unarchive` never send it either.
+
+A failure's hint says which case you are in: a 403 with no token suggests
+setting one, and a 401 with a token says GitHub rejected it.
 
 ### The env file is parsed, not sourced
 
@@ -349,8 +401,12 @@ shell, so a value cannot become a command. A line that *would* execute under
 `/bin/echo`. `POST_UPDATE_COMMAND` is the one exception and does go through
 `sh -c`, because it is a command a human wrote to be run that way.
 
-Mode is `0644`: the file holds a repo name, a path and a regex. Nothing in it is
-a secret, and a file only root can read is a file nobody can debug.
+Mode is `0600`, because `GITHUB_TOKEN` is a secret; the rest is a repo name, a
+path and a regex. Reading one takes `sudo`, as running either script already
+does. The task that writes it sets `diff: false` rather than `no_log`.
+`template` renders on the controller and hands `copy` a file, so the content is
+never a module parameter and never reaches the host's journal. The diff is the
+one place it would print, and `no_log` would also hide a render error.
 
 ### Bytes, not tags, decide whether anything changed
 
