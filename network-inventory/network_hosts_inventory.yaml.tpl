@@ -66,6 +66,9 @@ homelab_hosts:
   pi-camera:
     ip: 192.168.1.191
     mac: {{ op://Home Lab/pi-camera/hardware/mac address }}
+  pi-meshtastic:
+    ip: 192.168.1.193
+    mac: {{ op://Home Lab/pi-meshtastic/hardware/mac address }}
   pi-turntable:
     ip: 192.168.1.192
     mac: {{ op://Home Lab/pi-turntable/hardware/mac address }}
