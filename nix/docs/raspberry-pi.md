@@ -3,8 +3,8 @@
 Research and decisions for running NixOS on Raspberry Pi hardware in this homelab. Written
 2026-08-07 against nixpkgs `nixos-26.05`.
 
-**Status.** Two hosts run this flake's config, both deployed with `deploy-host.sh`, both on
-`bootloader = "kernel"`, and both with the kernel from the nixos-raspberrypi cache rather than
+**Status.** Three hosts run this flake's config, all deployed with `deploy-host.sh`, all on
+`bootloader = "kernel"`, and all with the kernel from the nixos-raspberrypi cache rather than
 compiled. Each image comes from `nix/scripts/build-image.sh <host>`
 (`packages.aarch64-linux.<host>-image`); the first deploy replaces the image's system.
 - `pi-rack`, since 2026-09-25: a Compute Module 4 (8 GB RAM, 32 GB eMMC) on a Waveshare
@@ -12,6 +12,9 @@ compiled. Each image comes from `nix/scripts/build-image.sh <host>`
   failed; see `research/pi-rack-boot-drive/`.
 - `pi-turntable`, since 2026-10-20: a Raspberry Pi 4 Model B (4 GB) with root on a microSD, on
   Wi-Fi only. Its image carries the Wi-Fi password; see "Wi-Fi-only hosts".
+- `pi-meshtastic`, since 2026-10-31: a Raspberry Pi 4 Model B (8 GB) with root on an SSD in a USB 3
+  SATA adapter, on Ethernet, with the SD slot empty. See "USB/SATA root needs no extra initrd
+  modules" and trap 12.
 
 ## Decision
 
@@ -158,7 +161,7 @@ derivations that depend on the kernel, not the kernel compile. Confirmed on 2026
 | `kernel` | Generational direct firmware boot. Each generation gets its own directory on the firmware partition (`os_prefix`) with matched kernel, initrd, cmdline, DTBs and overlays. |
 | `kernelboot` | Legacy direct boot, deprecated, emits a build warning. |
 
-**Both Pi hosts use `kernel`, overriding the board default.** The reason is rollback. Upstream issue #60,
+**All three Pi hosts use `kernel`, overriding the board default.** The reason is rollback. Upstream issue #60,
 and the `useGenerationDeviceTree` option's own docs (`default.nix:295-298`), both state that
 `kernelboot` and `uboot` *"don't effectively distinguish between nixos-generations on the level of
 FIRMWARE"*: the FAT partition holds **one** set of DTBs, overlays and `u-boot.bin`, so a rollback
@@ -211,6 +214,14 @@ GPT layout for USB installs: `FIRMWARE` (1 GiB vfat, `/boot/firmware`), a separa
 vfat) carrying **GPT attribute 2, Legacy BIOS Bootable** — which is how U-Boot locates
 `extlinux.conf` — and root. Either works; do not mix them.
 
+**An image's root grows to fill its disk on the first boot.**
+- nixos-raspberrypi's `sd-image` module adds the one-shot unit `expand-root-partition`: `sfdisk`
+  grows the partition, then `resize2fs` the filesystem.
+- It runs while `/nix-path-registration` exists and is ordered before `sysinit.target`, so it has
+  finished before the network comes up.
+- Deployed generations don't carry it.
+- pi-meshtastic's root went from the image's 4.7 GiB to 57.6 GiB.
+
 ### Kernel and firmware are version-bundled
 
 `pkgs.linuxAndFirmware.default` is currently **6.18.34** paired with `raspberrypifw` **1.20260521**.
@@ -235,6 +246,9 @@ nixpkgs.overlays = lib.mkAfter [ (self: super: {
 `pcie_brcmstb` (PCIe bus) and `reset-raspberrypi` (VL805 firmware load). `uas` is absent and does not
 need adding: the vendor `bcm2711_defconfig` has `CONFIG_USB_UAS=y`, `CONFIG_USB_STORAGE=y`,
 `CONFIG_USB_XHCI_HCD=y`, `CONFIG_SCSI=y` and `CONFIG_BLK_DEV_SD=y` built in.
+
+pi-meshtastic boots this way: root on an SSD in a USB 3 SATA adapter, bound to `uas`, with no
+`usb-storage.quirks`. It showed no UAS resets or I/O errors in the four boots checked on 2026-10-31.
 
 ## `config.txt` and device-tree overlays
 
@@ -305,8 +319,8 @@ and a freshly written card has no age key to decrypt it.
    `broadcom/`, so zero files match and the prune loop at `:71-75` deletes every existing `.dtb`.
    (Source-read, not tested.) **Does not apply to `kernel`**, which uses
    `install-device-tree.sh:53-55` and globs both paths — that inconsistency is exactly why the
-   `kernel` bootloader can default the option to `true` safely. Both Pi hosts are on `kernel`, so
-   this trap is inert here; it matters only if someone switches a host back to `uboot`.
+   `kernel` bootloader can default the option to `true` safely. All three Pi hosts are on `kernel`,
+   so this trap is inert here; it matters only if someone switches a host back to `uboot`.
 2. **Do not cross-compile.** Issue [#195](https://github.com/nvmd/nixos-raspberrypi/issues/195):
    with `nixpkgs.buildPlatform` set, the firmware and extlinux builders are built for the *build*
    platform but executed at activation time on the Pi — `Exec format error`, failed bootloader
@@ -350,6 +364,18 @@ and a freshly written card has no age key to decrypt it.
     syncs, TLS fails for anything that starts early: on pi-turntable's first boot,
     `dotfiles.service` failed with "certificate is not yet valid". timesyncd saves the clock to
     disk, so later boots start close enough.
+12. **A Pi 4 needs a 5.1 V supply; 5 V at 3 A isn't enough with a USB SSD.**
+    - **The evidence, on pi-meshtastic** (the SSD and the T-Echo on its own USB ports):
+      - On a 5 V 3 A supply, it logged `Undervoltage detected` within minutes on both boots checked.
+        `vcgencmd get_throttled` read `0x50000`: undervoltage and throttling have occurred (bits 16
+        and 18, `graphics-utilities.adoc` in Raspberry Pi's docs).
+      - Moving the SSD to a powered hub didn't stop it.
+      - A 5.1 V 3.5 A supply did: 0 events and `0x0` after seven minutes, with the SSD back on the
+        Pi.
+    - **Raspberry Pi's docs** (`power-supplies.adoc`): all models need 5.1 V, a Pi 4 3.0 A, and a
+      poor supply "can corrupt storage".
+    - **Check with** `sudo journalctl -k -b | grep -c 'Undervoltage detected'` and
+      `sudo vcgencmd get_throttled` (`vcgencmd` needs root).
 
 ## Module-system semantics worth knowing
 
@@ -392,7 +418,7 @@ duplicate import is redundant rather than an error. Worth knowing, but no longer
 duplicated each other. That is gone: `nixosConfigurations` is derived from `builtins.readDir ./hosts`
 and each host file states its own modules. The Pi modules
 (`inject-overlays`, `trusted-nix-caches`, `raspberry-pi-4.base`) are imported by each Pi host's
-`default.nix` (`hosts/pi-rack`, `hosts/pi-turntable`), reaching it through
+`default.nix` (`hosts/pi-rack`, `hosts/pi-turntable`, `hosts/pi-meshtastic`), reaching it through
 `specialArgs.nixos-raspberrypi`.
 
 ## Related

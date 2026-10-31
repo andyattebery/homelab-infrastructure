@@ -1,10 +1,8 @@
 # Capability: services.docker-compose, managing Compose stacks as systemd units, plus Diun.
 #
-# Groundwork for hosts still on Ansible -- no host imports it yet, and that is deliberate.
-# Its sops secret diun-pushover-token and the matching secrets.yaml.tpl entry are
-# pre-provisioned for the same reason; they are not orphans.
+# Imported by pi-meshtastic; the hosts still on Ansible don't import it yet.
 #
-# Imports dsm-provider, which it configures at :86-92 (services.dsm-provider.providers). Safe
+# Imports dsm-provider, which it configures below (services.dsm-provider.providers). Safe
 # alongside network.nix, which imports it too: its exported module carries an explicit `key`,
 # so the duplicate collapses rather than conflicting.
 { config, lib, pkgs, dsm, ... }:

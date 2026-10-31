@@ -12,19 +12,20 @@ NixOS host management for the homelab, running alongside the existing Ansible se
         tailscale.nix           # capability: Tailscale with routing features
         nut.nix                 # capability: NUT UPS server + its Prometheus exporter
         owntone.nix             # capability: OwnTone, built here against libevent 2.2 (nixpkgs has no module)
-        docker-host.nix         # capability: services.docker-compose + Diun (no host imports it yet)
+        docker-host.nix         # capability: services.docker-compose + Diun (imported by pi-meshtastic)
         network.nix             # stack bundle: AdGuard Home + keepalived + ACME (+ nginx)
         proxmox-guest.nix       # hardware: QEMU guest agent, grub, growPartition
         rpi4.nix                # hardware: Raspberry Pi 4 on-disk layout
         ssh-keys.nix            # shared SSH public keys (generated from ssh-keys.nix.tpl)
         ssh-keys.nix.tpl        # 1Password references for SSH keys
-        compose/                # empty; kept for Compose files referenced by docker-host.nix
+        compose/                # Compose files for docker-host.nix stacks (meshmonitor)
       hosts/                    # one directory per host -- this listing IS the host list
         proxmox-vm-hardware.nix # shared hardware config for Proxmox VMs (a file, not a host)
         proxmox-template/       # minimal bootstrap config for the Proxmox template
         network-01/             # AdGuard primary, adguardhome-sync, network-inventory-manager
         network-03/             # AdGuard replica
-        pi-rack/                # Raspberry Pi 4: AdGuard replica + NUT server
+        pi-meshtastic/          # Raspberry Pi 4, USB SSD root: MeshMonitor + T-Echo bridge (Docker)
+        pi-rack/                # Compute Module 4: AdGuard replica + NUT server
         pi-turntable/           # Raspberry Pi 4, Wi-Fi only: OwnTone + needledrop for the turntable
       pkgs/                     # custom packages (adguardhome-sync, keepalived-exporter)
       docs/                     # raspberry-pi.md, proxmox-workflow.md
@@ -113,7 +114,7 @@ Three categories, all populated by `scripts/populate-secrets-from-op.sh`:
 
 | File | What | How it's used |
 |---|---|---|
-| `secrets.yaml` | Credentials — the services user's password hash, Tailscale auth key, Cloudflare token, AdGuard/NIM/beszel/Pushover/NUT passwords, needledrop's Last.fm credentials, pi-turntable's Wi-Fi password | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
+| `secrets.yaml` | Credentials — the services user's password hash, Tailscale auth key, Cloudflare token, AdGuard/NIM/beszel/Pushover/NUT passwords, needledrop's Last.fm credentials, pi-turntable's Wi-Fi password, MeshMonitor's session secret | sops-encrypted. Decrypted at boot by sops-nix to `/run/secrets/`. |
 | `vars.nix` | Infrastructure values (domain, subnet, VIP, email), pi-turntable's Wi-Fi SSID, and the Wi-Fi password its first-boot image needs (`docs/raspberry-pi.md`) | Plain Nix. Read at eval time via `specialArgs`. Committed with placeholders, overwritten locally by the populate script. |
 | `ssh-keys.nix` | SSH public keys | Plain Nix. Imported by `base.nix` and `proxmox-template`. Committed with real values (public keys aren't secret). |
 
@@ -136,7 +137,11 @@ services.docker-compose.immich = {
 };
 ```
 
-Default environment variables (`PUID`, `PGID`, `DOCKER_GID`, `TZ`, `DOMAIN_NAME`, `DOCKER_DATA_DIRECTORY`) are injected into every stack automatically.
+Default environment variables (`PUID`, `PGID`, `DOCKER_GID`, `TZ`, `DOMAIN_NAME`, `DOCKER_DATA_DIRECTORY`, `HOSTNAME`) are injected into every stack automatically. `DOMAIN_NAME` is `services.docker-compose-defaults.domainName`, which is empty unless the host sets it.
+
+pi-meshtastic is the module's one host: its `meshmonitor` stack (`compose/docker-compose-meshmonitor.yaml`), plus the Diun stack every importing host gets.
+
+Images float on their tags. A deploy restarts a stack when its compose file, config files or unit change, and `docker compose up` pulls only missing images, so a deploy never updates an image, and a NixOS rollback never reverts one. Diun checks daily at 02:00 and sends a Pushover when an image changes.
 
 Compose files are referenced from the Ansible roles where possible (no duplication):
 
@@ -198,13 +203,14 @@ nix/scripts/deploy-host.sh network-03
 nix/scripts/deploy-host.sh --reboot network-03
 ```
 
-After activation succeeds, `--reboot` compares `/run/booted-system` to `/nix/var/nix/profiles/system`. If they differ, the host is rebooted and the script waits for SSH to come back.
+After activation succeeds, `--reboot` compares the booted system's kernel, initrd and kernel modules with the current system's. If they differ, it reboots the host, waits for it to go down and come back, and checks that it booted the deployed kernel.
 
 ### Deploy all hosts
 
 ```sh
 nix/scripts/deploy-host.sh network-01
 nix/scripts/deploy-host.sh network-03
+nix/scripts/deploy-host.sh pi-meshtastic
 nix/scripts/deploy-host.sh pi-rack
 nix/scripts/deploy-host.sh pi-turntable
 ```
@@ -212,6 +218,9 @@ nix/scripts/deploy-host.sh pi-turntable
 pi-turntable's OwnTone has no binary cache (`modules/owntone.nix` builds it against libevent 2.2),
 so whenever its inputs change the Pi compiles libevent and OwnTone, and that deploy takes about 12
 minutes.
+
+A deploy doesn't update pi-meshtastic's MeshMonitor or its serial bridge: both are upstream images on
+`latest`. Diun reports a new image, and `sudo dcup` on the host takes it (see "Docker Compose").
 
 ### How it works
 
@@ -250,6 +259,11 @@ nix/scripts/add-host.sh --proxmox --tailscale --target root@<ip> <hostname>
 nix/scripts/nix-shell.sh flake check
 nix/scripts/deploy-host.sh <hostname>
 ```
+
+   `deploy-host.sh` connects to `<hostname>.<domain_name>` from inside the nix container, where a
+   host-key prompt can't be answered. Before the first deploy, give the host an ssh config entry
+   whose `HostName` is that full name, and accept its key with `ssh <hostname>`. A key accepted
+   under a bare name fails the deploy with "Host key verification failed".
 
 **If `add-host.sh` fails partway** — most likely `populate-secrets-from-op.sh` without 1Password auth
 — it prints what to clean up. The host directory and the `.sops.yaml` edit both survive the failure,
@@ -294,6 +308,7 @@ Then deploy to each host:
 ```sh
 nix/scripts/deploy-host.sh network-01
 nix/scripts/deploy-host.sh network-03
+nix/scripts/deploy-host.sh pi-meshtastic
 nix/scripts/deploy-host.sh pi-rack
 nix/scripts/deploy-host.sh pi-turntable
 ```

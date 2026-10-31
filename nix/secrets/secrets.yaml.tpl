@@ -42,3 +42,7 @@ needledrop-lastfm-password-hash: {{ op://Personal/7w3ror76qjfgbk4wgebwt2neka/add
 # scalar, so YAML never parses the password. Referenced by ID: the name form contains the SSID.
 pi-turntable-wifi: |
   wifi_psk={{ op://Private/gwck4n2ntjc7bpw5whlsemqdxa/5E8E08B4D29E46F792206B1C83ACDE04/password }}
+
+# MeshMonitor (pi-meshtastic): its EnvironmentFile. A block scalar, so YAML never parses the value.
+meshmonitor-env: |
+  SESSION_SECRET={{ op://Personal/meshmonitor/config/session secret }}

@@ -1,0 +1,73 @@
+# MeshMonitor and the T-Echo's serial bridge on pi-meshtastic, run by docker-host.nix
+# (services.docker-compose.meshmonitor in hosts/pi-meshtastic). Upstream's Raspberry Pi compose
+# file (docker-compose.rpi.yml @v4.17.1), with these changes:
+# - the UI is published on localhost only, for nginx on the host
+# - the virtual node is published for phone apps
+# - the T-Echo's device path comes from the host file (TECHO_DEVICE)
+# - data lives in a host directory owned by the services user (PUID/PGID), not a named volume
+# - the settings for running behind an HTTPS proxy, from upstream's production compose file;
+#   COOKIE_SAMESITE stays at its default, lax, which is that file's value
+# - the container names, and a dsm.url label for the dashboard
+# docker-host.nix supplies TZ, PUID, PGID, DOMAIN_NAME and DOCKER_DATA_DIRECTORY; SESSION_SECRET
+# comes from the stack's sops env file.
+services:
+  serial-bridge:
+    image: ghcr.io/yeraze/meshtastic-serial-bridge:latest
+    container_name: meshtastic-serial-bridge
+    restart: unless-stopped
+    devices:
+      - ${TECHO_DEVICE}:/dev/ttyACM0
+    environment:
+      - SERIAL_DEVICE=/dev/ttyACM0
+      - BAUD_RATE=115200
+      - TCP_PORT=4403
+    # 4403 is not published: the bridge serves one client at a time, and that is MeshMonitor.
+    # Apps use MeshMonitor's virtual node instead.
+    tmpfs:
+      - /tmp:size=10M
+    logging:
+      driver: local
+      options:
+        max-size: "100k"
+        max-file: "2"
+
+  meshmonitor:
+    image: ghcr.io/yeraze/meshmonitor:latest
+    container_name: meshmonitor
+    restart: unless-stopped
+    depends_on:
+      - serial-bridge
+    ports:
+      # The UI, for nginx on the host only.
+      - "127.0.0.1:3001:3001"
+      # The virtual node, for phone apps; enable it on the source in the UI after the first start.
+      - "4404:4404"
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/meshmonitor:/data
+    tmpfs:
+      - /data/logs:size=10M
+      - /tmp:size=50M
+    environment:
+      - NODE_ENV=production
+      - TZ=${TZ}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      # Used on the first start to create the source; after that the source lives in the database.
+      - MESHTASTIC_NODE_IP=serial-bridge
+      - MESHTASTIC_NODE_PORT=4403
+      - ACCESS_LOG_ENABLED=false
+      # One trusted hop, nginx, so the client address is the X-Forwarded-For entry nginx adds.
+      # Upstream's production file says true, which takes the first entry, one the client can set.
+      - TRUST_PROXY=1
+      - COOKIE_SECURE=true
+      - ALLOWED_ORIGINS=https://meshmonitor.${DOMAIN_NAME}
+      - SESSION_SECRET=${SESSION_SECRET}
+    labels:
+      # The dashboard entry, through the Docker DSM provider docker-host.nix configures. NIM also
+      # turns it into the meshmonitor DNS rewrite.
+      - dsm.url=https://meshmonitor.${DOMAIN_NAME}
+    logging:
+      driver: local
+      options:
+        max-size: "100k"
+        max-file: "2"

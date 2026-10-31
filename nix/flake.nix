@@ -147,6 +147,8 @@
     # password, which sops cannot supply before the host's age key is installed.
     packages.aarch64-linux.pi-turntable-image =
       mkPiImage "pi-turntable" [ ./hosts/pi-turntable/image-wifi.nix ];
+    # Written to a SATA drive through a USB adapter; booted with no SD card in the slot.
+    packages.aarch64-linux.pi-meshtastic-image = mkPiImage "pi-meshtastic" [ ];
 
     # checks = builtins.mapAttrs (system: deployLib: deployLib.deployChecks self.deploy) deploy-rs.lib;
   };

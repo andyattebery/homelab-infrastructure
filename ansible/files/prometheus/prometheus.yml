@@ -17,6 +17,7 @@ scrape_configs:
       - pi-rack.{{ domain_name }}:9100
       - pi-camera.{{ domain_name }}:9100
       - pi-turntable.{{ domain_name }}:9100
+      - pi-meshtastic.{{ domain_name }}:9100
       - pikvm.{{ domain_name }}:9100
       - pikvm-hid.{{ domain_name }}:9100
       - jetson-01.{{ domain_name }}:9100
