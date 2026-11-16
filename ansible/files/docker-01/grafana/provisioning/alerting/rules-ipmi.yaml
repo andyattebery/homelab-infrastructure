@@ -40,17 +40,23 @@ groups:
             A fan or PSU sensor on {{ $labels.instance }} has reached Critical state.
             Check the IPMI dashboard or run `ipmitool sensor` on the host for details.
             A failed fan risks thermal throttle; a failed PSU risks unclean shutdown.
-      # Metrics come from textfile_collector_asrock_ipmi_cert, which probes what the BMC actually
-      # serves.
+      # Certificates of the BMCs, from the bmc-cert job in prometheus.yml: blackbox-exporter's TLS
+      # probe of what each BMC actually serves, so this stays honest when the certbot container that
+      # installs it is broken or gone. It replaced textfile_collector_asrock_ipmi_cert's alert, so
+      # both BMCs are watched the same way.
       #
-      # These are filtering comparisons, so a healthy BMC returns NO samples — same shape as the
-      # rule above, and why noDataState must be OK. A previous version set it to Alerting, meaning
-      # to catch a collector that had stopped reporting; that made the healthy state
-      # indistinguishable from the dead-collector state and the rule fired continuously while
-      # everything was fine. `absent()` is how you actually catch a missing series: it returns a
-      # sample only when its argument returns none, so it fires as a real value rather than by
-      # reinterpreting NoData.
-      - uid: asrock-ipmi-cert-expiring
+      # Each arm is a filtering comparison, so a healthy BMC returns NO samples, and noDataState must
+      # be OK. A previous version set it to Alerting to catch a collector that had stopped reporting;
+      # that made the healthy state look the same as the dead one, and the rule fired continuously.
+      # Missing data is caught by real series instead:
+      # - `up == 0`: one target's scrape failed, for instance a BMC slower than the 20s scrape
+      #   timeout. That target's probe_success goes stale rather than 0, and absent() stays false
+      #   while the other BMC reports.
+      # - `absent(up{...})`: the job is gone from prometheus.yml.
+      #
+      # It checks expiry only, not that the BMC serves the right certificate. A valid self-signed one
+      # looks healthy here; each certbot container's serial comparison is what catches that.
+      - uid: bmc-cert-expiring
         title: BMC certificate expiring or unreachable
         condition: A
         data:
@@ -63,35 +69,32 @@ groups:
               datasource:
                 type: prometheus
                 uid: fe8ew4zkvbf28a
-              expr: asrock_ipmi_cert_probe_success == 0 or (asrock_ipmi_cert_not_after_seconds - time()) < 14 * 86400 or absent(asrock_ipmi_cert_probe_success)
+              expr: probe_success{job="bmc-cert"} == 0 or up{job="bmc-cert"} == 0 or (probe_ssl_earliest_cert_expiry{job="bmc-cert"} - time()) < 14 * 86400 or absent(up{job="bmc-cert"})
               instant: true
               refId: A
-        # Must exceed the collector's interval (3600s), so one bad sample can never fire on its
-        # own — a sample persists for a whole hour. Observed for real: installing a certificate
-        # bounces the BMC web service, and the probe that landed mid-rotation wrote a 0. Without
-        # this, every successful rotation would page. Nothing is lost by waiting: the expiry arm
-        # has 14 days of headroom.
+        # Must exceed the job's 4m scrape interval, so one bad sample can never fire on its own.
+        # Installing a certificate bounces the BMC's web service, so a probe that lands mid-rotation
+        # fails legitimately; that was observed on the ASRock BMC's first deploy. Nothing is lost by
+        # waiting: the expiry arm has 14 days of headroom, and certbot renews with 30 left.
         for: 2h
         noDataState: OK
         execErrState: Alerting
         isPaused: false
         labels:
           severity: warning
-          component: ipmi
+          component: bmc
         annotations:
-          summary: 'BMC certificate problem on {{ $labels.host }}'
+          summary: 'BMC certificate problem on {{ $labels.instance }}'
           description: |
-            One of three things: the TLS probe of the BMC failed, the certificate it serves expires
-            within 14 days, or the metric has stopped arriving altogether. An empty host label above
-            means the third — the collector is not reporting, so check
-            `systemctl status textfile_collector_asrock-ipmi-cert.timer` on docker-01 first.
+            One of four things: the TLS probe of the BMC failed, Prometheus could not scrape the
+            probe, the certificate the BMC serves expires within 14 days, or the bmc-cert job is gone
+            from prometheus.yml. An empty instance above means the last.
 
-            Otherwise the certbot container should reconcile this within 24 hours by itself; if it
-            is still firing after that, the upload is failing rather than the renewal. Check
-            `docker logs certbot-asrock-ipmi` on docker-01, then compare what the BMC serves against
-            the certificate on disk:
-              openssl s_client -connect {{ $labels.host }}:443 -servername {{ $labels.host }} \
-                </dev/null | openssl x509 -noout -dates -serial
+            Otherwise the certbot container should reconcile this within 24 hours by itself. If it is
+            still firing after that, the install is failing rather than the renewal. Check
+            `docker logs {{ $labels.certbot_container }}` on docker-01, then compare what the BMC
+            serves against the certificate on disk:
+              openssl s_client -connect {{ $labels.instance }} </dev/null | openssl x509 -noout -dates -serial
 
       # Added 2026-09-09 after nas-host-01 powered itself off for the third time (06-29, 08-28,
       # 09-09) with a CPU_THERMTRIP asserted at 34 C and every voltage rail flat.
@@ -171,3 +174,11 @@ groups:
             survives a power cut, and it holds about 3,600 entries. Save it before anything else
             if it is near full.
 
+# The rule this file used to provision for the ASRock BMC alone, replaced by bmc-cert-expiring above.
+# Leaving a rule out of a provisioning file does not delete it: Grafana's provisioner only acts on
+# what the files list (pkg/services/provisioning/alerting/rules_provisioner.go, read at v13.0.2), so
+# without this the old rule would stay, and its absent() arm would page once its collector was gone.
+# Deleting a uid that is already gone is a no-op, so this stays.
+deleteRules:
+  - orgId: 1
+    uid: asrock-ipmi-cert-expiring

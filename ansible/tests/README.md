@@ -122,6 +122,7 @@ tests/vdesktop/run.sh setup.yml repro.yml
 
 # pytest
 .venv/bin/pytest roles/docker_compose_certbot_asrock_ipmi/tests/ -q
+.venv/bin/pytest roles/docker_compose_certbot_turingpi_bmc/tests/ -q
 .venv/bin/pytest roles/pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/textfile_collector_pve_pci_mapping/tests/ -q
 .venv/bin/pytest roles/github_release_install/tests/ -q

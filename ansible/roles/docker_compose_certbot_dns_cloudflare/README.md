@@ -18,7 +18,8 @@ services on the host to read.
 
 | Name | Default | Notes |
 | --- | --- | --- |
-| `docker_compose_certbot_dns_cloudflare_container_name` | `certbot` | The **container** name, not the compose service name. Also what `service_name_to_restart` restarts, because `docker_compose/tasks/restart_container.yaml` runs `docker restart` with it. Give each stack a distinct value if a host ever runs more than one. |
+| `docker_compose_certbot_dns_cloudflare_container_name` | `certbot` | The **container** name, not the compose service name. Also what `service_name_to_restart` restarts, because `docker_compose/tasks/restart_container.yaml` runs `docker restart` with it. A host running more than one stack needs a distinct value for each. |
+| `docker_compose_certbot_dns_cloudflare_stack_name` | `certbot` | Names the compose service, the compose file (`docker-compose-<stack>.yaml`) and the data directory. A second stack on a host needs a distinct value: on the default it overwrites the first stack's compose file and entrypoint, and `up` replaces its container. Changing it on a deployed stack starts a new one with an empty data directory and leaves the old one running. |
 | `certbot_post_run_command` | unset | A shell command run after every `certbot renew`, inside the container. Unset means the loop only renews. See "Why post-run and not `--deploy-hook`". |
 
 ## Example
@@ -51,7 +52,7 @@ has no `set -e`, so a non-zero exit is ignored and the next cycle retries — th
 
 ## Where certificates land
 
-`{{ docker_compose_dst_data_directory_path }}/certbot/config/live/<domain_name>/`, mounted in the
+`{{ docker_compose_dst_data_directory_path }}/<stack_name>/config/live/<domain_name>/`, mounted in the
 container at `/certbot/config/live/<domain_name>/`. Consumers read them from the host path or by sharing
 the same volume — `docker_compose_adguardhome` does the latter.
 
@@ -67,9 +68,11 @@ the same volume — `docker_compose_adguardhome` does the latter.
   problem cannot be fixed by re-running Ansible alone.
 - **The image tag floats.** `amd64-latest` / `arm64v8-latest`, selected by architecture. Nothing
   pins a version.
-- **The compose service is always `certbot`,** whatever the container is called. `certbot_create_cert.sh`
-  addresses the service, `service_name_to_restart` addresses the container. They are not
-  interchangeable.
+- **The compose service and the container are named separately.** `certbot_create_cert.sh` addresses
+  the service, `service_name_to_restart` addresses the container. They are not interchangeable.
+- **Do not give a stack a top-level `name:`.** Every compose file on a host shares one project, and
+  `dc` merges them all, so one `name:` would rename everything. That is also why service names must
+  be unique per host.
 - **`renew_hook` persists in certbot's own state.** Once a `--deploy-hook` has run, certbot records
   it in `config/renewal/<domain_name>.conf` under `[renewalparams]`, where it survives removal of the
   command-line flag. Removing a hook means editing that file too.

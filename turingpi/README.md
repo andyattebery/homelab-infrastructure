@@ -14,6 +14,7 @@ One directory per kind of node holds what is specific to it: [rk1/](rk1/) for th
 | `nodes.md` | What is in each slot: module, host, IP, storage, add-in card and OS. |
 | `mise.toml` | `tpi` 1.0.7 and `TPI_HOSTNAME`, the BMC's IP. |
 | `scripts/flash-node.sh` | Writes an image to a node's eMMC through the BMC. Prints its usage with `-h`. |
+| `scripts/bmcd-restart-check.sh` | Compares every node's `boot_id` and power state across a restart of the BMC's daemon. Prints its usage with `-h`. |
 | `scripts/write-seed.sh` | Writes a cloud-init seed into the FAT partition of a copy of an `.img.xz`, recompressed, for the CM4 and RK1 scripts. Prints its usage with `-h`. |
 | `rk1/` | The RK1s: their cloud-init seed, the script that seeds and flashes the latest release, and its downloads (gitignored). |
 | `jetson/` | The Jetson Orin Nano: its cloud-init seed for the microSD card, its first QSPI flash, and its downloads (gitignored). |
@@ -46,6 +47,9 @@ node's cloud-init seed into it first, then runs this ([rk1/](rk1/)).
 ## Traps
 
 - **A BMC restart drops the cached login.** The next `tpi` call needs the login again (above).
+- **The BMC's certificate is managed.** Ansible's `docker_compose_certbot_turingpi_bmc` role replaces
+  `/etc/ssl/certs/bmcd_{cert,key}.pem` after each renewal and restarts `bmcd`, which drops that login
+  and kills a flash in progress. `tpi` itself accepts any certificate.
 - **tpi has no request timeout.** With the BMC unreachable, a flash hangs about 15 minutes before
   failing with `error sending request for url`. Check first: `nc -z -G 5 192.168.1.215 443`.
 - **`tpi uart get` is not a live stream.** Each call returns the BMC's whole buffer since the node

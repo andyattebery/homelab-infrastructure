@@ -1,9 +1,9 @@
 ---
 services:
-  certbot:
+  {{ docker_compose_certbot_dns_cloudflare_stack_name }}:
     image: certbot/dns-cloudflare:${CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG}
-    container_name: ${CERTBOT_CONTAINER_NAME}
+    container_name: {{ docker_compose_certbot_dns_cloudflare_container_name }}
     restart: unless-stopped
     volumes:
-      - ${DOCKER_DATA_DIRECTORY}/certbot:/certbot
+      - ${DOCKER_DATA_DIRECTORY}/{{ docker_compose_certbot_dns_cloudflare_stack_name }}:/certbot
     entrypoint: ["/certbot/certbot_renew_entrypoint.sh"]

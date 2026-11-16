@@ -42,12 +42,17 @@
         certbot_asrock_ipmi_cert_updater_username: "{{ nas_host_01_ipmi_username }}"
         certbot_asrock_ipmi_cert_updater_password: "{{ nas_host_01_ipmi_password }}"
       tags: certbot-asrock-ipmi
-    # Independent of the role above on purpose: it probes what the BMC serves, so it stays honest
-    # if that container stops running.
-    - role: textfile_collector_asrock_ipmi_cert
+    # textfile_collector_asrock_ipmi_cert was retired on 2026-11-15. The bmc-cert job in
+    # prometheus.yml probes both BMCs' certificates with blackbox-exporter, and rules-ipmi.yaml's
+    # bmc-cert-expiring alerts on both the same way. Its timer, unit files, script and .prom were
+    # removed from this host by one-time tasks, since deleted -- dropping the call alone would have
+    # left the timer running and node_exporter serving its last .prom.
+    - role: docker_compose_certbot_turingpi_bmc
       vars:
-        textfile_collector_asrock_ipmi_cert_host: "ipmi.nas-host-01.{{ domain_name }}"
-      tags: certbot-asrock-ipmi
+        certbot_turingpi_bmc_cert_updater_domain_name: "turingpi.{{ domain_name }}"
+        certbot_turingpi_bmc_cert_updater_username: "{{ turingpi_bmc_username }}"
+        certbot_turingpi_bmc_cert_updater_password: "{{ turingpi_bmc_password }}"
+      tags: certbot-turingpi-bmc
     - role: docker_compose_telegraf
     # - role: docker_compose_perplexica
     #   vars:

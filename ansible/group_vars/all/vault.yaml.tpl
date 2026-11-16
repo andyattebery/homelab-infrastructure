@@ -196,6 +196,8 @@ vault_timezone: {{ op://Personal/ansible all group vars/variables/timezone }}
 vault_pi_rack_nut_admin_password: {{ op://Home Lab/pi-rack/nut/admin password }}
 vault_pi_rack_nut_upsmon_password: {{ op://Home Lab/pi-rack/nut/upsmon password }}
 vault_pi_rack_nut_homeassistant_password: {{ op://Home Lab/pi-rack/nut/homeassistant password }}
+vault_turingpi_bmc_password: {{ op://Home Lab/turingpi/password }}
+vault_turingpi_bmc_username: {{ op://Home Lab/turingpi/username }}
 vault_ups_rack_snmp_address: {{ op://Home Lab/ups-rack/config/address }}
 vault_ups_rack_snmp_read_write_community: {{ op://Home Lab/ups-rack/snmp v1/read write community }}
 vault_vdesktop_01_mac_address: {{ op://Home Lab/vdesktop-01/hardware/mac address }}

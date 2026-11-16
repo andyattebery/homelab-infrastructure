@@ -1,0 +1,7 @@
+[DEFAULT]
+rhost = https://{{ certbot_turingpi_bmc_cert_updater_domain_name }}
+key-file = {{ certbot_turingpi_bmc_cert_updater_container_certificates_path }}/privkey.pem
+cert-file = {{ certbot_turingpi_bmc_cert_updater_container_certificates_path }}/fullchain.pem
+known-hosts-file = {{ certbot_turingpi_bmc_cert_updater_container_directory_path }}/known_hosts
+username = {{ certbot_turingpi_bmc_cert_updater_username }}
+password = {{ certbot_turingpi_bmc_cert_updater_password }}

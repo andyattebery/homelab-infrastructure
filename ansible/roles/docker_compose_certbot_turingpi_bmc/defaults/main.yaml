@@ -1,0 +1,4 @@
+---
+certbot_turingpi_bmc_container_name: certbot-turingpi-bmc
+certbot_turingpi_bmc_cert_updater_directory_path: "{{ docker_compose_dst_data_directory_path }}/{{ certbot_turingpi_bmc_container_name }}/turingpi-bmc-cert-updater"
+certbot_turingpi_bmc_cert_updater_container_directory_path: /certbot/turingpi-bmc-cert-updater

@@ -54,7 +54,8 @@ Exit codes: `0` in sync, `1` uploaded but never converged, `2` the BMC could not
 
 `2` deliberately does **not** upload. Installing a certificate soft-resets the BMC web service, so a
 permanently broken probe combined with a blind upload would bounce the BMC every night forever. The
-`textfile_collector_asrock_ipmi_cert` role covers the unreachable case with a Prometheus metric.
+unreachable case is covered outside this role: Prometheus's `bmc-cert` job probes what the BMC serves
+through blackbox-exporter, and Grafana's `bmc-cert-expiring` rule alerts on it.
 
 ## Why this replaced a `--deploy-hook`
 

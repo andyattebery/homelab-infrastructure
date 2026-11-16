@@ -40,6 +40,9 @@ nas_host_01_ipmi_username: "{{ vault_nas_host_01_ipmi_username }}"
 nas_host_01_ipmi_password: "{{ vault_nas_host_01_ipmi_password }}"
 nas_host_01_mac_address: "{{ vault_nas_host_01_mac_address }}"
 
+turingpi_bmc_username: "{{ vault_turingpi_bmc_username }}"
+turingpi_bmc_password: "{{ vault_turingpi_bmc_password }}"
+
 nas_01_tailscale_ip: "{{ vault_nas_01_tailscale_ip }}"
 
 # nas_02_ssh_private_key: "{{ vault_nas_02_ssh_private_key }}"

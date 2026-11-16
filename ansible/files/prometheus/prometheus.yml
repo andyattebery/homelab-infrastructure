@@ -122,6 +122,33 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
+# The certificate each BMC serves, probed by blackbox's tls_cert module, for rules-ipmi.yaml's
+# bmc-cert-expiring. 4m rather than the 15s default, which would be 5,760 TLS handshakes a day per
+# BMC; it stays under Prometheus's 5m lookback, so a series never looks absent between scrapes. The
+# 20s timeout leaves the module's 15s in charge. certbot_container names the container that installs
+# each certificate, which the alert's description points at.
+- job_name: bmc-cert
+  metrics_path: /probe
+  scrape_interval: 4m
+  scrape_timeout: 20s
+  params:
+    module: [tls_cert]
+  static_configs:
+  - targets:
+      - ipmi.nas-host-01.{{ domain_name }}:443
+    labels:
+      certbot_container: certbot-asrock-ipmi
+  - targets:
+      - turingpi.{{ domain_name }}:443
+    labels:
+      certbot_container: certbot-turingpi-bmc
+  relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
 - job_name: node-offsite
   scrape_interval: 5m
   scrape_timeout: 30s

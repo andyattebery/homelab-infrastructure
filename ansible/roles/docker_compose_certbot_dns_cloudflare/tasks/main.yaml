@@ -10,20 +10,20 @@
 - name: Initial docker compose setup
   vars:
     docker_compose_src_file_path: files/docker-compose-certbot.yaml
+    docker_compose_dst_file_name: "docker-compose-{{ docker_compose_certbot_dns_cloudflare_stack_name }}.yaml"
     docker_compose_envs:
       CERTBOT_DNS_CLOUDFLARE_IMAGE_TAG: "{{ certbot_dns_cloudflare_image_tag }}"
-      CERTBOT_CONTAINER_NAME: "{{ docker_compose_certbot_dns_cloudflare_container_name }}"
     docker_compose_src_config_files:
       - src_file_path: templates/cloudflare_credentials.ini.j2
-        dst_relative_file_path: certbot/cloudflare_credentials.ini
+        dst_relative_file_path: "{{ docker_compose_certbot_dns_cloudflare_stack_name }}/cloudflare_credentials.ini"
       - src_file_path: files/certbot_create_cert.sh
-        dst_relative_file_path: certbot/certbot_create_cert.sh
+        dst_relative_file_path: "{{ docker_compose_certbot_dns_cloudflare_stack_name }}/certbot_create_cert.sh"
         mode: "0755"
         run_command: true
-        command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_dns_cloudflare_domain_name }}"
+        command_arguments: "{{ docker_compose_dst_file_path }} {{ certbot_email }} /certbot/cloudflare_credentials.ini {{ docker_compose_certbot_dns_cloudflare_domain_name }} {{ docker_compose_certbot_dns_cloudflare_stack_name }}"
         changed_when: false # "'Certificate not yet due for renewal' not in run_config_file_result.stdout"
       - src_file_path: templates/certbot_renew_entrypoint.sh.j2
-        dst_relative_file_path: certbot/certbot_renew_entrypoint.sh
+        dst_relative_file_path: "{{ docker_compose_certbot_dns_cloudflare_stack_name }}/certbot_renew_entrypoint.sh"
         mode: "0755"
         # A container name, not a compose service name — restart_container.yaml runs
         # `docker restart` with this value.

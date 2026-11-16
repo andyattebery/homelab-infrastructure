@@ -1,4 +1,7 @@
-# Blackbox DNS probe for the AdGuard HA cluster.
+# Blackbox probes: DNS resolution for the AdGuard HA cluster (dns_probe_a), and the TLS certificate
+# each BMC serves (tls_cert).
+#
+# dns_probe_a:
 #
 # This exists because nothing else could see the 2026-08-21 outage, when AdGuard on the
 # VIP holder answered every query but resolved nothing for 36 minutes: the VIP had a master
@@ -31,3 +34,21 @@ modules:
         # on an empty answer section.
         fail_if_none_matches_regexp:
           - ".*"
+
+  # What a BMC actually serves, for the bmc-cert job in prometheus.yml. It measures the outcome
+  # rather than asking a certbot container whether it succeeded, so it stays honest when that
+  # container is broken or gone.
+  tls_cert:
+    prober: tcp
+    # The old ASRock collector's cap: a shorter one gave false failures on that slow BMC.
+    timeout: 15s
+    tcp:
+      tls: true
+      preferred_ip_protocol: ip4
+      ip_protocol_fallback: false
+      tls_config:
+        # Required: the Turing Pi's stock bmcd sends the leaf without its intermediate, so Go's
+        # verification fails on a healthy BMC. The expiry metric reads the peer certificates and
+        # does not need a verified chain. The cost is that a certificate for the wrong name looks
+        # healthy, as it did with the collector.
+        insecure_skip_verify: true

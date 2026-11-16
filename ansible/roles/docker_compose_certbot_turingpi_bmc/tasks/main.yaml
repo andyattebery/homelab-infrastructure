@@ -1,0 +1,26 @@
+---
+- name: Create {{ certbot_turingpi_bmc_cert_updater_directory_path }}
+  ansible.builtin.file:
+    path: "{{ certbot_turingpi_bmc_cert_updater_directory_path }}"
+    state: directory
+    mode: "0755"
+- name: Copy turingpi_bmc_cert_updater.py
+  ansible.builtin.copy:
+    src: turingpi_bmc_cert_updater.py
+    dest: "{{ certbot_turingpi_bmc_cert_updater_bin_path }}"
+    mode: "0755"
+- name: Copy turingpi_bmc_cert_updater.ini
+  ansible.builtin.template:
+    src: templates/turingpi_bmc_cert_updater.ini.j2
+    dest: "{{ certbot_turingpi_bmc_cert_updater_ini_path }}"
+    mode: "0600"
+# The certbot image has no ssh client, and stock firmware has no other way to write a file. A failed
+# apk skips the updater for this cycle, and the next cycle retries.
+- name: Initial docker compose setup
+  vars:
+    docker_compose_certbot_dns_cloudflare_domain_name: "{{ certbot_turingpi_bmc_cert_updater_domain_name }}"
+    docker_compose_certbot_dns_cloudflare_container_name: "{{ certbot_turingpi_bmc_container_name }}"
+    docker_compose_certbot_dns_cloudflare_stack_name: "{{ certbot_turingpi_bmc_container_name }}"
+    certbot_post_run_command: "apk add --quiet --no-cache openssh-client-default sshpass && python {{ certbot_turingpi_bmc_cert_updater_container_bin_path }} --config-file {{ certbot_turingpi_bmc_cert_updater_container_ini_path }}"
+  ansible.builtin.include_role:
+    name: docker_compose_certbot_dns_cloudflare
