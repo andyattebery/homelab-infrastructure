@@ -1,0 +1,27 @@
+# Rendered by docker_compose_haproxy for {{ haproxy_name }}.
+global
+    log stdout format raw local0
+
+resolvers docker
+    parse-resolv-conf
+
+defaults
+    mode http
+    log global
+    option httplog
+    option redispatch
+    timeout connect {{ haproxy_timeout_connect }}
+    timeout client {{ haproxy_timeout_client }}
+    timeout server {{ haproxy_timeout_server }}
+
+frontend {{ haproxy_name }}
+    bind :{{ haproxy_port }}
+    default_backend servers
+
+backend servers
+    balance {{ haproxy_balance }}
+    option httpchk GET {{ haproxy_health_check_path }}
+    default-server check resolvers docker init-addr last,libc,none
+{% for server in haproxy_servers %}
+    server {{ server.rsplit(':', 1)[0] }} {{ server }}
+{% endfor %}

@@ -11,12 +11,11 @@
 # Armbian's zram swap stays, at priority 5 (armbian-zram-config), so it fills before the swap
 # partition their host_vars ask for, which gets the kernel's negative default.
 #
-# No container runtime's directories yet. Docker vs k3s is undecided for the RK1s and the CM4,
-# and the role can't undo a bind. Add the chosen runtime's directories before installing it, so
-# it starts on the data disk:
-# - Docker: /var/lib/docker [docker.socket, docker.service] and /var/lib/containerd
-#   [docker.socket, docker.service, containerd.service];
-# - k3s: /var/lib/rancher/k3s and /var/lib/kubelet, plus /var/lib/longhorn with Longhorn.
+# Docker is the container runtime on every node (owner, 2026-11-14), so its directories are listed
+# here: the role can't undo a bind, and Docker has to start on the data disk. docker.service
+# requires docker.socket, and moving containerd's state stops docker too, which runs its containers
+# through containerd. A node without Docker yet gets the directories bound while still empty, so a
+# runtime installed later starts on the data disk.
 data_disk_offload_bind_dirs:
   - path: /var/log
     services:
@@ -27,6 +26,10 @@ data_disk_offload_bind_dirs:
       - auditd.service
   - path: /var/tmp
     services: []
+  - path: /var/lib/docker
+    services: [docker.socket, docker.service]
+  - path: /var/lib/containerd
+    services: [docker.socket, docker.service, containerd.service]
 
 # Where every node mounts its data disk: the role's default, set here so beszel_agent below can
 # name it.

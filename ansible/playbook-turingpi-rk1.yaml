@@ -1,0 +1,30 @@
+# The Turing RK1s' applications (turingpi/nodes.md): Immich's machine learning on each RK3588's NPU,
+# behind nas-01's HAProxy (playbook-nas-01.yaml). Why and the settings: research/media-01-ml-to-turing-pi/.
+#
+# Run playbook-turingpi.yaml on a node first. Its data_disk_offload binds /var/lib/docker and
+# /var/lib/containerd from the data disk's pool (group_vars/turingpi), and Docker must start there.
+# The pre-task stops a run that comes first.
+- name: Immich machine learning on the Turing RK1s
+  hosts: turingpi-rk1-01:turingpi-rk1-02
+  become: true
+  vars:
+    # The data disk's pool; the model cache lands at <pool>/immich/model_cache, as on media-01.
+    docker_compose_dst_data_directory_path: "{{ data_disk_offload_mount_path }}"
+  pre_tasks:
+    - name: Check that Docker's directories are bound from the data disk
+      ansible.builtin.command:
+        cmd: "findmnt --mountpoint {{ item }}"
+      loop:
+        - /var/lib/docker
+        - /var/lib/containerd
+      changed_when: false
+  roles:
+    - geerlingguy.docker
+    - role: docker_compose_immich
+      vars:
+        immich_only_machine_learning: true
+        immich_machine_learning_hwaccel: rknn
+        # main has no RK3588 build of the OCR model; without v2, OCR runs on the CPU.
+        immich_machine_learning_environment:
+          MACHINE_LEARNING_MODEL_REVISION: v2
+        immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"

@@ -137,7 +137,7 @@
     - role: docker_compose_immich
       vars:
         immich_only_machine_learning: true
-        immich_machine_learning_cuda: true
+        immich_machine_learning_hwaccel: cuda
         immich_machine_learning_model_cache_directory: "{{ (docker_compose_dst_data_directory_path, 'immich/model_cache') | path_join }}"
     # - role: docker_compose_obico
     #   vars:

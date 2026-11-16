@@ -1,11 +1,17 @@
 services:
   immich-machine-learning:
     container_name: immich-machine-learning
-    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION}-cuda
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION}-{{ immich_machine_learning_hwaccel }}
     volumes:
       - ${IMMICH_MACHINE_LEARNING_MODEL_CACHE_DIRECTORY}:/cache
     restart: unless-stopped
-{% if immich_machine_learning_cuda %}
+{% if immich_machine_learning_environment %}
+    environment:
+{% for name, value in immich_machine_learning_environment | dictsort %}
+      {{ name }}: {{ value | string | to_json }}
+{% endfor %}
+{% endif %}
+{% if immich_machine_learning_hwaccel == 'cuda' %}
     runtime: nvidia
     deploy:
       resources:
@@ -14,6 +20,13 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+{% elif immich_machine_learning_hwaccel == 'rknn' %}
+    # Upstream's rknn block, docker/hwaccel.ml.yml @v3.4.1.
+    security_opt:
+      - systempaths=unconfined
+      - apparmor=unconfined
+    devices:
+      - /dev/dri:/dev/dri
 {% endif %}
 {% if immich_only_machine_learning %}
     ports:

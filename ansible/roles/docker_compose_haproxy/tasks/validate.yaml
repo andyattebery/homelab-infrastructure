@@ -1,0 +1,14 @@
+---
+# The role's required inputs, checked before anything is deployed.
+- name: Check docker_compose_haproxy's inputs
+  ansible.builtin.assert:
+    that:
+      - haproxy_name | default('') is match('^[a-z0-9][a-z0-9-]*$')
+      - haproxy_port | default(0) | int > 1023
+      - haproxy_servers | default([]) | length > 0
+      - haproxy_networks | default([]) | length > 0
+    fail_msg: >-
+      docker_compose_haproxy needs haproxy_name (lower-case letters, digits and dashes),
+      haproxy_port above 1023 (the image runs unprivileged), and non-empty haproxy_servers
+      and haproxy_networks (README, Inputs).
+    quiet: true

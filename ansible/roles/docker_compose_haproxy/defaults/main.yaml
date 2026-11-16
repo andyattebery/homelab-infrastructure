@@ -1,0 +1,9 @@
+---
+# Required, with no default: haproxy_name, haproxy_port, haproxy_servers and haproxy_networks
+# (README.md, Inputs). tasks/validate.yaml checks them.
+haproxy_image: "docker.io/library/haproxy:3.4-alpine"
+haproxy_balance: roundrobin
+haproxy_health_check_path: /
+haproxy_timeout_connect: 5s
+haproxy_timeout_client: 1m
+haproxy_timeout_server: 1m

@@ -14,6 +14,13 @@
       IMMICH_DB_DATABASE_NAME: "{{ immich_db_database_name }}"
   ansible.builtin.include_role:
     name: docker_compose
+- name: Check immich_machine_learning_hwaccel
+  when: not immich_no_machine_learning
+  ansible.builtin.assert:
+    that: immich_machine_learning_hwaccel | default('') in ['cuda', 'rknn']
+    fail_msg: >-
+      immich_machine_learning_hwaccel must be cuda or rknn, the two backends this role configures
+      (README, Inputs); got '{{ immich_machine_learning_hwaccel | default('') }}'.
 - name: Configure immich-machine-learning docker compose
   when: not immich_no_machine_learning
   vars:

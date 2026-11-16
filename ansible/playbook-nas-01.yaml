@@ -216,6 +216,23 @@
         immich_machine_learning_host: "http://media-01.{{ domain_name }}:3003"
         immich_photos_directory: "/mnt/tank/immich/photos"
         immich_db_directory: "/mnt/tank/immich/db"
+    # Balances Immich's ML requests over the two Turing RK1s, which Immich itself never does: it only
+    # fails over between its ML URLs. Its URL in Immich: http://immich-machine-learning-lb:3003.
+    - role: docker_compose_haproxy
+      vars:
+        haproxy_name: immich-machine-learning-lb
+        haproxy_port: 3003
+        haproxy_networks: [immich]
+        haproxy_servers:
+          - "turingpi-rk1-01.{{ domain_name }}:3003"
+          - "turingpi-rk1-02.{{ domain_name }}:3003"
+        # Requests last seconds, so the less-busy node gets the next one.
+        haproxy_balance: leastconn
+        haproxy_health_check_path: /ping
+        # A node's first request downloads its models: about 12 GB for the RK3588 builds, 142 s
+        # measured on turingpi-rk1-02.
+        haproxy_timeout_client: 15m
+        haproxy_timeout_server: 15m
     # - role: docker_compose_manyfold
     # - role: docker_compose_nextcloud
     #   vars:

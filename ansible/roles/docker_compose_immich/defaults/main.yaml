@@ -4,4 +4,4 @@ immich_db_database_name: "immich"
 immich_machine_learning_host: "immich-machine-learning"
 immich_no_machine_learning: false
 immich_only_machine_learning: false
-immich_machine_learning_cuda: false
+immich_machine_learning_environment: {}

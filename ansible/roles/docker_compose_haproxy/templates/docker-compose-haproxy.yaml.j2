@@ -1,0 +1,19 @@
+---
+services:
+  {{ haproxy_name }}:
+    container_name: {{ haproxy_name }}
+    image: {{ haproxy_image }}
+    restart: unless-stopped
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/haproxy-{{ haproxy_name }}:/usr/local/etc/haproxy:ro
+    networks:
+{% for network in haproxy_networks %}
+      - {{ network }}
+{% endfor %}
+
+networks:
+{% for network in haproxy_networks %}
+  {{ network }}:
+    name: {{ network }}
+    external: true
+{% endfor %}

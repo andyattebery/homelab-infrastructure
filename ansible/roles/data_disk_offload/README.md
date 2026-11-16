@@ -98,7 +98,8 @@ input check refuses it.
 - with `become: true`;
 - tagged `data_disk_offload`, so a run can leave it out (`--skip-tags data_disk_offload`).
 
-The directories are group-wide, in `group_vars/turingpi`:
+The directories are group-wide, in `group_vars/turingpi`. Docker's two are there because Docker is
+every node's container runtime, and a node without Docker yet gets them bound empty:
 
 ```yaml
 data_disk_offload_bind_dirs:
@@ -111,13 +112,15 @@ data_disk_offload_bind_dirs:
       - auditd.service
   - path: /var/tmp
     services: []
+  - path: /var/lib/docker
+    services: [docker.socket, docker.service]
+  - path: /var/lib/containerd
+    services: [docker.socket, docker.service, containerd.service]
 ```
 
 Each node's host_vars set `data_disk_offload_device` and `data_disk_offload_swap_mib: 8192`; a node
-without the device fails at the input check. Two nodes' host_vars set more:
-- the Jetson's replace the list with one that adds `/var/lib/docker` and `/var/lib/containerd`;
-- the CM4's set `data_disk_offload_zfs_root_properties: {org.debian:periodic-trim: enable}`, since
-  its disk is SATA.
+without the device fails at the input check. The CM4's host_vars also set
+`data_disk_offload_zfs_root_properties: {org.debian:periodic-trim: enable}`, since its disk is SATA.
 
 A disk that still holds the role's old ext4 layout (one GPT partition named `data`, ext4) is refused
 at the pool check. `playbook-turingpi-data-disk-zfs-migration.yaml` wipes it once, on a node where
