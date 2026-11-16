@@ -48,3 +48,8 @@ onyx_llm_models:
 # roles/docker_compose_tdarr/defaults/main.yaml has this as []. Setting it in the playbook
 # again would silently win over this line.
 docker_compose_tdarr_hardlink_disks: "{{ storage_media_data_disks }}"
+
+# Strata's API key, for Hermes Agent and anything else that calls strata.<domain_name>. scripts/vault-populate-from-op.sh
+# fills it from 1Password into the encrypted vault.yaml next to this file. Letters and digits only: the role writes it
+# into the shared .env unquoted, and asserts the character set before anything is written.
+strata_api_key: "{{ vault_strata_api_key }}"

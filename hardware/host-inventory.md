@@ -116,8 +116,8 @@ Nine guests across the cluster: **seven running, two stopped templates**.
 | `vdesktop-01` | vm-host-01 | 120 | 4 | 8 GB | 64 GB (Ceph) | — | _(none)_ | Virtual desktop **experiment**. On vm-host-01 by decision (2026-09-08). |
 | `ubuntu-2404-cloudinit-template` | vm-host-01 | 1000 | 2 | 8 GB | 64 GB (Ceph) | Ubuntu 24.04 | — | Template, stopped. |
 | `nixos-2511-template` | vm-host-01 | 1001 | 2 | 4 GB | 64 GB (Ceph) | NixOS 25.11 | — | Template, stopped. |
-| `nas-01` | nas-host-01 | 200 | 14 | 48 GB **(88 GB staged)** | 128 + 32 + 64 GB on `pve-optane-01`, plus all passed-through storage | Ubuntu 22.04.5 | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services. Owns every bulk disk via HBA passthrough; runs the ZFS pools, snapraid/mergerfs, and syncoid to backup-01 and offsite-nas. |
-| `media-01` | nas-host-01 | 201 | 24 | 56 GB | 192 + 640 GB on `pve-optane-01` | Ubuntu 26.04.1 | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference. RTX A4000 + Intel Arc B580 passthrough; media servers, Tdarr **server and an A4000 node**, Immich ML, Whisper. |
+| `nas-01` | nas-host-01 | 200 | 14 | 32 GB | 128 + 32 + 64 GB on `pve-optane-01`, plus all passed-through storage | Ubuntu 22.04.5 | [playbook-nas-01.yaml](../ansible/playbook-nas-01.yaml) | NAS + heavy data services. Owns every bulk disk via HBA passthrough; runs the ZFS pools, snapraid/mergerfs, and syncoid to backup-01 and offsite-nas. |
+| `media-01` | nas-host-01 | 201 | 24 | 104 GB | 192 + 640 GB on `pve-optane-01` | Ubuntu 26.04.1 | [playbook-media-01.yaml](../ansible/playbook-media-01.yaml) | Media + AI inference. RTX A4000 + Intel Arc B580 passthrough. Media servers and the Tdarr server. **Strata** (Qwen3.8-Flash-Next, the LLM backend for Hermes Agent) holds the whole A4000; the card's other workloads (Tdarr A4000 node, Immich ML, Whisper, Obico ML, gpu-encoder-sweep, kohya_ss) are stopped. |
 | `network-03` | nas-host-01 | 203 | 2 | 4 GB | 64 GB (Ceph) | NixOS 26.05 | _(not Ansible-managed)_ [nix/hosts/network-03/](../nix/hosts/network-03/) | DNS tertiary. AdGuardHome (keepalived BACKUP, prio 100), Tailscale. |
 
 `docker-01`, `network-01`, `nas-01`, `media-01` and `network-03` each run `beszel-agent`
@@ -125,11 +125,8 @@ plus a node exporter — see [Monitoring coverage](#monitoring-coverage). `homea
 appliance OS and was not checked for either; `vdesktop-01` and the two templates were not
 checked.
 
-**nas-01's 88 GB is staged, not applied.** `/etc/pve/qemu-server/200.conf` carries a
-`[PENDING] memory: 90112`. It lands on the next stop/start. This is intended.
-
 **media-01 is temporarily wide.** 14 + 24 + 2 = **40 vCPU allocated against nas-host-01's 32
-threads**, and 108 GB of 192. The overcommit is deliberate and temporary — media-01 was widened
+threads**, and 140 GB of 192 (32 + 104 + 4). The overcommit is deliberate and temporary — media-01 was widened
 for a one-time job and will be narrowed again. media-01 also carries a `pre-26-04` snapshot from
 the Ubuntu 26.04 upgrade.
 

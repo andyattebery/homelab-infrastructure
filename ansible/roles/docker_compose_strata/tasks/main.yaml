@@ -1,0 +1,29 @@
+---
+# Checked before anything is written, so a missing or unsafe key never reaches the host. The key must be letters and
+# digits, 16 or more: the value is written unquoted into the host's shared .env (docker_compose's templates/env.j2),
+# where a space-preceded # starts a comment, and Strata warns about keys shorter than 16. If no key were given, Strata
+# would make its own on first start, and the only way to hand it to clients would be to read it back out of the
+# container.
+- name: Assert strata_api_key is set and safe for the shared .env
+  ansible.builtin.assert:
+    that:
+      - strata_api_key is defined
+      - strata_api_key is match('^[A-Za-z0-9]{16,}$')
+    fail_msg: "strata_api_key must be 16 or more letters and digits (its value is not printed)."
+    quiet: true
+
+- name: Deploy Strata with docker_compose
+  vars:
+    docker_compose_src_file_path: files/docker-compose-strata.yaml
+    docker_compose_envs:
+      STRATA_IMAGE_TAG: "{{ strata_image_tag }}"
+      STRATA_FAMILY: "{{ strata_family }}"
+      STRATA_MODEL: "{{ strata_model }}"
+      STRATA_CONTEXT: "{{ strata_context }}"
+      STRATA_PARALLEL: "{{ strata_parallel }}"
+      STRATA_VISION: "{{ strata_vision }}"
+      STRATA_TUNE: "{{ strata_tune }}"
+      STRATA_SET: "{{ strata_set }}"
+      STRATA_API_KEY: "{{ strata_api_key }}"
+  ansible.builtin.include_role:
+    name: docker_compose

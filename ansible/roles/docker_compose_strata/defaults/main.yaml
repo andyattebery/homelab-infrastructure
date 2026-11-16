@@ -1,0 +1,33 @@
+---
+# The published image's tag. `latest-<flavor>` follows Strata's releases. `cuda13` is the flavor for RTX 20-50 and the
+# matching RTX A / Quadro cards on NVIDIA driver 580 or newer (upstream docs/DOCKER.md, "Which image for which card").
+# Pin `<version>-cuda13` to take releases only when you choose. A flavor that does not match the card makes the container
+# exit 3 at start.
+strata_image_tag: latest-cuda13
+
+# FAMILY. `qwen` is the ISTA-DASLab original packs (upstream docs/MODELS.md, "Provider order").
+strata_family: qwen
+
+# MODEL: the size, for example IQ3_S. Empty means Strata picks one for the card and says which in its log. A different
+# value later is a new download into /data.
+strata_model: ""
+
+# CONTEXT: 32k, 64k, 128k, 256k or a number of tokens. Empty means "the largest that fits", which past the model's
+# trained 262,144 tokens is YaRN rope scaling, so set it.
+strata_context: ""
+
+# PARALLEL: requests answered at once, 1 to 8. Empty means fit to the card.
+strata_parallel: ""
+
+# VISION: off | on | gpu | cpu. Quoted, because a bare `off` is YAML 1.1 false.
+strata_vision: "off"
+
+# TUNE: skip | quick | thorough. `quick` runs once, for up to ~20 minutes, and is kept in the preset.
+strata_tune: skip
+
+# STRATA_SET: space-separated KEY=VALUE pairs, each passed as `strata launch --set KEY=VALUE`. A pair is either an engine
+# flag without its leading dashes (`ple-io=direct`) or a STRATA_* variable. An unknown name is a warning, not a refusal.
+# Never put " # " in the value: the shared .env is written unquoted.
+strata_set: ""
+
+# strata_api_key is required and has no default. See README.md.

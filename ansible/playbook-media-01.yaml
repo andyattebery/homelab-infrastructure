@@ -106,8 +106,10 @@
     # On this VM that would be an ARC larger than every container's peak combined, with no swap
     # to absorb the collision.
     #
-    # Sized against 48 GiB of RAM: container high-water marks sum to 26.4 GiB (cgroup v2
-    # memory.peak across 24 containers) plus ~1.5 GiB host overhead, leaving ~12 GiB free.
+    # Sized against 104 GiB of RAM (2026-11-15). Strata took 59 GiB once loaded (measured), and its conversation cache can
+    # add up to 8 GiB more. Everything else, the ARC included, peaked at 22.8 GiB, the lowest MemAvailable Prometheus
+    # held over ~15 days. That leaves ~14 GiB. cgroup memory.peak does not size anything here: it counts page cache, and
+    # Plex alone reached 45 GiB of it.
     - role: zfs_conf
       tags: zfs
       vars:
@@ -161,6 +163,23 @@
         wyoming_faster_whisper_extra_params: >-
           --compute-type int8_float16 --language en --beam-size 5 --vad-filter
       tags: whisper
+    # Strata, the model server behind Hermes Agent: Qwen3.8-Flash-Next IQ3_S at 128K context, at strata.<domain_name>
+    # through Traefik. The host choice, sizing and context length are argued in research/strata-host/README.md.
+    #
+    # It takes the whole A4000: ~5 GB for dense weights and buffers, ~1 GB for the MTP draft layer, and an expert cache in
+    # the rest. The card's other workloads are stopped while it runs, and nothing here reserves VRAM for them.
+    #
+    # RAM: 50.3 GB of experts page-locked, 1.55 GiB of KV at 128K and a conversation cache of up to 8 GiB. That measured
+    # 59 GiB once loaded, and can reach ~66 GB when the cache fills. The ARC note above has the VM's budget.
+    #
+    # ple-io=direct pins the 28.8 GB n-gram table on the SSD. Unpinned, setup moves it into RAM once MemTotal reaches
+    # ~107 GiB, and the engine has its own rule for the same. The image tag floats, so either rule can change in a release.
+    - role: docker_compose_strata
+      vars:
+        strata_model: IQ3_S
+        strata_context: 128k
+        strata_set: "ple-io=direct"
+      tags: strata
     # Retrieval layer in front of llama-swap on htpc-01. Lives here rather than
     # docker-01 for the A4000: a GPU turns on multipass indexing, which indexes at two
     # chunk granularities and is the retrieval-quality lever this deployment is about.

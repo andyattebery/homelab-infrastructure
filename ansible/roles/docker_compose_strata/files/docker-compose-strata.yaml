@@ -1,0 +1,49 @@
+---
+# Strata (github.com/Niko1221/Strata): a local LLM server with OpenAI- and Anthropic-compatible APIs. The run settings
+# follow upstream's docker/compose/docker-compose.nvidia.yml; README.md gives the reason for each.
+services:
+  strata:
+    container_name: strata
+    image: ghcr.io/niko1221/strata:${STRATA_IMAGE_TAG}
+    restart: unless-stopped
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # The image's entrypoint turns these into `strata launch` flags. An empty value means "not set".
+    environment:
+      FAMILY: ${STRATA_FAMILY}
+      MODEL: ${STRATA_MODEL}
+      CONTEXT: ${STRATA_CONTEXT}
+      PARALLEL: ${STRATA_PARALLEL}
+      VISION: ${STRATA_VISION}
+      TUNE: ${STRATA_TUNE}
+      STRATA_SET: ${STRATA_SET}
+      API_KEY: ${STRATA_API_KEY}
+    # The model files (tens of GB), presets, tuning results and the key file. Docker creates the source root-owned, which
+    # is right: the image sets no USER and runs as root.
+    volumes:
+      - ${DOCKER_DATA_DIRECTORY}/strata:/data
+    # The engine page-locks the experts it holds in RAM.
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+    shm_size: 2gb
+    # `docker stop` drains the server and unloads the model. Docker's default 10 s can kill a big one partway (exit 137).
+    stop_grace_period: 2m
+    # No mem_limit: upstream says not to set one, and the entrypoint warns when it sees one.
+    # No healthcheck here: the image ships one (an authenticated GET /v1/models, with a 2 h start period).
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      # The image exposes only 8080 today. Naming the port keeps the route working if it ever exposes more.
+      - traefik.http.services.strata.loadbalancer.server.port=8080
+
+networks:
+  traefik:
+    name: traefik
+    external: true
