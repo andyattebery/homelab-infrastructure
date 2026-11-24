@@ -179,6 +179,8 @@ services:
     hostname: docker-01
   dashy:
     hostname: docker-01
+  ges-hub:
+    hostname: nas-01
   home:
     hostname: docker-01
   homepage:
